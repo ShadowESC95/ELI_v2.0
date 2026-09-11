@@ -24,6 +24,17 @@ def test_install_sh_drm_pci_expands_in_outer_shell():
     assert 'bash -c \'readlink -f "$(dirname "$_drm")"' not in src
 
 
+def test_install_sh_pipeline_helpers_never_abort():
+    """Inner pipeline failures must not trip set -e mid-function."""
+    src = Path("install.sh").read_text(encoding="utf-8")
+    assert '"$@" || true' in src
+    assert "grep -iE \"intel\"" in src or "grep -iE 'intel'" in src
+    assert "fsspec==2026.2.0" in Path("requirements.txt").read_text(encoding="utf-8")
+    setup = Path("scripts/eli_setup.sh").read_text(encoding="utf-8")
+    assert "|| true" in setup
+    assert "requirements.lock.txt" in Path("scripts/install_eli.sh").read_text(encoding="utf-8")
+
+
 def test_gpu_pack_activate_relaxes_vulkan_igpu():
     import importlib.util
     import sys

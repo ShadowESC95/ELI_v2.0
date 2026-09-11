@@ -26,11 +26,17 @@ python -m pip install --upgrade pip setuptools wheel
 
 echo
 echo "=== Installing runtime requirements ==="
-if [ ! -f requirements.txt ]; then
-  echo "❌ Missing requirements.txt"
+REQ=""
+if [ -f requirements.lock.txt ]; then
+  REQ=requirements.lock.txt
+elif [ -f requirements.txt ]; then
+  REQ=requirements.txt
+else
+  echo "❌ Missing requirements.lock.txt / requirements.txt"
   exit 1
 fi
-python -m pip install -r requirements.txt
+echo "Using: $REQ"
+python -m pip install -r "$REQ"
 
 if [ -f requirements-learning.txt ]; then
   echo

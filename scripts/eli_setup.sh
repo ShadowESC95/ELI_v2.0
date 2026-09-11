@@ -181,8 +181,11 @@ fi
 
 if ! _install_complete; then
   echo "  Installing core environment (install.sh) — llama_cpp + runtime deps…"
-  bash "$ROOT/install.sh" --yes --auto-model \
-    || bash "$ROOT/install.sh" --yes --cpu-only --auto-model
+  # `A || B` with set -e exits the whole setup when B also fails — hide that so we
+  # can print the actionable message below (Jess@blue: dual banner then silent shell).
+  bash "$ROOT/install.sh" --yes --cpu-only --auto-model \
+    || bash "$ROOT/install.sh" --yes --auto-model \
+    || true
 fi
 
 if ! _install_complete; then

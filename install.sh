@@ -179,15 +179,19 @@ ok "Platform    ${B}${OS}${R} ($(uname -m 2>/dev/null || echo '?'))"
 # Pipelines with grep/awk — under `set -o pipefail` a no-match grep aborts the
 # whole install (seen on Intel iGPU laptops stuck at 5% / "Scanning hardware").
 # MUST be defined before first use below.
+# Inner command failures must NOT abort the installer (`set -e` would otherwise
+# exit the function before pipefail is restored — Jess@blue: dual banner, no Plan).
 _gpu_pipeline() {
     set +o pipefail
-    "$@"
+    "$@" || true
     set -o pipefail
+    return 0
 }
 _safe_pipeline() {
     set +o pipefail
-    "$@"
+    "$@" || true
     set -o pipefail
+    return 0
 }
 if [ "$OS" = "Darwin" ]; then
     _CPUS="$(sysctl -n hw.ncpu 2>/dev/null || echo '?')"
@@ -206,8 +210,10 @@ if command -v nvidia-smi &>/dev/null; then
     _NGPU="${_NGPU//$'\n'/}"
     _NGPU="${_NGPU:-0}"
     if [ "${_NGPU}" -ge 1 ] 2>/dev/null; then
-        _GPU0="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1)"
-        _VRAMTOT="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | awk '{s+=$1} END{printf "%d", s}')"
+        # Unwrapped nvidia-smi | head under pipefail aborts install when the
+        # driver returns an error (common on mixed iGPU laptops).
+        _GPU0="$(_gpu_pipeline bash -c 'nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true')"
+        _VRAMTOT="$(_gpu_pipeline bash -c 'nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | awk "{s+=\$1} END{printf \"%d\", s}" || true')"
         if [ "$_NGPU" -gt 1 ]; then
             ok "GPU         ${B}${GRN}${_NGPU}× ${_GPU0}${R}  (${_VRAMTOT} MiB total VRAM)   ${D}— scales to multi-GPU${R}"
         else
@@ -243,6 +249,10 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$OS" != "Darwin" ]; the
         fi
         [ -n "$_INTEL_NAME" ] && break
     done
+    # DRM walk can miss on some kernels; lspci is the reliable Iris Xe fallback.
+    if [ -z "$_INTEL_NAME" ] && command -v lspci &>/dev/null; then
+        _INTEL_NAME="$(_gpu_pipeline bash -c 'lspci 2>/dev/null | grep -iE "vga|display|3d" | grep -iE "intel" | head -1 | sed "s/^[^:]*: //" || true')"
+    fi
     if [ -n "$_INTEL_NAME" ]; then
         if echo "$_INTEL_NAME" | grep -qiE 'arc (a|pro|b)[0-9]'; then
             ok "GPU         ${B}${GRN}Intel Arc${R}  ${D}${_INTEL_NAME}${R}"
