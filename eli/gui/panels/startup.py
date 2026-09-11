@@ -684,7 +684,15 @@ class StartupModelSelectionDialog(QDialog):
                     _existing_batch = int(_env_b) if _env_b.isdigit() else max(0, _default_batch)
                     if _existing_batch > 128:
                         os.environ["ELI_TARGET_BATCH"] = "128"
-                        log.debug("[STARTUP_DIALOG][AUDIO_PRELOAD] Whisper on CUDA → capping batch to 128")
+                        try:
+                            self.target_batch_spin.setValue(128)
+                        except Exception:
+                            log.debug("[STARTUP_DIALOG] batch spin sync skipped", exc_info=True)
+                        log.info(
+                            "[STARTUP_DIALOG][AUDIO_PRELOAD] Whisper on CUDA → "
+                            "batch capped 128 (was %s) so STT co-residency fits VRAM",
+                            _existing_batch,
+                        )
                 from eli.core.hardware_profile import (
                     detect_hardware as _hp_detect,
                     discover_models as _hp_models,

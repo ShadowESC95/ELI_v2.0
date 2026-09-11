@@ -7230,12 +7230,8 @@ Answer:"""
                     _prompt_budget = max(200, min(len(prompt), _max_stream_chars // 4))
                     _sys_budget = max(200, _max_stream_chars - _prompt_budget)
                     if len(enhanced_system) > _sys_budget:
-                        _head = max(200, int(_sys_budget * 0.5))
-                        _tail = max(200, _sys_budget - _head)
-                        enhanced_system = (
-                            enhanced_system[:_head].rstrip()
-                            + "\n\n…[context trimmed to fit the model]…\n\n"
-                            + enhanced_system[-_tail:].lstrip()
+                        enhanced_system = self._trim_enhanced_system_for_stream(
+                            enhanced_system, _sys_budget
                         )
                     prompt = prompt[-_prompt_budget:]
                     log.debug(
@@ -10902,7 +10898,55 @@ Answer:"""
         return response.strip()
 
 
-    def _inject_anti_repeat_contract(self, user_input: str, situation_brief: str) -> str:
+    def _collect_recent_assistant_replies(
+        self,
+        *,
+        recent_turns: Optional[Any] = None,
+        limit_assistant: int = 3,
+        scan_turns: int = 24,
+    ) -> List[str]:
+        """Assistant replies from live session context first, then DB fallback."""
+        _prev_eli: List[str] = []
+        _sources: List[Any] = []
+        if recent_turns:
+            _sources.extend(list(recent_turns))
+        try:
+            _sources.extend(
+                self.memory.get_recent_conversation(
+                    limit=scan_turns,
+                    user_id=getattr(self, "user_id", None),
+                    session_id=getattr(self, "session_id", None),
+                ) or []
+            )
+        except TypeError:
+            try:
+                _sources.extend(self.memory.get_recent_conversation(limit=scan_turns) or [])
+            except Exception:
+                log.debug("[ANTI-REPEAT] recent conversation fetch failed", exc_info=True)
+        except Exception:
+            log.debug("[ANTI-REPEAT] recent conversation fetch failed", exc_info=True)
+
+        _seen: set[str] = set()
+        for _t in reversed(_sources):
+            if len(_prev_eli) >= limit_assistant:
+                break
+            if str((_t or {}).get("role", "")).lower() not in ("assistant", "eli"):
+                continue
+            _c = str((_t or {}).get("content", "") or "").strip()
+            if not _c or _c in _seen:
+                continue
+            _seen.add(_c)
+            _prev_eli.append(_c)
+        _prev_eli.reverse()
+        return _prev_eli
+
+    def _inject_anti_repeat_contract(
+        self,
+        user_input: str,
+        situation_brief: str,
+        *,
+        recent_turns: Optional[Any] = None,
+    ) -> str:
         """Prepend the anti-repeat contract to a persona handoff when ELI has spoken."""
         brief = str(situation_brief or "").strip()
         if _ANTI_REPEAT_BLOCK_RE.search(brief):
@@ -10911,12 +10955,7 @@ Answer:"""
             if _is_greeting_turn(user_input):
                 log.debug("[ANTI-REPEAT] greeting — contract not injected")
                 return brief
-            _prev_eli = []
-            for _t in (self.memory.get_recent_conversation(limit=8) or []):
-                if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
-                    _c = str((_t or {}).get("content", "") or "").strip()
-                    if _c:
-                        _prev_eli.append(_c)
+            _prev_eli = self._collect_recent_assistant_replies(recent_turns=recent_turns)
             if not _prev_eli:
                 return brief
             _quoted = "\n".join(f"  - {s[:220]}" for s in _prev_eli[:3])
@@ -10932,23 +10971,50 @@ Answer:"""
             log.debug("[ANTI-REPEAT] contract skipped", exc_info=True)
             return brief
 
-    def _redact_recent_eli_from_context(self, memory_context: str) -> str:
+    def _redact_recent_eli_from_context(
+        self,
+        memory_context: str,
+        *,
+        recent_turns: Optional[Any] = None,
+    ) -> str:
         """Strip ELI's own recent replies from retrieved memory before generation."""
         ctx = str(memory_context or "")
         if not ctx:
             return ctx
         try:
-            _prev_eli = []
-            for _t in (self.memory.get_recent_conversation(limit=8) or []):
-                if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
-                    _c = str((_t or {}).get("content", "") or "").strip()
-                    if _c:
-                        _prev_eli.append(_c)
+            _prev_eli = self._collect_recent_assistant_replies(recent_turns=recent_turns)
             if _prev_eli:
                 return _redact_prior_replies(ctx, _prev_eli)
         except Exception:
             log.debug("[ANTI-REPEAT] memory redact skipped", exc_info=True)
         return ctx
+
+    def _trim_enhanced_system_for_stream(self, enhanced_system: str, max_chars: int) -> str:
+        """Trim retrieved history first; keep SITUATION BRIEF + anti-repeat intact."""
+        text = str(enhanced_system or "")
+        if len(text) <= max_chars:
+            return text
+        _hist_start = "--- CONVERSATION HISTORY"
+        _hist_end = "--- END HISTORY ---"
+        if _hist_start in text and _hist_end in text:
+            pre, rest = text.split(_hist_start, 1)
+            hist_body, post = rest.split(_hist_end, 1)
+            _hist_budget = max(200, max_chars - len(pre) - len(post) - len(_hist_start) - len(_hist_end) - 8)
+            if _hist_budget < len(hist_body):
+                hist_body = hist_body[: _hist_budget - 40].rstrip() + "\n…[older history trimmed]…"
+            trimmed = pre + _hist_start + hist_body + _hist_end + post
+            if len(trimmed) <= max_chars:
+                return trimmed
+            text = trimmed
+        if len(text) > max_chars:
+            _head = max(400, int(max_chars * 0.65))
+            _tail = max(200, max_chars - _head - 48)
+            text = (
+                text[:_head].rstrip()
+                + "\n\n…[context trimmed to fit the model]…\n\n"
+                + text[-_tail:].lstrip()
+            )
+        return text
 
     def _yield_with_anti_repeat_guard(
         self,
@@ -11143,8 +11209,12 @@ Answer:"""
                 log.debug(f"[COGNITIVE] generate_stream_from_assembled_prompt handoff failed: {e}")
                 situation_brief = ""
 
-        situation_brief = self._inject_anti_repeat_contract(prompt, situation_brief)
-        memory_context = self._redact_recent_eli_from_context(memory_context)
+        situation_brief = self._inject_anti_repeat_contract(
+            prompt, situation_brief, recent_turns=recent_turns
+        )
+        memory_context = self._redact_recent_eli_from_context(
+            memory_context, recent_turns=recent_turns
+        )
         try:
             if working_memory is not None:
                 working_memory.persona_handoff = situation_brief
@@ -14970,7 +15040,9 @@ Answer:"""
             else:
                 situation_brief = semantic_guard
 
-        situation_brief = self._inject_anti_repeat_contract(user_input, situation_brief)
+        situation_brief = self._inject_anti_repeat_contract(
+            user_input, situation_brief, recent_turns=context
+        )
 
         # Do not promote raw memory_context into situation_brief.
         # Raw context is private evidence, not answer text.
@@ -15492,7 +15564,7 @@ Answer:"""
         # --- Periodic working memory persistence (every 10 turns) ---
         try:
             self._wm_turn_counter = getattr(self, "_wm_turn_counter", 0) + 1
-            if self._working_memory and self._wm_turn_counter % 10 == 0:
+            if self._working_memory and self._wm_turn_counter % 3 == 0:
                 _wm_db = str(getattr(self.memory, "db_path", "") or "")
                 if _wm_db:
                     self._working_memory.persist(_wm_db)

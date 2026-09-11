@@ -522,6 +522,19 @@ def escalate(
         return _result(_hedge("local", _online), grounded=False,
                        mode=_canon_mode(reasoning_mode), trace=trace)
 
+    # Ongoing session narrative (device, travel plans, corrections) — answer from
+    # live session thread + memory, not hedge/web tiers.
+    _low_sess = str(user_input or "").lower()
+    if re.search(
+        r"\b(i am|i'm|we are|right now|at the moment|this session|beside me|"
+        r"talking to you on|on (the|my) (pc|laptop|phone|machine)|not the laptop|"
+        r"you are getting|mixed up|repetitive|not listening|you got|correct there|"
+        r"i live in|he lives in|driving from|collect him|bring him)\b",
+        _low_sess,
+    ):
+        log.debug("[ESCALATION] session-continuity turn — skip factual hedge ladder")
+        return None
+
     is_fact, domain = classify_factual(user_input)
     web_candidate = classify_web_candidate(user_input)
 

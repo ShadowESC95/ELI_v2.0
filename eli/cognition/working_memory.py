@@ -192,6 +192,20 @@ class WorkingMemory:
                     full = f"User identity: {m.group(0).strip()}"
                     self.pin(full, source="identity_extract", importance=0.85)
 
+        # Session/device/plan corrections — pin immediately so ELI does not
+        # confuse this machine with prior sessions (laptop vs PC, travel, etc.).
+        if re.search(
+            r"\b(on (the|my) (pc|laptop|phone|machine)|not the laptop|beside me|"
+            r"talking to you on|i live in|he lives in|driving from|collect him|"
+            r"bring him back|mixed up|not listening|you got.*wrong)\b",
+            low,
+        ):
+            snippet = str(user_input or "").strip()
+            if len(snippet) > 280:
+                snippet = snippet[:277].rstrip() + "..."
+            if len(snippet) >= 12:
+                self.pin(snippet, source="session_context", importance=0.93)
+
     def context_block(self) -> str:
         """
         Return a compact string block for injection into the system prompt.

@@ -10256,6 +10256,12 @@ class EliMainWindow(QMainWindow):
             except Exception as _save_err:
                 self._hardware_tuning_log(f"Warning: hw_profile save failed: {_save_err}")
 
+            try:
+                from eli.core.hardware_profile import apply_recommendation as _hp_apply
+                _hp_apply(rec)
+            except Exception as _json_err:
+                log.debug("[SETTINGS] runtime_hardware_profile.json sync failed", exc_info=True)
+
             result.update({"ok": True, "recommendation": rec.to_dict() if hasattr(rec, "to_dict") else {}})
             return result
         except Exception as e:

@@ -1011,8 +1011,9 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     # model + throttled to 30 min inside refresh_insight) so the reflection
                     # + proactive agents surface real synthesis with zero per-turn latency.
                     try:
-                        from eli.planning.insight_synthesis import refresh_insight
-                        refresh_insight(self.user_mem)
+                        if not _foreground_busy():
+                            from eli.planning.insight_synthesis import refresh_insight
+                            refresh_insight(self.user_mem)
                     except Exception:
                         _SWLOG.debug("suppressed exception", exc_info=True)
 
@@ -1261,11 +1262,19 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                         _news_net_ok = _net_ok()
                     except Exception:
                         _SWLOG.debug("suppressed exception", exc_info=True)
-                    if _news_net_ok and time.time() - last_news_fetch > 10800:  # 3 hours
+                    if (
+                        _news_net_ok
+                        and not _foreground_busy()
+                        and time.time() - last_news_fetch > 10800
+                    ):  # 3 hours
                         try:
                             from eli.tools.news.news_fetcher import fetch_news as _fetch_news
                             _nr = _fetch_news(sources=["hn", "reddit"])
                             stored_new = int(_nr.get("stored_new", 0) or 0)
+
+                            if _foreground_busy():
+                                log.debug("[PROACTIVE] news synthesis deferred — user turn active")
+                                raise RuntimeError("foreground busy")
 
                             from eli.tools.news.news_synthesis import synthesise_window
                             # Flag background (save/restore) — capped, preemptible, deferred under
@@ -1302,7 +1311,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     try:
                         from eli.cognition import emotion_timeline as _et
                         _ea = _et.assess()
-                        if _ea.get("should_checkin"):
+                        if _ea.get("should_checkin") and not _foreground_busy():
                             _facts = [f"They have read as {_ea['dominant']} across the last "
                                       f"{_ea['run_length']} exchanges."]
                             if _ea.get("unusual"):

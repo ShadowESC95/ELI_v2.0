@@ -1958,7 +1958,12 @@ def recommend(hw: Optional[HardwareProfile] = None,
     # means the recommendation is a prediction of the load rather than a second
     # opinion about it.
     import os as _os_fit
-    _fit_batch_in = max(128, int(_os_fit.environ.get("ELI_MIN_BATCH", "128") or "128"))
+    _env_target_batch = int(_os_fit.environ.get("ELI_TARGET_BATCH", "0") or "0")
+    _fit_batch_in = (
+        _env_target_batch
+        if _env_target_batch > 0
+        else max(128, int(_os_fit.environ.get("ELI_MIN_BATCH", "128") or "128"))
+    )
     _igpu_min_batch = 32 if hw.gpu_integrated else 128
     if hw.gpu_integrated:
         _fit_batch_in = min(_fit_batch_in, _igpu_min_batch)
