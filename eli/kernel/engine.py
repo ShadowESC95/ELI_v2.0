@@ -10942,7 +10942,7 @@ Answer:"""
                 from eli.cognition.model_output_tokens import strip_special_tokens as _scrub_hist
                 _c = (_scrub_hist(_c) or "").strip()
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             if not _c or _c in _seen:
                 continue
             _seen.add(_c)

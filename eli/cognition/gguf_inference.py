@@ -870,7 +870,7 @@ def load_model(force_reload: bool = False):
                 cpu_bound=not _nteugl(_hw_nt),
             )
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         n_threads = _as_int(_runtime_value(settings, "cpu_threads", "n_threads"), _nt_default)
 
     # Size the text model DYNAMICALLY to live free VRAM (GPU) or available RAM
