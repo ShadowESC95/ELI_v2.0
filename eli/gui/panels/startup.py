@@ -71,11 +71,24 @@ class _GpuPackInstallThread(QThread):
         try:
             gp = _import_eli_gpu_pack()
             rc = int(gp.install(self._argv) or 0)
+            msg = ""
             if rc == 0:
                 dest = gp._eli_root() / "runtime" / "gpu"
                 if not gp.activate_gpu_pack_runtime(dest, verify=True):
-                    rc = 2
-            msg = gp.last_failure() if rc != 0 else "GPU pack installed."
+                    # Pack is on disk and verified by install — activation can
+                    # need a process restart (AppImage already bound CPU llama).
+                    # Do NOT surface a stale last_failure() like "no Vulkan wheel".
+                    msg = (
+                        "GPU pack installed. Restart ELI once so this process "
+                        "can load the Vulkan/CUDA runtime (offload was not "
+                        "active in this session yet)."
+                    )
+                    # Soft success — files are good; user must relaunch.
+                    rc = 0
+                else:
+                    msg = "GPU pack installed."
+            else:
+                msg = gp.last_failure() or "GPU pack install failed."
             self.finished_result.emit(rc, str(msg or ""))
         except Exception as exc:
             self.finished_result.emit(1, str(exc))
@@ -989,16 +1002,25 @@ class StartupModelSelectionDialog(QDialog):
 
     def _on_gpu_pack_install_done(self, rc: int, message: str) -> None:
         if rc == 0:
+            soft = "restart" in str(message or "").lower()
             self.gpu_pack_status_label.setText(
-                "GPU pack active — Vulkan/CUDA offload enabled for this session.")
-            try:
-                from eli.core.runtime_settings import update_settings as _rs_gp
-                _rs_gp(compute_mode="gpu")
-                _gpu_idx = self.compute_mode_combo.findData("gpu")
-                if _gpu_idx >= 0:
-                    self.compute_mode_combo.setCurrentIndex(_gpu_idx)
-            except Exception:
-                log.debug("compute_mode gpu persist failed", exc_info=True)
+                message if soft else
+                "GPU pack active — Vulkan/CUDA offload enabled for this session."
+            )
+            if soft:
+                QMessageBox.information(
+                    self, "GPU pack installed",
+                    f"{message}\n\nELI will use CPU until you relaunch.",
+                )
+            else:
+                try:
+                    from eli.core.runtime_settings import update_settings as _rs_gp
+                    _rs_gp(compute_mode="gpu")
+                    _gpu_idx = self.compute_mode_combo.findData("gpu")
+                    if _gpu_idx >= 0:
+                        self.compute_mode_combo.setCurrentIndex(_gpu_idx)
+                except Exception:
+                    log.debug("compute_mode gpu persist failed", exc_info=True)
             self._refresh_hw_summary()
         else:
             self.gpu_pack_status_label.setText(f"GPU pack install failed: {message}")

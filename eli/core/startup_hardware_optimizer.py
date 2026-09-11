@@ -399,7 +399,8 @@ def train_ctx_for_model(model_path: str) -> int:
     """Return the model's native training context length.
 
     Order: ELI_MODEL_TRAIN_CTX env override → real GGUF metadata (authoritative) →
-    filename-pattern fallback (only when metadata is unreadable).
+    conservative default when metadata is unreadable. No brand/filename table —
+    redistributed GGUFs must not depend on marketing names in the path.
     """
     forced = os.environ.get("ELI_MODEL_TRAIN_CTX", "").strip()
     if forced:
@@ -413,29 +414,8 @@ def train_ctx_for_model(model_path: str) -> int:
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
-    name = Path(model_path).name.lower()
-
-    # ---- 128 K class ----
-    if "deepseek" in name:                                    return 131072
-    if "mistral-small-3.1" in name or "mistral-small" in name: return 131072
-    if "llama-3.1" in name or "llama-3.2" in name:           return 131072
-    if "phi-3" in name or "phi-4" in name:                   return 131072
-    if "gemma-2" in name or "gemma2" in name:                return 131072
-    if "falcon3" in name or "falcon-3" in name:              return 131072
-
-    # ---- 32 K class ----
-    if "qwen2.5" in name or "qwen2-5" in name:               return 32768
-    if "qwen3" in name:                                       return 32768
-    if "qwen2" in name:                                       return 32768
-    if "mistral-7b" in name:                                  return 32768
-
-    # ---- smaller / older ----
-    if "llama-3" in name or "llama3" in name:                return 8192
-    if "phi-2" in name:                                       return 4096
-    if "tinyllama" in name:                                   return 2048
-    if "gemma" in name:                                       return 8192
-
-    return 32768
+    # Metadata missing/unreadable — do not invent a brand-based window.
+    return 8192
 
 
 def estimate_layers(model_gb: float, model_path: str = "") -> int:
@@ -846,7 +826,13 @@ def build_profile() -> HardwareProfile:
 
     ram = detect_ram_gb()
     cpu_threads = os.cpu_count() or 4
-    n_threads = max(2, cpu_threads - 2)
+    try:
+        from eli.core.hardware_profile import recommend_cpu_threads as _rct
+        _cpu_bound = gpu is None or float(getattr(gpu, "free_mb", 0) or 0) <= 0
+        n_threads = _rct(cpu_threads, cpu_bound=_cpu_bound)
+    except Exception:
+        n_threads = max(1, int(cpu_threads) - (1 if (gpu is None) else 2))
+        n_threads = max(2, n_threads) if int(cpu_threads) > 2 else max(1, n_threads)
 
     # Pass user settings so allocate() can honour them first.
     n_ctx, gpu_layers, batch, max_tokens, ctx_fraction, notes = allocate(

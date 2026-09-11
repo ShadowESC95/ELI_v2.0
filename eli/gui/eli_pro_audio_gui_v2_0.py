@@ -613,18 +613,39 @@ def discover_gguf_models(base_dirs: Optional[List[Path]] = None) -> List[Dict[st
                     size_gb = 0.0
                 family = 'unknown'
                 name_low = path.name.lower()
-                if 'mistral' in name_low:
-                    family = 'mistral'
-                elif 'qwen' in name_low:
-                    family = 'qwen'
-                elif 'phi' in name_low:
-                    family = 'phi'
+                draft_only = False
+                arch = ""
+                try:
+                    from eli.cognition.model_identity import read_gguf_identity
+                    ident = read_gguf_identity(path)
+                    arch = str(ident.get("architecture") or "")
+                    fam = ident.get("family")
+                    if fam:
+                        family = str(fam)
+                    draft_only = bool(ident.get("draft_only"))
+                except Exception:
+                    try:
+                        from eli.cognition.model_load_diagnostics import is_draft_only_gguf
+                        draft_only = bool(is_draft_only_gguf(path))
+                    except Exception:
+                        draft_only = any(
+                            m in name_low
+                            for m in ("dspark", "dflash", "-draft", "_draft", "eagle", "medusa")
+                        )
+                label_name = path.name
+                if draft_only:
+                    label_name = f"{path.name} (draft — not a chat model)"
+                    family = "draft"
+                elif arch and family == "unknown":
+                    family = arch
                 results.append({
-                    'name': path.name,
+                    'name': label_name,
                     'path': str(path),
                     'size_gb': size_gb,
                     'family': family,
+                    'architecture': arch,
                     'source': classify_gguf_source(str(path)),
+                    'draft_only': draft_only,
                 })
         except Exception:
             continue
@@ -692,7 +713,11 @@ def recommend_optimal_settings(sysinfo: Dict[str, Any]) -> Dict[str, Any]:
     else:
         n_gpu_layers = min(99, max(4, vram_mb // 150))
 
-    n_threads = max(1, cpu_count - 2)
+    try:
+        from eli.core.hardware_profile import recommend_cpu_threads as _rct
+        n_threads = _rct(cpu_count, cpu_bound=(not has_gpu or vram_mb <= 0))
+    except Exception:
+        n_threads = max(1, cpu_count - (1 if (not has_gpu or vram_mb <= 0) else 2))
 
     # Batch: proportional to free VRAM (≈ 1 unit per 10 MB), aligned to 64.
     if has_gpu and vram_mb > 0:
@@ -906,6 +931,16 @@ class LocalModelManager:
                     gpu_offload_supported = bool(_supports_fn())
             except Exception:
                 gpu_offload_supported = None
+            # Vulkan packs on Intel iGPU often report offload=False inside
+            # AppImage even when the pack was verified — don't force CPU.
+            if gpu_offload_supported is False:
+                try:
+                    from eli.core.gpu_pack_runtime import trust_vulkan_igpu_offload
+                    if trust_vulkan_igpu_offload():
+                        gpu_offload_supported = True
+                        log.debug("[GUI][GPU] trusting Vulkan iGPU pack despite offload flag=False")
+                except Exception:
+                    log.debug("vulkan igpu offload trust probe failed", exc_info=True)
             effective_n_gpu_layers = int(n_gpu_layers)
             if requested_n_gpu_layers > 0 and gpu_offload_supported is False:
                 log.debug(
@@ -1041,7 +1076,7 @@ class LocalModelManager:
                         user_ctx=_sf_user_ctx,
                         user_batch=_sf_user_batch,
                         reserve_mb=512,
-                        kv_quantized=False,
+                        kv_quantized=bool(_avail_gb <= 16.0),
                         min_batch=_sf_min_batch,
                         model_path=str(path_obj),
                         force_cpu=True,
@@ -1050,7 +1085,8 @@ class LocalModelManager:
                     _sf_ctx = min(int(_sf_ctx), _ram_ceiling) if _ram_ceiling > 0 else int(_sf_ctx)
                     log.debug(
                         f"[GUI][LOAD] RAM smart-fit (available={_avail_gb:.1f}GB "
-                        f"budget={_ram_budget_mb}MB ceiling={_ram_ceiling}): "
+                        f"budget={_ram_budget_mb}MB ceiling={_ram_ceiling} "
+                        f"kvq={bool(_avail_gb <= 16.0)}): "
                         f"ctx={_sf_ctx} gpu_layers=0 batch={_sf_batch}")
                     _sf_fit_layers = 0
                     self.fitted_gpu_layers = 0
@@ -3269,11 +3305,12 @@ class EliMainWindow(QMainWindow):
         except Exception: pass
 
     def _on_thinking_toggled(self, checked: bool):
-        """Deep-thinking toggle for reasoning models (Qwen3 / DeepSeek-R1). ON = the
-        answer call thinks (quality, slower); OFF = no thinking anywhere (faster).
+        """Deep-thinking toggle for models whose chat template enables reasoning.
+        ON = the answer call may think (quality, slower); OFF = no thinking.
         Utility calls (routing/JSON/summary) never think regardless. Live: sets
         ELI_MODEL_THINK now (read per-call by gguf_inference._no_think_prefill) — no
-        model reload — and persists the choice. No effect on non-reasoning models."""
+        model reload — and persists the choice. No effect when the loaded model
+        has no thinking channel."""
         try:
             import os as _os
             _os.environ["ELI_MODEL_THINK"] = "1" if checked else "0"
@@ -4669,9 +4706,9 @@ class EliMainWindow(QMainWindow):
         self.auto_speak_btn.toggled.connect(self._on_auto_speak_toggled)
         btn_layout.addWidget(self.auto_speak_btn)
 
-        # Deep-thinking toggle (reasoning models: Qwen3 / DeepSeek-R1). ON = the answer
-        # call thinks (higher quality, slower); OFF = no thinking (faster). Utility calls
-        # never think regardless; no effect on non-reasoning models. Live — no reload.
+        # Deep-thinking toggle (any model whose chat template enables reasoning).
+        # ON = the answer call may think (higher quality, slower); OFF = no thinking.
+        # Utility calls never think regardless; no effect on non-reasoning models.
         try:
             from eli.core.runtime_settings import load_settings as _ls_think
             _think_on = bool(_ls_think().get("model_thinking", True))
@@ -4681,7 +4718,8 @@ class EliMainWindow(QMainWindow):
         self.thinking_btn.setCheckable(True)
         self.thinking_btn.setChecked(_think_on)
         self.thinking_btn.setToolTip(
-            "Deep thinking on answers (reasoning models only — Qwen3 / DeepSeek-R1).\n"
+            "Deep thinking on answers (only when the loaded model's chat template "
+            "enables a reasoning channel).\n"
             "ON = higher quality, slower.  OFF = faster.\n"
             "Routing / summaries never think. No effect on non-reasoning models.")
         self.thinking_btn.setStyleSheet(
@@ -11870,7 +11908,12 @@ class EliMainWindow(QMainWindow):
             idx = self.provider_combo.findData(provider)
             if idx >= 0:
                 self.provider_combo.setCurrentIndex(idx)
-            model_path = s.get("model_path") or DEFAULT_MODEL_PATH
+            if provider == "custom_gguf":
+                model_path = s.get("custom_model_path") or s.get("model_path") or DEFAULT_MODEL_PATH
+            elif provider == "bundled_gguf":
+                model_path = s.get("bundled_model_path") or s.get("model_path") or DEFAULT_MODEL_PATH
+            else:
+                model_path = s.get("model_path") or DEFAULT_MODEL_PATH
             self.model_path_input.setText(model_path or "")
             bundled_path = s.get("bundled_model_path", "")
             if bundled_path:
@@ -12034,9 +12077,16 @@ class EliMainWindow(QMainWindow):
 
         updates = {
             "provider": provider,
+            # Store the canonical active model path for the selected provider.
+            # Without this, custom_model_path / bundled_model_path can diverge
+            # from model_path and get_model_path() keeps the stale primary key.
             "model_path": model_path,
-            "custom_model_path": self.model_path_input.text(),
-            "bundled_model_path": bundled_path,
+            "custom_model_path": (
+                self.model_path_input.text().strip()
+                if provider == "custom_gguf"
+                else str(existing.get("custom_model_path") or self.model_path_input.text() or "")
+            ),
+            "bundled_model_path": bundled_path or str(existing.get("bundled_model_path") or ""),
             # Store the canonical form, so "localhost:11434" or a bare IP typed
             # here is persisted as a URL every consumer can actually use.
             "ollama_host": self.ollama_manager._normalize_host(
@@ -12157,13 +12207,31 @@ class EliMainWindow(QMainWindow):
                         result = gguf_inference.reload_model(await_completion=True)
                         if result.get("ok"):
                             params = result.get("params") or {}
+                            model_name = (
+                                Path(str(params.get("model_path") or "")).name
+                                or str(params.get("model_name") or "")
+                                or "model"
+                            )
+                            ctx = params.get("n_ctx")
+                            gpu = params.get("n_gpu_layers")
+                            batch = params.get("n_batch")
                             log.debug(
                                 "[SETTINGS] Model reloaded — "
-                                f"ctx={params.get('n_ctx')} "
-                                f"gpu_layers={params.get('n_gpu_layers')} "
+                                f"model={model_name} "
+                                f"ctx={ctx} "
+                                f"gpu_layers={gpu} "
                                 f"threads={params.get('n_threads')} "
-                                f"batch={params.get('n_batch')}"
+                                f"batch={batch}"
                             )
+                            # Refresh the min-chat model strip (same contract as
+                            # the initial load_model status path).
+                            try:
+                                self.status_signal.emit(
+                                    f"🟢 Model ready: {model_name} "
+                                    f"(ctx={ctx} gpu={gpu} batch={batch})"
+                                )
+                            except Exception:
+                                log.debug("[SETTINGS] model label emit failed", exc_info=True)
                         else:
                             log.debug(f"[SETTINGS] Reload failed: {result.get('error')}")
                     except Exception as exc:

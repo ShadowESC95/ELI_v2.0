@@ -60,3 +60,23 @@ def try_activate_gpu_pack(*, verify: bool = True) -> bool:
     except Exception:
         log.debug("GPU pack activation skipped", exc_info=True)
         return False
+
+
+def trust_vulkan_igpu_offload() -> bool:
+    """True when a verified Vulkan pack is present on a shared-memory iGPU.
+
+    ``llama_supports_gpu_offload()`` often returns False in AppImage on Iris Xe
+    even after a successful pack install; callers may still attempt a few GPU
+    layers instead of forcing CPU-only.
+    """
+    try:
+        from eli.core.paths import project_root
+        root = Path(project_root())
+        dest = root / "runtime" / "gpu"
+        if not (dest / ".gpu_pack_ok").is_file():
+            return False
+        gp = _import_gpu_pack_module()
+        return bool(gp._relax_offload_verify(dest))
+    except Exception:
+        log.debug("trust_vulkan_igpu_offload probe failed", exc_info=True)
+        return False

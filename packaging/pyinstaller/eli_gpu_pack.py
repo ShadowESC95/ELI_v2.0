@@ -551,11 +551,30 @@ def _activate_staged_gpu_pack(
     return 0
 
 
+def _pack_backend(dest: Path) -> str:
+    try:
+        meta = json.loads((dest / ".gpu_pack.json").read_text(encoding="utf-8"))
+        return str((meta or {}).get("backend") or "").strip().lower()
+    except Exception:
+        return ""
+
+
+def _relax_offload_verify(dest: Path | None = None) -> bool:
+    """Match install-time policy: Vulkan on shared-memory iGPU often reports
+    ``llama_supports_gpu_offload() == False`` even when the pack is usable.
+    Install already writes ``.gpu_pack_ok`` in that case; activate/operational
+    must not contradict it or the UI shows a false 'install failed'."""
+    if dest is not None and _pack_backend(Path(dest)) == "vulkan":
+        return _shared_memory_gpu()
+    return False
+
+
 def gpu_pack_operational(dest: Path | None = None) -> bool:
     """True when a verified pack loads and reports GPU offload in THIS environment.
 
     Matches the frozen runtime hook: a stale CUDA pack on Intel iGPU, or any pack
     whose backend cannot bind here, is treated as not installed.
+    Vulkan + shared-memory iGPU: offload flag is optional (same as install verify).
     """
     try:
         root = _eli_root()
@@ -564,7 +583,7 @@ def gpu_pack_operational(dest: Path | None = None) -> bool:
     dest = dest or (root / "runtime" / "gpu")
     if not (dest / ".gpu_pack_ok").is_file() or not (dest / "llama_cpp").is_dir():
         return False
-    ok, _detail = _verify(dest, require_offload=True)
+    ok, _detail = _verify(dest, require_offload=not _relax_offload_verify(dest))
     return bool(ok)
 
 
@@ -991,11 +1010,15 @@ def _verify(dest: Path, *, require_offload: bool = True) -> tuple[bool, str]:
         "        cands += ['/usr/lib/x86_64-linux-gnu/libvulkan.so.1',\n"
         "                  '/lib/x86_64-linux-gnu/libvulkan.so.1',\n"
         "                  '/usr/lib64/libvulkan.so.1', 'libvulkan.so.1']\n"
-        "        for _icd in ('/usr/share/vulkan/icd.d/intel_icd.x86_64.json',\n"
-        "                     '/usr/share/vulkan/icd.d/intel_hasvk_icd.x86_64.json',\n"
-        "                     '/usr/share/vulkan/icd.d/lvp_icd.x86_64.json'):\n"
-        "            if Path(_icd).is_file():\n"
-        "                os.environ.setdefault('VK_ICD_FILENAMES', _icd); break\n"
+        "        _icds = []\n"
+        "        for _icd_dir in ('/usr/share/vulkan/icd.d','/etc/vulkan/icd.d',\n"
+        "                         '/usr/lib/x86_64-linux-gnu/GL/vulkan/icd.d'):\n"
+        "            _d = Path(_icd_dir)\n"
+        "            if _d.is_dir():\n"
+        "                for _icd in sorted(_d.glob('*.json')):\n"
+        "                    _icds.append(str(_icd))\n"
+        "        if _icds and not os.environ.get('VK_ICD_FILENAMES'):\n"
+        "            os.environ['VK_ICD_FILENAMES'] = ':'.join(_icds)\n"
         "        for c in cands:\n"
         "            try:\n"
         "                ctypes.CDLL(c, mode=ctypes.RTLD_GLOBAL); break\n"
@@ -1076,16 +1099,20 @@ def preload_native_libs(pack_dir: str | Path) -> None:
             "/usr/lib/i386-linux-gnu/libvulkan.so.1",
             "libvulkan.so.1",
         ]
-        # Intel/Mesa ICD paths — without these, llama_supports_gpu_offload()
+        # Intel/AMD/Mesa ICD paths — without these, llama_supports_gpu_offload()
         # can report False inside AppImage even when Vulkan works outside it.
-        for _icd in (
-            "/usr/share/vulkan/icd.d/intel_icd.x86_64.json",
-            "/usr/share/vulkan/icd.d/intel_hasvk_icd.x86_64.json",
-            "/usr/share/vulkan/icd.d/lvp_icd.x86_64.json",
+        _icd_files: list[str] = []
+        for _icd_dir in (
+            Path("/usr/share/vulkan/icd.d"),
+            Path("/etc/vulkan/icd.d"),
+            Path("/usr/lib/x86_64-linux-gnu/GL/vulkan/icd.d"),
         ):
-            if Path(_icd).is_file():
-                os.environ.setdefault("VK_ICD_FILENAMES", _icd)
-                break
+            if not _icd_dir.is_dir():
+                continue
+            for _icd in sorted(_icd_dir.glob("*.json")):
+                _icd_files.append(str(_icd))
+        if _icd_files and not os.environ.get("VK_ICD_FILENAMES"):
+            os.environ["VK_ICD_FILENAMES"] = ":".join(_icd_files)
         for cand in candidates:
             try:
                 ctypes.CDLL(cand, mode=getattr(ctypes, "RTLD_GLOBAL", 0))
@@ -1160,6 +1187,9 @@ def activate_gpu_pack_runtime(dest: str | Path, *, verify: bool = True) -> bool:
 
         _lc.llama_backend_init()
         if verify and not bool(llama_cpp.llama_supports_gpu_offload()):
+            if _relax_offload_verify(pack):
+                # Pack imports; install already accepted this iGPU/Vulkan case.
+                return True
             return False
         return True
     except Exception:

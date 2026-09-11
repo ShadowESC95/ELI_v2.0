@@ -176,18 +176,9 @@ section "Your system"
 eli_progress system 5 "Scanning hardware"
 ok "Python      ${B}$("$PYTHON" --version 2>&1)${R}"
 ok "Platform    ${B}${OS}${R} ($(uname -m 2>/dev/null || echo '?'))"
-if [ "$OS" = "Darwin" ]; then
-    _CPUS="$(sysctl -n hw.ncpu 2>/dev/null || echo '?')"
-    _RAMGB="$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))"
-else
-    _CPUS="$(_safe_pipeline bash -c 'nproc 2>/dev/null || echo ?')"
-    _RAMGB="$(_safe_pipeline bash -c "free -g 2>/dev/null | awk '/^Mem:/{print \$2}' || true")"
-fi
-ok "CPU         ${B}${_CPUS}${R} cores      RAM ${B}${_RAMGB:-?} GB${R}"
-_DF_FREE="$(_safe_pipeline bash -c "df -h \"$SCRIPT_DIR\" 2>/dev/null | awk 'NR==2{print \$4}' || true")"
-ok "Disk free   ${B}${_DF_FREE:-?}${R}   ${D}(a model is ~2-5 GB)${R}"
 # Pipelines with grep/awk — under `set -o pipefail` a no-match grep aborts the
 # whole install (seen on Intel iGPU laptops stuck at 5% / "Scanning hardware").
+# MUST be defined before first use below.
 _gpu_pipeline() {
     set +o pipefail
     "$@"
@@ -198,6 +189,16 @@ _safe_pipeline() {
     "$@"
     set -o pipefail
 }
+if [ "$OS" = "Darwin" ]; then
+    _CPUS="$(sysctl -n hw.ncpu 2>/dev/null || echo '?')"
+    _RAMGB="$(( $(sysctl -n hw.memsize 2>/dev/null || echo 0) / 1073741824 ))"
+else
+    _CPUS="$(_safe_pipeline bash -c 'nproc 2>/dev/null || echo ?')"
+    _RAMGB="$(_safe_pipeline bash -c "free -g 2>/dev/null | awk '/^Mem:/{print \$2}' || true")"
+fi
+ok "CPU         ${B}${_CPUS}${R} cores      RAM ${B}${_RAMGB:-?} GB${R}"
+_DF_FREE="$(_safe_pipeline bash -c "df -h \"$SCRIPT_DIR\" 2>/dev/null | awk 'NR==2{print \$4}' || true")"
+ok "Disk free   ${B}${_DF_FREE:-?}${R}   ${D}(a model is ~2-5 GB)${R}"
 
 if command -v nvidia-smi &>/dev/null; then
     _NGPU="$(_gpu_pipeline bash -c 'nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -c . || true')"
@@ -234,7 +235,8 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$OS" != "Darwin" ]; the
     for _drm in /sys/class/drm/card[0-9]/device/vendor; do
         [ -r "$_drm" ] || continue
         [ "$(cat "$_drm" 2>/dev/null | tr 'A-F' 'a-f')" = "0x8086" ] || continue
-        _pci="$(_gpu_pipeline bash -c 'readlink -f "$(dirname "$_drm")" 2>/dev/null | xargs basename 2>/dev/null || true')"
+        # Expand $_drm in this shell — nested single-quoted bash -c cannot see it.
+        _pci="$(readlink -f "$(dirname "$_drm")" 2>/dev/null | xargs basename 2>/dev/null || true)"
         if [ -n "$_pci" ] && command -v lspci &>/dev/null; then
             # pipefail + set -e: lspci exits 1 when the slot is unknown — must not abort install
             _INTEL_NAME="$(_gpu_pipeline bash -c "lspci -s '${_pci}' -nn 2>/dev/null | sed 's/^[^:]*: //' | head -1 || true")"
@@ -257,7 +259,8 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 
     for _drm in /sys/class/drm/card[0-9]/device/vendor; do
         [ -r "$_drm" ] || continue
         [ "$(cat "$_drm" 2>/dev/null | tr 'A-F' 'a-f')" = "0x5143" ] || continue
-        _pci="$(_gpu_pipeline bash -c 'readlink -f "$(dirname "$_drm")" 2>/dev/null | xargs basename 2>/dev/null || true')"
+        # Expand $_drm in this shell — nested single-quoted bash -c cannot see it.
+        _pci="$(readlink -f "$(dirname "$_drm")" 2>/dev/null | xargs basename 2>/dev/null || true)"
         if [ -n "$_pci" ] && command -v lspci &>/dev/null; then
             _QCOM_NAME="$(_gpu_pipeline bash -c "lspci -s '${_pci}' -nn 2>/dev/null | sed 's/^[^:]*: //' | head -1 || true")"
         fi

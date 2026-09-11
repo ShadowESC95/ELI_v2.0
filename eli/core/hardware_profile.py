@@ -525,6 +525,22 @@ RAM_BUDGET_PERCENT_MAX = 75
 RAM_BUDGET_PERCENT_DEFAULT = 60
 
 
+def recommend_cpu_threads(cpu_threads: int, *, cpu_bound: bool = False) -> int:
+    """Inference thread count with OS/UI headroom.
+
+    On CPU-bound hosts (no discrete GPU offload) leave one core free so the
+    desktop stays responsive while still using most of the machine. Tiny CPUs
+    (≤4) also leave only one spare. Discrete-GPU hosts keep two cores free —
+    the GPU does the heavy work.
+    """
+    n = max(1, int(cpu_threads or 1))
+    if n <= 4 or cpu_bound:
+        reserve = 1
+    else:
+        reserve = 2
+    return max(1, n - reserve)
+
+
 def ram_budget_fraction() -> float:
     """User-chosen fraction of available RAM for model weights + KV (cap 75%)."""
     pct: float | None = None
@@ -544,7 +560,19 @@ def ram_budget_fraction() -> float:
             except Exception:
                 pct = None
     if pct is None:
-        pct = float(RAM_BUDGET_PERCENT_DEFAULT)
+        # CPU-only / shared-memory iGPU machines ≤16 GB: prefer more of free RAM
+        # for weights+KV (still capped at 75%). Discrete-GPU hosts keep 60%.
+        try:
+            hw = detect_hardware()
+            _cpu_bound = (not bool(getattr(hw, "has_gpu", False))) or bool(
+                getattr(hw, "gpu_integrated", False)
+            )
+            if _cpu_bound and float(getattr(hw, "ram_gb", 0) or 0) <= 16.0:
+                pct = 70.0
+            else:
+                pct = float(RAM_BUDGET_PERCENT_DEFAULT)
+        except Exception:
+            pct = float(RAM_BUDGET_PERCENT_DEFAULT)
     lo = RAM_BUDGET_PERCENT_MIN / 100.0
     hi = RAM_BUDGET_PERCENT_MAX / 100.0
     return max(lo, min(hi, pct / 100.0))
@@ -1789,9 +1817,13 @@ def recommend(hw: Optional[HardwareProfile] = None,
     rec = ModelRecommendation()
     rec.reasoning = []
 
-    rec.n_threads = max(1, hw.cpu_threads - 2)
+    # Thread count must follow the same GPU-offload decision as layer fit:
+    # CPU-bound (no discrete offload) → leave 1 core free; else leave 2.
+    _cpu_bound = not effective_use_gpu_layers(hw)
+    rec.n_threads = recommend_cpu_threads(hw.cpu_threads, cpu_bound=_cpu_bound)
     rec.reasoning.append(
         f"CPU: {hw.cpu_threads} threads → using {rec.n_threads}"
+        + (" (CPU-bound — leave 1 core free)" if _cpu_bound else " (leave 2 cores free)")
     )
     rec.reasoning.append(
         f"RAM: {hw.ram_gb:.1f}GB total, {hw.available_ram_gb:.1f}GB available"
@@ -1968,7 +2000,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
     if hw.gpu_integrated:
         _fit_batch_in = min(_fit_batch_in, _igpu_min_batch)
     if not _fit_batch_in:
-        _fit_batch_in = max(128, (max(1, hw.cpu_threads) - 2) * 32)
+        _fit_batch_in = max(128, recommend_cpu_threads(hw.cpu_threads, cpu_bound=True) * 32)
 
     if use_gpu_layers:
         _total_layers_est = layers_for_model(chosen["path"], chosen["size_gb"])
@@ -2147,8 +2179,10 @@ def recommend(hw: Optional[HardwareProfile] = None,
         rec.reasoning.append(f"batch capped {rec.batch_size}→32 — Adreno Vulkan stability limit")
         rec.batch_size = 32
 
+    # mmap lets the OS page weights from disk — essential on ≤16 GB CPU hosts.
+    # mlock pins the whole model in RAM and starves KV/OS on those machines.
     rec.use_mmap = True
-    rec.use_mlock = (hw.available_ram_gb >= 16)
+    rec.use_mlock = (hw.ram_gb >= 16.0 and hw.available_ram_gb >= 16.0)
     rec.max_tokens = -1   # unlimited — use full remaining context
     rec.temperature = 0.7
 

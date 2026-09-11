@@ -413,12 +413,49 @@ def architecture_requires_modern_runtime(arch: str) -> bool:
     return False
 
 
+def is_draft_only_gguf(model_path, arch: Optional[str] = None) -> bool:
+    """True when the file is a speculative-decoding *draft* head, not a chat LM.
+
+    Draft GGUFs (EAGLE / Medusa / DFlash / DSpark, …) cannot answer chat prompts
+    alone — llama.cpp rejects them (`dflash-draft`) or they produce garbage if
+    somehow forced. Detect by architecture first, then filename markers.
+    """
+    low_arch = str(arch or gguf_architecture(model_path) or "").lower().strip()
+    if low_arch:
+        if low_arch in {"dflash-draft", "eagle", "medusa", "speculative"}:
+            return True
+        if low_arch.endswith("-draft") or low_arch.startswith("draft-"):
+            return True
+        if "dflash" in low_arch or "dspark" in low_arch:
+            return True
+    name = Path(str(model_path)).name.lower()
+    name_markers = (
+        "dflash-draft", "dflash_draft", "-dspark", "_dspark", "dspark-",
+        "-eagle-", "_eagle_", "-medusa", "_medusa",
+        "-draft.gguf", "_draft.gguf", ".draft.gguf",
+    )
+    return any(m in name for m in name_markers)
+
+
+def draft_only_load_message(model_path, arch: Optional[str] = None) -> str:
+    name = Path(str(model_path)).name
+    a = str(arch or gguf_architecture(model_path) or "unknown")
+    return (
+        f"{name} (architecture '{a}') is a speculative-decoding draft model, not a "
+        "standalone chat model. Pick a full GGUF (e.g. Qwen / Gemma / Llama / SmolLM) "
+        "for the main assistant. Draft heads are only used with a matching target model "
+        "in a speculative-decoding setup."
+    )
+
+
 def preflight_gguf_model(model_path) -> Optional[str]:
     """Return a user-facing load failure message before calling llama.cpp, else None."""
     p = Path(str(model_path))
     if not p.is_file():
         return None
     arch = gguf_architecture(p) or "unknown"
+    if is_draft_only_gguf(p, arch):
+        return draft_only_load_message(p, arch)
     if installed_llama_version_tuple() >= MIN_MODERN_ARCH_VERSION:
         return None
     if not architecture_requires_modern_runtime(arch):
@@ -568,6 +605,8 @@ def explain_load_failure(exc: BaseException, log_lines, model_path,
             "converted for this build."
         )
     if "unknown model architecture" in low or "unsupported model architecture" in low:
+        if is_draft_only_gguf(model_path, arch):
+            return draft_only_load_message(model_path, arch)
         return _msg(
             "could not load: this llama.cpp build does not support that architecture at all. "
             "Upgrade with pip install -U llama-cpp-python, or pick a model whose "
@@ -596,7 +635,7 @@ __all__ = ["ModelLoadError", "deactivate_gpu_pack", "harden_llama_destructor",
            "GGUFModelProfile", "gguf_architecture", "gguf_metadata",
            "gguf_model_profile", "architecture_requires_modern_runtime",
            "installed_llama_version", "installed_llama_version_tuple",
-           "preflight_gguf_model",
+           "preflight_gguf_model", "is_draft_only_gguf", "draft_only_load_message",
            "gpu_pack_is_too_old", "MIN_MODERN_ARCH_VERSION",
            "capture_llama_log", "explain_load_failure",
            "is_retryable_load_failure"]

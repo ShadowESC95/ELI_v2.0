@@ -502,23 +502,14 @@ def _load_persona_text() -> str:
 
 
 def _model_family_from_path(model_path) -> str:
-    low = (str(model_path) if model_path else "").lower()
-    if "qwen" in low:
-        return "qwen"
-    if "mistral" in low or "mixtral" in low:
-        return "mistral"
-    if "deepseek" in low:
-        return "deepseek"
-    if "stable-code" in low or "starcoder" in low or "coder" in low:
+    """Deprecated wrapper — prefer ``resolve_chat_family`` / metadata."""
+    try:
+        from eli.cognition.model_identity import resolve_chat_family, read_gguf_identity
+        ident = read_gguf_identity(model_path)
+        fam = ident.get("family") or resolve_chat_family(path=model_path)
+        return str(fam or "chatml")
+    except Exception:
         return "chatml"
-    # Llama-3 uses a different format from Llama-2
-    if ("llama-3" in low or "llama3" in low or "meta-llama-3" in low
-            or "llama_3" in low):
-        return "llama3"
-    if ("llama" in low or "openhermes" in low or "hermes" in low
-            or "tinyllama" in low):
-        return "llama"
-    return "chatml"
 
 
 
@@ -1071,12 +1062,12 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         r"(?:ok|okay|alright|allright|good|well|better|fine|right|sorted|sound|normal"
         r"|back(?: to (?:normal|yourself|form))?)"
         r"(?: now| yet| today| again| then)?$",
-        r"^how are (you|things|we)( doing| going)?$",
+        r"^how are (you|things|we)(?:\s+(?:doing|going))?(?:\s+(?:today|tonight|now|this\s+(?:morning|afternoon|evening)))?$",
         r"^what'?s (up|good|new|happening)(\s+\w+)?$",
         r"^\w+ \w+ buddy$",
         r"^hey \w+$",
     )
-    if n <= 5:
+    if n <= 7:
         for pat in _casual_patterns:
             if re.match(pat, normalized):
                 return True
@@ -1167,6 +1158,18 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     )
     has_eli_status = any(p in normalized for p in _eli_status_phrases)
     if has_eli_status and not has_task and n <= 30:
+        return True
+
+    # Meta about ELI's own speech/output quality — treat as light rapport so
+    # we don't dump session memory about an unrelated prior topic and answer
+    # THAT instead ("speaking in tongues" → model-swap essay).
+    if n <= 14 and not has_task and re.search(
+        r"\b(?:still\s+)?(?:speaking|talking|writing|replying|answering)\b"
+        r".*\b(?:tongue|tongues|tounges|gibberish|garble|garbled|nonsense|weird|broken)\b"
+        r"|"
+        r"\b(?:tongue|tongues|tounges|gibberish|garble|garbled)\b",
+        normalized,
+    ):
         return True
 
     return False
@@ -10935,6 +10938,13 @@ Answer:"""
             _c = str((_t or {}).get("content", "") or "").strip()
             if not _c or _c in _seen:
                 continue
+            try:
+                from eli.cognition.model_output_tokens import strip_special_tokens as _scrub_hist
+                _c = (_scrub_hist(_c) or "").strip()
+            except Exception:
+                pass
+            if not _c or _c in _seen:
+                continue
             _seen.add(_c)
             _prev_eli.append(_c)
         _prev_eli.reverse()
@@ -10956,6 +10966,17 @@ Answer:"""
                 log.debug("[ANTI-REPEAT] greeting — contract not injected")
                 return brief
             _prev_eli = self._collect_recent_assistant_replies(recent_turns=recent_turns)
+            if not _prev_eli:
+                return brief
+            # Scrub multimodal / special-token leaks from prior replies so the
+            # anti-repeat contract cannot re-inject `<image|>` floods into the
+            # next prompt (and teach the model to emit them again).
+            try:
+                from eli.cognition.model_output_tokens import strip_special_tokens as _scrub
+                _prev_eli = [(_scrub(s) or "").strip() for s in _prev_eli]
+                _prev_eli = [s for s in _prev_eli if s]
+            except Exception:
+                log.debug("[ANTI-REPEAT] prior-reply scrub skipped", exc_info=True)
             if not _prev_eli:
                 return brief
             _quoted = "\n".join(f"  - {s[:220]}" for s in _prev_eli[:3])

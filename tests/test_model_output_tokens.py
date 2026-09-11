@@ -87,3 +87,65 @@ def test_glm_stops_in_family_list():
 def test_clean_eli_output_strips_glm_leak():
     leaked = "Sure thing.<|end_of_turn|>"
     assert "<|end_of_turn|>" not in GI._clean_eli_output(leaked)
+
+
+@pytest.mark.parametrize("raw,expected", [
+    ("Good evening, jason. I'm as<image|><image|>", "Good evening, jason. I'm as"),
+    ("waiting for someone to talk to me<image|></think>", "waiting for someone to talk to me"),
+    ("new model mounted and<|image|>noise", "new model mounted and"),
+    ("OK so far</think>more", "OK so far"),
+])
+def test_strip_gemma4_multimodal_leaks(raw, expected):
+    out = strip_special_tokens(raw)
+    assert out == expected
+    assert "<image" not in out.lower()
+    assert "think>" not in out.lower()
+
+
+def test_gemma_stop_list_includes_image_markers():
+    stops = stop_tokens_for_family("gemma", include_label_stops=False)
+    assert "<image|>" in stops
+    assert "<|eoi|>" in stops
+
+
+def test_stream_clean_chunks_preserves_bpe_spaces():
+    """Mid-stream .strip() used to glue tokens into 'Qwena3bMoelikely…'."""
+    chunks = [
+        {"response": "Qwen"},
+        {"response": " is"},
+        {"response": " "},
+        {"response": "smaller"},
+        {"response": " than"},
+        {"response": " ELI"},
+    ]
+    out = "".join(c["response"] for c in GI._stream_clean_chunks(chunks))
+    assert out == "Qwen is smaller than ELI"
+    assert " is " in out
+
+
+def test_stream_clean_chunks_aborts_on_image_flood():
+    chunks = [
+        {"response": "Good evening, jason. I'm as"},
+        {"response": "<image|>"},
+        {"response": "<image|><image|>should never appear"},
+    ]
+    out = "".join(
+        c["response"] for c in GI._stream_clean_chunks(chunks)
+    )
+    assert "Good evening, jason. I'm as" in out
+    assert "<image" not in out
+    assert "should never appear" not in out
+
+
+def test_thinking_detected_from_template_markers():
+    from eli.cognition.model_identity import is_thinking_model
+    assert is_thinking_model(
+        template="{%- set enable_thinking = true -%}<think>",
+        path="renamed.gguf",
+    )
+    assert is_thinking_model(architecture="smollm3", path="renamed.gguf")
+    assert not is_thinking_model(
+        template="",
+        architecture="llama",
+        path="qwen3-twil-ornith.gguf",
+    )

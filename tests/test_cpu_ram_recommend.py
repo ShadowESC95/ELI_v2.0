@@ -55,6 +55,25 @@ def test_recommend_cpu_path_matches_ram_not_igpu_vram(monkeypatch):
     assert any("CPU/RAM" in r or "CPU inference" in r for r in rec.reasoning)
 
 
+def test_recommend_cpu_threads_cpu_bound_leaves_one():
+    from eli.core.hardware_profile import recommend_cpu_threads
+    assert recommend_cpu_threads(8, cpu_bound=True) == 7
+    assert recommend_cpu_threads(8, cpu_bound=False) == 6
+    assert recommend_cpu_threads(4, cpu_bound=False) == 3
+
+
+def test_recommend_threads_and_kv_on_iris_class(monkeypatch):
+    monkeypatch.setattr(
+        "eli.core.hardware_profile._llama_gpu_offload_available",
+        lambda: False,
+    )
+    rec = recommend(_igpu_hw(ram_gb=8.0, avail_gb=4.7), _models())
+    assert rec.n_threads == 7  # 8 cores, CPU-bound → leave 1
+    assert rec.cache_type_k == "q4_0"
+    assert rec.use_mmap is True
+    assert rec.use_mlock is False
+
+
 def test_compute_mode_cpu_forces_zero_layers(monkeypatch):
     monkeypatch.setattr(
         "eli.core.hardware_profile._llama_gpu_offload_available",

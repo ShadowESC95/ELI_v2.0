@@ -32,16 +32,16 @@ def test_embedded_template_family_detection():
 
 def test_format_prompt_routes_by_family():
     from pathlib import Path
-    # filename fallback (no embedded template) → chatml for an openhermes-style name
+    # Filename last-resort (no template/arch) → chatml for openhermes-style name
     with patch.object(GI, "get_model_path", return_value=Path("openhermes-2.5-mistral-7b.Q3_K_M.gguf")), \
-         patch.object(GI, "_gguf_template_family", return_value=None):
+         patch.object(GI, "_gguf_model_metadata", return_value={}):
         assert GI._format_prompt("SYS", "hi").startswith("<|im_start|>")
-    # embedded template OVERRIDES the filename (future-proof)
+    # Embedded/arch family OVERRIDES the filename (model-agnostic)
     with patch.object(GI, "get_model_path", return_value=Path("some-future-model.gguf")), \
-         patch.object(GI, "_gguf_template_family", return_value="llama"):
+         patch.object(GI, "_resolve_family_for_loaded", return_value="llama"):
         assert "<|start_header_id|>" in GI._format_prompt("SYS", "hi")
     with patch.object(GI, "get_model_path", return_value=Path("x.gguf")), \
-         patch.object(GI, "_gguf_template_family", return_value="gemma"):
+         patch.object(GI, "_resolve_family_for_loaded", return_value="gemma"):
         assert "<start_of_turn>" in GI._format_prompt("SYS", "hi")
 
 

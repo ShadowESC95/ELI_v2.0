@@ -194,8 +194,12 @@ def _auto_tune(model_path: Path, hw: dict) -> dict:
     else:
         n_gpu_layers = 0
 
-    # CPU threads: leave 2 cores for OS/GUI
-    n_threads = max(1, cpu_cores - 2)
+    # CPU threads: leave 1 core free when CPU-bound, else 2 for OS/GUI
+    try:
+        from eli.core.hardware_profile import recommend_cpu_threads as _rct
+        n_threads = _rct(cpu_cores, cpu_bound=(n_gpu_layers <= 0))
+    except Exception:
+        n_threads = max(1, cpu_cores - (1 if n_gpu_layers <= 0 else 2))
 
     # Batch size: scales with GPU offload
     if n_gpu_layers >= total_layers: n_batch = 512

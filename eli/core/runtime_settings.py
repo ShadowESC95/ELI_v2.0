@@ -132,7 +132,8 @@ DEFAULTS: Dict[str, Any] = {
     "main_gpu": 0,
     "split_mode": "",
     "gpu_profiles_file": "",
-    # Deep thinking on the ANSWER call for reasoning models (Qwen3 / DeepSeek-R1):
+    # Deep thinking on the ANSWER call for models whose chat template enables a
+    # reasoning channel (detected from metadata — not brand names):
     # ON = higher quality, slower; OFF = faster. Utility calls (routing/JSON/summary)
     # never think regardless. No effect on non-reasoning models. GUI-toggleable.
     "model_thinking": True,
@@ -478,7 +479,7 @@ def _heal_model_paths(settings: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
     return out, changed
 
 
-def _load_settings_unsanitized() -> Dict[str, Any]:
+def _load_settings_unsanitized(*, apply_env_overlay: bool = True) -> Dict[str, Any]:
     global _MIGRATION_LOGGED
     settings = dict(DEFAULTS)
     settings_file = _settings_file()
@@ -519,10 +520,11 @@ def _load_settings_unsanitized() -> Dict[str, Any]:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    for env_name, key in ENV_TO_KEY.items():
-        val = os.environ.get(env_name)
-        if val not in (None, ""):
-            settings[key] = _coerce_value(key, val)
+    if apply_env_overlay:
+        for env_name, key in ENV_TO_KEY.items():
+            val = os.environ.get(env_name)
+            if val not in (None, ""):
+                settings[key] = _coerce_value(key, val)
 
     # Canonical coercion (no more dual-key fallbacks)
     settings["n_threads"] = int(settings.get("n_threads", DEFAULTS["n_threads"]))
@@ -612,6 +614,24 @@ def save_settings(settings: Dict[str, Any]) -> None:
     # write, never world-readable for any instant. See eli.core.secure_io.
     from eli.core.secure_io import secure_write_text as _secure_write
     _secure_write(settings_file, json.dumps(existing, indent=2, ensure_ascii=False), mode=0o600)
+
+    # Keep process env in sync with the just-saved model path. Without this,
+    # get_model_path() keeps returning the previous GGUF via ELI_GGUF_MODEL_PATH
+    # that the GUI pinned at first load, and settings "model swaps" are no-ops.
+    try:
+        apply_env(dict(existing))
+    except Exception:
+        log.debug("[SETTINGS] apply_env after save failed", exc_info=True)
+
+
+def load_settings_from_disk() -> Dict[str, Any]:
+    """Load settings.json without letting process model-path env vars win.
+
+    Use this when the caller needs the *saved* selection (e.g. reload after a
+    settings swap). Normal load_settings() still honours ELI_GGUF_MODEL_PATH for
+    explicit shell/CLI overrides.
+    """
+    return load_settings(apply_env_overlay=False)
 
 
 def update_settings(**kwargs: Any) -> Dict[str, Any]:

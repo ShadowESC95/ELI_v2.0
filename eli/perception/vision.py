@@ -163,11 +163,19 @@ def _discovered_pairs():
     return _discovery_cache
 
 
-# Filename-substring → llama-cpp chat-handler class. DATA, extensible, and
-# overridable via the `vision_chat_handler` setting. A handler is architecture-
-# specific in llama-cpp (you cannot run Qwen-VL through the Moondream handler),
-# so a hint table + explicit override is the correct abstraction — not a single
-# hardcoded handler. Most specific hints first.
+# Architecture / filename → llama-cpp chat-handler class. Architecture wins when
+# readable; filename hints remain as last resort. Overridable via
+# `vision_chat_handler`. Most specific hints first.
+_HANDLER_ARCH = {
+    "qwen2vl": "Qwen25VLChatHandler",
+    "qwen2.5vl": "Qwen25VLChatHandler",
+    "qwen25vl": "Qwen25VLChatHandler",
+    "llava": "Llava15ChatHandler",
+    "llava1.5": "Llava15ChatHandler",
+    "llava1.6": "Llava16ChatHandler",
+    "moondream": "MoondreamChatHandler",
+    "minicpmv": "MiniCPMv26ChatHandler",
+}
 _HANDLER_HINTS = (
     ("moondream",      "MoondreamChatHandler"),
     ("qwen2.5-vl",     "Qwen25VLChatHandler"),
@@ -194,9 +202,19 @@ _DEFAULT_HANDLER = "Llava15ChatHandler"
 
 def _resolve_handler_class(model_path: str, explicit: str = ""):
     """Resolve the llama-cpp chat-handler class for a VL model.
-    config override → filename auto-detect → generic. Returns (cls, name)."""
+    config override → architecture → filename → generic. Returns (cls, name)."""
     from llama_cpp import llama_chat_format as _lcf
     name = (explicit or "").strip()
+    if not name:
+        try:
+            from eli.cognition.model_load_diagnostics import gguf_architecture
+            arch = (gguf_architecture(model_path) or "").lower().replace("_", "").replace("-", "")
+            for key, cls in _HANDLER_ARCH.items():
+                if key.replace("-", "").replace("_", "") in arch or arch == key.replace("-", ""):
+                    name = cls
+                    break
+        except Exception:
+            name = ""
     if not name:
         low = os.path.basename(str(model_path or "")).lower()
         for hint, cls in _HANDLER_HINTS:

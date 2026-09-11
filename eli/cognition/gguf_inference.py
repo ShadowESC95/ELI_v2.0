@@ -223,79 +223,73 @@ def get_model_path() -> Optional[Path]:
     return None
 
 
+def _loaded_model_path_str() -> str:
+    _ov = globals().get("_live_runtime_override") or globals().get("_live_runtime_params") or {}
+    path = str(_ov.get("model_path") or _ov.get("model_name") or "").strip()
+    if path:
+        return path
+    try:
+        return str(get_model_path() or "")
+    except Exception:
+        return ""
+
+
+def _resolve_family_for_loaded(*, path: Optional[Path] = None) -> Optional[str]:
+    """Template → architecture → filename — never brand-first."""
+    from eli.cognition.model_identity import resolve_chat_family
+    md = _gguf_model_metadata()
+    return resolve_chat_family(
+        metadata=md,
+        path=path or _loaded_model_path_str() or get_model_path(),
+    )
+
+
 def _is_mistral_model(model_path: Optional[Path]) -> bool:
-    """Pure Mistral/Mixtral models use [INST] <<SYS>> format."""
-    if model_path is None:
-        return False
-    name = str(model_path).lower()
-    # OpenHermes, Hermes, and other ChatML fine-tunes built on Mistral base
-    # use ChatML format despite containing "mistral" in their filename.
-    # Exclude them here so _is_chatml_model catches them first.
-    _chatml_override = ("openhermes", "hermes", "dolphin", "zephyr", "neural")
-    if any(x in name for x in _chatml_override):
-        return False
-    return "mistral" in name or "mixtral" in name
+    return _resolve_family_for_loaded(path=model_path) == "mistral"
 
 
 def _is_chatml_model(model_path: Optional[Path]) -> bool:
-    """
-    Models fine-tuned with the ChatML prompt format:
-    Qwen, DeepSeek, OpenHermes, Hermes, Dolphin, Zephyr, StableCode, etc.
-    """
-    if model_path is None:
-        return False
-    name = str(model_path).lower()
-    _chatml_names = (
-        "qwen", "deepseek", "openhermes", "hermes", "dolphin",
-        "zephyr", "stable-code", "starcoder", "neural", "chatml",
-    )
-    return any(x in name for x in _chatml_names)
-
+    return _resolve_family_for_loaded(path=model_path) == "chatml"
 
 
 def _is_llama_model(model_path: Optional[Path]) -> bool:
-    """Llama-3 models use header-based format."""
-    if model_path is None:
-        return False
-    name = str(model_path).lower()
-    return (
-        "llama-3" in name or "llama3" in name
-        or "meta-llama-3" in name or "llama_3" in name
+    return _resolve_family_for_loaded(path=model_path) == "llama"
+
+
+def _is_glm_model(model_path: Optional[Path] = None) -> bool:
+    """GLM / ChatGLM — from embedded template / architecture, not filename brands."""
+    from eli.cognition.model_identity import is_glm_model as _glm
+    md = _gguf_model_metadata() if model_path is None else {}
+    if model_path is not None and not md:
+        try:
+            from eli.cognition.model_load_diagnostics import gguf_metadata
+            md = gguf_metadata(model_path) or {}
+        except Exception:
+            md = {}
+    return _glm(
+        metadata=md,
+        path=model_path if model_path is not None else _loaded_model_path_str(),
     )
 
 
-def _is_glm_model(model_path: Optional[Path]) -> bool:
-    """GLM / ChatGLM models use [gMASK] + <|user|>/<|assistant|> turns."""
-    try:
-        from eli.cognition.model_output_tokens import glm_filename_hint
-        return glm_filename_hint(str(model_path or ""))
-    except Exception:
-        if model_path is None:
-            return False
-        name = str(model_path).lower()
-        return any(x in name for x in ("glm-", "glm_", "chatglm", "glm4", "glm-4"))
-
-
 def _is_thinking_model(model_path: Optional[Path] = None) -> bool:
-    """Heuristic: does the ACTUALLY-LOADED model emit a <think>…</think> reasoning block
-    by default? Name-based (Qwen3 family, DeepSeek-R1 / R1-distill, QwQ). Extend as new
-    reasoning families appear. Used to disable thinking on utility calls.
+    """Does this model default to a <think>…</think> channel?
 
-    Reads the LOADED model identity first — the live runtime override published when a
-    model is loaded — NOT settings/get_model_path(). The GUI can load one model (e.g. a
-    Qwen3 A3B) while settings.json still points at another (the 7B); using settings
-    misdetected the reasoning model as non-reasoning, so the no-think prefill never fired
-    and the A3B thought through every routing/summary/code budget → empty → fallback."""
+    Model-agnostic order: chat template → architecture default → behavior
+    retry elsewhere. Filename brand lists are intentionally unused so a renamed
+    GGUF still gets the correct no-think prefill on quick/utility calls.
+    """
+    from eli.cognition.model_identity import is_thinking_model as _think
     if model_path is not None:
-        name = str(model_path).lower()
-    else:
-        _ov = globals().get("_live_runtime_override") or globals().get("_live_runtime_params") or {}
-        name = str(_ov.get("model_name") or _ov.get("model_path") or "").lower()
-        if not name:
-            name = str(get_model_path() or "").lower()
-    return any(k in name for k in (
-        "qwen3", "deepseek-r1", "r1-distill", "qwq", "-r1-", "glm-4", "glm4", "ornith",
-    ))
+        try:
+            from eli.cognition.model_load_diagnostics import gguf_metadata, gguf_architecture
+            md = gguf_metadata(model_path) or {}
+            arch = gguf_architecture(model_path)
+            return _think(metadata=md, architecture=arch, path=model_path)
+        except Exception:
+            return _think(path=model_path)
+    md = _gguf_model_metadata()
+    return _think(metadata=md, path=_loaded_model_path_str())
 
 
 # Thread-local "force no-think" scope. Some large-budget calls (e.g. grounded-evidence
@@ -335,7 +329,7 @@ def _no_think_prefill(*, structured: bool, max_tokens) -> str:
     judge / summary / quick utility), and any call inside a `force_no_think()` scope. The
     MAIN answer call (large budget) keeps thinking unless ELI_MODEL_THINK=0. '' (no-op)
     for non-reasoning models or when thinking is wanted."""
-    _glm = _is_glm_model(None)
+    _glm = _is_glm_model()
     _closed_think = "<think>\n\n</think>\n\n"
     _open_think = "<think>\n\n"
     # Utility scopes (correction repair, routing, summaries) must suppress thinking
@@ -526,8 +520,16 @@ def _clean_eli_output(text: str) -> str:
         # Strip think + meta-commentary from the fallback too — NEVER surface raw
         # chain-of-thought just because the cleaned text came out empty (e.g. the
         # model spent its whole budget thinking).
+        from eli.cognition.model_output_tokens import (
+            contains_hard_cut_marker,
+            strip_special_tokens as _strip_fallback,
+        )
         raw_fallback = _strip_think_text(str(text or "")).strip()
         raw_fallback = re.sub(r'\s*\(Note:.*$', '', raw_fallback, flags=re.I | re.DOTALL).strip()
+        # Multimodal EOI floods (`<image|>` only) must stay empty — do not
+        # re-surface the marker via the empty-clean fallback.
+        if contains_hard_cut_marker(raw_fallback):
+            raw_fallback = _strip_fallback(raw_fallback)
         return raw_fallback if raw_fallback else ''
     return t.strip()
 
@@ -573,7 +575,18 @@ def _strip_think_stream(chunks):
 
 
 def _stream_clean_chunks(chunks):
-    """True streaming cleaner; hold only obvious role prefixes."""
+    """True streaming cleaner; hold only obvious role prefixes.
+
+    Head text gets a full clean. Mid-stream chunks only strip special/hard-cut
+    markers and MUST preserve whitespace — llama.cpp emits BPE pieces like
+    ``" "`` / ``" word"``, and calling ``.strip()`` on each chunk concatenates
+    English into ``Qwena3bMoelikelyoperates…``.
+    """
+    from eli.cognition.model_output_tokens import (
+        contains_hard_cut_marker,
+        strip_special_tokens,
+    )
+
     head_buffer = ""
     started = False
     max_head = 80
@@ -584,15 +597,35 @@ def _stream_clean_chunks(chunks):
         "ai", "ai:",
     }
 
+    def _mid_sanitize(raw: str) -> str:
+        if contains_hard_cut_marker(raw):
+            return strip_special_tokens(raw, strip_edges=False)
+        # Fast path: most chunks have no scaffolding — keep bytes intact.
+        if "<" not in raw and "[" not in raw:
+            return raw
+        return strip_special_tokens(raw, strip_edges=False)
+
     for chunk in chunks:
         raw = chunk.get("response", "") if isinstance(chunk, dict) else str(chunk or "")
         if not raw:
             continue
         if started:
-            yield {"response": raw}
+            if contains_hard_cut_marker(raw):
+                cleaned = _mid_sanitize(raw)
+                if cleaned:
+                    yield {"response": cleaned}
+                return
+            cleaned = _mid_sanitize(raw)
+            if cleaned:
+                yield {"response": cleaned}
             continue
         head_buffer += raw
         log.debug(f"[GGUF][RAW_HEAD] {head_buffer[:400]!r}")
+        if contains_hard_cut_marker(head_buffer):
+            cleaned = _clean_eli_output(head_buffer)
+            if cleaned:
+                yield {"response": cleaned}
+            return
         stripped = head_buffer.strip().lower()
         if stripped in possible_prefixes and len(head_buffer) < max_head:
             continue
@@ -603,8 +636,10 @@ def _stream_clean_chunks(chunks):
             continue
         if len(head_buffer) >= max_head:
             started = True
-            fallback = re.sub(r"^\s*(?:ELI|Assistant|AI)\s*:\s*", "", head_buffer, flags=re.I).strip()
-            if fallback:
+            fallback = re.sub(r"^\s*(?:ELI|Assistant|AI)\s*:\s*", "", head_buffer, flags=re.I)
+            # Preserve interior whitespace; only trim role-label leftovers.
+            fallback = strip_special_tokens(fallback, strip_edges=False)
+            if fallback.strip():
                 yield {"response": fallback}
 
     if not started and head_buffer:
@@ -822,17 +857,25 @@ def load_model(force_reload: bool = False):
 
     n_threads = _env_int("ELI_GGUF_THREADS", None)
     if n_threads is None:
-        n_threads = _as_int(_runtime_value(settings, "cpu_threads", "n_threads"), os.cpu_count() or 4)
+        _nt_default = os.cpu_count() or 4
+        try:
+            from eli.core.hardware_profile import (
+                detect_hardware as _nthw,
+                recommend_cpu_threads as _ntrct,
+                effective_use_gpu_layers as _nteugl,
+            )
+            _hw_nt = _nthw()
+            _nt_default = _ntrct(
+                int(getattr(_hw_nt, "cpu_threads", _nt_default) or _nt_default),
+                cpu_bound=not _nteugl(_hw_nt),
+            )
+        except Exception:
+            pass
+        n_threads = _as_int(_runtime_value(settings, "cpu_threads", "n_threads"), _nt_default)
 
-    # Size the text model DYNAMICALLY to the VRAM that is ACTUALLY free right now
-    # — after any co-resident vision / embedder / required models are resident —
-    # instead of trusting a persisted (and quickly stale) gpu_layers number. ctx is
-    # anchored at the user's value (default 16384) and reduced only as a last
-    # resort; GPU layers then FILL whatever VRAM remains. This is why layers must
-    # not be a fixed 1/7/10: the right count depends on live free VRAM, the model,
-    # the ctx, and what else is loaded — all per-boot. Runs on every load (not just
-    # co-resident vision). Per-model, per-machine. Opt out with ELI_GGUF_SMART_FIT=0;
-    # skips cleanly if no GPU / no model path.
+    # Size the text model DYNAMICALLY to live free VRAM (GPU) or available RAM
+    # (CPU / iGPU without an active offload backend) instead of trusting a stale
+    # gpu_layers number. Opt out with ELI_GGUF_SMART_FIT=0.
     _smart_fit_on = str(os.environ.get("ELI_GGUF_SMART_FIT", "1")).strip().lower() not in (
         "0", "false", "no", "off",
     )
@@ -841,36 +884,68 @@ def load_model(force_reload: bool = False):
             from eli.core.startup_hardware_optimizer import (
                 detect_nvidia_gpus as _sf_dng, select_gpu as _sf_sg,
                 train_ctx_for_model as _sf_tc,
+                cpu_ctx_ceiling_from_ram as _sf_ceil,
             )
             from eli.core.hardware_profile import (
                 detect_hardware as _sf_hw,
                 unified_fit_config as _sf_fit,
+                effective_use_gpu_layers as _sf_eugl,
             )
+            _hw = _sf_hw()
+            _mp = _runtime_value(settings, "model_path", "model") or model_path or ""
             _sf_gpu = _sf_sg(_sf_dng())
-            _mp = _runtime_value(settings, "model_path", "model") or ""
-            if _sf_gpu and _sf_gpu.free_mb > 0 and _mp and os.path.exists(str(_mp)):
+            _use_gpu = bool(
+                _sf_gpu and int(getattr(_sf_gpu, "free_mb", 0) or 0) > 0
+                and _sf_eugl(_hw)
+            )
+            if _mp and os.path.exists(str(_mp)):
                 _mgb = os.path.getsize(str(_mp)) / (1024 ** 3)
                 _frac = float(os.environ.get("ELI_CTX_FRACTION", "0.9") or "0.9")
-                from eli.core.hardware_profile import vram_reserve_mb as _vrm
-                _res = int(_vrm())
-                _kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
                 _want = max(2048, (int(int(_sf_tc(str(_mp))) * _frac) // 2048) * 2048)
                 _min_batch = int(os.environ.get("ELI_MIN_BATCH", "128") or "128")
-                _hw = _sf_hw()
-                _fc, _fl, _fb = _sf_fit(
-                    _mgb, _sf_gpu.free_mb, _hw.available_ram_gb,
-                    user_ctx=min(int(n_ctx), _want),
-                    user_batch=max(int(n_batch), _min_batch), reserve_mb=_res,
-                    kv_quantized=_kvq, min_batch=_min_batch,
-                    model_path=str(model_path),
-                    gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)),
-                )
-                log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
-                          f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "
-                          f"layers {n_gpu_layers}->{_fl} batch {n_batch}->{_fb}")
-                n_ctx, n_gpu_layers, n_batch = _fc, _fl, _fb
+                if _use_gpu:
+                    from eli.core.hardware_profile import vram_reserve_mb as _vrm
+                    _res = int(_vrm(gpu_integrated=bool(getattr(_hw, "gpu_integrated", False))))
+                    _kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
+                    _fc, _fl, _fb = _sf_fit(
+                        _mgb, _sf_gpu.free_mb, _hw.available_ram_gb,
+                        user_ctx=min(int(n_ctx), _want),
+                        user_batch=max(int(n_batch), _min_batch), reserve_mb=_res,
+                        kv_quantized=_kvq, min_batch=_min_batch,
+                        model_path=str(_mp),
+                        gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)),
+                    )
+                    log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
+                              f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "
+                              f"layers {n_gpu_layers}->{_fl} batch {n_batch}->{_fb}")
+                    n_ctx, n_gpu_layers, n_batch = _fc, _fl, _fb
+                else:
+                    _kvq = bool(float(getattr(_hw, "ram_gb", 0) or 0) <= 16.0)
+                    try:
+                        _ceil = int(_sf_ceil(_mgb, int(_sf_tc(str(_mp)) or 0)) or 0)
+                    except Exception:
+                        _ceil = 0
+                    _user_ctx = min(int(n_ctx), _want)
+                    if _ceil > 0:
+                        _user_ctx = min(_user_ctx, _ceil)
+                    _fc, _fl, _fb = _sf_fit(
+                        _mgb, 0, _hw.available_ram_gb,
+                        user_ctx=_user_ctx,
+                        user_batch=min(max(int(n_batch), _min_batch), 128),
+                        reserve_mb=512,
+                        kv_quantized=_kvq, min_batch=min(_min_batch, 128),
+                        model_path=str(_mp),
+                        force_cpu=True,
+                    )
+                    log.debug(
+                        f"[GGUF] RAM smart-fit (available={_hw.available_ram_gb:.1f}GB "
+                        f"kvq={_kvq}): ctx {n_ctx}->{_fc} layers→0 "
+                        f"batch {n_batch}->{_fb}"
+                    )
+                    n_ctx, n_gpu_layers, n_batch = int(_fc), 0, min(128, int(_fb))
         except Exception as _sf_err:
             log.debug(f"[GGUF] smart-fit skipped: {_sf_err}")
+
 
     def _boolish(v, default=False):
         if v is None or v == "":
@@ -903,6 +978,14 @@ def load_model(force_reload: bool = False):
             gpu_offload_supported = bool(_supports_fn())
     except Exception:
         gpu_offload_supported = None
+    if gpu_offload_supported is False:
+        try:
+            from eli.core.gpu_pack_runtime import trust_vulkan_igpu_offload
+            if trust_vulkan_igpu_offload():
+                gpu_offload_supported = True
+                log.debug("[GGUF][GPU] trusting Vulkan iGPU pack despite offload flag=False")
+        except Exception:
+            log.debug("vulkan igpu offload trust probe failed", exc_info=True)
 
     effective_n_gpu_layers = int(n_gpu_layers)
     if requested_n_gpu_layers > 0 and gpu_offload_supported is False:
@@ -1102,23 +1185,15 @@ def load_model(force_reload: bool = False):
 
 
 def _format_prompt(system: Optional[str], user: str) -> str:
-    """Format a prompt using the model-appropriate chat template."""
+    """Format a prompt using the model-appropriate chat template.
+
+    Family resolution is model-agnostic: embedded ``tokenizer.chat_template``
+    → ``general.architecture`` → filename last resort.
+    """
     system = (system or "").strip()
     user = (user or "").strip()
     model_path = get_model_path()
-
-    # Prefer the model's OWN embedded chat template (future-proof for any model);
-    # fall back to filename heuristics, then the generic format.
-    fam = _gguf_template_family()
-    if fam is None:
-        if _is_glm_model(model_path):
-            fam = "glm"
-        elif _is_chatml_model(model_path):
-            fam = "chatml"
-        elif _is_llama_model(model_path):
-            fam = "llama"
-        elif _is_mistral_model(model_path):
-            fam = "mistral"
+    fam = _resolve_family_for_loaded(path=model_path)
 
     # GLM / ChatGLM — [gMASK]<|system|>…<|user|>…<|assistant|> (must precede phi)
     if fam == "glm":
@@ -1553,17 +1628,8 @@ def _generate_legacy(
 
     stop = stop or []
 
-    fam = _gguf_template_family()
+    fam = _resolve_family_for_loaded(path=get_model_path())
     _mp = get_model_path()
-    if fam is None:
-        if _is_glm_model(_mp):
-            fam = "glm"
-        elif _is_chatml_model(_mp):
-            fam = "chatml"
-        elif _is_llama_model(_mp):
-            fam = "llama"
-        elif _is_mistral_model(_mp):
-            fam = "mistral"
 
     try:
         from eli.cognition.model_output_tokens import stop_tokens_for_family
@@ -1620,11 +1686,16 @@ def _generate_legacy(
         # A reasoning model can spend its whole budget inside <think> → the stream strips to
         # nothing → dead turn. (The broker handles this for non-stream calls; the streaming
         # main-answer path doesn't go through it.) Retry ONCE forcing no-think so it answers.
-        if (not _streamed_any) and _is_thinking_model() and not _force_no_think_active() and grammar is None:
-            log.debug("[GGUF] empty stream after think-strip — one no-think retry")
+        if (not _streamed_any) and (not _force_no_think_active()) and grammar is None:
+            # Retry even when the name heuristic missed a thinking model (TwIL /
+            # SmolLM3 thought for 35s with zero visible tokens because
+            # `_is_thinking_model` only knew Qwen3/R1 names).
+            log.debug("[GGUF] empty stream — one no-think retry")
             try:
                 with force_no_think():
-                    _rp = _format_prompt(system, prompt) + _no_think_prefill(structured=False, max_tokens=max_tokens)
+                    _rp = _format_prompt(system, prompt) + _no_think_prefill(
+                        structured=False, max_tokens=max_tokens
+                    )
                     _r = _safe_invoke_llm(
                         llm, _rp, temperature=temperature, max_tokens=min(int(max_tokens or 512), 512),
                         top_p=top_p, top_k=top_k, repeat_penalty=repeat_penalty, stop=stop,
@@ -1951,6 +2022,40 @@ def reload_model(*, await_completion: bool = True) -> Dict[str, Any]:
         "params": {},
     }
     try:
+        # Settings save writes model_path to disk, but get_model_path() prefers
+        # ELI_GGUF_MODEL_PATH. The GUI/startup load pins that env to the *previous*
+        # model, so a settings swap would "reload" the same GGUF forever unless
+        # we re-publish env from the just-saved settings before load_model().
+        try:
+            from eli.core.runtime_settings import (
+                load_settings_from_disk as _rs_disk,
+                apply_env as _rs_apply_env,
+            )
+            _disk = _rs_disk()
+            _prev_path = str(
+                (globals().get("_live_runtime_params") or {}).get("model_path")
+                or (globals().get("_live_runtime_override") or {}).get("model_path")
+                or os.environ.get("ELI_GGUF_MODEL_PATH")
+                or ""
+            )
+            _rs_apply_env(_disk)
+            _new_path = str(
+                (_disk or {}).get("model_path")
+                or (_disk or {}).get("custom_model_path")
+                or (_disk or {}).get("bundled_model_path")
+                or ""
+            ).strip()
+            # Different weights → drop last-known-good ctx/gpu (sized for the old file).
+            if _new_path and _prev_path:
+                from eli.core.paths import resolve_runtime_path as _rrp
+                try:
+                    if _rrp(_new_path).resolve() != _rrp(_prev_path).resolve():
+                        clear_live_runtime_override()
+                except Exception:
+                    clear_live_runtime_override()
+        except Exception:
+            log.debug("[GGUF] reload env sync skipped", exc_info=True)
+
         with _LLM_CALL_LOCK:
             unload_model()
             llm = load_model(force_reload=True)

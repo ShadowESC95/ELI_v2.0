@@ -35,6 +35,21 @@ SPECIAL_OUTPUT_TOKENS: Tuple[str, ...] = (
     "<end_of_turn>",
     "<|end_of_turn|>",
     "<end_of_turn>",
+    # Gemma 4 / multimodal — EOI and image placeholders leak as plain text
+    # when the chat template is text-only (adelic-gemma4, gemma-4-E4B, …).
+    "<image|>",
+    "<|image|>",
+    "<|image|",
+    "</image|>",
+    "<|eoi|>",
+    "<eoi>",
+    "<|media|>",
+    "<media|>",
+    "<|audio|>",
+    "<audio|>",
+    # Thinking / channel markers some Gemma builds emit mid-stream
+    "</think>",
+    "<think>",
     # GLM / ChatGLM
     "[gMASK]",
     "<sop>",
@@ -66,6 +81,27 @@ _SPECIAL_OUTPUT_RES: Tuple[re.Pattern[str], ...] = (
     re.compile(r"</?end_of_turn>", re.I),
     re.compile(r"<\|im_(?:start|end)\|>", re.I),
     re.compile(r"<\|(?:redacted_)?(?:start|end)_header_id\|>", re.I),
+    # Multimodal EOI / image placeholders (Gemma 4 and siblings)
+    re.compile(r"</?(?:image|media|audio)\|?>", re.I),
+    re.compile(r"<\|(?:image|media|audio|eoi)\|?>", re.I),
+    re.compile(r"</?think>", re.I),
+)
+
+# Hard cut markers: anything at/after these is discarded (not just stripped).
+# Multimodal models often emit dozens of `<image|>` tokens once they leave
+# the text channel — keeping a truncated prefix is the only safe UX.
+_HARD_CUT_MARKERS: Tuple[str, ...] = (
+    "<image|>",
+    "<|image|>",
+    "<|image|",
+    "</image|>",
+    "<|eoi|>",
+    "<eoi>",
+    "<|media|>",
+    "<media|>",
+    "<|audio|>",
+    "<audio|>",
+    "</think>",
 )
 
 # ── Stop sequences (generation) ──────────────────────────────────────────────
@@ -85,7 +121,15 @@ FAMILY_STOP_TOKENS: dict[str, Tuple[str, ...]] = {
     "chatml": ("<|im_end|>",),
     "llama": ("<|eot_id|>", "<|end_of_text|>", "<|start_header_id|>"),
     "mistral": ("</s>", "[INST]", "[/INST]"),
-    "gemma": ("<end_of_turn>", "<start_of_turn>"),
+    "gemma": (
+        "<end_of_turn>",
+        "<start_of_turn>",
+        "<image|>",
+        "<|image|>",
+        "<|eoi|>",
+        "<eoi>",
+        "</think>",
+    ),
     "phi": ("<|end|>",),
     "glm": ("<|observation|>", "[gMASK]", "<|endoftext|>"),
 }
@@ -153,15 +197,34 @@ def detect_template_family_from_embedded(template: str) -> Optional[str]:
 
 
 def glm_filename_hint(path: str) -> bool:
-    name = str(path or "").lower()
-    return any(x in name for x in ("glm-", "glm_", "chatglm", "glm4", "glm-4", "glm."))
+    """Deprecated: use ``model_identity.is_glm_model`` (template/arch first)."""
+    try:
+        from eli.cognition.model_identity import is_glm_model
+        return is_glm_model(path=path)
+    except Exception:
+        name = str(path or "").lower()
+        return any(x in name for x in ("glm-", "glm_", "chatglm", "glm4", "glm-4", "glm."))
 
 
-def strip_special_tokens(text: str) -> str:
-    """Remove chat-template scaffolding from model output (all families)."""
+def strip_special_tokens(text: str, *, strip_edges: bool = True) -> str:
+    """Remove chat-template scaffolding from model output (all families).
+
+    ``strip_edges=False`` keeps leading/trailing whitespace — required when
+    cleaning individual streamed BPE chunks so a lone ``" "`` or ``" word"``
+    is not destroyed by ``.strip()``.
+    """
     t = str(text or "")
     if not t:
         return ""
+    # Multimodal / thinking channel leaks: keep only content BEFORE the first
+    # hard-cut marker so a flood of `<image|>` never reaches the chat UI.
+    cut_at = -1
+    for marker in _HARD_CUT_MARKERS:
+        idx = t.find(marker)
+        if idx >= 0 and (cut_at < 0 or idx < cut_at):
+            cut_at = idx
+    if cut_at >= 0:
+        t = t[:cut_at]
     # Next-turn markers: keep only content BEFORE a leaked user/system turn.
     for marker in ("<|user|>", "<|system|>", "<|observation|>",
                    "<|im_start|>", "<start_of_turn>", "[INST]"):
@@ -183,7 +246,15 @@ def strip_special_tokens(text: str) -> str:
         t = next((p for p in reversed(parts) if p.strip()), t)
     # Strip leaked ChatML role lines
     t = re.sub(r"^(?:system|user|assistant)\n", "", t, flags=re.I)
-    return t.strip()
+    return t.strip() if strip_edges else t
+
+
+def contains_hard_cut_marker(text: str) -> bool:
+    """True when text contains a multimodal/thinking channel leak marker."""
+    t = str(text or "")
+    if not t:
+        return False
+    return any(m in t for m in _HARD_CUT_MARKERS)
 
 
 def stop_tokens_for_family(
