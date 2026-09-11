@@ -1,4 +1,4 @@
-﻿# Build ELI v2 Windows Setup.exe (Inno Setup) from the lean portable zip.
+# Build ELI v2 Windows Setup.exe (Inno Setup) from the lean portable zip.
 # Run ON WINDOWS with Inno Setup 6 installed (iscc.exe on PATH).
 #
 #   powershell -ExecutionPolicy Bypass -File packaging\windows\build-windows.ps1 -Version 2.0.9
@@ -66,7 +66,7 @@ if exist "%~dp0.venv\Scripts\python.exe" (
     exit /b 1
   )
 ) else (
-  echo Setup finished but .venv is missing — re-run ELI_Setup.bat.
+  echo Setup finished but .venv is missing - re-run ELI_Setup.bat.
   pause
   exit /b 1
 )
