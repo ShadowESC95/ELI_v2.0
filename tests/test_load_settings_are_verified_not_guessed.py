@@ -67,14 +67,24 @@ def loader_src():
 
 # ── the settings go in untouched ───────────────────────────────────────────
 def test_the_request_is_queued_verbatim(loader_src):
-    """No clamp, no substitution: the operator's own three numbers."""
+    """No clamp, no substitution: the operator's own three numbers.
+
+    Two sites are intentional: GPU offload queues the real layer count first;
+    CPU-only machines queue layers=0 as a later fallback so RAM fit still leads.
+    """
     code = _code(loader_src)
-    m = re.search(r'_add_attempt\("requested",\s*([^)]*)\)', code)
-    assert m, "requested attempt not found"
-    args = m.group(1)
-    assert "_base_ctx" in args and "_base_layers" in args and "_base_batch" in args
+    gpu = re.search(
+        r'_add_attempt\("requested",\s*(_base_ctx,\s*_base_layers,\s*_base_batch[^)]*)\)',
+        code,
+    )
+    cpu = re.search(
+        r'_add_attempt\("requested",\s*(_base_ctx,\s*0,\s*_base_batch[^)]*)\)',
+        code,
+    )
+    assert gpu, "GPU requested attempt not found"
+    assert cpu, "CPU-only requested fallback not found"
     for calculated in ("_sf_ctx", "_sf_layers", "_sf_batch", "_req_layers", "_sf_fit_layers"):
-        assert calculated not in args, \
+        assert calculated not in gpu.group(1), \
             f"the request is being replaced with {calculated}"
 
 
@@ -359,11 +369,32 @@ def test_the_probe_is_announced_before_it_blocks():
         "the probe still blocks startup with nothing on screen"
 
 
-def test_the_timeout_is_a_wait_an_operator_would_tolerate():
+def test_the_timeout_is_a_wait_an_operator_would_tolerate(tmp_path, monkeypatch):
+    """Bounded, and still quick for the models most people run.
+
+    This asserted a single flat ``_DEFAULT_TIMEOUT_S <= 90``. A flat budget is what
+    made a 8.89GB model structurally unprovable — the probe cold-loads the weights
+    and prefills ~45% of the window, so 30s could not cover it under any conditions
+    and the operator's GPU layers lost to the fallback on every launch. The budget
+    now scales with that work. The principle behind the test is unchanged and still
+    enforced: a typical model must not block startup, and nothing blocks unbounded.
+    """
     from eli.core import load_probe as lp
 
-    assert lp._DEFAULT_TIMEOUT_S <= 90, \
-        "a startup probe must not block for minutes"
+    monkeypatch.delenv("ELI_LOAD_PROBE_TIMEOUT", raising=False)
+
+    # A sparse file: real st_size, no real bytes on disk, and no patching of
+    # Path.stat (which pytest itself calls while building tracebacks).
+    typical = tmp_path / "typical-4gb.gguf"
+    with open(typical, "wb") as fh:
+        fh.truncate(int(4.0 * 1024 ** 3))
+    assert lp.probe_timeout_for(str(typical), 8192) <= 90, \
+        "a typical model's probe must not block startup"
+
+    assert lp._TIMEOUT_CEILING_S <= 180, \
+        "no probe may block for more than a few minutes"
+    assert lp._TIMEOUT_FLOOR_S >= 30, \
+        "a probe too short to ever finish condemns settings it never tested"
 
 
 def test_an_external_termination_is_not_a_verdict(monkeypatch, tmp_path):

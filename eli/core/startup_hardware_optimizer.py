@@ -444,12 +444,27 @@ def estimate_layers(model_gb: float, model_path: str = "") -> int:
 
 
 def layer_mb(model_gb: float, layers: int) -> float:
-    return 999999.0 if layers <= 0 else (model_gb * 1024.0) / layers
+    """VRAM per offloaded layer — the loader's divisor, not a second opinion.
+
+    ``+ 2`` covers the embedding and output tensors, which also land in VRAM;
+    dividing by the block count alone over-states each layer and under-offloads.
+    Mirrors ``hardware_profile._fit_needed_mb``.
+    """
+    return 999999.0 if layers <= 0 else (model_gb * 1024.0) / max(1, layers + 2)
 
 
-def kv_cache_mb(n_ctx: int, layers: int) -> float:
-    # q4 KV approximation.
-    return (n_ctx * layers * 1024) / 1048576.0
+def kv_cache_mb(n_ctx: int, layers: int, quant: bool = True) -> float:
+    """KV-cache cost, delegated to the one measurement the loader uses.
+
+    This was a local ``n_ctx * layers * 1024 / 1MiB`` "q4 approximation" while
+    ``hardware_profile._kv_cache_mb`` used 6000 B/token/layer (1500 at q4) — a 46%
+    under-estimate on the same numbers. Because ``allocate()`` powers the live-tuner
+    rung of the load ladder and the startup profile artifact, the tuner and the
+    loader reported different ctx/GPU-layer answers for one machine at one moment,
+    which is the "three different numbers" the operator kept seeing.
+    """
+    from eli.core.hardware_profile import _kv_cache_mb
+    return _kv_cache_mb(int(n_ctx), int(layers), quant=bool(quant))
 
 
 def round_ctx(raw: int) -> int:

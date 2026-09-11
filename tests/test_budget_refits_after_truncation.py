@@ -110,11 +110,18 @@ def test_the_stream_path_also_refits_after_truncation():
 
 
 def test_the_stream_path_keeps_head_and_tail():
+    """History is trimmed first; when that is not enough, head+tail of the system
+    prompt is kept. The inline block used to hold this; it now lives in
+    ``_trim_enhanced_system_for_stream`` so situation-brief / anti-repeat are
+    not gutted by a middle cut.
+    """
     code = _engine_code()
-    refit = code.index("Stream budget re-fitted after truncation")
-    block = code[refit - 1200:refit]
-    assert "context trimmed to fit the model" in block
-    assert "enhanced_system[:_head]" in block
+    assert "_trim_enhanced_system_for_stream" in code
+    helper = code[code.index("def _trim_enhanced_system_for_stream"):]
+    helper = helper[: helper.index("\n    def ", 1)]
+    assert "context trimmed to fit the model" in helper
+    assert "enhanced_system[:_head]" in helper or "text[:_head]" in helper
+    assert "CONVERSATION HISTORY" in helper
 
 
 def test_an_explicit_request_is_still_respected():

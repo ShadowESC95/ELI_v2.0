@@ -515,6 +515,120 @@ def _gpu_vendor_flags(hp) -> tuple[bool, bool, bool]:
     return nvidia, vulkan, intel_igpu
 
 
+def _verify_cpu_runtime() -> None:
+    """Prove llama-cpp STARTS on this CPU before the GUI imports it.
+
+    Source installs measure ``llama_backend_init()`` and rebuild when a prebuilt
+    wheel's CPU backend is too new for the chip (install.sh / install.ps1). Frozen
+    builds had no equivalent: the bundled ``libggml-cpu`` assumes AVX-VNNI-era
+    instructions, ``import llama_cpp`` succeeds, and the process is then killed by
+    SIGILL inside ``ggml_cpu_init()`` — from the user's side, the AppImage or the
+    .exe simply vanishes with no window and no message.
+
+    A frozen app cannot pip-install a replacement, but it has one lever the source
+    path does not: an active GPU pack is the usual source of the too-new binary, and
+    dropping it falls back to the bundled runtime. So: measure, retry once without
+    the pack, and if it still cannot start, SAY SO instead of dying silently.
+
+    Runs in a subprocess for the same reason load_probe does — a process cannot
+    survive its own SIGILL, but it can watch a child take one.
+    """
+    if not getattr(sys, "frozen", False):
+        return
+    if os.environ.get("ELI_SKIP_CPU_RUNTIME_CHECK", "").strip().lower() in ("1", "true", "yes"):
+        return
+
+    # The check costs a process spawn plus a backend init, so it is paid ONCE per
+    # runtime rather than on every launch. The marker is invalidated whenever the
+    # GPU pack changes, because swapping the pack swaps the native binary this is
+    # asserting about.
+    ok_marker = None
+    try:
+        from eli.core.paths import project_root
+        runtime_dir = Path(project_root()) / "runtime"
+        ok_marker = runtime_dir / ".cpu_runtime_ok"
+        pack_marker = runtime_dir / "gpu" / ".gpu_pack_ok"
+        if ok_marker.is_file():
+            fresh = (
+                not pack_marker.is_file()
+                or pack_marker.stat().st_mtime <= ok_marker.stat().st_mtime
+            )
+            if fresh:
+                return
+    except Exception:
+        print("[cpu-check] could not read the cached runtime verdict; re-measuring")
+
+    try:
+        from eli.core.llama_cpu_compat import runtime_smoke_test
+    except Exception:
+        # The check itself is unavailable; that is no evidence against the CPU.
+        print("[cpu-check] llama_cpu_compat unavailable — skipping runtime probe")
+        return
+
+    ok, detail = runtime_smoke_test()
+    if ok:
+        if ok_marker is not None:
+            try:
+                ok_marker.parent.mkdir(parents=True, exist_ok=True)
+                ok_marker.write_text("llama_backend_init ok\n", encoding="utf-8")
+            except Exception:
+                print("[cpu-check] could not cache the runtime verdict")
+        return
+    print(f"[cpu-check] llama-cpp runtime did not start: {detail}")
+
+    # An active GPU pack shadows the bundled runtime and is the most likely source
+    # of a binary built for a newer CPU. Retry with the pack switched OFF.
+    #
+    # It has to be the ENV switch, not deactivate_gpu_pack(): that clears sys.path
+    # and sys.modules in THIS process, while the smoke test measures a CHILD, whose
+    # runtime hook would re-activate the pack from disk and reproduce the same
+    # crash. ELI_DISABLE_GPU_PACK is read by the hook, so the child inherits it.
+    if not os.environ.get("ELI_DISABLE_GPU_PACK"):
+        os.environ["ELI_DISABLE_GPU_PACK"] = "1"
+        ok, detail = runtime_smoke_test()
+        if ok:
+            print("[cpu-check] bundled runtime starts once the GPU pack is disabled")
+            # Persist it, or every launch pays the same crash and retry.
+            try:
+                from eli.core.paths import project_root
+                _rt = Path(project_root()) / "runtime"
+                _rt.mkdir(parents=True, exist_ok=True)
+                (_rt / ".gpu_choice").write_text(
+                    "cpu (GPU pack failed this CPU)\n", encoding="utf-8")
+                (_rt / ".cpu_runtime_ok").write_text(
+                    "bundled runtime ok; GPU pack rejected by this CPU\n", encoding="utf-8")
+            except Exception:
+                print("[cpu-check] could not persist the CPU choice for next launch")
+            try:
+                _message_box_warning(
+                    "GPU acceleration disabled",
+                    "The downloaded GPU pack was built for a newer processor than "
+                    "this one and could not start.\n\n"
+                    "ELI has switched to the bundled CPU runtime and will keep "
+                    "working. Replies will be slower.",
+                )
+            except Exception:
+                print("[cpu-check] could not show the GPU pack notice")
+            return
+        # The pack was not the problem — do not leave it disabled.
+        os.environ.pop("ELI_DISABLE_GPU_PACK", None)
+
+    try:
+        _message_box_warning(
+            "This processor is not supported by the bundled runtime",
+            "ELI's inference engine could not start on this CPU:\n\n"
+            f"{detail}\n\n"
+            "The bundled build needs instructions this processor does not have. "
+            "ELI will open, but it cannot load a model until a compatible runtime "
+            "is installed.\n\n"
+            "Install from source on this machine (install.sh / install.ps1 build a "
+            "runtime tuned to this CPU), or run ELI in server mode against another "
+            "machine on your network.",
+        )
+    except Exception:
+        print("[cpu-check] could not show the unsupported-CPU notice")
+
+
 def _first_run_gpu_offer() -> None:
     """First-launch GPU chooser (frozen GUI builds, Windows/Linux).
 
@@ -680,6 +794,7 @@ if __name__ == "__main__":
         sys.exit(_uninstall())
     else:
         _first_run_gpu_offer()
+        _verify_cpu_runtime()
         _first_run_model_offer()
         _first_run_integrate_offer()
         from eli.gui.app import main

@@ -10,6 +10,15 @@ from pathlib import Path
 
 from eli.core.paths import config_dir, models_dir, project_root
 from eli.core.runtime_settings import _settings_file, load_settings, save_settings
+# KV-cache math and CUDA overhead are imported, not restated. This module used to
+# carry its own copy of the constants and the formula, kept "in sync by hand" with a
+# comment — the arrangement that let a third copy in startup_hardware_optimizer.py
+# drift to a different constant without anything failing.
+from eli.core.hardware_profile import (
+    _CUDA_OVERHEAD_MB,
+    _KV_BYTES_PER_TOKEN_PER_LAYER,
+    _kv_cache_mb,
+)
 
 
 from eli.utils.log import get_logger
@@ -101,14 +110,6 @@ def _model_size_category(size_bytes: int) -> str:
     return "large"
 
 
-# KV-cache overhead constants (same as hardware_profile.py)
-_KV_BYTES_PER_TOKEN_PER_LAYER = 6_000
-_CUDA_OVERHEAD_MB = 350
-
-
-def _kv_cache_mb(n_ctx: int, n_layers: int = 32, quant: bool = False) -> float:
-    raw = n_ctx * n_layers * _KV_BYTES_PER_TOKEN_PER_LAYER / 1_048_576
-    return raw / 4 if quant else raw
 
 
 def _auto_tune(model_path: Path, hw: dict) -> dict:

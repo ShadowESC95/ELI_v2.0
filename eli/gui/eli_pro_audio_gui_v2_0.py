@@ -1311,12 +1311,17 @@ class LocalModelManager:
                     # Say so BEFORE blocking. Shipped without this line, a live
                     # 2.2.8 launch sat on "attempt 1/13" for three and a half
                     # minutes with nothing on screen, and looked hung.
+                    try:
+                        from eli.core.load_probe import probe_timeout_for as _lp_budget
+                        _probe_budget = _lp_budget(str(path_obj), int(_cand["n_ctx"]))
+                    except Exception:
+                        log.debug("[GUI][LOAD] probe budget lookup failed", exc_info=True)
+                        _probe_budget = 30.0
                     log.info(
                         f"[GUI][LOAD] verifying your settings on this machine "
                         f"(ctx={_cand['n_ctx']} gpu_layers={_cand['n_gpu_layers']} "
                         f"batch={_cand['n_batch']}) — up to "
-                        f"{int(float(os.environ.get('ELI_LOAD_PROBE_TIMEOUT', '') or 30))}s "
-                        f"this once, then remembered…")
+                        f"{_probe_budget:.0f}s this once, then remembered…")
                     try:
                         from eli.core import load_probe as _lp
                         _verdict, _why = _lp.probe_verdict(

@@ -1014,11 +1014,21 @@ def _eli_cognition_pipeline_v2(focus: str = "", question: str = "") -> str:
     except Exception:
         log.debug("inference runtime block unavailable", exc_info=True)
 
-    # A question about the inference runtime gets the NUMBERS, not a code map.
-    if runtime_block and focus_l == "inference_runtime":
+    # A question about the inference runtime leads with the NUMBERS, then keeps
+    # the architecture description — both are required. Returning only the
+    # footprint (v2.4.16) dropped "Cognition pipeline" / Router from reports that
+    # the tests and the operator rely on when asking how ELI works at runtime.
+    if focus_l == "inference_runtime":
+        parts = []
+        if runtime_block:
+            parts.append(runtime_block)
         if format_inference_footprint_report:
-            return runtime_block + "\n\n" + format_inference_footprint_report(question=question)
-        return runtime_block + "\n\n" + _COGNITION_PIPELINE_TEXT
+            try:
+                parts.append(format_inference_footprint_report(question=question))
+            except Exception:
+                log.debug("inference footprint unavailable", exc_info=True)
+        parts.append(_COGNITION_PIPELINE_TEXT)
+        return "\n\n".join(p for p in parts if p)
 
     return ((runtime_block + "\n\n") if runtime_block else "") + _COGNITION_PIPELINE_TEXT
 

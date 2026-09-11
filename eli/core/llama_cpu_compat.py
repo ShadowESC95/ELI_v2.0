@@ -76,18 +76,38 @@ def cpu_supports_prebuilt_llama_wheel() -> bool:
 
 
 def safe_source_cmake_flags() -> str:
-    """Portable CPU baseline for source builds (never -march=native)."""
-    flags = _linux_cpu_flags()
-    if flags:
-        if "avx2" in flags:
-            march = "x86-64-v3"
-        elif "sse4_2" in flags:
-            march = "x86-64-v2"
+    """Portable CPU baseline for source builds (never -march=native).
+
+    Architecture-aware: ``-march=x86-64*`` is an x86 spelling, and emitting it on
+    aarch64 hands the compiler a flag it rejects, failing the build outright. Apple
+    clang rejects ``-march=`` for arm64 entirely, so Darwin gets no ISA flag. Must
+    stay in step with ``install.sh:_llama_safe_cpu_cmake_flags``.
+    """
+    machine = (platform.machine() or "").lower()
+
+    if sys.platform == "darwin":
+        return "-DGGML_NATIVE=OFF"
+
+    if machine in ("x86_64", "amd64"):
+        flags = _linux_cpu_flags()
+        if flags:
+            if "avx2" in flags:
+                march = "x86-64-v3"
+            elif "sse4_2" in flags:
+                march = "x86-64-v2"
+            else:
+                march = "x86-64"
         else:
-            march = "x86-64"
+            # Conservative default when /proc/cpuinfo is unavailable.
+            march = "x86-64-v2"
+    elif machine in ("aarch64", "arm64"):
+        march = "armv8-a"
+    elif machine in ("armv7l", "armv7", "armhf"):
+        march = "armv7-a"
     else:
-        # Conservative default when /proc/cpuinfo is unavailable.
-        march = "x86-64-v2"
+        # Unknown or niche (ppc64le, riscv64, s390x): portable build, no ISA flag.
+        return "-DGGML_NATIVE=OFF"
+
     return (
         f"-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march={march} "
         f"-DCMAKE_CXX_FLAGS=-march={march}"

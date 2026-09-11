@@ -185,6 +185,11 @@ def test_the_calculated_fit_is_still_the_fallback():
 
 
 def test_requested_is_queued_once_not_twice():
-    """It moved; the old call site had to go, or the ladder carries a duplicate."""
+    """One GPU front-of-ladder site and one CPU-only fallback — not a duplicate
+    of the same rung. Two identical front=True inserts would race the ladder.
+    """
     src = (REPO / "eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
-    assert src.count('_add_attempt("requested"') == 1
+    assert src.count('_add_attempt("requested"') == 2
+    assert '_add_attempt("requested", _base_ctx, _base_layers, _base_batch,' in src
+    assert '_add_attempt("requested", _base_ctx, 0, _base_batch, front=False)' in src
+    assert src.count("front=True") >= 1

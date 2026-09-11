@@ -8,6 +8,10 @@ import re
 import subprocess
 from typing import Any, Dict, Optional
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 @dataclass
 class DynamicRuntimeBudget:
@@ -150,7 +154,17 @@ def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
     threads = max(2, (os.cpu_count() or 4) - 2)
     size_gb = model_size_gb(model_path)
 
-    usable_vram = max(0, vram_free - 900)
+    # Headroom comes from the one place that defines it. A local 900 made this the
+    # fourth different reserve in the process (700 discrete / 400 iGPU elsewhere) and
+    # silently ignored ELI_VRAM_RESERVE_MB, so the operator's own reserve moved every
+    # other calculation except this one.
+    try:
+        from eli.core.hardware_profile import vram_reserve_mb as _vrm
+        _reserve_mb = int(_vrm())
+    except Exception:
+        log.debug("dynamic_runtime_budget: vram_reserve_mb unavailable", exc_info=True)
+        _reserve_mb = 700
+    usable_vram = max(0, vram_free - _reserve_mb)
 
     # ── ctx / gpu_layers / batch come from the MEASURED fit ────────────────
     #

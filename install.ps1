@@ -130,6 +130,15 @@ if (-not $HasNvidia) {
 if ((-not $CpuOnly) -and (-not $Gpu) -and (-not $HasNvidia)) { $CpuOnly = $true }
 $BuildLabel = if ($CpuOnly) { "CPU-only" } else { "GPU (CUDA $CudaVersion)" }
 
+# Low-RAM advisory. install.sh forces CPU here because a Vulkan SOURCE build OOMs
+# on <=8 GB laptops; Windows takes prebuilt wheels so the build itself is safe, but
+# the machine still cannot hold a large model plus a CUDA context. Say so up front
+# rather than letting the first model load discover it.
+if (($ramGb -is [int]) -and ($ramGb -le 8)) {
+    Write-Host "[WARN] RAM         $ramGb GB - choose a small model (3B-class or Q4) and keep" -ForegroundColor Yellow
+    Write-Host "                   the context modest; ELI sizes itself to fit but headroom is tight." -ForegroundColor Yellow
+}
+
 # -- Plan --
 Write-Host ""
 Write-Host "--- Plan ---" -ForegroundColor Magenta
@@ -235,6 +244,35 @@ if ($CpuOnly) {
         $CpuOnly = $true
         $BuildLabel = "CPU-only (CUDA wheel unavailable)"
     }
+}
+
+# Verify the installed runtime actually STARTS on this CPU.
+#
+# Parity with install.sh's "measure init, not import" policy. Prebuilt wheels ship a
+# libggml-cpu tuned for newer chips (AVX-VNNI and friends): `import llama_cpp`
+# succeeds and llama_backend_init() then dies with STATUS_ILLEGAL_INSTRUCTION
+# (0xC000001D) on an older Intel part. Windows had no equivalent check, so the
+# install reported success and the app crashed on first launch with nothing to
+# explain it. Catch it here, while a fallback is still cheap.
+& $PythonVenv -c "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init(); print('ok')" *> $null
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[WARN] llama-cpp failed to initialise on this CPU (exit $LASTEXITCODE)." -ForegroundColor Yellow
+    Write-Host "       This CPU predates the instruction set the prebuilt wheel was built for." -ForegroundColor Yellow
+    Write-Host "[..] Reinstalling the generic PyPI CPU wheel, which targets a lower baseline..."
+    Invoke-Pip (@("install", "--force-reinstall", "--no-cache-dir") + $PipFindLinksArgs + @("llama-cpp-python>=0.3.30", "--only-binary=:all:", "--quiet"))
+    & $PythonVenv -c "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init(); print('ok')" *> $null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "[OK] llama-cpp runtime starts on this CPU (CPU build)." -ForegroundColor Green
+        $CpuOnly = $true
+        $BuildLabel = "CPU-only (older CPU baseline)"
+    } else {
+        Write-Host "[WARN] llama-cpp still will not start on this CPU." -ForegroundColor Yellow
+        Write-Host "       ELI is installed, but inference cannot run until a compatible build exists." -ForegroundColor Yellow
+        Write-Host "       Options: install Visual Studio Build Tools and rebuild from source, or" -ForegroundColor Yellow
+        Write-Host "       run ELI in server mode against another machine on your network." -ForegroundColor Yellow
+    }
+} else {
+    Write-Host "[OK] llama-cpp runtime starts on this CPU." -ForegroundColor Green
 }
 
 # Verify llama-cpp GPU offload actually compiled in (catch a silent CPU-only wheel).
