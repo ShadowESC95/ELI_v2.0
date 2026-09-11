@@ -13093,10 +13093,16 @@ Answer:"""
                         # overflow — EXCEPT the verbatim-always introspection family
                         # above, which is returned as-is in every mode so a weak
                         # model can't corrupt grounded facts.
+                        _inference_ram_verbatim = (
+                            _action_upper == "EXPLAIN_COGNITION_RUNTIME"
+                            and str((args or {}).get("diagnostic_focus") or "").strip().lower()
+                            in {"inference_ram", "latency_timing", "inference_runtime"}
+                        )
                         _bypass_persona = bool(
                             kwargs.get("bypass_persona")
                             or intent.get("bypass_persona")
                             or _action_upper in _verbatim_always_actions
+                            or _inference_ram_verbatim
                             or (
                                 _direct_mode == "quick"
                                 and _action_upper in _deterministic_direct_payload_actions

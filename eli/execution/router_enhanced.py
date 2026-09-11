@@ -1291,6 +1291,22 @@ def _route_plugin_bridge_prepass(raw: str, low: str):
     if re.match(r"^(?:cpu\s+usage|processor\s+usage|show\s+cpu\s+usage|how\s+busy\s+is\s+the\s+cpu)$", low):
         return _mk("CPU_USAGE", {}, 0.98, matched_by="plugin.prepass.cpu_usage")
 
+    # ELI's inference RAM (model + KV cache) — not system psutil, not SQLite memory DB.
+    try:
+        from eli.runtime.inference_footprint import is_inference_ram_question
+        if is_inference_ram_question(raw):
+            return _mk(
+                "EXPLAIN_COGNITION_RUNTIME",
+                {"question": raw, "diagnostic_focus": "inference_ram"},
+                0.995,
+                matched_by="plugin.prepass.inference_ram",
+                need_grounding=True,
+                allow_chat_without_evidence=False,
+                task_family="grounded_audit",
+            )
+    except Exception:
+        log.debug("inference RAM prepass unavailable", exc_info=True)
+
     if re.match(r"^(?:ram\s+usage|memory\s+usage|show\s+ram\s+usage|show\s+memory\s+usage|how\s+much\s+ram\s+is\s+used)$", low):
         return _mk("RAM_USAGE", {}, 0.98, matched_by="plugin.prepass.ram_usage")
 
@@ -1779,9 +1795,12 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         )
 
     if not _explain_prior_claim and re.search(
-        r"\b(took you|took so long|why did you take|response time|slow response|that took ages|20 minutes|twenty minutes|you don't believe me|dont believe me|took over|took nearly|took just under)\b",
+        r"\b(took you|took so long|why did you take|response time|slow response|that took ages|"
+        r"20 minutes|twenty minutes|you don't believe me|dont believe me|took over|took nearly|"
+        r"took just under|how much ram\b|how much memory\b|ram\b.{0,30}\butili[sz]|"
+        r"memory\b.{0,30}\bfor (?:the )?model|decrease latency|reduce latency)\b",
         low,
-    ):
+    ) and not re.search(r"\b(memories|sqlite|database|faiss|embedder|remember me)\b", low):
         return _mk(
             "EXPLAIN_COGNITION_RUNTIME",
             {
@@ -3033,6 +3052,20 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("AWARENESS_STATUS", {"query": raw}, 0.95, matched_by="awareness.status",
                    entities={"query": raw}, need_grounding=True, task_family="grounded_audit")
     if re.search(r"memory\s*(status|stats|report|info|summary|check|usage|count|size|total)|how many memories|memories (do you have|count|total)", low):
+        try:
+            from eli.runtime.inference_footprint import is_inference_ram_question
+            if is_inference_ram_question(raw):
+                return _mk(
+                    "EXPLAIN_COGNITION_RUNTIME",
+                    {"question": raw, "diagnostic_focus": "inference_ram"},
+                    0.995,
+                    matched_by="router.inference_ram_not_memory_status",
+                    need_grounding=True,
+                    allow_chat_without_evidence=False,
+                    task_family="grounded_audit",
+                )
+        except Exception:
+            log.debug("inference RAM guard unavailable", exc_info=True)
         return _mk("MEMORY_STATUS", {}, 0.97, matched_by="memory.status")
     if re.search(r"\bcognition\s*(runtime\s+)?status\b|\bcognition\s*(stats|report|check|health)\b", low):
         return _mk("COGNITION_STATUS", {}, 0.99, matched_by="cognition.status")

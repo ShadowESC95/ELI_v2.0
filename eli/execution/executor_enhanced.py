@@ -1735,6 +1735,25 @@ def _format_cognition_runtime(report: Dict[str, Any], args: Optional[Dict[str, A
     lines = []
     _args = args if isinstance(args, dict) else {}
     _focus = str(_args.get("diagnostic_focus") or "").strip().lower()
+    if _focus in ("inference_ram", "latency_timing", "inference_runtime"):
+        try:
+            from eli.runtime.inference_footprint import format_inference_footprint_report
+            from eli.runtime.deterministic_grounding_gate import _inference_runtime_lines
+            parts = []
+            if _focus in ("latency_timing", "inference_runtime"):
+                try:
+                    parts.append(_inference_runtime_lines())
+                except Exception:
+                    log.debug("[EXECUTOR] inference runtime block unavailable", exc_info=True)
+            parts.append(
+                format_inference_footprint_report(
+                    include_latency_note=_focus != "inference_runtime",
+                    question=str(_args.get("question") or ""),
+                )
+            )
+            return "\n\n".join(p for p in parts if p)
+        except Exception:
+            log.debug("[EXECUTOR] inference footprint report unavailable", exc_info=True)
     # The live INFERENCE parameters go first. Asked "what is your current context
     # window?", this report answered with module paths, grep line numbers and
     # SQLite table counts — and the synthesis on top of it then said "the

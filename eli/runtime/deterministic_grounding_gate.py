@@ -995,7 +995,19 @@ def _inference_runtime_lines() -> str:
     return "\n".join(lines)
 
 
-def _eli_cognition_pipeline_v2(focus: str = "") -> str:
+def _eli_cognition_pipeline_v2(focus: str = "", question: str = "") -> str:
+    focus_l = str(focus or "").strip().lower()
+    try:
+        from eli.runtime.inference_footprint import format_inference_footprint_report
+    except Exception:
+        format_inference_footprint_report = None  # type: ignore[assignment,misc]
+
+    if focus_l in ("inference_ram", "latency_timing") and format_inference_footprint_report:
+        return format_inference_footprint_report(
+            include_latency_note=(focus_l == "latency_timing"),
+            question=question,
+        )
+
     runtime_block = ""
     try:
         runtime_block = _inference_runtime_lines()
@@ -1003,9 +1015,9 @@ def _eli_cognition_pipeline_v2(focus: str = "") -> str:
         log.debug("inference runtime block unavailable", exc_info=True)
 
     # A question about the inference runtime gets the NUMBERS, not a code map.
-    # The router already classifies this (diagnostic_focus=inference_runtime) and
-    # the answer ignored it, returning the architecture description regardless.
-    if runtime_block and str(focus or "").strip().lower() == "inference_runtime":
+    if runtime_block and focus_l == "inference_runtime":
+        if format_inference_footprint_report:
+            return runtime_block + "\n\n" + format_inference_footprint_report(question=question)
         return runtime_block + "\n\n" + _COGNITION_PIPELINE_TEXT
 
     return ((runtime_block + "\n\n") if runtime_block else "") + _COGNITION_PIPELINE_TEXT
@@ -1160,9 +1172,24 @@ def render_action(action: str, args: _EliMapping[str, _EliAny] | None = None, us
         # The router already decides this ("diagnostic_focus": "inference_runtime"
         # for a question about the context window / model / GPU) — pass it through
         # instead of returning the same architecture text for every question.
-        return _eli_cognition_pipeline_v2(str((args or {}).get("diagnostic_focus") or ""))
+        return _eli_cognition_pipeline_v2(
+            str((args or {}).get("diagnostic_focus") or ""),
+            question=text,
+        )
 
     if a in {"EXPLAIN_MEMORY_RUNTIME", "MEMORY_STATUS", "PERSONAL_MEMORY_DEEP_EXPLAIN"}:
+        try:
+            from eli.runtime.inference_footprint import (
+                format_inference_footprint_report,
+                is_inference_ram_question,
+            )
+            if is_inference_ram_question(text):
+                return format_inference_footprint_report(
+                    include_latency_note=True,
+                    question=text,
+                )
+        except Exception:
+            log.debug("inference RAM redirect unavailable", exc_info=True)
         if _eli_wants_personal_memory_v2(text):
             return _eli_personal_memory_answer_v2(mode_label)
         return _eli_memory_internals_v2()
