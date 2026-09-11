@@ -807,6 +807,12 @@ class LocalModelManager:
         use_mlock: bool = False,
     ) -> bool:
         try:
+            _pre_load_rss = 0
+            try:
+                from eli.runtime.inference_footprint import capture_process_rss_bytes
+                _pre_load_rss = int(capture_process_rss_bytes())
+            except Exception:
+                log.debug("[GUI][LOAD] pre-load RSS capture skipped", exc_info=True)
             try:
                 from eli.core.gpu_pack_runtime import try_activate_gpu_pack
                 try_activate_gpu_pack(verify=True)
@@ -1450,8 +1456,9 @@ class LocalModelManager:
             self.n_batch = int(getattr(self.model, 'n_batch', 0) or 0)
             try:
                 from eli.cognition import gguf_inference as _ggi
+                from eli.runtime.inference_footprint import record_load_memory
                 _ggi._llm = self.model
-                _ggi.publish_live_runtime({
+                _live_payload = {
                     "provider": "gguf",
                     "loaded": True,
                     "model_path": str(path_obj),
@@ -1463,7 +1470,11 @@ class LocalModelManager:
                     "requested_n_gpu_layers": int(requested_n_gpu_layers),
                     "gpu_offload_supported": gpu_offload_supported,
                     "load_mode": "GPU" if int(self.n_gpu_layers) > 0 else "CPU",
-                })
+                    "live_inference_memory": record_load_memory(
+                        self.model, pre_load_rss_bytes=_pre_load_rss
+                    ),
+                }
+                _ggi.publish_live_runtime(_live_payload)
                 print("✅ gguf_inference live runtime override published")
             except Exception as e:
                 log.debug(f"[GUI] live runtime override publish failed: {e}")

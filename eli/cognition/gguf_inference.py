@@ -988,6 +988,12 @@ def load_model(force_reload: bool = False):
         return _e
     _harden()
     _load_log: list = []
+    _pre_load_rss = 0
+    try:
+        from eli.runtime.inference_footprint import capture_process_rss_bytes as _cap_rss
+        _pre_load_rss = int(_cap_rss())
+    except Exception:
+        log.debug("[GGUF] pre-load RSS capture skipped", exc_info=True)
 
     try:
         with _cap_log() as _load_log:
@@ -1074,6 +1080,14 @@ def load_model(force_reload: bool = False):
         "ts": _time.time(),
     }
     globals()["_last_load_error"] = None
+
+    try:
+        from eli.runtime.inference_footprint import record_load_memory as _rec_mem
+        globals()["_live_runtime_params"]["live_inference_memory"] = _rec_mem(
+            _llm, pre_load_rss_bytes=_pre_load_rss
+        )
+    except Exception:
+        log.debug("[GGUF] live inference memory record skipped", exc_info=True)
 
     try:
         snap_path = _Path(_gp().artifacts_dir) / "runtime_snapshot.json"
@@ -3118,6 +3132,23 @@ try:
                 "requested_n_threads": int(requested.get("n_threads") or 0),
                 "requested_n_batch": int(requested.get("n_batch") or 0),
             })
+            if payload.get("loaded"):
+                try:
+                    from eli.runtime.inference_footprint import read_live_inference_memory
+                    live = read_live_inference_memory(llm=llm, snap=payload)
+                    if live.get("measured_at_load"):
+                        payload["live_inference_memory"] = live["measured_at_load"]
+                    else:
+                        payload["live_inference_memory"] = {
+                            k: v for k, v in live.items()
+                            if k in (
+                                "source", "ts", "pid", "model_bytes", "rss_bytes",
+                                "uss_bytes", "kv_state_bytes", "tokens_in_context",
+                                "inference_rss_bytes", "gpu_vram_bytes", "n_ctx_live",
+                            ) and v not in (None, "", 0)
+                        }
+                except Exception:
+                    _SWLOG.debug("suppressed exception", exc_info=True)
             return payload
 
         def get_effective_runtime_report():
