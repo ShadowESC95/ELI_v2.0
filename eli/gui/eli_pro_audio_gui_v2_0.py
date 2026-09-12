@@ -9531,7 +9531,7 @@ class EliMainWindow(QMainWindow):
             try:
                 popen_kw["creationflags"] = subprocess.CREATE_NO_WINDOW  # type: ignore[attr-defined]
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
         try:
             self._srv_proc = subprocess.Popen(args, **popen_kw)
         except Exception as e:
@@ -9541,7 +9541,7 @@ class EliMainWindow(QMainWindow):
                     try:
                         fh.close()
                     except Exception:
-                        pass
+                        log.debug("suppressed exception", exc_info=True)
             return False
         # Keep file handles alive for the child lifetime.
         self._srv_proc_log_fhs = (out_fh, err_fh)
