@@ -232,7 +232,7 @@ once. The hard part — the body around the brain — is already built.
 ## The deeper selling point: ownership
 
 Strip everything else away and this is the thing competitors structurally cannot
-match. ChatGPT, Claude, Gemini, Alexa, Copilot — every one of them is a tenant
+match. ChatGPT, Gemini, Alexa, Copilot — every one of them is a tenant
 arrangement: your data lives on their machines, under their terms, subject to
 their pricing, their outages, their policy changes, and their ability to read it.
 **ELI is ownership, not tenancy.** It runs with the internet cable pulled out. It

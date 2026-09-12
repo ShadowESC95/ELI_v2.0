@@ -1,8 +1,9 @@
 # ELI — Common Errors & Fixes
 
-> **Updated for v2.4.23 (September 2026).** Primary path: GitHub Releases
-> (`ELI-Setup-*.exe`, macOS dmg, Linux AppImage). Portable Linux uses `./ELI_Setup.sh`
-> (CPU-first). The in-app **Home** tab is ELI MQTT/devices — not Home Assistant.
+> **Updated for v2.4.24 (September 2026).** Primary path: GitHub Releases
+> (`ELI-Setup-*.exe`, macOS dmg, Linux AppImage, portable `./ELI_Setup.sh`).
+> Wizard core stages hard-fail until nomic + voice + chat model are present.
+> Windows: one desktop ELI + GUI singleton. **Home** tab ≠ Home Assistant.
 
 
 A quick reference for the gremlins that actually come up when running ELI. Each one is
@@ -16,7 +17,7 @@ symptom → cause → the exact fix. Add new ones as they surface.
 **Cause:** Desktop used to pin both `ELI.exe` and `ELI-Server.exe`; post-install could race.
 **Fix (v2.4.23+):** Desktop shortcut is **ELI only**; Server stays in Start Menu. Frozen GUI
 takes a singleton lock — a second launch shows “ELI is already running” and exits.
-Close the extra window; upgrade to 2.4.23+.
+Close the extra window; upgrade to 2.4.23+ (current **2.4.24**).
 
 ---
 

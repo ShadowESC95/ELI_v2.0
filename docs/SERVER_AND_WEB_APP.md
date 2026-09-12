@@ -13,7 +13,7 @@ your own LAN.
 > async, with auto-generated API docs at `/docs`). The launchers and endpoints below are the
 > real interface.
 
-**v2.4.23:** LAN IP resolution works on Windows (UDP + `Get-NetIPAddress`); GUI Stop clears a
+**v2.4.24:** LAN IP resolution works on Windows (UDP + `Get-NetIPAddress`); GUI Stop clears a
 stale `ELI_API_PORT`; HTTPS sidecar can be stopped; Windows firewall hints include port 8443.
 
 ---
