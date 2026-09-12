@@ -324,7 +324,7 @@ class UnifiedInstallWizard(QDialog):
             apply_cpu_only_env(inv)
             hw_msg = f"Python {ver} OK — {summarize_for_ui(inv)}"
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         self._set_phase("welcome", 2, hw_msg)
 
         if has_venv() and _core_install_complete(self._root):

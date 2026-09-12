@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import socket
 import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional
+
+log = logging.getLogger("eli.runtime.server_util")
 
 
 def port_in_use(port: int, host: str = "127.0.0.1", timeout: float = 0.35) -> bool:
@@ -124,7 +127,7 @@ def resolve_lan_ip() -> str:
     try:
         cands.append(socket.gethostbyname(socket.gethostname()))
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         # Route-based: no packets sent; works on Windows/Linux/macOS.
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -134,12 +137,12 @@ def resolve_lan_ip() -> str:
         finally:
             s.close()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     try:
         out = subprocess.run(["hostname", "-I"], capture_output=True, text=True, timeout=2)
         cands += (out.stdout or "").split()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     if platform.system().lower() == "darwin":
         try:
             for ifc in ("en0", "en1"):
@@ -150,7 +153,7 @@ def resolve_lan_ip() -> str:
                 if out.stdout.strip():
                     cands.append(out.stdout.strip())
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
     if platform.system().lower() == "windows":
         try:
             out = subprocess.run(
@@ -162,7 +165,7 @@ def resolve_lan_ip() -> str:
             )
             cands += [ln.strip() for ln in (out.stdout or "").splitlines() if ln.strip()]
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
 
     def _score(ip: str) -> int:
         if not ip or ip.startswith("127.") or ":" in ip or ip.startswith("169.254."):
