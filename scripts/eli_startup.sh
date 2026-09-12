@@ -4,6 +4,9 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/eli_isolate_env.sh"
+eli_isolate_env "$ROOT"
 VENV="$ROOT/.venv"
 PY="$VENV/bin/python"
 REPO="${GITHUB_REPOSITORY:-ShadowESC95/ELI_v2.0}"
@@ -76,12 +79,8 @@ if [ "$SAFE_MODE" -eq 1 ]; then
   export ELI_SAFE_MODE=1
   export ELI_DISABLE_PROACTIVE=1
 fi
-export ELI_PROJECT_ROOT="$ROOT"
-export ELI_DATA_DIR="${ELI_DATA_DIR:-$ROOT/artifacts}"
-export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ROOT/config}"
-export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$ROOT/models}"
-export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$ROOT/cache}"
-export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+# Paths already pinned by eli_isolate_env — reaffirm after option parsing.
+eli_isolate_env "$ROOT"
 # GNOME/KDE often set QT_STYLE_OVERRIDE=adwaita — PySide6 only ships Fusion/Windows.
 unset QT_STYLE_OVERRIDE 2>/dev/null || true
 cd "$ROOT"

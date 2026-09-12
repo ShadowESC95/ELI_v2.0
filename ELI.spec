@@ -191,8 +191,19 @@ hiddenimports += collect_submodules("api")
 # the frozen app died importing numpy — collect the whole package explicitly.
 hiddenimports += collect_submodules("numpy")
 # Dynamic-dispatch third-party packages PyInstaller cannot trace statically.
-for pkg in ("pyttsx3", "plyer.platforms", "uvicorn"):
+# segno + cryptography are lazy-imported for LAN QR / HTTPS phone mic — without
+# an explicit collect the frozen Windows GUI shows "QR unavailable" / no certs.
+for pkg in (
+    "pyttsx3", "plyer.platforms", "uvicorn",
+    "fastapi", "starlette", "segno", "cryptography",
+    "websockets", "httptools", "anyio", "sniffio",
+):
     hiddenimports += _optional_collect(pkg)
+try:
+    import segno as _segno_probe  # noqa: F401
+    import cryptography as _crypto_probe  # noqa: F401
+except ImportError as _e:
+    _fail(f"web-server packaging requires segno + cryptography in the build venv: {_e}")
 # Scientific / simulation + 3D-mesh stack: meshio loads a submodule per file
 # format at runtime and matplotlib/plotly/pandas pull dynamic backends, so the
 # standard hooks miss pieces and the frozen app's mesh analysis / plotting /

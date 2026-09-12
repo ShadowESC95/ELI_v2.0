@@ -43,6 +43,7 @@ _patch_rc() {
     skip { next }
     /^[[:space:]]*alias[[:space:]]+eli=/ { next }
     /^[[:space:]]*export[[:space:]]+ELI_PROJECT_ROOT=/ { next }
+    /^[[:space:]]*export[[:space:]]+PYTHONPATH=.*ELI_v2/ { next }
     { print }
   ' "$rc" > "$tmp"
   mv "$tmp" "$rc"
@@ -53,7 +54,7 @@ _patch_rc() {
     echo "unalias eli 2>/dev/null || true"
     echo "alias eli='$ROOT/eli.sh'"
     echo "alias eli2='$ROOT/eli.sh'"
-    echo "# Do not export ELI_PROJECT_ROOT globally — each launcher sets it."
+    echo "# Do not export ELI_PROJECT_ROOT / PYTHONPATH globally — each launcher sets them."
     echo "$MARK_END"
   } >> "$rc"
   echo "[fix-shell] updated: $rc"

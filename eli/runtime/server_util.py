@@ -203,7 +203,7 @@ def start_https_sidecar(host: str = "0.0.0.0", https_port: Optional[int] = None)
         os.environ["ELI_API_HTTPS_PORT"] = str(port)
         srv = uvicorn.Server(uvicorn.Config(
             _app, host=host, port=port, log_level="warning",
-            ssl_certfile=crt, ssl_keyfile=key))
+            ssl_certfile=crt, ssl_keyfile=key, loop="asyncio"))
         threading.Thread(target=srv.run, daemon=True).start()
         return port, srv
     except Exception:

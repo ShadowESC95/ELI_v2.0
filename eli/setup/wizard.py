@@ -287,7 +287,9 @@ class GrandparentSetupWizard(QDialog):
         root = project_root()
         env = os.environ.copy()
         env["ELI_PROJECT_ROOT"] = str(root)
-        env["PYTHONPATH"] = str(root) + (os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else "")
+        env["PYTHONPATH"] = str(root)
+        env.pop("VIRTUAL_ENV", None)
+        env.pop("PYTHONHOME", None)
         subprocess.Popen([str(py), "-m", "eli"], cwd=str(root), env=env)
         self.accept()
 

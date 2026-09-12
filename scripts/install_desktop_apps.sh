@@ -79,6 +79,12 @@ _err(){ command -v zenity >/dev/null 2>&1 && zenity --error --title="ELI" --widt
 $R
 
 Re-run ELI Setup, or reinstall the latest release."; exit 1; }
+# Isolate this install — never inherit another portable's venv / PYTHONPATH.
+if [ -f "$R/scripts/eli_isolate_env.sh" ]; then
+  # shellcheck disable=SC1091
+  source "$R/scripts/eli_isolate_env.sh"
+  eli_isolate_env "$R"
+fi
 T="$R/scripts/eli_term.sh"
 case "$A" in
   gui)       S="$R/scripts/eli_launch.sh";    RUN=(gui) ;;

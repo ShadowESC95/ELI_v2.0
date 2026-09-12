@@ -17,12 +17,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENV="$ROOT/.venv"
 PY="$VENV/bin/python"
-export ELI_PROJECT_ROOT="$ROOT"
-export ELI_DATA_DIR="${ELI_DATA_DIR:-$ROOT/artifacts}"
-export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ROOT/config}"
-export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$ROOT/models}"
-export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$ROOT/cache}"
-export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/eli_isolate_env.sh"
+eli_isolate_env "$ROOT"
 # GNOME/KDE often set QT_STYLE_OVERRIDE=adwaita — PySide6 only ships Fusion/Windows.
 unset QT_STYLE_OVERRIDE 2>/dev/null || true
 
@@ -89,7 +86,31 @@ _real_qt_ok() {
 
 _install_complete() {
   _venv_python || return 1
-  "$PY" -c "import eli, llama_cpp, requests" 2>/dev/null
+  # Must import from THIS checkout's .venv — a foreign portable on PYTHONPATH
+  # used to make setup claim "complete" while runtime still used the old tree.
+  "$PY" -c "
+import sys
+from pathlib import Path
+root = Path(r'$ROOT').resolve()
+venv = root / '.venv'
+import eli, llama_cpp, requests
+
+def under(p, base):
+    try:
+        Path(p).resolve().relative_to(base.resolve())
+        return True
+    except Exception:
+        return False
+
+eli_f = Path(eli.__file__).resolve()
+llama_f = Path(llama_cpp.__file__).resolve()
+if not under(eli_f, root):
+    raise SystemExit('eli imported from outside this checkout: ' + str(eli_f))
+if not under(llama_f, venv):
+    raise SystemExit('llama_cpp imported from outside this .venv: ' + str(llama_f))
+from llama_cpp import llama_cpp as _lc
+_lc.llama_backend_init()
+" 2>/dev/null
 }
 
 _gui_import_ok() {

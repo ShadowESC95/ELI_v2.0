@@ -14,14 +14,11 @@
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# shellcheck disable=SC1091
+source "$ROOT/scripts/eli_isolate_env.sh"
+eli_isolate_env "$ROOT"
 PY="$ROOT/.venv/bin/python"
 [ -x "$PY" ] || { echo "[eli-serve] .venv not found — run ./scripts/eli_setup.sh or bash install.sh first."; exit 1; }
-export ELI_PROJECT_ROOT="$ROOT"
-export ELI_DATA_DIR="${ELI_DATA_DIR:-$ROOT/artifacts}"
-export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ROOT/config}"
-export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$ROOT/models}"
-export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$ROOT/cache}"
-export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
 
 HOST="127.0.0.1"
 # Default port: explicit env wins, else the user's saved api_port setting, else 8081.

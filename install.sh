@@ -206,21 +206,27 @@ _DF_FREE="$(_safe_pipeline bash -c "df -h \"$SCRIPT_DIR\" 2>/dev/null | awk 'NR=
 ok "Disk free   ${B}${_DF_FREE:-?}${R}   ${D}(a model is ~2-5 GB)${R}"
 
 if command -v nvidia-smi &>/dev/null; then
-    _NGPU="$(_gpu_pipeline bash -c 'nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | grep -c . || true')"
+    # Broken drivers often print the failure on stdout — never count that as a GPU
+    # (was selecting CUDA on CPU laptops: "NVIDIA-SMI has failed… (0 MiB)").
+    set +o pipefail
+    _NGPU_RAW="$(nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null || true)"
+    _NGPU_NAMES="$(printf '%s\n' "$_NGPU_RAW" | grep -viE 'failed|couldn.t communicate|NVIDIA-SMI|driver not|no devices were found|^[[:space:]]*$' || true)"
+    _NGPU="$(printf '%s\n' "$_NGPU_NAMES" | grep -c . || true)"
+    _GPU0="$(printf '%s\n' "$_NGPU_NAMES" | head -1 || true)"
+    _VRAMTOT="$(nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | awk '{s+=$1} END{printf "%d", s}' || true)"
+    set -o pipefail
     _NGPU="${_NGPU//$'\r'/}"
     _NGPU="${_NGPU//$'\n'/}"
     _NGPU="${_NGPU:-0}"
     if [ "${_NGPU}" -ge 1 ] 2>/dev/null; then
-        # Unwrapped nvidia-smi | head under pipefail aborts install when the
-        # driver returns an error (common on mixed iGPU laptops).
-        _GPU0="$(_gpu_pipeline bash -c 'nvidia-smi --query-gpu=name --format=csv,noheader 2>/dev/null | head -1 || true')"
-        _VRAMTOT="$(_gpu_pipeline bash -c 'nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>/dev/null | awk "{s+=\$1} END{printf \"%d\", s}" || true')"
         if [ "$_NGPU" -gt 1 ]; then
             ok "GPU         ${B}${GRN}${_NGPU}× ${_GPU0}${R}  (${_VRAMTOT} MiB total VRAM)   ${D}— scales to multi-GPU${R}"
         else
             ok "GPU         ${B}${GRN}${_GPU0}${R}  (${_VRAMTOT} MiB)"
         fi
         HAS_NVIDIA=1
+    else
+        warn "GPU         nvidia-smi present but driver unusable — not selecting CUDA"
     fi
 fi
 # AMD GPU (ROCm) — checked only when there's no NVIDIA + not macOS. rocminfo/rocm-smi or the

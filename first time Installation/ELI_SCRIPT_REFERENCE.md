@@ -1,6 +1,6 @@
 # ELI v2 Script & Setup Reference
 
-**Version:** 2.4.24 (unified GUI wizard, hardware_policy, accurate completeness docs)  
+**Version:** 2.4.25 (portable isolation, dead-NVIDIA CUDA trap, Windows web-server fallback)  
 **Repository:** ELI_MKXI / ELI v2.0  
 **Last updated:** 2026-09-12
 

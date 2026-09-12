@@ -125,6 +125,12 @@ def _selftest() -> int:
         bootstrap_once()
         import eli.gui.eli_pro_audio_gui_v2_0 as gui  # full GUI import chain (Qt, plugins, memory)
         import api.server                             # noqa: F401  web/phone server stack
+        import segno                                  # noqa: F401  LAN QR codes in GUI
+        import cryptography                           # noqa: F401  LAN HTTPS certs
+        from eli.runtime.server_util import qr_png_bytes
+        _qr = qr_png_bytes("http://127.0.0.1:8081/#token=selftest")
+        if not _qr.startswith(b"\x89PNG\r\n\x1a\n"):
+            raise RuntimeError("qr_png_bytes did not return a PNG (segno/QR broken in bundle)")
         import llama_cpp                              # noqa: F401  native inference libs load
         # llama_cpp must import from REAL files on disk (module_collection_mode
         # "py") or the GPU pack cannot shadow it via sys.path.

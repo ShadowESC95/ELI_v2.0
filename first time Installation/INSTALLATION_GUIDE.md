@@ -1,7 +1,7 @@
 # ELI v2 — Installation Guide (every OS / machine / user)
 
-**Version:** 2.4.24 · **Updated:** 2026-09-12  
-**Release:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.24
+**Version:** 2.4.25 · **Updated:** 2026-09-12  
+**Release:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.25
 
 This guide answers: **which download, which first click, and what the wizard actually installs.**
 
@@ -71,7 +71,7 @@ So: the wizard makes **chat + memory + voice + GUI** complete and hardware-aware
 
 | You are… | Download | First action |
 |----------|----------|--------------|
-| Windows, simplest | `ELI-Setup-2.4.24.exe` | Run Setup |
+| Windows, simplest | `ELI-Setup-2.4.25.exe` | Run Setup |
 | Windows, unzip | `ELI_v2-*-windows-x64.zip` | `ELI\ELI.exe` |
 | Linux, simplest | `ELI_v2-*-x86_64.AppImage` | `chmod +x` → run |
 | Linux, editable | `*-linux-portable.tar.gz` | `./ELI_Setup.sh` |
@@ -85,20 +85,20 @@ So: the wizard makes **chat + memory + voice + GUI** complete and hardware-aware
 
 ### Linux AppImage
 ```bash
-chmod +x ELI_v2-2.4.24-x86_64.AppImage
-./ELI_v2-2.4.24-x86_64.AppImage
+chmod +x ELI_v2-2.4.25-x86_64.AppImage
+./ELI_v2-2.4.25-x86_64.AppImage
 ```
 
 ### Linux portable
 ```bash
-tar -xzf ELI_v2-2.4.24-linux-portable.tar.gz
-cd ELI_v2-2.4.24-linux-portable
+tar -xzf ELI_v2-2.4.25-linux-portable.tar.gz
+cd ELI_v2-2.4.25-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 ./RUN_ELI.sh
 ```
 
 ### Windows Setup
-Run **`ELI-Setup-2.4.24.exe`**. Desktop shortcut is **ELI only** (Server in Start Menu). A second GUI instance is refused (singleton). Data: `%LOCALAPPDATA%\ELI_v2\`.
+Run **`ELI-Setup-2.4.25.exe`**. Desktop shortcut is **ELI only** (Server in Start Menu). A second GUI instance is refused (singleton). Data: `%LOCALAPPDATA%\ELI_v2\`.
 
 ### macOS
 Open the `.dmg`, drag to Applications, launch (Metal).
@@ -123,7 +123,7 @@ ELI_INSTALL_CPU_ONLY=0 ./ELI_Setup.sh
 
 ---
 
-## 5. Troubleshooting (2.4.24)
+## 5. Troubleshooting (2.4.25)
 
 | Symptom | Fix |
 |---------|-----|
@@ -131,6 +131,8 @@ ELI_INSTALL_CPU_ONLY=0 ./ELI_Setup.sh
 | Portable dies mid-scan | Use 2.4.22+ (`_gpu_pipeline`); prefer `./ELI_Setup.sh` |
 | Nomic / Piper missing | Wizard hard-fails until fixed — Retry / Fetch |
 | Iris Xe OOM on install | Wizard CPU policy, or AppImage — not interactive Vulkan `install.sh` |
-| Wrong `eli` command (v2 vs v3) | `bash scripts/fix_eli_shell_env.sh --yes` |
+| Wrong `eli` / still loads old 2.4.23 | Open a **new** terminal; `bash scripts/fix_eli_shell_env.sh --yes`; re-run `./scripts/install_desktop_apps.sh`. Do not keep two portables active in the same shell. |
+| Dead `nvidia-smi` + CUDA plan | 2.4.25+ treats driver errors as no NVIDIA → CPU wheels |
+| Windows Web Server / no LAN QR | 2.4.25+ uses `ELI-Server.exe` on frozen Windows, paints QRs as soon as the pair URL exists, and bundles `segno` |
 
 Maintainer map: **[ELI_SCRIPT_REFERENCE.md](ELI_SCRIPT_REFERENCE.md)**.

@@ -446,9 +446,9 @@ class UnifiedInstallWizard(QDialog):
             return
         env = os.environ.copy()
         env["ELI_PROJECT_ROOT"] = str(self._root)
-        env["PYTHONPATH"] = str(self._root) + (
-            os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
-        )
+        env["PYTHONPATH"] = str(self._root)
+        env.pop("VIRTUAL_ENV", None)
+        env.pop("PYTHONHOME", None)
         mod = self._platform.launch_command[-1] if self._headless_only else "eli"
         log_dir = self._root / "artifacts" / "startup" / "logs"
         log_dir.mkdir(parents=True, exist_ok=True)
@@ -550,9 +550,9 @@ def run_terminal_headless_installer(*, launch_after: bool = False) -> int:
             print(f"     Launch: bash \"{root / 'RUN_ELI.sh'}\"")
             env = os.environ.copy()
             env["ELI_PROJECT_ROOT"] = str(root)
-            env["PYTHONPATH"] = str(root) + (
-                os.pathsep + env["PYTHONPATH"] if env.get("PYTHONPATH") else ""
-            )
+            env["PYTHONPATH"] = str(root)
+            env.pop("VIRTUAL_ENV", None)
+            env.pop("PYTHONHOME", None)
             log_dir = root / "artifacts" / "startup" / "logs"
             log_dir.mkdir(parents=True, exist_ok=True)
             with open(log_dir / "eli_setup_launch.log", "a", encoding="utf-8") as log_fh:
@@ -572,18 +572,51 @@ def run_terminal_headless_installer(*, launch_after: bool = False) -> int:
 
 
 def _core_install_complete(root: Path) -> bool:
-    """True when .venv has ELI plus inference/runtime deps (not bootstrap-only Qt)."""
+    """True when THIS checkout's .venv has ELI + a working llama_cpp.
+
+    Import-only checks are not enough: a foreign portable on PYTHONPATH, or a
+    CUDA wheel that imports then SIGILLs, previously made the wizard claim
+    success while ``RUN_ELI.sh`` still failed.
+    """
     if not has_venv():
         return False
     py = venv_python()
     if not py.exists():
         return False
+    root = Path(root).resolve()
+    probe = (
+        "import sys\n"
+        "from pathlib import Path\n"
+        f"root = Path({str(root)!r}).resolve()\n"
+        "venv = root / '.venv'\n"
+        "import eli, llama_cpp, requests\n"
+        "\n"
+        "def under(p, base):\n"
+        "    try:\n"
+        "        Path(p).resolve().relative_to(base.resolve())\n"
+        "        return True\n"
+        "    except Exception:\n"
+        "        return False\n"
+        "\n"
+        "eli_f = Path(eli.__file__).resolve()\n"
+        "llama_f = Path(llama_cpp.__file__).resolve()\n"
+        "if not under(eli_f, root):\n"
+        "    raise SystemExit('eli outside checkout: ' + str(eli_f))\n"
+        "if not under(llama_f, venv):\n"
+        "    raise SystemExit('llama_cpp outside .venv: ' + str(llama_f))\n"
+        "from llama_cpp import llama_cpp as _lc\n"
+        "_lc.llama_backend_init()\n"
+    )
     try:
         subprocess.run(
-            [str(py), "-c", "import eli, llama_cpp, requests"],
+            [str(py), "-c", probe],
             cwd=str(root),
-            env={**os.environ, "ELI_PROJECT_ROOT": str(root),
-                 "PYTHONPATH": str(root)},
+            env={
+                **os.environ,
+                "ELI_PROJECT_ROOT": str(root),
+                "PYTHONPATH": str(root),
+                "VIRTUAL_ENV": str(root / ".venv"),
+            },
             check=True,
             capture_output=True,
             timeout=120,

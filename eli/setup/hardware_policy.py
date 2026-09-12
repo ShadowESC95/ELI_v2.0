@@ -122,18 +122,47 @@ def _lspci_display_lines() -> list[str]:
     ]
 
 
+_NVIDIA_SMI_NOISE = re.compile(
+    r"(?i)failed|couldn.?t\s+communicate|nvidia-smi|driver\s+not|"
+    r"no\s+devices\s+were\s+found|insufficient\s+permissions|"
+    r"not\s+supported|has\s+failed"
+)
+
+
+def _nvidia_smi_gpu_names() -> list[str]:
+    """Return usable GPU names from nvidia-smi — never treat error text as a GPU.
+
+    Broken driver installs still print to stdout (e.g. ``NVIDIA-SMI has failed
+    because it couldn't communicate with the NVIDIA driver``). Counting those
+    lines as GPUs incorrectly selects the CUDA install path on CPU laptops.
+    """
+    if not shutil.which("nvidia-smi"):
+        return []
+    smi = _run(
+        ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+        timeout=6.0,
+    )
+    names: list[str] = []
+    for ln in smi.splitlines():
+        name = ln.strip()
+        if not name or _NVIDIA_SMI_NOISE.search(name):
+            continue
+        # Real CSV names are short product strings, not multi-sentence errors.
+        if len(name) > 120 or "\t" in name:
+            continue
+        names.append(name)
+    return names
+
+
 def detect_accelerators() -> AcceleratorInventory:
     notes: list[str] = []
     nvidia = amd = intel_igpu = intel_arc = qualcomm = False
     apple_metal = sys.platform == "darwin"
-
-    if shutil.which("nvidia-smi"):
-        smi = _run(
-            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-            timeout=6.0,
-        )
-        if any(ln.strip() for ln in smi.splitlines()):
-            nvidia = True
+    smi_names = _nvidia_smi_gpu_names()
+    if smi_names:
+        nvidia = True
+    elif shutil.which("nvidia-smi"):
+        notes.append("nvidia-smi present but driver unusable — not selecting CUDA")
 
     if shutil.which("rocm-smi"):
         amd = True
@@ -153,8 +182,10 @@ def detect_accelerators() -> AcceleratorInventory:
                 continue
             low = name.lower()
             if "nvidia" in low:
-                nvidia = True
-            elif re.search(r"amd|radeon|ati", low):
+                # Prefer live nvidia-smi; WMI alone is OK when smi is absent.
+                if smi_names or not shutil.which("nvidia-smi"):
+                    nvidia = True
+            if re.search(r"(?:\bamd\b|\bati\b|\bradeon\b)", low):
                 amd = True
             elif re.search(r"arc\s*(a|pro|b)?\d", low) or "intel arc" in low:
                 intel_arc = True
@@ -165,9 +196,14 @@ def detect_accelerators() -> AcceleratorInventory:
     else:
         for ln in _lspci_display_lines():
             low = ln.lower()
+            # Do NOT set nvidia from lspci alone — a powered-off / broken
+            # discrete NVIDIA on a laptop still appears in lspci while
+            # nvidia-smi fails. CUDA wheels then SIGILL / miss libcudart.
             if "nvidia" in low:
-                nvidia = True
-            elif re.search(r"amd|ati|radeon", low):
+                if not smi_names:
+                    notes.append("PCI NVIDIA present but driver unusable — ignoring for install")
+                continue
+            if re.search(r"(?:\bamd\b|\bati\b|\bradeon\b)", low):
                 amd = True
             elif re.search(r"arc\s*(a|pro|b)?\d", low):
                 intel_arc = True
@@ -214,6 +250,8 @@ def recommend_cpu_only(
             return False
 
     inv = inventory or detect_accelerators()
+    # Working discrete accelerators → GPU path. Dead NVIDIA is already False
+    # (nvidia-smi error text / lspci-only must not set nvidia=True).
     if inv.apple_metal or inv.nvidia or inv.amd or inv.intel_arc:
         return False
     if inv.intel_igpu:
