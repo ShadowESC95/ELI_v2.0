@@ -1,6 +1,6 @@
 # ELI — Common Errors & Fixes
 
-> **Updated for v2.4.24 (September 2026).** Primary path: GitHub Releases
+> **Updated for v2.4.26 (September 2026).** Primary path: GitHub Releases
 > (`ELI-Setup-*.exe`, macOS dmg, Linux AppImage, portable `./ELI_Setup.sh`).
 > Wizard core stages hard-fail until nomic + voice + chat model are present.
 > Windows: one desktop ELI + GUI singleton. **Home** tab ≠ Home Assistant.
@@ -8,6 +8,47 @@
 
 A quick reference for the gremlins that actually come up when running ELI. Each one is
 symptom → cause → the exact fix. Add new ones as they surface.
+
+---
+
+## GPU pack: `libcudart.so.12: cannot open shared object file`
+
+**Symptom:** AppImage or portable dies (or `eli` CLI dies) with
+`Failed to load … libllama.so: libcudart.so.12: … No such file or directory`.
+Disk shows `~/.local/share/ELI_v2/runtime/gpu` ~2.7 GB with `libggml-cuda.so` but
+**no** `libcudart.so.12` / `libcublas.so.12`. Iris Xe / AMD may still log
+`Vulkan backend forced` while installing a CUDA wheel.
+**Cause (≤2.4.25):** the `--vulkan` / Intel / AMD picker preferred `cuda-` gpu-packs
+assets, labelled them `vulkan`, and skipped NVIDIA runtime vendoring.
+**Fix (v2.4.26+):** upgrade; remove the broken pack and relaunch so the correct
+backend is downloaded:
+
+```bash
+rm -rf ~/.local/share/ELI_v2/runtime/gpu
+# Launch the new AppImage (or: AppImage --integrate  then  eli)
+```
+
+NVIDIA machines get a CUDA pack **with** vendored cudart/cublas (or install fails
+closed). Intel/AMD/`--vulkan` get a real `vulkan-` wheel only.
+
+Also check `which eli` — an old portable wrapper can still be first on `PATH`
+even after installing a newer AppImage. Run `./ELI_v2-*-x86_64.AppImage --integrate`
+so `~/.local/bin/eli` points at the AppImage you just installed.
+
+---
+
+## GPU pack: `no CUDA wheel found` while offline-by-default
+
+**Symptom:** Startup dialog: *GPU pack install failed: no CUDA wheel found…*
+Logs show `index cu124 unavailable (network disabled (offline mode): blocked
+connection to ('abetlen.github.io', 443))` on a machine that *does* have NVIDIA.
+**Cause (≤2.4.25):** GPU pack install used raw `urlopen` without a scoped
+`allow_network()` window, so NetGuard blocked the wheel index.
+**Fix (v2.4.26+):** install opens `allow_network("gpu-pack install")` and falls
+back to CI `cuda-` packs on the `gpu-packs` GitHub release if abetlen is empty.
+On portable, if `ggml_cuda_init` already lists your GPU, inference can still use
+the venv CUDA build — the dialog failure is about the optional GPU *pack*, not
+that CUDA is impossible.
 
 ---
 

@@ -45,7 +45,10 @@ def _import_eli_gpu_pack():
         import eli_gpu_pack
         return eli_gpu_pack
     except ImportError:
-        log.debug("eli_gpu_pack not importable as frozen module", exc_info=True)
+        # Expected on portable/dev: module lives under packaging/pyinstaller/.
+        # Do not log exc_info — startup's DEBUG handler prints it as a scary
+        # traceback even though the path fallback below succeeds.
+        log.debug("eli_gpu_pack not on sys.path yet; resolving via packaging tree")
     candidates = []
     meipass = getattr(sys, "_MEIPASS", "")
     if meipass:

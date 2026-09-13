@@ -1,8 +1,8 @@
 # ELI v2 Script & Setup Reference
 
-**Version:** 2.4.25 (portable isolation, dead-NVIDIA CUDA trap, Windows web-server fallback)  
+**Version:** 2.4.26 (complete GPU packs per hardware; AppImage `eli` shim)  
 **Repository:** ELI_MKXI / ELI v2.0  
-**Last updated:** 2026-09-12
+**Last updated:** 2026-09-13
 
 **Beginner guide:** **[INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md)**
 

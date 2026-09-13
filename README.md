@@ -27,13 +27,20 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.26 — complete GPU packs per hardware.** Iris Xe / AMD / `--vulkan` now
+> download a real `vulkan-` wheel (not a CUDA wheel labelled vulkan). CUDA packs
+> always vendor `libcudart`/`libcublas` or refuse to activate. Duplicate
+> `runtime/gpu/lib` natives are deduped. GPU pack install opens a scoped NetGuard
+> allow (offline-by-default no longer blocks abetlen/GitHub). AppImage
+> `--integrate` refreshes `~/.local/bin/eli`. Guide:
+> **`first time Installation/INSTALLATION_GUIDE.md`**.
+> **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+>
 > **v2.4.25 — portable isolation + dead-NVIDIA CUDA trap + Windows web-server/QR.** Launchers
 > pin *this* checkout’s `.venv` (no more loading 2.4.23 packages from an old portable). Broken
 > `nvidia-smi` / PCI-only NVIDIA no longer selects CUDA. Wizard completeness requires a working
 > llama backend in *this* `.venv`. Windows GUI Web Server uses `ELI-Server.exe`, paints LAN QRs
-> immediately, and ships `segno` in the frozen bundle. Guide:
-> **`first time Installation/INSTALLATION_GUIDE.md`**.
-> **[Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)**.
+> immediately, and ships `segno` in the frozen bundle.
 >
 > **v2.4.24 — docs + release cut on the unified wizard.** Same hardware-aware one-click setup as
 > 2.4.23 (NVIDIA/AMD/Arc/Metal → GPU; Iris Xe / ≤8 GB → CPU). Wizard hard-fails until nomic,

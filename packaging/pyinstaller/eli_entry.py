@@ -357,6 +357,24 @@ def _integrate(quiet: bool = False) -> int:
             f"Icon={files['icon']}\nCategories=Utility;\nTerminal={'true' if key != 'eli' else 'false'}\n",
             encoding="utf-8",
         )
+    # Keep ``eli`` on PATH pointing at THIS AppImage — otherwise a leftover
+    # portable wrapper (e.g. 2.4.24) keeps launching after users install a newer
+    # AppImage and wonder why CUDA packs / loaders still crash.
+    try:
+        bindir = Path.home() / ".local" / "bin"
+        bindir.mkdir(parents=True, exist_ok=True)
+        shim = bindir / "eli"
+        body = (
+            "#!/usr/bin/env bash\n"
+            f'exec "{appimage}" "$@"\n'
+        )
+        shim.write_text(body, encoding="utf-8")
+        shim.chmod(0o755)
+        if not quiet:
+            print(f"[integrate] CLI shim: {shim} → {appimage}")
+    except Exception as exc:
+        if not quiet:
+            print(f"[integrate] could not write ~/.local/bin/eli ({exc})", file=sys.stderr)
     if not quiet:
         print(f"[integrate] menu entries installed for {appimage}")
     return 0
