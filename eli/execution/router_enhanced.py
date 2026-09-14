@@ -6483,8 +6483,13 @@ _BARE_ACTIVITY_PHRASES = (
 
 _DEV_UPDATE_SUBJECT_RE = re.compile(
     r"\b(code|codebase|repo|repositor\w*|git|commit\w*|version|build|patch\w*|"
-    r"capabilit\w*|module|test\w*|upgrade\w*|check(?:s|ed|ing)?|update(?:s|d)?|"
-    r"maintenance|deploy\w*|repair\w*|refactor\w*|fix(?:es|ed|ing)?|"
+    r"capabilit\w*|module|tests?\b|upgrade\w*|"
+    # "checks"/"checked"/"updates" as maintenance nouns — NOT "checking in/up"
+    # (Jess Iris Xe live: "just checking in on you. what have you been doing
+    # the past week?" matched check(?:ing)? and forced a packaged SELF_REPORT dump).
+    r"checks?\b|checked\b|updates?\b|updated\b|"
+    r"maintenance|deploy\w*|repair\w*|refactor\w*|"
+    r"fix(?:es|ed|ing)?|"
     r"runtime|pipeline|system)\b",
     re.I,
 )
@@ -6499,7 +6504,14 @@ def _eli_activity_question_is_about_dev_work(low: str) -> bool:
     text = str(low or "")
     if not any(p in text for p in _BARE_ACTIVITY_PHRASES):
         return True          # not a bare activity question; caller's own match governs
-    return bool(_DEV_UPDATE_SUBJECT_RE.search(text))
+    # Rapport "checking in/up on you" must not count as a maintenance "check".
+    scrubbed = re.sub(
+        r"\bcheck(?:ing|ed)?\s+(?:in|up)\b(?:\s+on\b)?(?:\s+you\b)?",
+        " ",
+        text,
+        flags=re.I,
+    )
+    return bool(_DEV_UPDATE_SUBJECT_RE.search(scrubbed))
 
 
 def _eli_self_report_recent_updates_question(text):

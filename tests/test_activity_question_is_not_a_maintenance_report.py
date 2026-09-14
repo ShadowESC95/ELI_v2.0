@@ -39,6 +39,9 @@ from eli.execution.executor_enhanced import execute
     "what have you been up to?",
     "what have you been working on today?",
     "what you been up to",
+    # Jess Iris Xe 2.4.29: "checking in" matched check(?:ing)? → SELF_REPORT dump
+    "just checking in on you. what have you been doing the past week ?",
+    "just checking in on you. what have you been doing the past week?",
 ])
 def test_conversational_activity_question_stays_in_chat(asked):
     assert route(asked)["action"] == "CHAT", asked
@@ -133,5 +136,7 @@ def test_missing_git_is_reported_as_missing_not_as_clean(monkeypatch):
     monkeypatch.setattr(ex.subprocess, "run", _no_git)
     txt = _report()["content"]
     assert "clean according to git status --short" not in txt
-    assert "no git repository in this build" in txt
-    assert "packaged build" in txt
+    # Packaged AppImage path and missing-git path use different wording; both must
+    # refuse to invent a clean tree.
+    assert "no git" in txt.lower()
+    assert "packaged" in txt.lower() or "not available" in txt.lower()

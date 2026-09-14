@@ -27,6 +27,8 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.31 — check-in is not a maintenance dump.** "just checking in … what have you been doing?" stayed CHAT (not packaged SELF_REPORT); phatic no longer forces quick on that ask.
+>
 > **v2.4.30 — DATE meta-route + day awareness + no stale GPU volunteer.** Meta questions about DATE behaviour stay CHAT (not Phase-45 DATE); CURRENT TIME forbids claiming ignorance of the day; check-ins must not invent historical GPU layer counts.
 >
 > **v2.4.29 — keep CUDA pack when verify probe crashes after device enum.** RTX 2060: `ggml_cuda_init` found the GPU then the probe died — 2.4.28 deleted a working pack. Now any successful CUDA device enumeration keeps the pack.
