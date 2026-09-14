@@ -82,7 +82,11 @@ def continuity_guard_block(user_input: str = "") -> Optional[str]:
         "appointments, weekend plans, who they are collecting/picking up, or "
         "past-session projects unless they asked about those this turn. If they "
         "correct a plan this turn, that correction wins over older memory — do "
-        "not keep restating the superseded version."
+        "not keep restating the superseded version. "
+        "Do NOT volunteer GPU layer counts, VRAM %, load parameters, or "
+        "prior-session runtime numbers unless they asked about GPU/status/"
+        "hardware this turn. Never invent or reuse historical layer counts "
+        "(e.g. 26/28) — if asked, cite LIVE SELF-STATUS / GPU_STATUS only."
     )
 
 

@@ -1085,6 +1085,24 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     ):
         return True
 
+    # "feeling normal again" / typo-tolerant "you oaynow" after greeting strip —
+    # live: "hey buddy, you oaynow? feeling normal again?" must stay phatic so
+    # continuity guards apply and stale GPU layer memory is not volunteered.
+    if n <= 6 and re.match(
+        r"^feeling (?:normal|better|ok|okay|fine|alright)(?: again| now| yet)?$",
+        normalized,
+    ):
+        return True
+    if n <= 5 and re.match(
+        r"^(?:are |r )?you\s+o+k?a?y?\s*now(?:\s+again)?$",
+        normalized,
+    ):
+        return True
+    if n <= 12 and re.search(r"\bfeeling (?:normal|better)\b", normalized) and re.search(
+        r"\byou\b", normalized
+    ) and not re.search(r"\b(gpu|layer|vram|fix|install|bug|code|error)\b", normalized):
+        return True
+
     # Identity/self-awareness questions — phatic if combined with a greeting
     _identity_only = {
         "do you know who you are", "do you know who i am",
@@ -1194,7 +1212,9 @@ def _phatic_time_authority_block() -> str:
             "never invent a different timezone or say it is night/day elsewhere): "
             f"{_now.strftime('%A %d %B %Y, %H:%M')}"
             f"{(' ' + _tz) if _tz else ''} ({_part_of_day()}). "
-            "Morning 05:00-12:00, afternoon 12:00-17:00, evening 17:00-21:00, night 21:00-05:00."
+            "Morning 05:00-12:00, afternoon 12:00-17:00, evening 17:00-21:00, night 21:00-05:00. "
+            "You always know today's weekday and calendar date from this value — never claim "
+            "you don't track dates, don't know what day it is, or need the user to tell you."
         )
     except Exception:
         return ""
@@ -1220,7 +1240,10 @@ def _phatic_rapport_style_rule() -> str:
         "appears in verified profile or this conversation. Wit and cultural references are fine; "
         "invented user biography is not.\n"
         "- Do NOT claim a different local time, timezone, or weather than CURRENT TIME above.\n"
+        "- You already know today's day/date from CURRENT TIME — never claim otherwise.\n"
         "- Do NOT invent model names, GPU stats, or runtime telemetry — use MOUNTED MODEL only.\n"
+        "- Do NOT volunteer GPU layer counts, VRAM %, or load parameters on a casual check-in "
+        "unless the user asked about hardware/status.\n"
         "- Humour must not replace warmth; if there is an actual runtime issue, mention it plainly.\n"
         "- If you already greeted with the same opener this session (e.g. 'Hey bud'), vary it — "
         "do not open twice in a row with the identical phrase.\n\n"
@@ -6546,6 +6569,7 @@ Answer:"""
             _c_valid_names = ", ".join(_VALID_MODES_C.values())
             enhanced_system += (
                 f"\n\nCURRENT TIME: {_now} on {_date}."
+                " You always know today's weekday and date from this — never claim otherwise."
                 "\nWhen the user says 'me' or 'my', they mean themselves (the user), not you (ELI)."
                 + ("\nThe user wants depth — provide a full, detailed answer." if _compact_wants_depth
                    else "\nFor technical queries, stay focused. For casual check-ins, engage naturally in ELI\'s persona; no sterile status report.")
@@ -6637,7 +6661,9 @@ Answer:"""
             + ("\n- The user has explicitly asked for a detailed/longer answer — provide depth and completeness."
                if _user_wants_depth else
                "\n- Keep responses concise. No unsolicited sections.")
-            + "\n- Time: use the CURRENT TIME value above exactly."
+            + "\n- Time: use the CURRENT TIME value above exactly. You always know today's "
+              "weekday and date from it — never claim you don't track dates or don't know "
+              "what day it is."
             "\n- VOICE: Never start with 'Of course', 'Certainly', 'Sure', 'Happy to help', "
             "'Great question', 'Absolutely', or any similar assistant filler. "
             "You are ELI — dry, direct, substantive, nerdy, truth-first, occasionally dark, and allowed to have persona-bound takes when asked. Respond accordingly."
@@ -9626,7 +9652,8 @@ Answer:"""
         try:
             _self_physical = bool(re.search(
                 r"\b(how (?:are|r) (?:you|u)|how(?:'?s| is) it going|how was your (?:sleep|night|day)|"
-                r"how(?:'?s| is) (?:the|your) head|feeling better|you feeling|"
+                r"how(?:'?s| is) (?:the|your) head|feeling better|feeling normal|you feeling|"
+                r"back to normal|you oka?y?\s*now|you o+k?a?y?\s*now|"
                 r"after (?:a|the|your|that) (?:restart|reboot)|"
                 r"did you (?:sleep|crash|rest)|how (?:do|are) you (?:feel|feeling|running|doing|holding up)|"
                 r"(?:are |r )?(?:you|u) (?:ok|okay|alright)\b|are you (?:running|overheating|still (?:there|alive))|"
@@ -9643,10 +9670,13 @@ Answer:"""
                     # it gets truncated out on long turns and the model falls back to
                     # fabricating telemetry ("no live telemetry → CPU 41°C, GPU 38°C").
                     _live_self_status = (
-                        "[LIVE SELF-STATUS — REAL, MEASURED RIGHT NOW. If you mention your "
-                        "physical/runtime state, use THESE exact figures. You have NO other "
-                        "sensors: never invent a temperature, 'thermal throttling', or 'overnight "
-                        "diagnostics' — if a value isn't listed here, say you don't track it]\n" + _ss)
+                        "[LIVE SELF-STATUS — REAL, MEASURED RIGHT NOW. For a casual "
+                        "check-in (hey / you okay / feeling normal), answer personally "
+                        "WITHOUT volunteering GPU layers, VRAM %, or load parameters "
+                        "unless asked. If you DO mention physical/runtime state, use "
+                        "THESE exact figures only — never invent temperatures or cite "
+                        "historical layer counts from prior sessions. You have NO other "
+                        "sensors: if a value isn't listed here, say you don't track it]\n" + _ss)
         except Exception:
             log.debug("live self-status injection skipped", exc_info=True)
 

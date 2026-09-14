@@ -525,7 +525,8 @@ def build_persona_handoff(
             f"{(' ' + _tz) if _tz else ''} ({_part_of_day()}). "
             "Night is 21:00-05:00, morning 05:00-12:00, afternoon 12:00-17:00, "
             "evening 17:00-21:00. Do not guess the time, the timezone, or the "
-            "part of day."
+            "part of day. You always know today's weekday and calendar date from "
+            "this value — never claim you don't track dates or don't know what day it is."
         )
     except Exception:
         log.debug("current-time context unavailable", exc_info=True)

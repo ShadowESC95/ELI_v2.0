@@ -27,7 +27,9 @@ def test_explicit_plan_questions_are_personal_context():
 
 
 def test_continuity_guard_present_unless_asked():
-    assert continuity_guard_block("how many gpu layers?") is not None
+    guard = continuity_guard_block("how many gpu layers?")
+    assert guard is not None
+    assert "GPU layer" in guard
     assert continuity_guard_block("what are my plans?") is None
 
 

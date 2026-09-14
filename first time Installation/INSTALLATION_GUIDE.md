@@ -1,7 +1,7 @@
 # ELI v2 — Installation Guide (every OS / machine / user)
 
-**Version:** 2.4.29 · **Updated:** 2026-09-14  
-**Release:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.29
+**Version:** 2.4.30 · **Updated:** 2026-09-14  
+**Release:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.30
 
 This guide answers: **which download, which first click, and what the wizard actually installs.**
 
@@ -71,7 +71,7 @@ So: the wizard makes **chat + memory + voice + GUI** complete and hardware-aware
 
 | You are… | Download | First action |
 |----------|----------|--------------|
-| Windows, simplest | `ELI-Setup-2.4.29.exe` | Run Setup |
+| Windows, simplest | `ELI-Setup-2.4.30.exe` | Run Setup |
 | Windows, unzip | `ELI_v2-*-windows-x64.zip` | `ELI\ELI.exe` |
 | Linux, simplest | `ELI_v2-*-x86_64.AppImage` | `chmod +x` → run |
 | Linux, editable | `*-linux-portable.tar.gz` | `./ELI_Setup.sh` |
@@ -85,20 +85,20 @@ So: the wizard makes **chat + memory + voice + GUI** complete and hardware-aware
 
 ### Linux AppImage
 ```bash
-chmod +x ELI_v2-2.4.29-x86_64.AppImage
-./ELI_v2-2.4.29-x86_64.AppImage
+chmod +x ELI_v2-2.4.30-x86_64.AppImage
+./ELI_v2-2.4.30-x86_64.AppImage
 ```
 
 ### Linux portable
 ```bash
-tar -xzf ELI_v2-2.4.29-linux-portable.tar.gz
-cd ELI_v2-2.4.29-linux-portable
+tar -xzf ELI_v2-2.4.30-linux-portable.tar.gz
+cd ELI_v2-2.4.30-linux-portable
 chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 ./RUN_ELI.sh
 ```
 
 ### Windows Setup
-Run **`ELI-Setup-2.4.29.exe`**. Desktop shortcut is **ELI only** (Server in Start Menu). A second GUI instance is refused (singleton). Data: `%LOCALAPPDATA%\ELI_v2\`.
+Run **`ELI-Setup-2.4.30.exe`**. Desktop shortcut is **ELI only** (Server in Start Menu). A second GUI instance is refused (singleton). Data: `%LOCALAPPDATA%\ELI_v2\`.
 
 ### macOS
 Open the `.dmg`, drag to Applications, launch (Metal).
@@ -123,7 +123,7 @@ ELI_INSTALL_CPU_ONLY=0 ./ELI_Setup.sh
 
 ---
 
-## 5. Troubleshooting (2.4.29)
+## 5. Troubleshooting (2.4.30)
 
 | Symptom | Fix |
 |---------|-----|
@@ -132,12 +132,14 @@ ELI_INSTALL_CPU_ONLY=0 ./ELI_Setup.sh
 | Nomic / Piper missing | Wizard hard-fails until fixed — Retry / Fetch |
 | Iris Xe OOM on install | Wizard CPU policy, or AppImage — not interactive Vulkan `install.sh` |
 | Wrong `eli` / still loads old portable | Open a **new** terminal; run AppImage `--integrate` (rewrites menu + `~/.local/bin/eli`); or `bash scripts/fix_eli_shell_env.sh --yes` |
-| Menu / Server icon opens deleted AppImage | 2.4.29+ auto-refreshes `.desktop` on version bump; or `./ELI_v2-*-x86_64.AppImage --integrate` |
-| “Yes” to install mpv does nothing / LLM talks | 2.4.29+ Phase-45 `CONFIRM_PENDING_REMEDIATION` (first yes runs apt) |
+| Menu / Server icon opens deleted AppImage | 2.4.30+ auto-refreshes `.desktop` on version bump; or `./ELI_v2-*-x86_64.AppImage --integrate` |
+| “Yes” to install mpv does nothing / LLM talks | 2.4.30+ Phase-45 `CONFIRM_PENDING_REMEDIATION` (first yes runs apt) |
 | Dead `nvidia-smi` + CUDA plan | 2.4.25+ treats driver errors as no NVIDIA → CPU wheels |
 | `libcudart.so.12` / incomplete GPU pack | 2.4.27+; remove `~/.local/share/ELI_v2/runtime/gpu` and relaunch AppImage (Iris/AMD get Vulkan; NVIDIA CUDA packs vendor cudart) |
 | GPU pack: `no CUDA wheel` + offline mode | 2.4.26+ scoped NetGuard allow + CI cuda fallback |
 | GPU pack verify deletes pack after finding GPU | 2.4.29+ keeps pack whenever `ggml_cuda_init` enumerated devices (even if the probe then crashes); also 2.4.27+ cudart 12.6 |
+| Check-in invents old GPU layers (e.g. 26/28) / denies knowing the day | 2.4.30+ continuity guard + CURRENT TIME day rule; ask GPU_STATUS only when you want layers |
+| “Explain why you used DATE…” returns only the date | 2.4.30+ meta-DATE questions stay CHAT instead of Phase-45 DATE |
 | Windows Web Server / no LAN QR | 2.4.25+ uses `ELI-Server.exe` on frozen Windows, paints QRs as soon as the pair URL exists, and bundles `segno` |
 
 Maintainer map: **[ELI_SCRIPT_REFERENCE.md](ELI_SCRIPT_REFERENCE.md)**.

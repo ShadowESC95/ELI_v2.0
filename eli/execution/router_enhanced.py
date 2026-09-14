@@ -119,9 +119,45 @@ _WALLCLOCK_DATE_PATTERNS = (
     r"\bwhat(?:'?s|\s+is)?\s+(?:the\s+)?(?:\w+\s+){0,2}(?:date|day)\s+(?:is|it\s+is|was)\b",
 )
 
+# Meta-critique of DATE/TIME behaviour ("explain how you can tell me the date
+# by calling that function… so you know what day it is now?") embeds a wallclock
+# clause and used to hijack into Phase-45 DATE — returning only the date and
+# never answering the planning question. Detect that class explicitly.
+_WALLCLOCK_META_RE = re.compile(
+    r"(?i)\b(?:"
+    r"care to explain|explain how|explain why|"
+    r"why (?:didn'?t|did not|weren'?t|were not|couldn'?t|wouldn'?t) you|"
+    r"not smart enough|making a plan|execut(?:e|ing|uing)|incorporat\w+|"
+    r"calling that function|by calling (?:that |the )?function|"
+    r"how (?:can|do|did) you (?:tell|know|get)|"
+    r"should (?:have|'ve) (?:known|checked|called|used)|"
+    r"without (?:showing|calling|checking|verifying|making)"
+    r")\b"
+)
+
+
+def _has_wallclock_pattern(low: str) -> bool:
+    return any(re.search(p, low) for p in _WALLCLOCK_TIME_PATTERNS + _WALLCLOCK_DATE_PATTERNS)
+
+
+def _is_wallclock_meta_question(low: str) -> bool:
+    """True when the user is criticising DATE/TIME behaviour, not asking the clock."""
+    if not low or not _has_wallclock_pattern(low):
+        return False
+    if _WALLCLOCK_META_RE.search(low):
+        return True
+    # Long compound with explain/why/plan + an embedded date/day clause.
+    if len(low.split()) >= 18 and re.search(
+        r"\b(explain|why|how come|instead of|plan(?:ning)?|function|incorporat)\b",
+        low,
+    ):
+        return True
+    return False
+
 
 def _is_wallclock_question(low: str) -> bool:
-    return any(re.search(p, low) for p in _WALLCLOCK_TIME_PATTERNS + _WALLCLOCK_DATE_PATTERNS)
+    """Genuine clock/date ask — excludes meta-critique that merely embeds 'what day'."""
+    return _has_wallclock_pattern(low) and not _is_wallclock_meta_question(low)
 
 
 _RE_SYSTEM_STATS = re.compile(
@@ -3700,7 +3736,9 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         or re.search(r"/\S*\.(?:txt|py|md|json|csv|sh|log|ini|cfg|yaml|yml)\b", low)
     )
 
-    if (not _is_date_conv and not _file_command
+    _wallclock_meta = _is_wallclock_meta_question(low)
+
+    if (not _is_date_conv and not _file_command and not _wallclock_meta
             and any(re.search(p, low) for p in _WALLCLOCK_TIME_PATTERNS)):
         # original_query carries the phrasing the TIME effector needs to tell
         # "the time" from "the day and the time", and to spot a named place.
@@ -3740,7 +3778,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             return _mk("CREATE_FILE", {"path": _cf_path, "content": _cf_content},
                        0.96, matched_by="fs.create_file")
 
-    if (not _is_date_conv and not _file_command
+    if (not _is_date_conv and not _file_command and not _wallclock_meta
             and any(re.search(p, low) for p in _WALLCLOCK_DATE_PATTERNS)):
         return _mk("DATE", {"original_query": text}, 1.0, matched_by="system.date")
 
