@@ -27,6 +27,8 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.35 — PowerShell installer ASCII-only (smoke).** `install_desktop_apps.ps1` dropped a UTF-8 em-dash that broke `test_shipped_ps1_is_pure_ascii` / PS 5.1.
+>
 > **v2.4.34 — redistribution-safe desktop icons (no extract-folder paths).** Menu/Desktop launchers Exec stable `eli-run` + install_root pointer; no `Path=` to `…/ELI_v2-*-linux-portable`; refreshed on every portable/source GUI start.
 >
 > **v2.4.33 — load-probe when ctx/batch exceed smart-fit (+ LAN localhost hint).** Oversize ctx/batch no longer skips verify just because layers matched; localhost server prints how to enable phone/Wi‑Fi QR.

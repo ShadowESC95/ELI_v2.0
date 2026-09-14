@@ -1,5 +1,5 @@
 ﻿# Install Start Menu shortcuts (Windows). Redistribution-safe: shortcuts call a
-# stable %LOCALAPPDATA%\ELI_v2\eli-run.cmd that reads the install-root pointer —
+# stable %LOCALAPPDATA%\ELI_v2\eli-run.cmd that reads the install-root pointer -
 # never a versioned extract folder path.
 # Run:  powershell -ExecutionPolicy Bypass -File scripts\install_desktop_apps.ps1
 $ErrorActionPreference = "Stop"

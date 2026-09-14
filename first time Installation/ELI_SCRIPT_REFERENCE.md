@@ -1,6 +1,6 @@
 # ELI v2 Script & Setup Reference
 
-**Version:** 2.4.34 (redistribution-safe desktop icons; load-probe; LAN hint)  
+**Version:** 2.4.35 (PS1 ASCII smoke; redistribution-safe desktop icons)  
 **Repository:** ELI_MKXI / ELI v2.0  
 **Last updated:** 2026-09-14
 
