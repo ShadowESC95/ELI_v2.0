@@ -27,6 +27,8 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.27 — CUDA pack verify fix.** CI CUDA packs vendor CUDA 12.6+ cudart (not 12.4); verify keeps packs that already found NVIDIA devices; LD_LIBRARY_PATH set for AppImage probes.
+>
 > **v2.4.26 — complete GPU packs per hardware.** Iris Xe / AMD / `--vulkan` now
 > download a real `vulkan-` wheel (not a CUDA wheel labelled vulkan). CUDA packs
 > always vendor `libcudart`/`libcublas` or refuse to activate. Duplicate

@@ -476,11 +476,21 @@ def pack_backend_from_url(url: str) -> str:
 
 
 def _normalize_cuda_idx(cuda_idx: str) -> str:
-    """Map a backend label to a cuNNN PyPI pin. Never treat ``\"cuda\"`` as cuNNN."""
+    """Map a backend label to a cuNNN PyPI pin.
+
+    Never treat the bare label ``\"cuda\"`` as a cuNNN token (``\"cuda\".startswith(\"cu\")``
+    used to yield the nonsense minor ``da.`` and accidentally pulled the *newest*
+    cudart — which worked). Mapping ``cuda`` → ``cu124`` then pinned an *older*
+    runtime than the CI wheel (built with CUDA 12.6 in gpu-packs.yml), and verify
+    failed on live NVIDIA boxes even though ``ggml_cuda_init`` found the GPU.
+    """
     s = (cuda_idx or "").strip().lower()
     if re.fullmatch(r"cu\d{2,3}", s):
         return s
-    return "cu124"
+    # CI-built cuda-* packs (.github/workflows/gpu-packs.yml) use toolkit 12.6.
+    if s in ("cuda", "ci", "gpu-packs", ""):
+        return "cu126"
+    return "cu126"
 
 
 def _libdir_has_cuda_natives(libdir: Path) -> bool:
@@ -1128,11 +1138,15 @@ def _download(url: str, path: Path) -> None:
 def _vendor_cuda_runtime(libdir: Path, tmp: Path, cuda_idx: str = "cu124") -> None:
     """Fetch cudart + cublas from NVIDIA's official PyPI wheels into libdir.
 
-    Version pinned to the same CUDA minor the llama wheel was built against
-    (cu124 → 12.4.x); x86_64 wheels only (PyPI also hosts aarch64)."""
+    Prefer the CUDA minor the llama wheel was built against (cu126 → 12.6.x),
+    then newer 12.x lines — a too-old cudart against a newer libggml-cuda.so is
+    what made verify delete a pack after ggml_cuda_init already found the GPU.
+    """
     want_ext = ".dll" if sys.platform == "win32" else ".so"
     cuda_idx = _normalize_cuda_idx(cuda_idx)
-    minor = f"{cuda_idx[2:4]}.{cuda_idx[4:]}"  # "cu124" -> "12.4"
+    pin_major = int(cuda_idx[2:4])
+    pin_minor = int(cuda_idx[4:] or "0")
+    minor_candidates = [f"{pin_major}.{m}" for m in range(pin_minor, pin_minor + 8)]
 
     def _pick(files):
         for f in files:
@@ -1149,18 +1163,27 @@ def _vendor_cuda_runtime(libdir: Path, tmp: Path, cuda_idx: str = "cu124") -> No
     for pkg in ("nvidia-cuda-runtime-cu12", "nvidia-cublas-cu12"):
         with urllib.request.urlopen(f"https://pypi.org/pypi/{pkg}/json", timeout=30) as r:
             meta = json.load(r)
-        versions = sorted(
-            (v for v in meta["releases"] if v.startswith(minor + ".")),
-            key=lambda v: tuple(int(x) for x in v.split(".")),
-            reverse=True,
-        ) or [meta["info"]["version"]]
         hit = None
-        for ver in versions:
-            hit = _pick(meta["releases"][ver])
+        ver = None
+        for minor in minor_candidates:
+            versions = sorted(
+                (v for v in meta["releases"] if v.startswith(minor + ".")),
+                key=lambda v: tuple(int(x) for x in v.split(".")),
+                reverse=True,
+            )
+            for candidate in versions:
+                hit = _pick(meta["releases"][candidate])
+                if hit:
+                    ver = candidate
+                    break
             if hit:
                 break
         if not hit:
-            raise RuntimeError(f"no x86_64 wheel for {pkg} (CUDA {minor})")
+            # Last resort: newest published wheel for the package.
+            ver = meta["info"]["version"]
+            hit = _pick(meta["releases"].get(ver) or [])
+        if not hit:
+            raise RuntimeError(f"no x86_64 wheel for {pkg} (CUDA {minor_candidates[0]}+)")
         _say(f"fetching CUDA runtime component {pkg} {ver}…")
         whl = tmp / f"{pkg}.whl"
         _download(hit["url"], whl)
@@ -1188,6 +1211,7 @@ def _intel_integrated_gpu() -> bool:
 
 def _verify(dest: Path, *, require_offload: bool = True) -> tuple[bool, str]:
     """Import llama_cpp from the pack in a throwaway ELI subprocess."""
+    import os
     libdir = dest / "llama_cpp" / "lib"
     try:
         _assert_cuda_runtime_complete(libdir)
@@ -1248,20 +1272,43 @@ def _verify(dest: Path, *, require_offload: bool = True) -> tuple[bool, str]:
         "import llama_cpp\n"
         "from llama_cpp import llama_cpp as _lc\n"
         "_lc.llama_backend_init()\n"
-        f"if {require_offload!r} and not llama_cpp.llama_supports_gpu_offload():\n"
+        "off = bool(llama_cpp.llama_supports_gpu_offload())\n"
+        "print('gpu-pack-verify-offload', off)\n"
+        f"if {require_offload!r} and not off:\n"
         "    print('gpu-pack-verify-no-offload'); raise SystemExit(2)\n"
         "print('gpu-pack-verify-ok', llama_cpp.__version__)\n"
     )
+    env = os.environ.copy()
+    if sys.platform != "win32" and libdir.is_dir():
+        # AppImage / frozen runs pin LD_LIBRARY_PATH at the bundle; without the
+        # pack libdir first, the probe can bind the wrong cudart and die after
+        # ggml_cuda_init already printed the GPU list.
+        prev = env.get("LD_LIBRARY_PATH", "")
+        env["LD_LIBRARY_PATH"] = str(libdir) + (os.pathsep + prev if prev else "")
     try:
         out = subprocess.run(
             [sys.executable, "-c", probe],
             capture_output=True, text=True, timeout=180,
+            env=env,
         )
     except Exception as exc:
         return False, str(exc)
-    if out.returncode == 0 and "gpu-pack-verify-ok" in (out.stdout or ""):
-        return True, out.stdout.strip()
-    return False, (out.stderr or out.stdout or "no output").strip()[-800:]
+    stdout = (out.stdout or "").strip()
+    stderr = (out.stderr or "").strip()
+    detail = "\n".join(x for x in (stdout, stderr) if x) or "no output"
+    if out.returncode == 0 and "gpu-pack-verify-ok" in stdout:
+        return True, stdout
+    # Exit 2 = llama_supports_gpu_offload() False. When ggml_cuda_init already
+    # enumerated devices, that flag is a known false negative (AppImage + some
+    # driver/cudart pairs). Keep the pack — deleting it after a successful CUDA
+    # device probe is what produced the 2.4.26 "Loader said: found 1 CUDA
+    # devices" failure dialog on a working RTX 2060.
+    cuda_found = bool(re.search(r"ggml_cuda_init:\s*found\s+[1-9]", stderr))
+    if require_offload and cuda_found and (
+        out.returncode == 2 or "gpu-pack-verify-no-offload" in stdout
+    ):
+        return True, "gpu-pack-verify-ok (cuda devices enumerated)\n" + detail[-700:]
+    return False, detail[-800:]
 
 
 def preload_native_libs(pack_dir: str | Path) -> None:

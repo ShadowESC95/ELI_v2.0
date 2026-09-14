@@ -1,6 +1,6 @@
 # ELI v2 Script & Setup Reference
 
-**Version:** 2.4.26 (complete GPU packs per hardware; AppImage `eli` shim)  
+**Version:** 2.4.27 (complete GPU packs per hardware; AppImage `eli` shim)  
 **Repository:** ELI_MKXI / ELI v2.0  
 **Last updated:** 2026-09-13
 

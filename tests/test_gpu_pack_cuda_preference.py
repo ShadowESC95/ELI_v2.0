@@ -32,9 +32,12 @@ def test_vulkan_asset_is_labelled_vulkan():
 
 def test_normalize_cuda_idx_never_treats_cuda_as_cuNNN():
     assert eli_gpu_pack._normalize_cuda_idx("cu124") == "cu124"
-    assert eli_gpu_pack._normalize_cuda_idx("cuda") == "cu124"
-    assert eli_gpu_pack._normalize_cuda_idx("vulkan") == "cu124"
-    assert eli_gpu_pack._normalize_cuda_idx("") == "cu124"
+    assert eli_gpu_pack._normalize_cuda_idx("cu126") == "cu126"
+    # Bare "cuda" must map to the CI toolkit line (12.6), not cu124 — cu124
+    # against a 12.6-built libggml-cuda.so failed verify on live NVIDIA boxes.
+    assert eli_gpu_pack._normalize_cuda_idx("cuda") == "cu126"
+    assert eli_gpu_pack._normalize_cuda_idx("vulkan") == "cu126"
+    assert eli_gpu_pack._normalize_cuda_idx("") == "cu126"
 
 
 def test_ci_pack_label_is_derived_not_hardcoded():
@@ -165,3 +168,10 @@ def test_gpu_pack_install_opens_netguard_allow_window():
 def test_nvidia_falls_back_to_ci_cuda_when_index_empty():
     body = Path(eli_gpu_pack.__file__).read_text(encoding="utf-8")
     assert "trying CI-built CUDA pack from the gpu-packs release" in body
+
+
+def test_verify_trusts_cuda_device_enumeration_on_false_negative():
+    body = Path(eli_gpu_pack.__file__).read_text(encoding="utf-8")
+    assert "cuda devices enumerated" in body
+    assert "LD_LIBRARY_PATH" in body
+    assert 'ggml_cuda_init:\\s*found\\s+[1-9]' in body or "ggml_cuda_init:" in body
