@@ -1829,7 +1829,7 @@ class ExecutorBridge:
                 if _is_wallclock_meta_question(text_lower):
                     return {'action': 'CHAT', 'args': {'message': text}}
             except Exception:
-                pass
+                log.debug("suppressed exception", exc_info=True)
             return {'action': 'DATE', 'args': {}}
         if 'remember' in text_lower or 'store memory' in text_lower:
             return {'action': 'MEMORY_STORE', 'args': {'text': text}}

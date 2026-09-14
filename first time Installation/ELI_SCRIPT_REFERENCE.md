@@ -1,6 +1,6 @@
 # ELI v2 Script & Setup Reference
 
-**Version:** 2.4.31 (check-in ≠ SELF_REPORT dump; DATE meta; day awareness)  
+**Version:** 2.4.32 (check-in ≠ SELF_REPORT dump; DATE meta; day awareness)  
 **Repository:** ELI_MKXI / ELI v2.0  
 **Last updated:** 2026-09-14
 
