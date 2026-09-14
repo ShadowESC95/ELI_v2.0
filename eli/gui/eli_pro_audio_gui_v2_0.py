@@ -12961,6 +12961,14 @@ class EliMainWindow(QMainWindow):
 def main():
     print(f"\n  {APP_NAME} {APP_VERSION}\n  ───────────────\n")
 
+    # Portable / source: refresh menu + Desktop icons via stable eli-run pointer
+    # (never leave Path=/…/ELI_v2-*-linux-portable baked into .desktop files).
+    try:
+        from eli.runtime.desktop_launchers import ensure_desktop_launchers
+        ensure_desktop_launchers()
+    except Exception:
+        log.debug("desktop launcher refresh skipped", exc_info=True)
+
     app = QApplication.instance() or QApplication(sys.argv)
     app.setStyle('Fusion')
     try:
