@@ -19,12 +19,15 @@ AppImage keeps its own ``--integrate`` path (``Exec`` = the AppImage file).
 """
 from __future__ import annotations
 
+import logging
 import os
 import re
 import shutil
 import sys
 from pathlib import Path
 from typing import Iterable, Optional
+
+log = logging.getLogger(__name__)
 
 __all__ = [
     "ensure_desktop_launchers",
@@ -49,14 +52,14 @@ def product_line() -> str:
             if m and "v3" in m.group(1).lower():
                 return "v3"
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # Imported package path fallback
     try:
         here = Path(__file__).resolve()
         if any(p.name.lower().startswith("eli_v3") for p in here.parents):
             return "v3"
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return "v2"
 
 
@@ -107,7 +110,7 @@ def read_install_root() -> Optional[Path]:
     try:
         p = p.resolve()
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return p if p.is_dir() else None
 
 
@@ -126,7 +129,7 @@ def _discover_root(explicit: Optional[Path | str] = None) -> Optional[Path]:
         if p.is_dir() and (p / "eli").is_dir():
             return p
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     here = Path(__file__).resolve()
     for parent in here.parents:
         if (parent / "pyproject.toml").is_file() and (parent / "eli").is_dir():
@@ -291,7 +294,7 @@ def _desktop_search_dirs() -> list[Path]:
                     val = line.split("=", 1)[1].strip().strip('"').replace("$HOME", str(Path.home()))
                     dirs.append(Path(val))
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     # dedupe
     out: list[Path] = []
     seen = set()
@@ -411,7 +414,7 @@ def _write_linux_desktop(root: Path, *, force: bool = False) -> list[Path]:
             if desk_dir.resolve() == apps.resolve():
                 continue
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
         if not desk_dir.is_dir():
             continue
         for old in list(desk_dir.glob("eli*.desktop")) + list(desk_dir.glob("ELI*.desktop")):
@@ -444,7 +447,7 @@ def _write_linux_desktop(root: Path, *, force: bool = False) -> list[Path]:
             import subprocess
             subprocess.run([subprocess_update, str(apps)], capture_output=True, check=False)
     except Exception:
-        pass
+        log.debug("suppressed exception", exc_info=True)
     return written
 
 
