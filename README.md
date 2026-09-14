@@ -27,6 +27,8 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.33 — load-probe when ctx/batch exceed smart-fit (+ LAN localhost hint).** Oversize ctx/batch no longer skips verify just because layers matched; localhost server prints how to enable phone/Wi‑Fi QR.
+>
 > **v2.4.32 — CI smoke: DATE meta GUI guard is observable.** `except: pass` → `log.debug` so the silent-swallow ratchet stays ≤172.
 >
 > **v2.4.31 — check-in is not a maintenance dump.** "just checking in … what have you been doing?" stayed CHAT (not packaged SELF_REPORT); phatic no longer forces quick on that ask.

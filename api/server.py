@@ -2268,6 +2268,12 @@ def main():
     # Open-on-this-computer: a clickable link + auto-launch the local browser so you
     # never have to copy-paste the URL (set ELI_API_NO_BROWSER=1 to skip the launch).
     print(f"  On this computer:  {local_url}", flush=True)
+    if _is_loopback_host(host):
+        print("  Phone / Wi-Fi: this bind is localhost-only (127.0.0.1) — your phone cannot",
+              flush=True)
+        print("  reach it. Re-start with --lan, or in the GUI: Settings → Web Server →",
+              flush=True)
+        print("  “📱 Start (phone / Wi-Fi)” (then scan the QR).", flush=True)
     if _open_browser_async(local_url):
         print("  (opening it in your browser now — Ctrl-click or copy the URL above if it doesn't)",
               flush=True)
