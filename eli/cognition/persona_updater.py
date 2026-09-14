@@ -23,7 +23,10 @@ log = logging.getLogger(__name__)
 # once they go this long without being reaffirmed — they change over time, so the
 # persona should reflect CURRENT focus. Reaffirming a fact refreshes its recency
 # (see profile_extractor._insert_user_pattern). Stable facts are never aged out.
-_VOLATILE_STALE_DAYS: float = 30.0
+# 7 days (not 30): a week away should not leave ELI stuck on last week's plans.
+_VOLATILE_STALE_DAYS: float = 7.0
+# One-off travel / schedule mentions age out even faster.
+_TRAVEL_STALE_DAYS: float = 3.0
 
 # Module-level debounce: skip update_persona_overlay() calls that occur within
 # 120 seconds of the previous run. The Lock prevents the race condition where
@@ -538,9 +541,20 @@ def _read_user_patterns(memory: Any) -> Dict[str, List[str]]:
             # ones not reaffirmed within the staleness window so the live persona
             # reflects CURRENT focus, not everything ever mentioned. Stable facts
             # (name, preferences, research framework, role) are not aged out.
+            # Travel/schedule snippets use a shorter window so last week's trip
+            # does not survive a week of silence.
             if prefix in ("project", "interest") and pts:
                 age_days = (now - float(pts)) / 86400.0
-                if age_days > _VOLATILE_STALE_DAYS:
+                try:
+                    from eli.cognition.personal_context_gate import looks_like_travel_or_schedule
+                    _stale_limit = (
+                        _TRAVEL_STALE_DAYS
+                        if looks_like_travel_or_schedule(pdata)
+                        else _VOLATILE_STALE_DAYS
+                    )
+                except Exception:
+                    _stale_limit = _VOLATILE_STALE_DAYS
+                if age_days > _stale_limit:
                     continue
                 age_h = (now - float(pts)) / 3600
                 if age_h >= 4:

@@ -201,9 +201,10 @@ def _iter_table_texts(con: sqlite3.Connection, table: str, limit: int = 80) -> I
 
 # Volatile fact types age out of recall once not reaffirmed within this window
 # (projects/interests change). Stable types (preferences, name, research
-# framework, role) are never aged out.
+# framework, role) are never aged out. 7d default; travel/schedule 3d.
 _VOLATILE_PREFIXES = ("project.", "interest.", "app_cmd")
-_VOLATILE_STALE_SECONDS = 30 * 86400
+_VOLATILE_STALE_SECONDS = 7 * 86400
+_TRAVEL_STALE_SECONDS = 3 * 86400
 
 
 def _iter_user_patterns_fresh(con: sqlite3.Connection, limit: int = 200) -> list[str]:
@@ -213,7 +214,14 @@ def _iter_user_patterns_fresh(con: sqlite3.Connection, limit: int = 200) -> list
     if not _table_exists(con, "user_patterns"):
         return []
     import time as _t
-    cutoff = _t.time() - _VOLATILE_STALE_SECONDS
+    now = _t.time()
+    cutoff = now - _VOLATILE_STALE_SECONDS
+    travel_cutoff = now - _TRAVEL_STALE_SECONDS
+    try:
+        from eli.cognition.personal_context_gate import looks_like_travel_or_schedule as _is_travel
+    except Exception:
+        def _is_travel(_text: str) -> bool:  # type: ignore[misc]
+            return False
     try:
         rows = con.execute(
             "SELECT pattern_type, pattern_data, COALESCE(ts, timestamp, 0) "
@@ -228,8 +236,10 @@ def _iter_user_patterns_fresh(con: sqlite3.Connection, limit: int = 200) -> list
         text = _clean_text(pdata)
         if not text:
             continue
-        if any(ptype.startswith(p) for p in _VOLATILE_PREFIXES) and float(pts or 0) < cutoff:
-            continue  # stale volatile fact — project/interest no longer current
+        if any(ptype.startswith(p) for p in _VOLATILE_PREFIXES):
+            _cut = travel_cutoff if _is_travel(text) else cutoff
+            if float(pts or 0) < _cut:
+                continue  # stale volatile fact — project/interest no longer current
         out.append(text)
     return out
 

@@ -1462,10 +1462,13 @@ def handle_confirmation(text: str) -> str | None:
 
     if YES_RE.match(text or ""):
         if pending["stage"] == "offered":
+            plan = pending["plan"]
+            if str(plan.get("domain") or "").lower() == "media_tool":
+                return execute_pending_plan()
             with _LOCK:
                 pending["stage"] = "previewed"
                 _save_pending_state(pending)
-            return render_repair_preview(pending["plan"])
+            return render_repair_preview(plan)
         if pending["stage"] == "previewed":
             return execute_pending_plan()
         return "There is no executable pending stage right now."
@@ -1632,11 +1635,18 @@ def try_handle_query(text: str) -> str | None:
         _is_no  = is_negation(raw)
         # YES takes priority over NO when both appear (e.g. "yes no wait")
         if _is_yes and stage in {"offered", "pending", "proposed"}:
+            plan = pending.get("plan") or {}
+            # Media-tool installs already asked "download/install it?" — first
+            # yes must run apt/pip, not a second preview the 3B will narrate
+            # instead of executing (Jess Iris Xe: "I'll confirm the repair…"
+            # while mpv never installed).
+            if str(plan.get("domain") or "").lower() == "media_tool":
+                return execute_pending_plan()
             with _LOCK:
                 pending["stage"] = "previewed"
                 globals()["_PENDING"] = pending
                 _save_pending_state(pending)
-            return render_repair_preview(pending.get("plan") or {})
+            return render_repair_preview(plan)
         if _is_yes and stage == "previewed":
             return execute_pending_plan()
         if _is_no and stage in {"offered", "previewed", "pending", "proposed"}:

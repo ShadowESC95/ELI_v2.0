@@ -140,7 +140,11 @@ _SENTENCES_RE = _re.compile(r"(?<=[.!?])\s+")
 _NON_ACTION = _re.compile(
     r"^(help|assist|explain|tell you|let you know|clarify|answer|continue|"
     r"keep going|elaborate|go on|see|check back|be here|appreciate|understand|"
-    r"remember|think|know|be honest|admit|note)\b",
+    r"remember|think|know|be honest|admit|note|"
+    # Grounded remediation owns "Would you like me to download/install it?" —
+    # arming that as a proposal re-routes "yes" into nonsense CHAT instead of
+    # CONFIRM_PENDING_REMEDIATION / apt install.
+    r"download/?install(?:\s+it)?|install it|download it)\b",
     _re.I,
 )
 

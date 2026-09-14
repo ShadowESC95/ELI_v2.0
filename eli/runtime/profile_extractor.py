@@ -297,6 +297,9 @@ _SINGLE_VALUED_PATTERNS = frozenset({
     "identity.role",
     "preference.style",
     "goal.primary",
+    # One current work focus / near-term plan — a correction must replace, not
+    # accumulate, or retrieval order decides which mutually exclusive trip wins.
+    "project.current",
 })
 
 

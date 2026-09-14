@@ -318,6 +318,75 @@ def _resolve_appimage_path() -> str:
     return ""
 
 
+def _bundle_version() -> str:
+    """Packaged semver from pyproject.toml inside the frozen bundle (or repo)."""
+    candidates = []
+    meipass = getattr(sys, "_MEIPASS", None)
+    if meipass:
+        candidates.append(Path(meipass) / "pyproject.toml")
+    candidates.append(Path(__file__).resolve().parents[2] / "pyproject.toml")
+    for pyproject in candidates:
+        try:
+            if not pyproject.is_file():
+                continue
+            text = pyproject.read_text(encoding="utf-8")
+            for line in text.splitlines():
+                if line.strip().startswith("version"):
+                    # version = "2.4.28"
+                    return line.split("=", 1)[1].strip().strip("\"'")
+        except Exception:
+            continue
+    return ""
+
+
+def _mark_desktop_integrated(version: str = "") -> None:
+    try:
+        root = _user_root()
+        if not str(root):
+            return
+        marker = Path(root) / "runtime" / ".desktop_integrated"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.write_text((version or _bundle_version() or "asked").strip(), encoding="utf-8")
+    except Exception:
+        pass
+
+
+def _desktop_needs_refresh(appimage: str, version: str) -> bool:
+    """True when menu entries point at a missing/old AppImage or a prior version."""
+    try:
+        files = _desktop_files()
+        apps = files["eli"].parent
+        desks = list(apps.glob("eli-v2*.desktop")) + list(apps.glob("eli-v3*.desktop"))
+        if not desks:
+            return False
+        for desk in desks:
+            try:
+                text = desk.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                return True
+            if appimage and appimage not in text:
+                return True
+            for line in text.splitlines():
+                if not line.startswith("Exec="):
+                    continue
+                # Exec="/path/to/AppImage" [--flags]
+                raw = line.split("=", 1)[1].strip()
+                path = raw.split(None, 1)[0].strip().strip('"').strip("'")
+                if path.lower().endswith(".appimage") and not os.path.isfile(path):
+                    return True
+        marker = Path(_user_root()) / "runtime" / ".desktop_integrated"
+        if not marker.exists():
+            return False
+        prev = marker.read_text(encoding="utf-8", errors="ignore").strip()
+        if prev in ("", "asked"):
+            return True  # legacy marker — rewrite once with version + current AppImage
+        if version and prev != version:
+            return True
+    except Exception:
+        return False
+    return False
+
+
 def _integrate(quiet: bool = False) -> int:
     """Linux: install applications-menu entries (ELI, Server, Uninstall) that
     point at THIS AppImage, with THIS version's icon — replacing any stale
@@ -336,6 +405,7 @@ def _integrate(quiet: bool = False) -> int:
         )
         return 1
     bundle = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
+    version = _bundle_version()
     files = _desktop_files()
     # replace stale entries from any older install
     for old in files["eli"].parent.glob("eli*.desktop"):
@@ -345,18 +415,22 @@ def _integrate(quiet: bool = False) -> int:
     if src_icon.is_file():
         shutil.copy2(src_icon, files["icon"])
     files["eli"].parent.mkdir(parents=True, exist_ok=True)
+    ver_suffix = f" {version}" if version else ""
     entries = {
-        "eli": ("ELI v2.0", f'"{appimage}"', "ELI — private local AI assistant"),
-        "server": ("ELI Server (phone & web)", f'"{appimage}" --server', "ELI phone/web server with console output"),
-        "uninstall": ("Uninstall ELI v2.0", f'"{appimage}" --uninstall', "Remove ELI menu entries and optionally its data"),
+        "eli": (f"ELI v2.0{ver_suffix}", f'"{appimage}"', "ELI — private local AI assistant"),
+        "server": (f"ELI Server (phone & web){ver_suffix}", f'"{appimage}" --server', "ELI phone/web server with console output"),
+        "uninstall": (f"Uninstall ELI v2.0{ver_suffix}", f'"{appimage}" --uninstall', "Remove ELI menu entries and optionally its data"),
     }
     for key, (name, execline, comment) in entries.items():
-        files[key].write_text(
+        body = (
             "[Desktop Entry]\nType=Application\n"
             f"Name={name}\nComment={comment}\nExec={execline}\n"
-            f"Icon={files['icon']}\nCategories=Utility;\nTerminal={'true' if key != 'eli' else 'false'}\n",
-            encoding="utf-8",
+            f"Icon={files['icon']}\nCategories=Utility;\n"
+            f"Terminal={'true' if key != 'eli' else 'false'}\n"
         )
+        if version:
+            body += f"X-ELI-Version={version}\n"
+        files[key].write_text(body, encoding="utf-8")
     # Keep ``eli`` on PATH pointing at THIS AppImage — otherwise a leftover
     # portable wrapper (e.g. 2.4.24) keeps launching after users install a newer
     # AppImage and wonder why CUDA packs / loaders still crash.
@@ -375,8 +449,10 @@ def _integrate(quiet: bool = False) -> int:
     except Exception as exc:
         if not quiet:
             print(f"[integrate] could not write ~/.local/bin/eli ({exc})", file=sys.stderr)
+    _mark_desktop_integrated(version)
     if not quiet:
-        print(f"[integrate] menu entries installed for {appimage}")
+        print(f"[integrate] menu entries installed for {appimage}"
+              + (f" (v{version})" if version else ""))
     return 0
 
 
@@ -412,7 +488,11 @@ def _uninstall() -> int:
 
 
 def _first_run_integrate_offer() -> None:
-    """Linux AppImage first run: offer applications-menu integration once."""
+    """Linux AppImage first run: offer applications-menu integration once.
+
+    On upgrade (new version / stale Exec pointing at a deleted AppImage), rewrite
+    menu entries silently so Server/Uninstall icons cannot keep launching 2.4.25.
+    """
     if sys.platform != "linux":
         return
     appimage = _resolve_appimage_path()
@@ -432,10 +512,20 @@ def _first_run_integrate_offer() -> None:
         root = _user_root()
         if not str(root):
             return
-        marker = root / "runtime" / ".desktop_integrated"
+        version = _bundle_version()
+        marker = Path(root) / "runtime" / ".desktop_integrated"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        if _desktop_needs_refresh(appimage, version):
+            _integrate(quiet=True)
+            print(
+                f"[ELI] refreshed applications-menu launchers for "
+                f"{Path(appimage).name}"
+                + (f" (v{version})" if version else ""),
+                file=sys.stderr,
+            )
+            return
         if marker.exists():
             return
-        marker.parent.mkdir(parents=True, exist_ok=True)
         if _message_box_ask(
             title="ELI - desktop integration",
             text="Add ELI to your applications menu?",
@@ -448,7 +538,8 @@ def _first_run_integrate_offer() -> None:
             no_text="Not now",
         ):
             _integrate(quiet=True)
-        marker.write_text("asked", encoding="utf-8")
+        else:
+            _mark_desktop_integrated(version or "asked")
     except Exception as exc:
         print(f"[ELI] app-menu integration offer failed: {exc}", file=sys.stderr)
 

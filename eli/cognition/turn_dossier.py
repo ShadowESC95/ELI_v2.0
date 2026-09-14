@@ -188,20 +188,37 @@ def assemble_turn_dossier(
     # Identity + user brief (always)
     try:
         from eli.kernel.state import get_user_name, get_user_profile_text
+        from eli.cognition.personal_context_gate import (
+            asks_about_stored_personal_context,
+            strip_recalled_projects_from_profile_text,
+        )
         name = (get_user_name() or "").strip()
         profile = (get_user_profile_text() or "").strip()
         if name:
             dossier.identity_block = f"[USER IDENTITY — verified]\nName: {name}"
             dossier.provenance.append("kernel.state")
         if profile:
-            dossier.user_brief = f"[USER PROFILE — structured snapshot]\n{profile[:1200]}"
-            dossier.provenance.append("user_profile.json")
+            if not asks_about_stored_personal_context(dossier.query):
+                # Keep name/style; drop recalled projects/research so unrelated
+                # turns do not get Saturday travel plans injected as "profile".
+                profile = strip_recalled_projects_from_profile_text(profile)
+            if profile:
+                dossier.user_brief = f"[USER PROFILE — structured snapshot]\n{profile[:1200]}"
+                dossier.provenance.append("user_profile.json")
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
     try:
         from eli.runtime.user_model import get_user_brief
+        from eli.cognition.personal_context_gate import (
+            asks_about_stored_personal_context,
+            strip_focus_lines_from_brief,
+        )
         brief = (get_user_brief() or "").strip()
+        if brief and not asks_about_stored_personal_context(dossier.query):
+            # Unrelated turns must not see "Currently focused on: collect Colin…"
+            # — that is what made ELI volunteer stale travel plans mid-argument.
+            brief = strip_focus_lines_from_brief(brief)
         if brief:
             dossier.user_brief = (
                 (dossier.user_brief + "\n\n" if dossier.user_brief else "")

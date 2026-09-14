@@ -83,9 +83,13 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
     'ASK_CLARIFY',
     'BACKGROUND_JOBS',  # deterministic job-list read — verbatim, never paraphrase
     'CHECK_JOB',  # job status/result is authoritative; the model invents elapsed times and drops the actual summary if it re-narrates this
+    'CANCEL_PENDING_REMEDIATION',  # grounded cancel — never let GGUF invent "cancelled"
+    'CHECK_TARGET_STATUS',
     'CLOSE_APP',
+    'CONFIRM_PENDING_REMEDIATION',  # apt/mpv install confirm — executor must run, not narrate
     'CREATE_FILE',  # fs mutation: executor writes + reads back, result is authoritative — never let the heuristic agent profile drop `system` and punt "run touch yourself"
     'DATE',
+    'EXPLAIN_LAST_FAILURE',
     'KEYBOARD',
     'LIST_EVENTS',
     'MEDIA_CONTROL',
@@ -105,6 +109,7 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
     'OPEN_URL',
     'PAUSE_MEDIA',
     'PLAY_MEDIA',
+    'PREPARE_REMEDIATION',
     'PREVIOUS_MEDIA',
     'REPEAT_MEDIA',
     'SCREEN_LOCATE',
@@ -153,6 +158,8 @@ _DIRECT_FINAL_ACTIONS = frozenset({
     "RESOLVE_RUNTIME_PATHS", "EXPLAIN_LAST_RESPONSE",
     "EXPLAIN_LAST_FAILURE", "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME",
     "EXPLAIN_GGUF_DIAGNOSTICS", "EXPLAIN_FAILURE_LOG",
+    "CHECK_TARGET_STATUS", "PREPARE_REMEDIATION",
+    "CONFIRM_PENDING_REMEDIATION", "CANCEL_PENDING_REMEDIATION",
     "SELF_REPORT", "USER_IDENTITY_SUMMARY", "PERSONAL_MEMORY_SUMMARY",
     "PERSONAL_MEMORY_DEEP_EXPLAIN", "ROUTING_FAULT_EXPLAIN", "NAME_SOURCE_AUDIT",
     "SELF_ANALYZE", "SELF_IMPROVE", "SELF_IMPROVEMENT_LOG", "SELF_UPDATE",
@@ -9696,18 +9703,37 @@ Answer:"""
                 # name from a verified profile") is satisfied — the model must
                 # never answer "I don't know your name" when this is present.
                 _pf_lines.append(f"  verified name (this IS the user's name — use it; never say you don't know it): {_pn}")
-            # Project/research/preference are PAST-session continuity. On a PHATIC greeting
-            # ("good afternoon") they must NOT be injected: the weak model reads them as
-            # something to act on and launches an unsolicited monologue resuming the user's
-            # last project (e.g. "Let's examine the wiring matrix for…" off a plain hello).
-            # A greeting gets a greeting; the name alone is enough. Substantive turns still
-            # get the full recall.
+            # Project/research are PAST-session continuity. Soft "only if relevant"
+            # fails on small models (they volunteer Saturday travel into a GPU rant).
+            # Hard-gate: inject projects/research only when the user asks about plans /
+            # projects / remembered personal context. Preferences (tone) may still ride
+            # on substantive non-phatic turns. Phatic greetings get the name alone.
             _phatic_turn = False
             _low_grounding_casual = False
+            _asks_personal = False
             try:
                 _phatic_turn = _is_brief_phatic_prompt(str(user_input or "").strip().lower())
             except Exception:
                 _phatic_turn = False
+            try:
+                from eli.cognition.personal_context_gate import (
+                    asks_about_stored_personal_context as _asks_pc,
+                    continuity_guard_block as _cont_guard,
+                    extract_current_user_plan as _cur_plan,
+                )
+                _asks_personal = _asks_pc(user_input or "")
+                _guard = _cont_guard(user_input or "")
+                if _guard:
+                    _extra_blocks.append(_guard)
+                _plan_now = _cur_plan(user_input or "")
+                if _plan_now:
+                    _extra_blocks.append(
+                        "[CURRENT TURN PLAN — authoritative] The user just stated this "
+                        f"near-term plan: {_plan_now}. Prefer it over any older "
+                        "schedule/travel memory. Do not keep restating a superseded plan."
+                    )
+            except Exception:
+                _asks_personal = False
             try:
                 _bus_agg_pf = float(getattr(bus_result, "aggregated_confidence", 0.0) or 0.0) if bus_result else 0.0
                 _bus_gnd_pf = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0) if bus_result else 0.0
@@ -9715,9 +9741,12 @@ Answer:"""
             except Exception:
                 _low_grounding_casual = False
             if not _phatic_turn and not _low_grounding_casual:
-                for _label, _key in (("project", "active_projects"),
-                                      ("research", "research"),
-                                      ("preference", "preferences")):
+                _keys = (("preference", "preferences"),)
+                if _asks_personal:
+                    _keys = (("project", "active_projects"),
+                             ("research", "research"),
+                             ("preference", "preferences"))
+                for _label, _key in _keys:
                     _vals = _prof.get(_key)
                     if isinstance(_vals, list):
                         for _v in [str(x).strip() for x in _vals if str(x).strip()][:4]:
