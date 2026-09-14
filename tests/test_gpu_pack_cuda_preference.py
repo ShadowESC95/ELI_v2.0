@@ -175,3 +175,36 @@ def test_verify_trusts_cuda_device_enumeration_on_false_negative():
     assert "cuda devices enumerated" in body
     assert "LD_LIBRARY_PATH" in body
     assert 'ggml_cuda_init:\\s*found\\s+[1-9]' in body or "ggml_cuda_init:" in body
+    # 2.4.28 regression: must NOT require exit 2 / no-offload marker — probes
+    # often die after ggml_cuda_init with a non-2 code and empty stdout.
+    verify_fn = body.split("def _verify(")[1].split("\ndef ")[0]
+    assert "returncode == 2" not in verify_fn or "cuda_found" in verify_fn
+    assert "detail" in verify_fn
+    # Keep-pack path must key off combined detail, not stderr alone.
+    assert 're.search(r"ggml_cuda_init:\\s*found\\s+[1-9]", detail' in verify_fn
+
+
+def test_verify_keeps_pack_when_probe_crashes_after_cuda_enum(tmp_path, monkeypatch):
+    """RTX 2060 / 2.4.28: probe prints devices then dies — pack must stay."""
+    import types
+    dest = tmp_path / "gpu"
+    lib = dest / "llama_cpp" / "lib"
+    lib.mkdir(parents=True)
+    (lib / "libggml-cuda.so").write_bytes(b"\x00")
+    (lib / "libcudart.so.12").write_bytes(b"\x00")
+    (lib / "libcublas.so.12").write_bytes(b"\x00")
+    (lib / "libcublasLt.so.12").write_bytes(b"\x00")
+
+    class _Out:
+        returncode = -6  # abort after init — not exit 2
+        stdout = ""
+        stderr = (
+            "ggml_cuda_init: found 1 CUDA devices (Total VRAM: 7752 MiB):\n"
+            "  Device 0: NVIDIA GeForce RTX 2060 SUPER, compute capability 7.5\n"
+        )
+
+    monkeypatch.setattr(eli_gpu_pack.subprocess, "run", lambda *a, **k: _Out())
+    monkeypatch.setattr(eli_gpu_pack, "_assert_cuda_runtime_complete", lambda *a, **k: None)
+    ok, detail = eli_gpu_pack._verify(dest, require_offload=True)
+    assert ok is True
+    assert "cuda devices enumerated" in detail

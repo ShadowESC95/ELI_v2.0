@@ -1,6 +1,6 @@
 # ELI v2 — First-Time Installation
 
-**Current release: 2.4.28** — https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.28
+**Current release: 2.4.29** — https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.29
 
 | Document | Who it's for |
 |----------|----------------|

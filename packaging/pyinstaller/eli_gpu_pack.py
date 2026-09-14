@@ -1298,15 +1298,16 @@ def _verify(dest: Path, *, require_offload: bool = True) -> tuple[bool, str]:
     detail = "\n".join(x for x in (stdout, stderr) if x) or "no output"
     if out.returncode == 0 and "gpu-pack-verify-ok" in stdout:
         return True, stdout
-    # Exit 2 = llama_supports_gpu_offload() False. When ggml_cuda_init already
-    # enumerated devices, that flag is a known false negative (AppImage + some
-    # driver/cudart pairs). Keep the pack — deleting it after a successful CUDA
-    # device probe is what produced the 2.4.26 "Loader said: found 1 CUDA
-    # devices" failure dialog on a working RTX 2060.
-    cuda_found = bool(re.search(r"ggml_cuda_init:\s*found\s+[1-9]", stderr))
-    if require_offload and cuda_found and (
-        out.returncode == 2 or "gpu-pack-verify-no-offload" in stdout
-    ):
+    # ggml_cuda_init may land on stderr or stdout. Search the combined probe
+    # output — checking stderr alone missed working packs.
+    #
+    # Exit 2 + "gpu-pack-verify-no-offload" is the known AppImage false negative
+    # (2.4.26). Field machines (RTX 2060, 2.4.28) also crash/abort AFTER
+    # "found N CUDA devices" and BEFORE any verify marker — returncode is then
+    # neither 0 nor 2, so the old keep-pack gate deleted a working pack.
+    # If CUDA already enumerated a real device, keep the pack.
+    cuda_found = bool(re.search(r"ggml_cuda_init:\s*found\s+[1-9]", detail, re.I))
+    if cuda_found:
         return True, "gpu-pack-verify-ok (cuda devices enumerated)\n" + detail[-700:]
     return False, detail[-800:]
 

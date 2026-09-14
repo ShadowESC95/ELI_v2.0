@@ -27,6 +27,8 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.29 — keep CUDA pack when verify probe crashes after device enum.** RTX 2060: `ggml_cuda_init` found the GPU then the probe died — 2.4.28 deleted a working pack. Now any successful CUDA device enumeration keeps the pack.
+>
 > **v2.4.28 — memory continuity + mpv install confirm + desktop refresh.** Stops volunteering stale plans; `CONFIRM_PENDING_REMEDIATION` runs via Phase-45 (first yes installs mpv); AppImage `--integrate` rewrites menu icons when the version changes so 2.4.25 launchers cannot linger.
 >
 > **v2.4.27 — CUDA pack verify fix.** CI CUDA packs vendor CUDA 12.6+ cudart (not 12.4); verify keeps packs that already found NVIDIA devices; LD_LIBRARY_PATH set for AppImage probes.
