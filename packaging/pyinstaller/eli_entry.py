@@ -450,6 +450,24 @@ def _integrate(quiet: bool = False) -> int:
         if not quiet:
             print(f"[integrate] could not write ~/.local/bin/eli ({exc})", file=sys.stderr)
     _mark_desktop_integrated(version)
+    # Kill leftover Desktop / menu stubs that still Path= to deleted portables
+    # (GNOME fails before Exec — AppImage refresh alone never reaches those icons).
+    try:
+        from eli.runtime.desktop_launchers import scrub_stale_eli_desktops
+        removed = scrub_stale_eli_desktops()
+        if removed and not quiet:
+            for p in removed:
+                print(f"[integrate] removed stale launcher: {p}")
+        # Mirror fresh menu entries onto ~/Desktop so dragged copies match.
+        desk = Path.home() / "Desktop"
+        if desk.is_dir():
+            for key in ("eli", "server", "uninstall"):
+                src = files[key]
+                if src.is_file():
+                    shutil.copy2(src, desk / src.name)
+    except Exception as exc:
+        if not quiet:
+            print(f"[integrate] desktop scrub skipped: {exc}", file=sys.stderr)
     if not quiet:
         print(f"[integrate] menu entries installed for {appimage}"
               + (f" (v{version})" if version else ""))

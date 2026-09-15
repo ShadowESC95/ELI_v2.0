@@ -36,6 +36,7 @@ __all__ = [
     "read_install_root",
     "write_install_root",
     "product_line",
+    "scrub_stale_eli_desktops",
 ]
 
 
@@ -315,30 +316,161 @@ def _desktop_is_stale(text: str, eli_run: Path, version: str) -> bool:
         return True
     if str(eli_run) not in text and "eli-run" not in text:
         return True
-    # Old style: Exec=…/eli-run "/path/to/ELI_v2-2.4.29-linux-portable" gui
     if re.search(r"linux-portable|/ELI_v[23]-[\d.]+", text):
         return True
     if version:
         m = re.search(r"(?m)^X-ELI-Version=(.*)$", text)
         if not m or m.group(1).strip() != version:
             return True
-    # Exec pointing at a missing AppImage / extract (legacy)
     for line in text.splitlines():
         if not line.startswith("Exec="):
             continue
         raw = line.split("=", 1)[1].strip()
-        # skip if it's our shim
         if "eli-run" in raw:
             continue
         tok = raw.split(None, 1)[0].strip().strip('"').strip("'")
-        if tok.endswith(".AppImage") and not os.path.isfile(tok):
+        if tok.lower().endswith(".appimage") and not os.path.isfile(tok):
             return True
         if ("ELI_v" in tok or "linux-portable" in tok) and not os.path.exists(tok):
             return True
     return False
 
 
+def _looks_like_eli_desktop(text: str, path: Path) -> bool:
+    name = path.name.lower()
+    if name.startswith("eli") or name.startswith("eli "):
+        return True
+    low = text.lower()
+    return (
+        "eli-run" in low
+        or "eli_v2" in low
+        or "eli_v3" in low
+        or "linux-portable" in low
+        or "name=eli" in low
+        or "x-eli-version=" in low
+    )
+
+
+def _iter_eli_desktop_files() -> list[Path]:
+    """Every ELI-related .desktop we can find (menu + Desktop + copies)."""
+    found: list[Path] = []
+    seen: set[Path] = set()
+    for d in _desktop_search_dirs():
+        if not d.is_dir():
+            continue
+        for pat in ("eli*.desktop", "ELI*.desktop", "*.desktop"):
+            try:
+                cands = list(d.glob(pat))
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+                continue
+            for p in cands:
+                try:
+                    rp = p.resolve()
+                except Exception:
+                    rp = p
+                if rp in seen:
+                    continue
+                try:
+                    text = p.read_text(encoding="utf-8", errors="ignore")
+                except Exception:
+                    continue
+                if pat == "*.desktop" and not _looks_like_eli_desktop(text, p):
+                    continue
+                seen.add(rp)
+                found.append(p)
+    return found
+
+
+def scrub_stale_eli_desktops(*, dry_run: bool = False) -> list[Path]:
+    """Delete or neutralize .desktop files that GNOME cannot launch.
+
+    GNOME fails *before* Exec when ``Path=`` points at a missing folder
+    (the classic ``Failed to change to directory …/ELI_v2-2.4.29-linux-portable``).
+    Those stubs must be removed even if the user never successfully starts the
+    new GUI — otherwise 2.4.34+ refresh never runs.
+    """
+    removed: list[Path] = []
+    for path in _iter_eli_desktop_files():
+        try:
+            text = path.read_text(encoding="utf-8", errors="ignore")
+        except Exception:
+            continue
+        kill = False
+        # Any Path= to a missing directory → GNOME hard-fail
+        for line in text.splitlines():
+            if not line.startswith("Path="):
+                continue
+            raw = line.split("=", 1)[1].strip().strip('"').strip("'")
+            if raw and not Path(raw).expanduser().is_dir():
+                kill = True
+                break
+            if "linux-portable" in raw or re.search(r"/ELI_v[23]-[\d.]+", raw):
+                kill = True
+                break
+        if not kill and re.search(r"linux-portable|/ELI_v[23]-[\d.]+-linux", text):
+            # Exec still embeds an extract folder (even with Path= removed)
+            kill = True
+        if not kill:
+            continue
+        if dry_run:
+            removed.append(path)
+            continue
+        try:
+            path.unlink(missing_ok=True)
+            removed.append(path)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+    return removed
+
+
+def _publish_desktop_copies(apps: Path, entries: dict[str, tuple]) -> list[Path]:
+    """Mirror menu launchers onto ~/Desktop so dragged copies cannot stay stale."""
+    written: list[Path] = []
+    for desk_dir in _desktop_search_dirs():
+        try:
+            if desk_dir.resolve() == apps.resolve():
+                continue
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+        if not desk_dir.is_dir():
+            continue
+        # Always refresh known ELI shortcuts on Desktop (create if missing).
+        for fname in entries:
+            src = apps / fname
+            if not src.is_file():
+                continue
+            dest = desk_dir / fname
+            try:
+                shutil.copy2(src, dest)
+                dest.chmod(0o755)
+                written.append(dest)
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+        # Remove any leftover differently-named ELI stubs on Desktop
+        for old in list(desk_dir.glob("eli*.desktop")) + list(desk_dir.glob("ELI*.desktop")):
+            if old.name in entries:
+                continue
+            try:
+                txt = old.read_text(encoding="utf-8", errors="ignore")
+            except Exception:
+                continue
+            if _looks_like_eli_desktop(txt, old) and (
+                re.search(r"(?m)^Path=", txt)
+                or "linux-portable" in txt
+                or re.search(r"/ELI_v[23]-[\d.]+", txt)
+            ):
+                try:
+                    old.unlink(missing_ok=True)
+                    written.append(old)
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
+    return written
+
+
 def _write_linux_desktop(root: Path, *, force: bool = False) -> list[Path]:
+    # Kill GNOME-dead stubs FIRST so a later copy cannot resurrect Path=.
+    scrub_stale_eli_desktops()
     eli_run = _write_eli_run()
     write_install_root(root)
     version = _bundle_version(root)
@@ -375,14 +507,12 @@ def _write_linux_desktop(root: Path, *, force: bool = False) -> list[Path]:
     written: list[Path] = []
     apps = _apps_dir()
     apps.mkdir(parents=True, exist_ok=True)
-    # Drop legacy names that baked extract paths
     for old in apps.glob("eli*.desktop"):
         try:
             txt = old.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
         if force or _desktop_is_stale(txt, eli_run, version) or old.name in entries:
-            # will rewrite known names; delete unknown eli* that are stale
             if old.name not in entries and _desktop_is_stale(txt, eli_run, version):
                 old.unlink(missing_ok=True)
 
@@ -408,38 +538,7 @@ def _write_linux_desktop(root: Path, *, force: bool = False) -> list[Path]:
         dest.chmod(0o755)
         written.append(dest)
 
-    # Refresh Desktop copies that still point at deleted extract folders
-    for desk_dir in _desktop_search_dirs():
-        try:
-            if desk_dir.resolve() == apps.resolve():
-                continue
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-        if not desk_dir.is_dir():
-            continue
-        for old in list(desk_dir.glob("eli*.desktop")) + list(desk_dir.glob("ELI*.desktop")):
-            try:
-                txt = old.read_text(encoding="utf-8", errors="ignore")
-            except Exception:
-                continue
-            if not _desktop_is_stale(txt, eli_run, version) and str(eli_run) in txt:
-                continue
-            nm = ""
-            m = re.search(r"(?m)^Name=(.*)$", txt)
-            if m:
-                nm = m.group(1)
-            if "Server" in nm:
-                key = "eli-server.desktop"
-            elif "Setup" in nm:
-                key = "eli-setup.desktop"
-            elif "Uninstall" in nm:
-                key = "eli-uninstall.desktop"
-            else:
-                key = f"{stem}.desktop"
-            src = apps / key
-            if src.is_file():
-                shutil.copy2(src, old)
-                written.append(old)
+    written.extend(_publish_desktop_copies(apps, entries))
 
     try:
         subprocess_update = shutil.which("update-desktop-database")
@@ -572,15 +671,15 @@ def ensure_desktop_launchers(root: Optional[Path | str] = None) -> bool:
         # Frozen AppImage / pyinstaller Linux uses eli_entry._integrate
         return False
     try:
+        # Always kill GNOME-dead Path= stubs first (even if root discovery fails).
+        scrub_stale_eli_desktops()
         r = _discover_root(root)
         if r is None:
             return False
-        # Always refresh pointer; rewrite desktops if stale or pointer changed
-        # Always rewrite pointer + eli-run + desktops. Cheap, and the only way
-        # to guarantee no leftover Path=/extract-folder after an upgrade.
         install_desktop_launchers(r, force=True)
         return True
     except Exception:
+        log.debug("suppressed exception", exc_info=True)
         return False
     return False
 
@@ -588,11 +687,21 @@ def ensure_desktop_launchers(root: Optional[Path | str] = None) -> bool:
 def main(argv: Optional[Iterable[str]] = None) -> int:
     import argparse
     ap = argparse.ArgumentParser(prog="eli.runtime.desktop_launchers")
-    ap.add_argument("command", choices=("install", "ensure", "show-root"))
+    ap.add_argument(
+        "command",
+        choices=("install", "ensure", "show-root", "scrub"),
+        help="install/ensure rewrite launchers; scrub only deletes Path=/stale stubs",
+    )
     ap.add_argument("--root", default=None, help="ELI install / extract root")
     ns = ap.parse_args(list(argv) if argv is not None else None)
     if ns.command == "show-root":
         print(read_install_root() or "")
+        return 0
+    if ns.command == "scrub":
+        removed = scrub_stale_eli_desktops()
+        for p in removed:
+            print(f"[scrub] removed {p}")
+        print(f"[scrub] removed {len(removed)} stale launcher(s)")
         return 0
     if ns.command == "ensure":
         ok = ensure_desktop_launchers(ns.root)

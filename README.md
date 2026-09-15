@@ -27,6 +27,8 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.37 — scrub GNOME-dead Desktop Path= stubs + fix_eli_desktop_icons.sh.** Old Desktop icons still Path= to deleted `…/ELI_v2-2.4.29-linux-portable` so GNOME never runs Exec; scrub deletes them and rewrites Desktop/menu; AppImage `--integrate` does the same.
+>
 > **v2.4.36 — desktop_launchers: no silent except:pass (smoke ceiling).**
 >
 > **v2.4.35 — PowerShell installer ASCII-only (smoke).** `install_desktop_apps.ps1` dropped a UTF-8 em-dash that broke `test_shipped_ps1_is_pure_ascii` / PS 5.1.

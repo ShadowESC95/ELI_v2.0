@@ -50,6 +50,14 @@ def test_linux_desktop_has_no_path_or_extract_folder(tmp_path, monkeypatch):
     assert "install_root" in gtxt
     assert "linux-portable" not in gtxt
 
+    # Desktop mirror must exist and also be Path=-free
+    desk_copy = home / "Desktop" / "eli-v2.desktop"
+    # Desktop may not exist in this fixture — create and reinstall
+    (home / "Desktop").mkdir(exist_ok=True)
+    dl.install_desktop_launchers(root, force=True)
+    assert desk_copy.is_file()
+    assert "Path=" not in desk_copy.read_text(encoding="utf-8")
+
 
 def test_stale_path_line_detected():
     stale = (
@@ -60,7 +68,31 @@ def test_stale_path_line_detected():
     assert dl._desktop_is_stale(stale, Path("/home/jess/.local/bin/eli-run"), "2.4.34")
 
 
-def test_ensure_rewrites_desktop_copy(tmp_path, monkeypatch):
+def test_scrub_removes_gnome_dead_path_stub(tmp_path, monkeypatch):
+    """GNOME never runs Exec when Path= points at a missing folder — scrub must delete it."""
+    home = tmp_path / "home"
+    apps = home / ".local" / "share" / "applications"
+    desk = home / "Desktop"
+    apps.mkdir(parents=True)
+    desk.mkdir(parents=True)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.setenv("XDG_DATA_HOME", str(home / ".local" / "share"))
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(dl, "product_line", lambda: "v2")
+
+    dead = desk / "ELI v2.0.desktop"
+    dead.write_text(
+        "[Desktop Entry]\nName=ELI v2.0\n"
+        "Path=/home/jess/Downloads/ELI_v2-2.4.29-linux-portable\n"
+        'Exec=/home/jess/.local/bin/eli-run "/home/jess/Downloads/ELI_v2-2.4.29-linux-portable" gui\n',
+        encoding="utf-8",
+    )
+    removed = dl.scrub_stale_eli_desktops()
+    assert dead in removed or not dead.exists()
+    assert not dead.exists()
+
+
+def test_install_replaces_dead_desktop_stub(tmp_path, monkeypatch):
     home = tmp_path / "home"
     desk = home / "Desktop"
     desk.mkdir(parents=True)
@@ -69,15 +101,13 @@ def test_ensure_rewrites_desktop_copy(tmp_path, monkeypatch):
     monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
     monkeypatch.setattr(dl, "product_line", lambda: "v2")
 
-    root = tmp_path / "ELI_v2-2.4.34-linux-portable"
+    root = tmp_path / "ELI_v2-2.4.37-linux-portable"
     (root / "eli" / "cognition").mkdir(parents=True)
     (root / "eli" / "gui").mkdir(parents=True)
     (root / "scripts").mkdir()
     (root / "pyproject.toml").write_text(
-        '[project]\nname = "eli-v2.0"\nversion = "2.4.34"\n', encoding="utf-8"
+        '[project]\nname = "eli-v2.0"\nversion = "2.4.37"\n', encoding="utf-8"
     )
-
-    # Pretend user dragged an old icon to Desktop
     (desk / "eli-v2.desktop").write_text(
         "[Desktop Entry]\nName=ELI v2.0\n"
         "Path=/home/jess/Downloads/ELI_v2-2.4.29-linux-portable\n"

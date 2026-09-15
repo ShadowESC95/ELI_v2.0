@@ -1,6 +1,6 @@
 # ELI v2 Script & Setup Reference
 
-**Version:** 2.4.36 (PS1 ASCII smoke; redistribution-safe desktop icons)  
+**Version:** 2.4.37 (scrub dead Desktop Path= stubs; redistribution-safe icons)  
 **Repository:** ELI_MKXI / ELI v2.0  
 **Last updated:** 2026-09-14
 
