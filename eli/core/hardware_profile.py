@@ -496,6 +496,77 @@ def _macos_gpus() -> List[tuple]:
     return gpus
 
 
+# Known factory VRAM for common NVIDIA cards, longest/most specific name match
+# first (checked in order, first hit wins). Used ONLY when nvidia-smi/NVML
+# cannot be queried (e.g. a loaded kernel module out of sync with the
+# userspace driver library after an update with no reboot — confirmed in the
+# field: NVML reports "Driver/library version mismatch" while the model name
+# is still readable straight from the kernel module's own /proc interface).
+# Ambiguous multi-VRAM-SKU cards (GTX 1060 3/6GB, RTX 3080 10/12GB, RTX 4060 Ti
+# 8/16GB, ...) intentionally list the SMALLER factory config — conservative,
+# and the loader's reduce-to-fit-on-OOM corrects any underestimate risk-free.
+_NVIDIA_VRAM_MB_BY_MODEL: tuple[tuple[str, int], ...] = (
+    ("rtx 4090", 24576), ("rtx 4080 super", 16384), ("rtx 4080", 16384),
+    ("rtx 4070 ti super", 16384), ("rtx 4070 ti", 12288), ("rtx 4070 super", 12288),
+    ("rtx 4070", 12288), ("rtx 4060 ti", 8192), ("rtx 4060", 8192),
+    ("rtx 3090 ti", 24576), ("rtx 3090", 24576), ("rtx 3080 ti", 12288),
+    ("rtx 3080", 10240), ("rtx 3070 ti", 8192), ("rtx 3070", 8192),
+    ("rtx 3060 ti", 8192), ("rtx 3060", 12288), ("rtx 3050", 8192),
+    ("rtx 2080 ti", 11264), ("rtx 2080 super", 8192), ("rtx 2080", 8192),
+    ("rtx 2070 super", 8192), ("rtx 2070", 8192),
+    ("rtx 2060 super", 8192), ("rtx 2060", 6144),
+    ("gtx 1660 ti", 6144), ("gtx 1660 super", 6144), ("gtx 1660", 6144),
+    ("gtx 1650 super", 4096), ("gtx 1650", 4096),
+    ("gtx 1080 ti", 11264), ("gtx 1080", 8192), ("gtx 1070 ti", 8192),
+    ("gtx 1070", 8192), ("gtx 1060", 3072), ("gtx 1050 ti", 4096), ("gtx 1050", 2048),
+    ("rtx a6000", 49152), ("rtx a5000", 24576), ("rtx a4000", 16384),
+    ("quadro rtx 8000", 49152), ("quadro rtx 6000", 24576),
+)
+
+
+def _nvidia_vram_mb_from_model_name(name: str) -> int:
+    """Known factory VRAM for a recognized NVIDIA model name; 0 if unrecognized."""
+    n = (name or "").lower()
+    for needle, mb in _NVIDIA_VRAM_MB_BY_MODEL:
+        if needle in n:
+            return mb
+    return 0
+
+
+# Discrete Intel Arc (Alchemist + Battlemage) factory VRAM. "a770 16" before
+# "a770" so the 16GB variant (its lspci string usually says so) is not
+# swallowed by the plain 8GB match.
+_INTEL_ARC_VRAM_MB_BY_MODEL: tuple[tuple[str, int], ...] = (
+    ("a770 16", 16384), ("a770", 8192), ("a750", 8192), ("a580", 8192),
+    ("a380", 6144), ("a310", 4096),
+    ("b580", 12288), ("b570", 10240),
+)
+
+
+def _intel_arc_vram_mb_from_name(name: str) -> int:
+    """Known factory VRAM for a recognized Intel Arc model name; 0 if unrecognized."""
+    n = (name or "").lower()
+    for needle, mb in _INTEL_ARC_VRAM_MB_BY_MODEL:
+        if needle in n:
+            return mb
+    return 0
+
+
+def _nvidia_gpu_model_from_proc() -> str:
+    """GPU model name straight from the NVIDIA kernel module's own /proc
+    interface — populated from the hardware itself, independent of the NVML/
+    nvidia-smi userspace library version. Still readable when nvidia-smi fails
+    with a driver/library version mismatch."""
+    try:
+        for info_file in Path("/proc/driver/nvidia/gpus").glob("*/information"):
+            for line in info_file.read_text(encoding="utf-8", errors="replace").splitlines():
+                if line.startswith("Model:"):
+                    return line.split(":", 1)[1].strip()
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    return ""
+
+
 def _nvidia_driver_loaded() -> bool:
     """True when the NVIDIA kernel driver is loaded — using kernel-provided signals
     that exist identically on every Linux distro (Ubuntu/Debian/Arch/Fedora/RHEL/
@@ -669,13 +740,21 @@ def fit_priority() -> str:
 
 
 def _estimate_integrated_vram_mb(ram_gb: float, available_ram_gb: float) -> tuple[int, int]:
-    """Shared-memory budget for iGPU / APU / unified-memory systems."""
+    """Shared-memory budget for iGPU / APU / unified-memory systems.
+
+    Same fraction-of-available-RAM basis as cpu_ram_budget_mb, uncapped.
+    Unified memory on Apple Silicon and AMD APUs ranges from 8GB laptops to
+    64-192GB Mac Studios / workstations; a flat ceiling here used to ignore
+    that entirely (every one of those machines got capped at the same 8192MB
+    GPU-layer budget as an 8GB laptop iGPU), throwing away most of a big
+    unified pool's actual capacity on exactly the hardware whose whole selling
+    point is having one.
+    """
     frac = ram_budget_fraction()
     # Budget from AVAILABLE RAM (same basis as cpu_ram_budget_mb), not installed RAM.
     avail_gb = max(float(available_ram_gb or 0), 1.0)
     free_mb = int(max(512, avail_gb * 1024.0 * frac))
-    total_mb = int(min(8192, max(2048, free_mb)))
-    free_mb = min(free_mb, total_mb)
+    total_mb = max(2048, free_mb)
     return free_mb, total_mb
 
 
@@ -1082,18 +1161,28 @@ def _detect_hardware_impl() -> HardwareProfile:
             log.debug("nvidia-smi query unavailable", exc_info=True)
 
     # NVIDIA driver-loaded fallback — if nvidia-smi is missing or its query failed
-    # (a broken/partial userspace, an Optimus card the tool couldn't read) but the
-    # kernel driver is clearly loaded, still report the GPU so the smart loader and
-    # the GPU pack engage. ``_nvidia_driver_loaded`` reads kernel-provided signals
-    # that are identical on every distro. VRAM isn't exposed without nvidia-smi, so
-    # use a conservative estimate the loader's reduce-to-fit corrects.
+    # (a broken/partial userspace, an Optimus card the tool couldn't read, or a
+    # loaded kernel module out of sync with the userspace driver library after
+    # an update with no reboot — confirmed in the field via NVML's own "Driver/
+    # library version mismatch") but the kernel driver is clearly loaded, still
+    # report the GPU so the smart loader and the GPU pack engage.
+    # ``_nvidia_driver_loaded`` reads kernel-provided signals that are
+    # identical on every distro. The model name is still readable straight
+    # from the kernel module's /proc interface even when NVML is broken, so
+    # look up its real factory VRAM instead of guessing a flat 4GB for every
+    # card — that flat guess was cutting GPU layers to a fraction of what a
+    # bigger card can actually hold. Falls back to the flat guess only for an
+    # unrecognized model; the loader's reduce-to-fit corrects either way.
     if not hw.has_gpu and sys.platform.startswith("linux") and _nvidia_driver_loaded():
-        hw.total_vram_mb = 4096       # conservative; loader refines / OOM-falls-back
+        _model = _nvidia_gpu_model_from_proc()
+        _known_mb = _nvidia_vram_mb_from_model_name(_model) if _model else 0
+        hw.total_vram_mb = _known_mb or 4096
         hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
-        hw.gpu_name = "NVIDIA GPU"
+        hw.gpu_name = _model or "NVIDIA GPU"
         hw.vram_gb = hw.free_vram_mb / 1024.0
         hw.has_gpu = True
         hw.gpu_vendor = "nvidia"
+        hw.gpu_detection_uncertain = True
 
     # Windows / macOS fallback. This block used to be Linux-only -- the whole
     # fallback was gated on sys.platform.startswith("linux") -- so on Windows a
@@ -1236,8 +1325,9 @@ def _detect_hardware_impl() -> HardwareProfile:
     # the smart loader and the Vulkan GPU pack see it. Only DISCRETE Arc (the newer
     # `xe` driver, or an Arc-family PCI device id) — an Intel iGPU (Iris/UHD) is left
     # on CPU because Vulkan offload to shared memory rarely beats CPU. Intel exposes
-    # no stable free-VRAM sysfs, so total is a conservative estimate the loader's
-    # reduce-to-fit corrects at load time.
+    # no stable free-VRAM sysfs, but lspci's model string usually identifies the
+    # exact card, so look up its real factory VRAM instead of a flat guess for
+    # every Arc SKU from the 4GB A310 to the 16GB A770.
     if not hw.has_gpu and sys.platform.startswith("linux"):
         try:
             _INTEL = _PCI_VENDOR_INTEL
@@ -1247,12 +1337,16 @@ def _detect_hardware_impl() -> HardwareProfile:
                         continue
                     if not _intel_pci_device_is_discrete_arc(dev):
                         continue
-                    hw.total_vram_mb = 8192       # conservative Arc estimate; loader refines
+                    _name = _lspci_name_for_pci_addr(_pci_addr_from_drm_device(dev))
+                    _known_mb = _intel_arc_vram_mb_from_name(_name) if _name else 0
+                    hw.total_vram_mb = _known_mb or 8192   # unrecognized -> conservative guess
                     hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
-                    hw.gpu_name = "Intel Arc"
+                    hw.gpu_name = _name or "Intel Arc"
                     hw.vram_gb = hw.free_vram_mb / 1024.0
                     hw.has_gpu = True
                     hw.gpu_vendor = "intel"
+                    if not _known_mb:
+                        hw.gpu_detection_uncertain = True
                     break
                 except Exception:
                     continue
