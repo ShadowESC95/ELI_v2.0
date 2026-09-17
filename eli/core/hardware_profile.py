@@ -355,6 +355,28 @@ def _derive_mode_presets(_base_n_ctx: int, base_max_tokens: int,
     }
 
 
+def _external_tool_env() -> Dict[str, str]:
+    """Environment for subprocess calls to a SYSTEM binary (nvidia-smi,
+    rocm-smi, lspci) — never the frozen app's own inherited environment.
+
+    PyInstaller's bootloader points LD_LIBRARY_PATH at the bundle's own
+    _internal/ dir so ELI's bundled .so files take precedence over the
+    system's, and saves the pre-bootloader value in LD_LIBRARY_PATH_ORIG for
+    exactly this situation. Calling a real system binary without restoring it
+    hands that binary the WRONG shared libraries by soname — nvidia-smi can
+    then fail to run at all, which silently falls through to a conservative
+    4096 MB VRAM guess and roughly halves every GPU layer count downstream.
+    Not frozen: LD_LIBRARY_PATH_ORIG is unset and this is a no-op copy.
+    """
+    env = os.environ.copy()
+    orig = env.get("LD_LIBRARY_PATH_ORIG")
+    if orig is not None:
+        env["LD_LIBRARY_PATH"] = orig
+    elif "LD_LIBRARY_PATH" in env and getattr(sys, "frozen", False):
+        env.pop("LD_LIBRARY_PATH", None)
+    return env
+
+
 def nvidia_smi_path() -> Optional[str]:
     """Absolute path to nvidia-smi, PATH or not.
 
@@ -790,6 +812,7 @@ def _lspci_name_for_pci_addr(addr: str) -> str:
         proc = subprocess.run(
             ["lspci", "-s", addr, "-nn"],
             capture_output=True, text=True, timeout=5,
+            env=_external_tool_env(),
         )
         if proc.returncode != 0:
             return ""
@@ -1026,6 +1049,7 @@ def _detect_hardware_impl() -> HardwareProfile:
                  "--query-gpu=memory.free,memory.total,name",
                  "--format=csv,noheader,nounits"],
                 capture_output=True, text=True, timeout=15,
+                env=_external_tool_env(),
             )
             if proc.returncode == 0:
                 out = (proc.stdout or "").strip().splitlines()
@@ -1139,6 +1163,7 @@ def _detect_hardware_impl() -> HardwareProfile:
                 proc = subprocess.run(
                     ["rocm-smi", "--showmeminfo", "vram", "--json"],
                     capture_output=True, text=True, timeout=5,
+                    env=_external_tool_env(),
                 )
             _out = (proc.stdout or "").strip() if proc and proc.returncode == 0 else ""
             _data = _json.loads(_out) if _out else {}
