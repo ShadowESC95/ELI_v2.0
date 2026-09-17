@@ -27,6 +27,8 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.39 — re-cut of v2.4.38: fix the release pipeline itself.** v2.4.38's own GitHub release page shipped without its installers — `uploads.github.com` kept dropping the connection partway through the ~11GB of large binaries when they all went up in parallel. Same code as v2.4.38; the release workflow now retries whatever didn't make it onto the release, one file at a time, instead of just failing.
+>
 > **v2.4.38 — stop the GPU pack redownload loop; close six confidence-honesty gaps.** GPU/CPU packs no longer re-verify live on every boot (that's what was deleting a working pack and re-downloading it every launch); fixed the reasoning scorer, self-consistency, "how confident are you", GPU/settings detection, reflection, and world-awareness bars all being able to sound certain without checking anything; fixed the LAN QR picking a virtual-bridge IP over the real one; fixed a silent FAISS write failure and a missing delete-tombstone; gave FIX_FILE the same protected-path/verify/rollback safety net self-patch already had.
 >
 > **v2.4.37 — scrub GNOME-dead Desktop Path= stubs + fix_eli_desktop_icons.sh.** Old Desktop icons still Path= to deleted `…/ELI_v2-2.4.29-linux-portable` so GNOME never runs Exec; scrub deletes them and rewrites Desktop/menu; AppImage `--integrate` does the same.
