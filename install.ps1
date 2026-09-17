@@ -287,7 +287,12 @@ if (-not $CpuOnly) {
         } else {
             Write-Host "        winget not found -- install the CUDA Toolkit from https://developer.nvidia.com/cuda-downloads" -ForegroundColor Yellow
         }
-        $env:CMAKE_ARGS = "-DGGML_CUDA=on"
+        # -DGGML_NATIVE=OFF + an explicit /arch: baseline, not cmake's native-detect
+        # default -- same reasoning install.sh's _llama_safe_cpu_cmake_flags uses even
+        # for a local build: native detection can pick up an instruction set (e.g. on a
+        # hybrid P-core/E-core CPU) that is not present on every core, which SIGILLs the
+        # moment a thread lands on a core that lacks it. AVX2 is the safe floor.
+        $env:CMAKE_ARGS = "-DGGML_CUDA=on -DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=/arch:AVX2 -DCMAKE_CXX_FLAGS=/arch:AVX2"
         & $Pip install --force-reinstall --no-cache-dir llama-cpp-python --quiet
         & $PythonVenv -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>$null
         if ($LASTEXITCODE -eq 0) { Write-Host "[OK] llama-cpp-python rebuilt with CUDA." -ForegroundColor Green }

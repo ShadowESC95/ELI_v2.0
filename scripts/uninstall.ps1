@@ -9,6 +9,32 @@ Write-Host "ELI uninstaller"
 Write-Host "  Install folder: $Root"
 Write-Host ""
 
+# Stop any ELI instance running FROM THIS install first -- otherwise its
+# background daemon (server / proactive / autonomy) keeps files open and
+# Remove-Item below just fails with an access-denied error instead of
+# deleting. Scoped to this Root so other ELI installs are untouched. Same
+# reasoning as eli_uninstall.sh's _stop_running on Linux/macOS.
+Write-Host "Checking for a running ELI (server/desktop) from this install..."
+try {
+    $procs = Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
+        ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)) -or
+        ($_.CommandLine -and $_.CommandLine.Contains($Root))
+    }
+    if ($procs) {
+        foreach ($p in $procs) {
+            Write-Host "  Stopping running ELI process (PID $($p.ProcessId)): $($p.Name)"
+            Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue
+        }
+        Start-Sleep -Seconds 2
+        Write-Host "  [OK] Stopped."
+    } else {
+        Write-Host "  [OK] No running ELI instance from this install."
+    }
+} catch {
+    Write-Host "  [WARN] Could not check for running ELI processes -- close ELI manually if the delete below fails."
+}
+Write-Host ""
+
 foreach ($n in @("ELI v2.0.lnk","ELI Server (Web App).lnk","ELI Setup.lnk","ELI Uninstall.lnk","ELI Pro.lnk")) {
     Remove-Item -Force -Path (Join-Path $Programs $n) -ErrorAction SilentlyContinue
 }

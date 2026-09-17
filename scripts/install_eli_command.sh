@@ -71,10 +71,10 @@ cat > "$TARGET" <<EOF_LAUNCHER
 #!/usr/bin/env bash
 # ELI v2 terminal launcher — installed by scripts/install_eli_command.sh
 set -euo pipefail
-APP_ROOT="$ROOT"
-unset VIRTUAL_ENV PYTHONHOME ELI_PROJECT_ROOT ELI_DATA_DIR ELI_CONFIG_DIR ELI_MODELS_DIR ELI_CACHE_DIR
-export PYTHONPATH="\$APP_ROOT"
-exec "\$APP_ROOT/eli.sh" "\$@"
+# eli.sh sources scripts/eli_isolate_env.sh itself (unsets stale ELI_DATA_DIR /
+# CONFIG_DIR / MODELS_DIR / CACHE_DIR and dedupes PATH across checkouts) — no
+# need to hand-roll a subset of that here too.
+exec "$ROOT/eli.sh" "\$@"
 EOF_LAUNCHER
 chmod +x "$TARGET"
 
