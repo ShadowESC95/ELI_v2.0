@@ -193,25 +193,17 @@ class EliWorldAutonomyEngine:
         a = state.awareness
         et = event.event_type
 
-        # Time-based passive decay — prevents stale accumulated PACING signals
-        # from persisting across sessions (autonomy_pressure/reflection_depth/
-        # tool_activity are "how much has ELI been doing", which legitimately
-        # cools down when idle).  Applied before the event so any single event
-        # starts from a fresh baseline after a quiet period.
+        # Time-based passive decay for PACING signals only (autonomy_pressure/
+        # reflection_depth/tool_activity — "how much has ELI been doing",
+        # which legitimately cools down when idle).
         #
-        # uncertainty and repair_pressure are DELIBERATELY EXCLUDED from this.
-        # They represent "is there an unresolved evidence-quality/error
-        # concern" — idle time proves nothing about whether the underlying
-        # problem was actually fixed, only that nobody has looked. These used
-        # to decay toward reassuring values purely from waiting, which could
-        # silently suppress get_awareness_driven_suggestions()'s real
-        # "evidence quality needs review" trigger (uncertainty > 0.75) with no
-        # correlation to whether evidence quality had improved at all — ELI
-        # would stop flagging a real concern just because enough time passed.
-        # They still fall on their own explicit positive events below
-        # (memory_recall, task_completed, repair_completed), which is the
-        # honest way for them to come down: something was actually verified
-        # or fixed, not that the clock ran.
+        # uncertainty and repair_pressure are DELIBERATELY EXCLUDED: idle time
+        # proves nothing about whether an unresolved concern was actually
+        # fixed, only that nobody looked. They used to decay from waiting
+        # alone, silently suppressing get_awareness_driven_suggestions()'s
+        # real "evidence quality needs review" trigger. They still fall on
+        # their own explicit positive events below (memory_recall,
+        # task_completed, repair_completed) — the honest way down.
         _elapsed = max(0.0, time() - float(a.timestamp or 0.0))
         if _elapsed > 300:  # only decay after 5+ minutes of inactivity
             # Decay factor: 0 at 5 min, 1.0 at 60 min (linear, capped)

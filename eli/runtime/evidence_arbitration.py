@@ -85,12 +85,9 @@ def _score_stage_packet(pkt: Any) -> EvidenceItem:
 
 
 def _score_tool_result(rec: Any) -> EvidenceItem:
-    # Default to None (unknown), not True -- a record with no "ok" field at
-    # all is an UNVERIFIED outcome, not a confirmed success. This used to
-    # default to True, so a tool result whose outcome was never recorded
-    # scored the same 0.86 as a genuinely confirmed success, and that number
-    # flowed straight into the rendered evidence bundle as if it meant
-    # something was actually verified.
+    # Default to None (unknown), not True -- a missing "ok" field is an
+    # unverified outcome, not a confirmed success (it used to score the same
+    # 0.86 as a real success).
     ok = _get(rec, "ok", None)
     status = str(_get(rec, "status", "ok") or "ok")
     action = str(_get(rec, "action", "") or "")
@@ -98,10 +95,8 @@ def _score_tool_result(rec: Any) -> EvidenceItem:
     payload = _get(rec, "payload", {}) or {}
     created_at = str(_get(rec, "created_at", "") or _utc_now())
 
-    # None (missing) and False (confirmed failure) both land on the lower
-    # score -- unverified is not trustworthy just because it isn't a known
-    # failure -- while any other present, truthy value still coerces to a
-    # confirmed success, same as before.
+    # None (missing) and False (failure) both land on the lower score --
+    # unverified isn't trustworthy just because it isn't a known failure.
     score = 0.86 if (ok is not None and bool(ok)) else 0.30
     if status in {"approved", "applied", "executed"}:
         score += 0.05

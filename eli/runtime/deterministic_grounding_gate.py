@@ -1145,22 +1145,10 @@ def _eli_runtime_audit_v2() -> str:
 
 
 def _eli_last_response_confidence_v2(mode_label: str = "") -> str:
-    """Real confidence assessment of the ACTUAL previous response.
-
-    This used to return a fixed template string ("If the previous answer
-    came from...") regardless of what the last response actually was — a
-    confident-sounding self-assessment that inspected nothing. This is
-    exactly the "confidently lying about its own certainty" failure class:
-    for a product whose entire pitch is trustworthy, grounded local
-    intelligence, an honest answer here matters more than a polished one.
-
-    ``eli.runtime.last_trace.load_last_trace()`` persists the real per-turn
-    trace (confidence, grounding_confidence, agents used, evidence text)
-    independent of the live engine object, and
-    ``control_contracts._trace_text()`` already renders it honestly for the
-    same question elsewhere in the codebase — reuse that instead of
-    duplicating the rendering logic or fabricating a plausible-looking answer.
-    """
+    """Real confidence assessment of the actual previous response — this used
+    to return a fixed template regardless of what happened. Reuses
+    ``last_trace.load_last_trace()`` + ``control_contracts._trace_text()``,
+    the same real mechanism already used for "what was your last message"."""
     try:
         from eli.runtime.last_trace import load_last_trace
         from eli.runtime.control_contracts import _trace_text

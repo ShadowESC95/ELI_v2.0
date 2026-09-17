@@ -6050,14 +6050,9 @@ Answer:"""
         if identity_request and re.search(r"\byour (?:identity|persona)\b", low):
             score -= 0.35
 
-        # Deliberately NOT penalising hedging language ("probably", "I think",
-        # "maybe"...). This used to subtract 0.10 here, which rewards a fluent,
-        # unhedged answer over an honestly uncertain one on text SHAPE alone —
-        # the score is meant to gate response quality, not to punish epistemic
-        # honesty. Combined with the retry directive below (which used to say
-        # "Remove hedging"), this was actively training output toward sounding
-        # more certain rather than being more correct — the worst failure mode
-        # for a product whose pitch is trustworthy, grounded local intelligence.
+        # Hedging language ("probably", "I think") is deliberately NOT penalised —
+        # this used to subtract 0.10, rewarding a fluent unhedged answer over an
+        # honestly uncertain one on text shape alone.
 
         if any(h in low for h in [
             "personal ai assistant",
@@ -7582,15 +7577,9 @@ Answer:"""
                     user_input, algo_resp, working_context, intent_conf, evidence
                 )
                 if _mode_str == "self_consistency":
-                    # The generic text-shape scorer above has no way to know whether
-                    # this answer is genuine majority agreement across independent
-                    # samples or an LLM's forced synthesis of samples that actually
-                    # disagreed — _self_consistency_majority already computed that
-                    # signal and would otherwise have it silently discarded. Fold it
-                    # in here: full agreement leaves the score untouched, no/weak
-                    # agreement pulls it down, so a confident-sounding synthesis of
-                    # contradictory attempts can no longer score as high as genuine
-                    # consensus.
+                    # Fold in how much the samples actually agreed — otherwise a
+                    # forced synthesis of contradictory samples scores identically
+                    # to genuine consensus.
                     _sc_ratio = getattr(self, "_last_sc_agreement_ratio", None)
                     if _sc_ratio is not None:
                         algo_score = max(0.0, algo_score - (1.0 - _sc_ratio) * 0.35)
@@ -8177,9 +8166,7 @@ Answer:"""
 
         # One sample (e.g. speed-capped on a slow model) → no consensus to take; return it
         # directly rather than spending a wasted extra "select" generation on a single answer.
-        # No agreement signal is possible with a single sample — leave it unset so the
-        # scoring site below does not apply a disagreement penalty to something that was
-        # never actually compared against anything.
+        # No agreement signal is possible with one sample, so leave it unset.
         self._last_sc_agreement_ratio = None
         if len(samples) <= 1:
             return _strip_reasoning_scaffold(samples[0]) if samples else ""
@@ -8250,13 +8237,9 @@ Answer:"""
         else None (caller falls back to LLM consensus-synthesis). Meaningful for short
         factual/value answers — long divergent prose rarely exact-matches and returns None.
 
-        As a side effect, records how much the samples actually agreed
-        (``self._last_sc_agreement_ratio``, top-answer share of valid samples) so the
-        caller can lower its confidence score when independent samples disagreed and the
-        "consensus" is really an LLM's forced synthesis of contradictory attempts — instead
-        of silently discarding that disagreement signal, which used to let a
-        confident-sounding synthesis of contradictory samples score identically to genuine
-        unanimous agreement."""
+        Side effect: records the agreement ratio (``self._last_sc_agreement_ratio``,
+        top-answer share of valid samples) so the caller can lower its confidence
+        score when samples disagreed instead of discarding that signal."""
         import re as _re
         from collections import Counter
 

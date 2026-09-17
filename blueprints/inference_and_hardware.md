@@ -1,9 +1,9 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.4.12.** Optional Ollama backend; GGUF path remains canonical.
-> VRAM fit reads `{arch}.block_count` from the GGUF header (model-agnostic) with a
-> size heuristic fallback only when metadata is unreadable.
-> Token budgets scale by reasoning mode via `reasoning_modes.py`.
+> **Updated for v2.4.38.** GGUF path is canonical (optional Ollama backend still
+> exists as a secondary path). VRAM fit reads `{arch}.block_count` from the GGUF
+> header (model-agnostic) with a size heuristic fallback only when metadata is
+> unreadable. Token budgets scale by reasoning mode via `reasoning_modes.py`.
 
 How ELI loads a model, talks to it, and adapts to whatever machine it's on. The
 inference path is model-agnostic (see memory `eli-model-agnostic`); the boot path
@@ -28,46 +28,115 @@ is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
 - **Serialization**: all calls hold `_LLM_CALL_LOCK` (a native RLock from
   `runtime/native_locks`) — llama_cpp is not safe under concurrent calls; this is
   also what vision hot-swap and the ambient daemon coordinate on.
+- **Prefill abort**: shutdown and cancel register `llama_set_abort_callback` so a
+  long prompt prefill stops immediately — `StoppingCriteria` alone only runs
+  between output tokens.
 - **Live control**: `get_live_runtime_override`, `unload_model`, `reload_model`
   let the GUI swap models / change settings without a full restart.
 - **`InferenceBroker`** (`inference_broker.py`): the higher-level `infer()` /
   `gguf_ready` abstraction the orchestrator, engine, and ReAct loop call, so
   callers don't touch `gguf_inference` directly.
 
-## Hardware profiling (`core/hardware_profile.py`, 1232 LOC)
+## Hardware profiling (`core/hardware_profile.py`, ~1300 LOC)
 
-Free-VRAM-aware sizing:
+Free-VRAM-aware sizing, genuinely cross-vendor: NVIDIA via `nvidia-smi`, then a
+kernel-driver fallback, then AMD via `rocm-smi`, then AMD via the stock `amdgpu`
+sysfs (the common desktop case where ROCm is absent), then discrete Intel Arc,
+then integrated Intel/AMD/Qualcomm. All of them populate the same
+`HardwareProfile` fields, so smart-fit GPU-layer allocation is identical
+whatever the card.
+
 - `HardwareProfile` dataclass tracks **free** vs total VRAM (free is what
   matters for whether a profile actually loads).
+- **`gpu_detection_uncertain`** — a real GPU PCI device can be present in
+  `/sys/class/drm` (kernel sees it) while every vendor-specific probe above
+  fails to characterize it (a timeout, a missing tool, a permission error, an
+  unrecognised card). That used to collapse into the identical `has_gpu=False`
+  as a genuinely GPU-less machine, so "no GPU" was reported with full
+  confidence even when the honest answer was "couldn't check."
+  `_linux_gpu_pci_device_present()` is the vendor-agnostic last-resort check
+  that sets this flag; `has_gpu` itself stays `False` either way (still the
+  safe default for offload decisions) — this field is for anything that
+  *reports* the result.
 - `_kv_cache_mb(n_ctx, n_layers)` — KV-cache cost.
-- `_compute_graph_reserve_mb(n_ctx, batch)` — the **model-agnostic** compute
+- `_compute_graph_reserve_mb(n_ctx, batch)` — the model-agnostic compute
   buffer estimate (`256MB + 24MB/1K ctx + 1.5MB/batch`), reserved so a profile
   that loads cleanly doesn't then hard-crash on the first decode when the lazy
-  compute buffer pushes VRAM over the limit. (This was a real crash class.)
+  compute buffer pushes VRAM over the limit.
 - `_layers_for_size`, `ModelRecommendation` — pick offload layers from model
   size and free VRAM.
+- **Fit profiles** — startup exposes **Balanced / Max GPU / Max context**
+  (`fit_priority` in settings, `ELI_FIT_PRIORITY` env): Balanced preserves
+  context and sheds GPU layers → batch → ctx (default); Max GPU shrinks
+  ctx/batch before dropping layers; Max context spills weights to RAM for
+  larger windows. `unified_fit_config()` is the joint VRAM+RAM planner used by
+  `recommend()`, the GUI load ladder, and `gguf_inference` smart-fit.
+- **CPU/RAM fit when GPU offload is inactive**: `effective_use_gpu_layers(hw)`
+  returns false when `llama_supports_gpu_offload()` is unavailable, when
+  `compute_mode=cpu`, or when `ELI_FORCE_GPU_LAYERS=0`. When false,
+  `recommend()` and the startup optimizer use `cpu_ram_fit_config()` — same
+  `smart_fit_config` math, budgeted from live RAM instead.
 
-## Boot optimizer (`core/startup_hardware_optimizer.py`, 655 LOC)
+Vendor parity leaks at the ~15 sites that bypass `hardware_profile` and
+re-implement `nvidia-smi` directly instead of reading the profile it already
+built — e.g. `perception/local_whisper_stt.py`'s `_gpu_total_mb()` and a few
+status-reporting surfaces (`self_status.py`, `truth_report.py`) that fall back
+to "GPU telemetry unavailable" on non-NVIDIA hardware they could otherwise
+read from the shared profile. The fix direction is routing those sites through
+`hardware_profile` rather than adding more vendor detection.
 
-Runs at startup, writes `artifacts/runtime_hardware_profile.json`:
-- `detect_ram_gb`, `detect_cpu_name`, `detect_nvidia_gpus` (+ `detect_other_gpus`
-  fallback), `select_gpu`.
-- `find_model(settings)` — locate the GGUF.
-- **`train_ctx_for_model(model_path)`** — the filename→context table
-  (deepseek/llama-3.1/phi/gemma-2 → 128K; qwen2.5/mistral-7b → 32K; older → 8K;
-  unknown → 32768). This is the core of model-agnostic context sizing.
-- `estimate_layers`, `layer_mb` — VRAM-fit layer count.
+## GPU pack (`packaging/pyinstaller/eli_gpu_pack.py`, `core/gpu_pack_runtime.py`)
 
-## Settings (`core/runtime_settings.py`, 1134 LOC)
+Portable/AppImage builds download a CUDA or Vulkan build of `llama-cpp-python`
+per machine (the bundled runtime is CPU-only, safe everywhere) and shadow the
+bundled copy via `sys.path`.
+
+- **`gpu_pack_looks_installed()`** is the trust-first check every normal boot
+  uses: marker file + backend metadata + native libs present on disk, no
+  subprocess, no GPU/driver contact. Only when this can't confirm the pack
+  does anything fall through to `gpu_pack_operational()`, which live-probes
+  offload in a throwaway subprocess — correct at install time, but a
+  transient driver hiccup or busy GPU used to make that live probe fail even
+  with a perfectly good pack installed, and any caller treating a failed
+  live probe as "not installed" deleted a working pack and re-downloaded it
+  on the very next launch. The cheap check is what stops that loop.
+- **`activate_gpu_pack_runtime()`** preloads native libs, purges cached
+  `llama_cpp`, calls `llama_backend_init()`, and verifies offload in-process
+  — so a pack that verified in a subprocess actually works in the AppImage
+  GUI process (Intel Iris Xe Vulkan is the case that needed this).
+- `try_activate_gpu_pack()` (`gpu_pack_runtime.py`) delegates entirely to
+  `activate_gpu_pack_runtime()`'s own (correctly cheap-first) gating rather
+  than duplicating a check — a duplicate with reversed operand order here used
+  to force the subprocess probe on every single GUI launch regardless of
+  whether the marker file already said the pack was good.
+- Writes `runtime/gpu/.gpu_pack_ok` + `.gpu_pack.json` (backend, version) on
+  success; respects `runtime/.gpu_choice` for CPU opt-out.
+
+## Load-probe cache (`core/load_probe.py`)
+
+`_gpu_identity()` memoizes a `name|total_mb` string per process so every cache
+lookup and record doesn't shell out to `nvidia-smi`. A detection **exception**
+(not a clean "no GPU found") no longer gets memoized as `"cpu"` — that used to
+permanently mislabel the process's load-probe cache identity for the rest of
+the session after one transient early-boot failure, even after the GPU became
+detectable. `"cpu"` is still returned for that one call (a safe, conservative
+answer right now); the next call gets a real chance to detect the GPU.
+
+## Settings (`core/runtime_settings.py`, ~1150 LOC)
 
 - `DEFAULTS` (the full settings schema) + `ENV_TO_KEY` (env-var overrides).
 - `load_settings` / `save_settings` / `update_settings`.
 - **Redistribution-aware**: `_migrate_legacy_keys` (schema evolution),
   `_resolve_relative_model_paths` + `_heal_model_paths` (fix stale absolute paths
-  when the project moves machines), and **`_portable_settings_for_storage`**
-  (strip machine-specific values before storage). The intent to keep settings
-  portable across machines is built in — though personal values like `user_name`
-  can still end up tracked (see the settings.json commit note).
+  when the project moves machines), and `_portable_settings_for_storage` (strip
+  machine-specific values before storage) — though personal values like
+  `user_name` can still end up tracked.
+- **`settings_file_was_corrupt_on_last_load()`** — a settings file that exists
+  but fails to parse (truncated write, disk-full, a concurrent-write race)
+  silently fell back to `DEFAULTS` with no signal that the fallback happened,
+  indistinguishable from a normal first run with no file yet. Anything
+  rendering settings to the user should check this rather than presenting
+  defaults as if they were read from disk.
 
 ## Paths (`core/paths.py`, 601 LOC)
 
@@ -77,55 +146,26 @@ Dev-vs-packaged path resolution: `is_frozen` / `_is_dev_mode`,
 checkouts use project-local `artifacts/`+`config/`; packaged installs use
 platformdirs. One import surface (`get_paths`) so nothing hardcodes locations.
 
-## Update — v2.4.6 (GPU pack, CPU/RAM fit, compute mode)
+## STT VRAM awareness
 
-### Bundled GPU pack (`packaging/pyinstaller/eli_gpu_pack.py`)
+`local_whisper_stt` is VRAM-aware (GPU only on ≥12 GB cards, else CPU) so
+faster-whisper preloading on CUDA doesn't starve the main GGUF model's layer
+budget. `ELI_WHISPER_DEVICE` overrides; `ELI_WHISPER_GPU_MIN_MB` tunes the
+threshold. See `perception.md`.
 
-Portable/AppImage builds call `ensure_gpu_pack_for_hardware()` before llama-cpp import:
-- Detects hardware via `detect_hardware()`; skips when no GPU.
-- Prefers bundled CUDA/Vulkan wheels under `assets/gpu_packs/`; network fallback when not bundled.
-- Writes `runtime/gpu/.gpu_pack_ok` on success; respects `runtime/.gpu_choice` for CPU opt-out.
+## Piper and LoRA device selection
 
-### CPU/RAM fit when GPU offload is inactive (`core/hardware_profile.py`)
+Piper is a subprocess binary (`tts_piper/piper`), not onnxruntime-in-Python,
+and the shipped build is CPU-only for every vendor — no NVIDIA advantage to
+close there.
 
-`effective_use_gpu_layers(hw)` returns **false** when:
-- `llama_supports_gpu_offload()` is unavailable (typical Intel Iris Xe without a GPU pack),
-- `compute_mode=cpu` in settings, or
-- `ELI_FORCE_GPU_LAYERS=0`.
-
-When false, `recommend()` and the startup hardware optimizer use `cpu_ram_fit_config()` —
-same `smart_fit_config` math as GPU hosts, but budgeted from live RAM (`cpu_ram_budget_mb`).
-
-### Startup compute mode (`gui/panels/startup.py`)
-
-First-run / model-load dialog exposes **Auto / GPU / CPU** combo; persisted as
-`runtime_settings.compute_mode` (default `auto`). iGPU hosts without a GPU pack default to CPU.
-
-### Prefill abort (`cognition/gguf_inference.py`)
-
-Shutdown and cancel register `llama_set_abort_callback` so long prompt prefills stop
-immediately — `StoppingCriteria` alone only runs between output tokens.
-
-## Update — v2.4.12 (fit profiles, joint planner, GPU pack activation)
-
-### Hardware fit profiles (`core/hardware_profile.py`)
-
-Startup exposes **Balanced / Max GPU / Max context** (`fit_priority` in settings,
-`ELI_FIT_PRIORITY` env):
-
-- **Balanced** — preserve context; shed GPU layers → batch → ctx (default).
-- **Max GPU** — shrink ctx/batch before dropping layers; fill VRAM with layers.
-- **Max context** — spill weights to RAM for larger windows.
-
-`unified_fit_config()` is the joint VRAM+RAM planner used by `recommend()`, the GUI
-load ladder, and `gguf_inference` smart-fit. On discrete GPUs the RAM slider budget
-limits CPU spill from partial offload.
-
-### GPU pack in-process activation (`packaging/pyinstaller/eli_gpu_pack.py`)
-
-`activate_gpu_pack_runtime()` preloads native libs, purges cached `llama_cpp`,
-calls `llama_backend_init()`, and verifies offload — so a pack that verified in a
-subprocess actually works in the AppImage GUI process (Intel Iris Xe Vulkan).
+`eli/learning/lora_trainer._accelerator()` is the model for cross-vendor
+device selection generally: torch routes ROCm through the `torch.cuda` API (a
+HIP build answers `torch.cuda.is_available()`), so one code path serves NVIDIA
+and AMD, with the real vendor read from `torch.version.hip` and reported
+honestly rather than as "CUDA on a Radeon." Apple (mps) and Intel (xpu) are
+detected and honestly marked as unable to run that trainer. See
+`learning.md`.
 
 ---
 
@@ -133,76 +173,25 @@ subprocess actually works in the AppImage GUI process (Intel Iris Xe Vulkan).
 
 - **Strong:** genuinely adaptive and agnostic — free-VRAM-aware sizing, the
   compute-buffer reservation that prevents first-decode crashes, graceful
-  GPU-layer fallback, filename→ctx adaptation, env/settings/relative-path healing
-  for moving between machines, and a single broker + lock so concurrency is
-  correct. This is mature, hard-won infrastructure.
+  GPU-layer fallback, filename→ctx adaptation, env/settings/relative-path
+  healing for moving between machines, a single broker + lock so concurrency
+  is correct, and (as of this release) a GPU pack that trusts a verified
+  install instead of re-proving itself live on every boot. This is mature,
+  hard-won infrastructure.
 - **Weak / watch:**
   1. **Filename-based family detection** (chat template + ctx) is fragile: a
-     model with an unconventional filename gets a default template + 32768 ctx,
-     which can be wrong (mis-templated output, or ctx overflow on a small model).
-     A metadata/GGUF-header probe would be more robust than string matching.
+     model with an unconventional filename gets a default template + 32768
+     ctx, which can be wrong. A metadata/GGUF-header probe would be more
+     robust than string matching.
   2. **Settings sprawl** — `DEFAULTS` is large with several overlapping keys
-     (`n_gpu_layers`/`gpu_layers`, `n_ctx`/`context_size`) and migration logic,
-     echoing the schema churn seen in `memory/`.
+     (`n_gpu_layers`/`gpu_layers`, `n_ctx`/`context_size`) and migration
+     logic.
   3. VRAM heuristics are empirically tuned around an 8GB card; very different
-     hardware (24GB+, or CPU-only) leans on the conservative fallbacks rather
+     hardware (24GB+, or CPU-only) leans on conservative fallbacks rather
      than tuned values.
-  4. `_portable_settings_for_storage` exists but isn't fully preventing personal
-     values (e.g. `user_name`) from being persisted/committed — worth tightening
-     for redistribution.
-
----
-
-## Update — 2026-06-09 (STT no longer starves the main model)
-- faster-whisper preloaded on CUDA **before** the main GGUF autotuned, claiming ~2 GB so on an
-  8 GB card the main model only got `gpu_layers=11` (free_vram=4083 MB) → 23–59 s turns. STT is
-  now VRAM-aware (`local_whisper_stt`: GPU only on ≥12 GB cards, else CPU), so the main model
-  reclaims the GPU — `gpu_layers=99 / ctx=20480` with free_vram ~7 GB, turns back to 1–12 s.
-  `ELI_WHISPER_DEVICE` overrides; `ELI_WHISPER_GPU_MIN_MB` tunes the threshold. See
-  `perception.md`.
-
-
-## Update — 2.3.7 (vendor parity, stated honestly)
-
-### Where parity already held
-
-`hardware_profile.py` is genuinely cross-vendor and always was: NVIDIA via
-`nvidia-smi`, then a kernel-driver fallback, then **AMD via `rocm-smi`**, then **AMD
-via the stock `amdgpu` sysfs** (`/sys/class/drm/card*/device/mem_info_vram_*`, the
-common desktop case where ROCm is absent), then **discrete Intel Arc**. All of them
-populate the *same* `HardwareProfile` fields, so smart-fit GPU-layer allocation is
-identical whatever the card. `install.sh` builds llama-cpp with ROCm/hipBLAS, falling
-back to Vulkan, falling back to CPU. KV cache and GPU offload are at parity.
-
-### Where it leaked
-
-The leak is not the profiler — it is the **~15 sites that bypass it** and re-implement
-`nvidia-smi` directly. Consequences on an AMD or Intel box:
-
-- `perception/local_whisper_stt.py` — `_gpu_total_mb()` shells to `nvidia-smi`, gets
-  0, and pins Whisper to CPU regardless of the card. (CTranslate2 has no ROCm
-  backend, so the *outcome* is currently correct, but the reasoning is not, and the
-  user is told nothing.)
-- `runtime/self_status.py`, `runtime/truth_report.py`, the executor's GPU report —
-  all report "GPU telemetry unavailable", i.e. **ELI disowning hardware it has**.
-  That is the same failure family as the false-self-denial guards elsewhere in the
-  codebase: fabricating a capability and denying a real one are both dishonesty.
-
-The fix direction is to route those sites through `hardware_profile`, which already
-knows the answer, rather than adding more vendor detection.
-
-### Piper
-
-Worth knowing because it is often assumed otherwise: Piper is a **subprocess binary**
-(`tts_piper/piper`), not onnxruntime-in-Python, and the shipped build is CPU-only —
-for every vendor. There is no NVIDIA advantage to close there; parity already holds,
-at CPU.
-
-### LoRA training device selection
-
-`eli/learning/lora_trainer._accelerator()` is the model for how the rest should read.
-torch routes ROCm through the `torch.cuda` API — a HIP build answers
-`torch.cuda.is_available()` — so one code path serves NVIDIA and AMD, and the vendor
-is read from `torch.version.hip` and reported as what it is rather than as "CUDA on a
-Radeon". Apple (mps) and Intel (xpu) are detected and honestly marked as unable to
-run that trainer. See `learning.md`.
+  4. `_portable_settings_for_storage` exists but isn't fully preventing
+     personal values (e.g. `user_name`) from being persisted/committed —
+     worth tightening for redistribution.
+  5. The ~15 sites that bypass `hardware_profile` for direct `nvidia-smi`
+     calls (see above) are still there — known, not yet routed through the
+     shared profile.

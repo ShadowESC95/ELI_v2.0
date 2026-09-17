@@ -55,17 +55,11 @@ _PROTECTED_PATCH_PATHS = {
 
 
 def is_protected_patch_path(p: Path) -> bool:
-    """True when `p` is one of ELI's own safety guardrail files (relative to
-    the project source root) — these must never be auto-patched, whether by
-    self-improvement's autonomous path OR a user-triggered fix/improve
-    request (FIX_FILE). A faulty or adversarial patch to any of these would
-    disable the very gates that contain it (network fail-closed, shell
-    denylist, Full Control, grounding, the patcher itself).
-
-    Only applies to paths that resolve inside the project source root — a
-    user's own unrelated file elsewhere is never "protected" by this list,
-    it just won't match. Env-extensible via ELI_PROTECTED_PATCH_PATHS
-    (comma-separated project-relative posix paths), same as before.
+    """True when `p` is one of ELI's own safety guardrail files — must never
+    be auto-patched, by self-improvement's autonomous path or a user-triggered
+    fix/improve request (FIX_FILE). Only matches paths inside the project
+    source root; a user's own unrelated file is never "protected" by this.
+    Env-extensible via ELI_PROTECTED_PATCH_PATHS (comma-separated posix paths).
     """
     try:
         root = _patch_root()

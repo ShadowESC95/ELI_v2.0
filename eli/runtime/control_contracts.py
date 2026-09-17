@@ -934,18 +934,12 @@ def _eli_phase19_mutation_claim_supported(out: str, ev: str) -> bool:
 
 # === END ELI_PHASE19_CONTROL_TRUTH_LOCK_V1 ===
 
-# Evidence renders several runtime parameters under a machine-style key
-# (n_gpu_layers, batch_size/n_batch, model_path, user_db, agent_db, n_threads,
-# context_size/n_ctx) while natural prose states the human phrase ("gpu
-# layers", "batch size", ...). A plain substring check of the human phrase
-# against evidence phrased with the machine key would reject a correct,
-# evidence-backed answer just because the spelling differs — which is why
-# these seven terms were blanket-exempted from the concrete-term check below
-# (see git history: present since the initial import, eb87b958). That
-# exemption also let the model state these exact values with NO evidence
-# backing at all, which is the confabulation class the check exists to catch.
-# Checking every known spelling closes that gap without reintroducing the
-# false positives the blanket exemption was working around.
+# Evidence renders these under a machine-style key (n_gpu_layers, model_path,
+# user_db...) while prose uses the human phrase ("gpu layers") — a plain
+# substring check would reject correct answers on spelling alone, which is why
+# these terms used to be blanket-exempted below. That exemption also let the
+# model state them with no evidence backing at all; checking every known
+# spelling closes that hole without reintroducing the false positives.
 _CONCRETE_TERM_ALIASES: Dict[str, tuple] = {
     "context size": ("context size", "n_ctx", "context_size"),
     "gpu layers": ("gpu layers", "n_gpu_layers", "gpu_layers"),

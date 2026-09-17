@@ -1,6 +1,6 @@
 # ELI GUI
 
-> **Updated for v2.4.12.** Ollama model selector fixed on packaged builds
+> **Updated for v2.4.38.** Ollama model selector fixed on packaged builds
 > (`QDialogButtonBox` exported via `eli/gui/qt_compat.py`).
 
 `eli/gui/` — 25.4k LOC, 22 modules (8 top-level + panels/tabs/docks/widgets). A full native PySide6/PyQt desktop app (with a
@@ -81,6 +81,14 @@ are really application logic, not just UI:
   `_CapabilityList`.
 - `pyqtSignal`/`Slot` aliased through `qt_compat.py` so it runs on PyQt **or**
   PySide.
+
+Threading: every long-running worker in this file marshals results back to
+the GUI thread via a class-level `pyqtSignal` connected with an explicit
+`Qt.ConnectionType.QueuedConnection` — the safe cross-thread pattern (same
+one Training already used correctly, see below). Two screen-control call
+sites (OCR results, "ask ELI" results) used `QTimer.singleShot(0, ...)`
+called *from* the worker thread instead, which has no guaranteed event loop —
+fixed to use the same signal pattern as the neighbouring capture handler.
 
 ## Labs workspace (`labs_tab.py`)
 

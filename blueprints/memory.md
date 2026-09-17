@@ -1,7 +1,8 @@
 # ELI Memory Subsystem
 
-> **Updated for v2.4.12.** Turn retrieval is unified in `eli/memory/retrieval.py`;
-> FAISS deletes use tombstones (`mark_memory_deleted`).
+> **Updated for v2.4.38.** Turn retrieval is unified in `eli/memory/retrieval.py`;
+> FAISS deletes use tombstones (`mark_memory_deleted`) — now enforced at every
+> known delete site, not just some of them.
 
 `eli/memory/` — 7.0k LOC, 13 files. The persistent substrate: relational +
 full-text + vector + graph, all local SQLite/FAISS. Companion to
@@ -121,6 +122,25 @@ FAISS `IndexFlat`, embeddings via a local nomic embedder (llama_cpp). Notable:
 - **Tombstones (v2.3.37):** `mark_memory_deleted(id)` writes to
   `.tombstones.json`; search skips tombstoned rows without a full rebuild.
   `compact_tombstones(live_ids)` reclaims index space when needed.
+- **Write failures are no longer invisible.** `store_memory()`'s vector-index
+  write was best-effort with a bare `except: pass` — a memory whose embedding
+  failed to index (an exception, or the embedder returning no vector) stayed
+  in SQLite but effectively unrecallable by semantic search, while the caller
+  still got `ok: True` back. The result dict now carries `vector_indexed:
+  bool`, a real failure logs at warning level, and `fire_memory_uncertainty_event()`
+  drives the World tab's `memory_uncertainty` awareness bar — which previously
+  had no real code path firing it at all, only a manual test button.
+- **Tombstoning is a per-call-site discipline, not a structural guarantee.**
+  `consolidate_memories()` correctly tombstones the vectors of every row it
+  deletes. `profile_extractor._scrub_onboarding_snapshot()` — which deletes a
+  stale onboarding-snapshot row after a corrected fact — did a direct
+  `DELETE FROM memories` with no corresponding tombstone call, so a retracted
+  fact's embedding survived in the index and could resurface via semantic
+  recall after the SQL row was gone. Fixed at that one site by capturing the
+  row ids before deleting and tombstoning them, matching
+  `consolidate_memories`'s pattern — but any *future* direct
+  `DELETE FROM memories` elsewhere is equally exposed, since there's still no
+  shared `delete_memory_row()` helper enforcing delete+tombstone together.
 
 ## Knowledge graph (`knowledge_graph.py`)
 
@@ -205,6 +225,10 @@ of those ten patterns are `app_cmd` JSON blobs the KG mapper discards.
      query's scored 0.5377 — the bands overlap, so no absolute similarity floor
      can separate them. The relative cutoff in `vector_store` tightens the
      candidate pool; it is not a relevance oracle.
+  5. **No shared delete+tombstone helper.** Every direct `DELETE FROM memories`
+     site has to remember to tombstone the vector store itself; one already
+     didn't (see above, now fixed). A single `delete_memory_row()` wrapper
+     would make that structurally impossible to get wrong again.
 
 ---
 

@@ -10307,11 +10307,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"Path not found: {pp}"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
         # Protected-path guard — same list self_improvement.py's autonomous
-        # patcher refuses to touch (network fail-closed, shell denylist, Full
-        # Control, grounding, the patcher itself). Autonomous self-patching is
-        # opt-in and off by default, so a directly user-triggered "fix this
-        # file" request is almost certainly the MORE exercised path — it must
-        # not be the LESS protected one. Checked before any model work so a
+        # patcher refuses to touch. Checked before any model work so a
         # request against a guardrail file fails fast.
         try:
             from eli.runtime.self_improvement import is_protected_patch_path
@@ -10513,12 +10509,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"FIX_FILE aborted: could not write backup for {pp}: {_bak_err}"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
 
-        # Differential import baseline — while `pp` STILL holds the original
-        # content, check whether it importable before our write. Only blame a
-        # broken import on THIS fix if the module imported cleanly beforehand
-        # (tolerates a pre-existing missing optional dep without a false
-        # revert) — same approach self_improvement.py's autonomous patcher
-        # already uses for its own patches.
+        # Differential import baseline — while `pp` still holds the original,
+        # check it imports cleanly. Only blame a broken import on THIS fix if
+        # it was clean beforehand (same approach self_improvement.py uses).
         _ff_dotted = None
         _ff_pre_ok = False
         if pp.suffix.lower() == ".py":
@@ -10533,13 +10526,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         pp.write_text(fixed_code, encoding="utf-8")
 
         # Behavioural verification — a fix can compile and still break the
-        # module at import time (unresolved name, broken top-level statement).
-        # self_improvement.py's autonomous patcher already smoke-imports +
-        # runs targeted tests + rolls back on failure; FIX_FILE — the
-        # directly user-triggered path, almost certainly the MORE exercised
-        # of the two since autonomous self-patching is opt-in and off by
-        # default — previously had none of that. Reuses the same functions,
-        # not a second implementation.
+        # module at import time. Reuses self_improvement.py's smoke-import +
+        # targeted-test + rollback functions rather than a second implementation.
         if pp.suffix.lower() == ".py" and _ff_dotted and _ff_pre_ok:
             try:
                 from eli.runtime.self_improvement import _smoke_import_module, _run_targeted_tests

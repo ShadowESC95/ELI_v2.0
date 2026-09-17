@@ -181,16 +181,11 @@ class HardwareProfile:
     free_vram_mb: int = 0       # FREE VRAM, not total
     total_vram_mb: int = 0
     vram_gb: float = 0.0        # convenience: free_vram_mb / 1024 (legacy callers)
-    # True when has_gpu=False NOT because no GPU was found, but because a real
-    # GPU PCI device exists (confirmed via /sys/class/drm) that none of the
-    # vendor-specific probes above could characterize — a timeout, a missing
-    # tool, a permission error, an unrecognised card. Every probe failure
-    # used to collapse into the SAME has_gpu=False as a verified negative, so
-    # "no GPU" was reported with full confidence even when the honest answer
-    # was "couldn't check." has_gpu itself is intentionally left alone (False
-    # is still the safe default for deciding whether to attempt offload) —
-    # this field is for anything that REPORTS the detection result to the
-    # user, which must not claim more certainty than the probe actually has.
+    # True when has_gpu=False because a real GPU PCI device exists that no
+    # vendor probe could characterize (timeout, missing tool, permission
+    # error) — distinct from a genuinely GPU-less machine. has_gpu itself
+    # stays False either way (still the safe default for offload decisions);
+    # I want anything that reports the result to say which case it is.
     gpu_detection_uncertain: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
@@ -505,10 +500,8 @@ _KNOWN_GPU_VENDOR_IDS = {"0x10de", "0x1002", _PCI_VENDOR_INTEL}  # nvidia, amd, 
 
 def _linux_gpu_pci_device_present() -> bool:
     """True when the kernel sees ANY known-vendor GPU PCI device, regardless of
-    whether a vendor-specific probe above could characterize it (read its VRAM,
-    match a supported driver, etc.). Vendor-agnostic on purpose — used only to
-    tell "no GPU" apart from "a GPU is here but detection couldn't read it",
-    not to size anything."""
+    whether a vendor probe above could characterize it. Vendor-agnostic on
+    purpose — tells "no GPU" apart from "a GPU is here but unreadable"."""
     try:
         for vendor_file in Path("/sys/class/drm").glob("card[0-9]*/device/vendor"):
             try:
@@ -519,6 +512,8 @@ def _linux_gpu_pci_device_present() -> bool:
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     return False
+
+
 _PCI_VENDOR_QUALCOMM = "0x5143"
 _INTEL_ARC_DEVICE_RANGES = ((0x4F80, 0x4F8F), (0x5690, 0x56BF), (0xE200, 0xE21F))
 

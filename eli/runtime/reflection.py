@@ -196,14 +196,10 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
     """Generate a reflection summary from the last N hours."""
     mem = get_memory()
     insights: List[str] = []
-    # Every section below independently swallows its own exceptions so one bad
-    # data source doesn't kill the whole reflection. That used to mean "every
-    # section failed" and "every section genuinely found nothing" produced the
-    # IDENTICAL confident "No evidence-backed activity signals recorded"
-    # conclusion — a periodic self-report that can't tell "checked, empty"
-    # from "couldn't check" is exactly the failure this function exists to
-    # avoid. Track failures here so the final message is honest about which
-    # case actually happened.
+    # Each section below swallows its own exceptions so one bad source doesn't
+    # kill the whole reflection -- but "every section failed" and "every
+    # section found nothing" used to produce the identical confident
+    # conclusion. Track failures so the final message is honest about which.
     section_errors: List[str] = []
 
     # App usage patterns
@@ -360,10 +356,7 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
 
     if not insights:
         if section_errors:
-            # Genuinely different from "checked and found nothing": at least one
-            # data source could not be read, so this reflection is incomplete,
-            # not a verified all-clear. Saying so plainly beats a confident
-            # "nothing happened" that was never actually checked.
+            # Incomplete, not a verified all-clear -- say so plainly.
             insights.append(
                 f"Could not fully verify activity for this period — "
                 f"{len(section_errors)} data source(s) failed to load "

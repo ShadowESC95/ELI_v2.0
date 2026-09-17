@@ -1,6 +1,6 @@
 # ELI Grounding & Evidence Layer
 
-> **Updated for v2.4.12.** Quick mode still returns verbatim for deterministic
+> **Updated for v2.4.38.** Quick mode still returns verbatim for deterministic
 > introspection; all CHAT modes now pass through the gradient orchestrator first.
 
 The anti-confabulation system — a deterministic evidence scaffold wrapped around
@@ -44,13 +44,23 @@ produces a grounded answer for control/status actions directly from runtime data
 `install(CognitiveEngine)` wires it into the engine. `_eli_v14_runtime_data()`
 assembles the live config block (model_path, n_ctx, gpu_layers, …).
 
-> **Code-health flag:** the file contains **seven** `render_action` definitions
-> (lines 350, 1058, 2837, 3288, 3653, 3875, 4222), each marked
+> **Code-health flag:** the file contains **eight** `render_action` definitions
+> (seven module-level plus one nested inside a nominal "policy engine" wrapper
+> that despite its name doesn't replace the stack, it just delegates to the
+> previous version for anything it doesn't handle itself), each marked
 > `# type: ignore[override]`. They are stacked successive redefinitions where the
 > last one wins — the file grew by appending new versions rather than editing in
 > place. It works, but it's the single clearest example of the "added beside, not
 > folded in" pattern, and it makes the effective code path hard to trace. Prime
 > consolidation candidate.
+>
+> **`_eli_last_response_confidence_v2()`** (called for "how confident are you in
+> your last answer") used to return a fixed template string regardless of what
+> the last response actually was — a confident-sounding self-assessment that
+> inspected nothing. It now reuses `eli.runtime.last_trace.load_last_trace()` +
+> `control_contracts._trace_text()`, the same real per-turn trace mechanism
+> already used correctly for "what was your last message," and says plainly
+> when no trace is available rather than fabricating an answer.
 
 ### `runtime/control_contracts.py` (943 LOC)
 The deterministic control path:
@@ -59,7 +69,15 @@ The deterministic control path:
   (runtime paths, DB state, bus result, trace).
 - **`output_violates_evidence(text, evidence_text)`** — the gate that returns
   True when LLM output contradicts/omits the evidence; the engine uses this to
-  reject a hallucinated answer.
+  reject a hallucinated answer. Seven concrete runtime terms (gpu layers,
+  batch size, context size, cpu threads, model path, user/agent database)
+  used to be blanket-exempted from this check, because evidence renders them
+  under a machine-style key (`n_gpu_layers`, `model_path`...) while prose uses
+  the human phrase — a plain substring match would reject a correct answer
+  over spelling alone. That exemption also let the model state those exact
+  values with *no* evidence backing at all. `_CONCRETE_TERM_ALIASES` now maps
+  each term to every real spelling it appears under, closing the hole without
+  reintroducing the false positives.
 - `compact_evidence_answer` / `finalise_control_result` — assemble the final
   grounded response.
 
@@ -72,7 +90,9 @@ happened.
 ### `runtime/evidence_arbitration.py` (195 LOC)
 `EvidenceItem` + `arbitrate_evidence(limit)` + `build_evidence_context_text` —
 scores and merges competing evidence into a single context block. Pairs with the
-agent-bus confidence aggregation (`_score_tool_result`).
+agent-bus confidence aggregation (`_score_tool_result`), which scores a tool
+result with no recorded `"ok"` field as unverified (same low score as a
+confirmed failure) rather than defaulting a missing outcome to success.
 
 ### `runtime/memory_evidence.py` + `runtime/retrieval_packets.py`
 `collect_memory_evidence` / `build_memory_evidence_text` turn memory hits into an

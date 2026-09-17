@@ -167,12 +167,9 @@ def resolve_lan_ip() -> str:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    # Well-known hypervisor/container virtual-bridge default subnets. A phone
-    # on the same Wi-Fi can never reach these, but they sit in the same
-    # 192.168.x.x range as a real LAN IP, so a plain "prefer 192.168." score
-    # can't tell them apart — this used to let e.g. libvirt's default NAT
-    # bridge (192.168.122.1, present whenever KVM/libvirt is installed) tie
-    # with the real Wi-Fi IP and win purely on candidate-list order.
+    # Hypervisor/container virtual-bridge subnets -- unreachable from a phone
+    # but share the 192.168.x.x range with a real LAN IP, so they used to tie
+    # with it and win purely on candidate-list order.
     _VIRTUAL_BRIDGE_PREFIXES = (
         "192.168.122.",  # libvirt/KVM default NAT bridge
         "192.168.56.",   # VirtualBox host-only default

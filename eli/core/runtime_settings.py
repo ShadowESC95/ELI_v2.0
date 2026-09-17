@@ -352,17 +352,12 @@ BOOL_KEYS = {"use_mmap", "use_mlock", "auto_speak", "mic_enabled",
 
 _MIGRATION_LOGGED = False
 _HEAL_LOGGED = False
-# True when the LAST load found settings_file present but unparsable (corrupt/
-# truncated JSON — a crash mid-write, disk-full, concurrent-write race), so the
-# returned settings silently fell back to DEFAULTS instead of the user's real
-# saved configuration. Deliberately separate from "no settings file yet" (a
-# normal first run), which is not an error and must not raise this flag.
-# Without this, a corrupted settings file was indistinguishable from a clean
-# first boot: n_gpu_layers/n_threads/etc. downstream got reported as "your
-# configuration" with exactly the confidence of genuinely-loaded, verified
-# settings. Callers that render settings to the user should check
-# settings_file_was_corrupt_on_last_load() and say so rather than presenting
-# defaults as if they were read from disk.
+# True when the last load found settings_file present but unparsable, so the
+# returned settings silently fell back to DEFAULTS instead of my real saved
+# config. Separate from "no settings file yet" (a normal first run, not an
+# error). Anywhere I render settings should check
+# settings_file_was_corrupt_on_last_load() rather than presenting defaults as
+# if they were read from disk.
 _LAST_LOAD_SETTINGS_FILE_CORRUPT = False
 
 

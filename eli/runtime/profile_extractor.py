@@ -179,12 +179,9 @@ def _scrub_onboarding_snapshot(cur: sqlite3.Cursor, stale_values: list) -> None:
         if len(core) < 12:
             continue
         try:
-            # Capture the ids being scrubbed BEFORE deleting them, so the FAISS
-            # vector store can be tombstoned too (see mark_memories_deleted in
-            # consolidate_memories for the same pattern). Without this, a
-            # retracted/corrected fact's embedding survives in the vector index
-            # and can resurface via semantic recall after the SQL row is gone —
-            # exactly the class of bug this function exists to prevent.
+            # Capture ids BEFORE deleting so the vector store can be tombstoned
+            # too (same pattern as consolidate_memories) -- otherwise a
+            # retracted fact's embedding survives and can resurface via recall.
             cur.execute(
                 """
                 SELECT id FROM memories

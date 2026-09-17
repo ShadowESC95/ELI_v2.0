@@ -1,6 +1,6 @@
 # ELI Coding Agent (`eli/coding/`)
 
-> **Updated for v2.4.12.** Invoked via `CODE_SOLVE` / `GENERATE_SCRIPT`; separate
+> **Updated for v2.4.38.** Invoked via `CODE_SOLVE` / `GENERATE_SCRIPT`; separate
 > from the 15-agent chat bus (16th pipeline: plan → search → verify → repair).
 
 A self-contained, **additive** subsystem that lifts ELI's code generation,
@@ -77,3 +77,18 @@ plan_task ──► seed implement ──► synthesize_tests ──► tree_sea
 - **Not yet:** composition is single-module (ordered concat + import-dedupe), not
   true multi-file projects; test synthesis verifies against synthesized tests, not
   a user-supplied spec suite.
+
+## FIX_FILE (`executor_enhanced.py`, not this package, but shares its safety net)
+
+`FIX_FILE` — the directly user-triggered "fix/improve this file" action — routes
+Python fixes through this package's `solve()` (syntax + lint + execution +
+repo-context + self-critique), then applies the result to an *existing* project
+file. It now carries the same safety net `self_improvement.py`'s autonomous
+patcher has: refuses to touch the protected guardrail-file list
+(`is_protected_patch_path`), smoke-imports the patched module before accepting
+it, runs targeted tests, and rolls back to the pre-fix backup on either
+failure — all reusing `self_improvement.py`'s own verification functions
+rather than a second implementation. Worth stating plainly: since autonomous
+self-patching is opt-in and off by default, FIX_FILE is almost certainly the
+*more* exercised of the two real-file-editing paths, so it needed to be at
+least as protected, not less.
