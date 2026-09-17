@@ -191,6 +191,22 @@ elif command -v gh >/dev/null 2>&1; then
     --pattern "cuda-*linux_x86_64*.whl" --dir "$STAGING/gpu-packs" 2>/dev/null || true
 fi
 if compgen -G "$STAGING/gpu-packs/*.whl" >/dev/null 2>&1; then
+  # Keep only the newest wheel per backend. `gh release download --pattern`
+  # grabs every matching asset, and a stale prior version left sitting on the
+  # gpu-packs release alongside the current one (e.g. mid-rebuild) silently
+  # doubles this bundle's dead weight with a wheel that never gets picked at
+  # install time anyway (the picker already prefers the highest version).
+  for _backend in vulkan cuda; do
+    _newest="$(for _f in "$STAGING/gpu-packs/${_backend}-"*.whl; do
+      [ -e "$_f" ] || continue
+      _ver="$(basename "$_f" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)"
+      [ -n "$_ver" ] && printf '%s\t%s\n' "$_ver" "$_f"
+    done | sort -V | tail -1 | cut -f2)"
+    [ -n "$_newest" ] || continue
+    for _f in "$STAGING/gpu-packs/${_backend}-"*.whl; do
+      [ -e "$_f" ] && [ "$_f" != "$_newest" ] && rm -f "$_f"
+    done
+  done
   echo "[package] gpu-packs: $(ls -1 "$STAGING/gpu-packs"/*.whl | wc -l) wheel(s)"
 else
   echo "[package] (no gpu-packs bundled — frozen/AppImage builds will download at first launch)"
