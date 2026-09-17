@@ -70,10 +70,21 @@ jobs:
 
       - name: Build Vulkan wheel
         shell: bash
-        env:
-          CMAKE_ARGS: "-DGGML_VULKAN=on"
         run: |
           set -euo pipefail
+          # -march=x86-64-v3 (AVX2/FMA, no VNNI) on Linux, /arch:AVX2 on
+          # Windows — the same portable CPU baseline install.sh already picks
+          # for its own from-source builds (_llama_safe_cpu_cmake_flags).
+          # Leaving this unset lets cmake's GGML_NATIVE default tune the build
+          # to whatever the CI runner's own CPU supports, which is newer/
+          # narrower than most end-user machines and SIGILLs them the moment
+          # ggml's CPU code path runs — confirmed in the field on an RTX 2060
+          # paired with a pre-AVX-VNNI CPU.
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export CMAKE_ARGS="-DGGML_VULKAN=on -DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=/arch:AVX2 -DCMAKE_CXX_FLAGS=/arch:AVX2"
+          else
+            export CMAKE_ARGS="-DGGML_VULKAN=on -DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64-v3 -DCMAKE_CXX_FLAGS=-march=x86-64-v3"
+          fi
           python -m pip install --upgrade pip wheel cmake ninja
           python -m pip wheel "llama-cpp-python==${LLAMA_VERSION}" \
             --no-deps --no-binary llama-cpp-python -w wheelhouse
@@ -196,6 +207,10 @@ jobs:
       - name: Build CUDA wheel
         shell: bash
         env:
+          CMAKE_BUILD_PARALLEL_LEVEL: "4"
+          CMAKE_GENERATOR: "Ninja"
+        run: |
+          set -euo pipefail
           # The 7-architecture list built fine but produced a wheel over 2 GB,
           # which GitHub refuses as a release asset ("size must be less than
           # 2147483648"). Two changes bring it under: drop the datacenter-only
@@ -206,11 +221,19 @@ jobs:
           # JITs from that PTX instead of failing outright.
           #   61=Pascal (GTX 10xx)  75=Turing (RTX 20xx/GTX 16xx)
           #   86=Ampere (RTX 30xx)  89=Ada (RTX 40xx)
-          CMAKE_ARGS: "-DGGML_CUDA=on -DCMAKE_CUDA_ARCHITECTURES=61-real;75-real;86-real;89-real;89-virtual"
-          CMAKE_BUILD_PARALLEL_LEVEL: "4"
-          CMAKE_GENERATOR: "Ninja"
-        run: |
-          set -euo pipefail
+          #
+          # CPU-side flags: same portable AVX2/FMA-only baseline as the Vulkan
+          # build above, and for the same reason — a CUDA GPU says nothing
+          # about the host CPU's instruction set, and ggml's CPU code path
+          # still runs on it. Without this, a wheel built on the CI runner's
+          # own (newer) CPU SIGILLs on an end user's older one the moment it
+          # runs — confirmed in the field on an RTX 2060 + pre-AVX-VNNI CPU.
+          ARCHES="-DCMAKE_CUDA_ARCHITECTURES=61-real;75-real;86-real;89-real;89-virtual"
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            export CMAKE_ARGS="-DGGML_CUDA=on $ARCHES -DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=/arch:AVX2 -DCMAKE_CXX_FLAGS=/arch:AVX2"
+          else
+            export CMAKE_ARGS="-DGGML_CUDA=on $ARCHES -DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64-v3 -DCMAKE_CXX_FLAGS=-march=x86-64-v3"
+          fi
           nvcc --version
           python -m pip install --upgrade pip wheel cmake ninja
           python -m pip wheel "llama-cpp-python==${LLAMA_VERSION}" \

@@ -1349,7 +1349,18 @@ def _verify(dest: Path, *, require_offload: bool = True) -> tuple[bool, str]:
     # neither 0 nor 2, so the old keep-pack gate deleted a working pack.
     # If CUDA already enumerated a real device, keep the pack.
     cuda_found = bool(re.search(r"ggml_cuda_init:\s*found\s+[1-9]", detail, re.I))
-    if cuda_found:
+    # A subprocess killed by a fatal signal (SIGILL, SIGSEGV, SIGABRT, ...) shows
+    # up as a NEGATIVE returncode — that is never the AppImage false negative
+    # this leniency exists for (2.4.26, which exited normally with a bad code).
+    # It is a real crash, almost always libggml-cpu hitting an instruction this
+    # CPU does not have (AVX-VNNI-tuned prebuilt wheel on an older chip — the
+    # exact case install.sh's _cpu_trusts_prebuilt_llama_wheel() guards against
+    # for the plain CPU wheel, but this CI-built CUDA/Vulkan pack had no
+    # equivalent check). Keeping the pack here does not avoid the crash, it
+    # just moves the same SIGILL into the main GUI process the next time a
+    # model actually loads.
+    crashed_by_signal = out.returncode is not None and out.returncode < 0
+    if cuda_found and not crashed_by_signal:
         return True, "gpu-pack-verify-ok (cuda devices enumerated)\n" + detail[-700:]
     return False, detail[-800:]
 

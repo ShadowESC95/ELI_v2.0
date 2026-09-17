@@ -184,9 +184,13 @@ def test_verify_trusts_cuda_device_enumeration_on_false_negative():
     assert 're.search(r"ggml_cuda_init:\\s*found\\s+[1-9]", detail' in verify_fn
 
 
-def test_verify_keeps_pack_when_probe_crashes_after_cuda_enum(tmp_path, monkeypatch):
-    """RTX 2060 / 2.4.28: probe prints devices then dies — pack must stay."""
-    import types
+def test_verify_rejects_pack_when_probe_crashes_after_cuda_enum(tmp_path, monkeypatch):
+    """RTX 2060 / v2.4.39 field crash: probe prints devices then dies by
+    signal (SIGILL/SIGABRT/...) — the pack must NOT be kept. It used to be:
+    the same wheel's libggml-cpu.so needs an instruction this CPU does not
+    have, so the exact same crash then killed the main GUI process the next
+    time a model actually loaded. A dead-by-signal probe can never be treated
+    as a pass, no matter what it printed before dying."""
     dest = tmp_path / "gpu"
     lib = dest / "llama_cpp" / "lib"
     lib.mkdir(parents=True)
@@ -196,12 +200,36 @@ def test_verify_keeps_pack_when_probe_crashes_after_cuda_enum(tmp_path, monkeypa
     (lib / "libcublasLt.so.12").write_bytes(b"\x00")
 
     class _Out:
-        returncode = -6  # abort after init — not exit 2
+        returncode = -6  # killed by signal after init — this is the crash
         stdout = ""
         stderr = (
             "ggml_cuda_init: found 1 CUDA devices (Total VRAM: 7752 MiB):\n"
             "  Device 0: NVIDIA GeForce RTX 2060 SUPER, compute capability 7.5\n"
         )
+
+    monkeypatch.setattr(eli_gpu_pack.subprocess, "run", lambda *a, **k: _Out())
+    monkeypatch.setattr(eli_gpu_pack, "_assert_cuda_runtime_complete", lambda *a, **k: None)
+    ok, detail = eli_gpu_pack._verify(dest, require_offload=True)
+    assert ok is False
+    assert "ggml_cuda_init" in detail
+
+
+def test_verify_keeps_pack_on_clean_exit_false_negative(tmp_path, monkeypatch):
+    """AppImage / v2.4.26: probe enumerates the GPU then exits cleanly (not
+    killed by a signal) with an unexpected code — this is the original,
+    legitimate false negative the leniency exists for, and must still pass."""
+    dest = tmp_path / "gpu"
+    lib = dest / "llama_cpp" / "lib"
+    lib.mkdir(parents=True)
+    (lib / "libggml-cuda.so").write_bytes(b"\x00")
+    (lib / "libcudart.so.12").write_bytes(b"\x00")
+    (lib / "libcublas.so.12").write_bytes(b"\x00")
+    (lib / "libcublasLt.so.12").write_bytes(b"\x00")
+
+    class _Out:
+        returncode = 2  # clean SystemExit(2), not a signal
+        stdout = "gpu-pack-verify-no-offload\n"
+        stderr = "ggml_cuda_init: found 1 CUDA devices (Total VRAM: 7752 MiB):\n"
 
     monkeypatch.setattr(eli_gpu_pack.subprocess, "run", lambda *a, **k: _Out())
     monkeypatch.setattr(eli_gpu_pack, "_assert_cuda_runtime_complete", lambda *a, **k: None)
