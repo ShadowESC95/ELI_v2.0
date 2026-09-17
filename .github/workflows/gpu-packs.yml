@@ -117,6 +117,7 @@ jobs:
         if: steps.publish.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           f=$(ls wheelhouse/vulkan-*.whl)
@@ -264,6 +265,7 @@ jobs:
         if: steps.publish.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
           f=$(ls wheelhouse/cuda-*.whl)
