@@ -706,6 +706,8 @@ jobs:
           ls -lh
 
       - name: Create/update GitHub Release and upload artifacts
+        id: publish
+        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           name: ELI v${{ needs.guard.outputs.version }}
@@ -722,3 +724,39 @@ jobs:
             dist/RELEASE_NOTES.md
             dist/SHA256SUMS.txt
           fail_on_unmatched_files: true
+
+      # softprops uploads all ~11GB of assets in parallel, and that
+      # consistently loses one or more of the multi-GB files to
+      # "Error saving asset" (uploads.github.com choking under concurrent
+      # huge-file PUTs from a single runner) while the small text/wheel/deb
+      # files upload fine. Rather than rerun the whole job (which burns the
+      # full build matrix again), find whatever didn't make it onto the
+      # release and re-upload just that, one file at a time, with backoff.
+      - name: Retry any assets the release step didn't finish uploading
+        if: steps.publish.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          gh release view "$TAG" >/dev/null
+          have="$(gh release view "$TAG" --json assets -q '.assets[].name')"
+          cd dist
+          shopt -s nullglob
+          for f in *.zip *.exe *.dmg *.AppImage *.tar.gz *.whl *.deb WHEELHOUSE.txt RELEASE_NOTES.md SHA256SUMS.txt; do
+            if grep -qxF "$f" <<<"$have"; then
+              echo "already uploaded: $f"
+              continue
+            fi
+            echo "uploading missing asset: $f"
+            attempt=1
+            until gh release upload "$TAG" "$f" --clobber; do
+              if [ "$attempt" -ge 4 ]; then
+                echo "::error::failed to upload $f after $attempt attempts"
+                exit 1
+              fi
+              echo "upload of $f failed (attempt $attempt), retrying in $((attempt * 20))s..."
+              sleep $((attempt * 20))
+              attempt=$((attempt + 1))
+            done
+          done

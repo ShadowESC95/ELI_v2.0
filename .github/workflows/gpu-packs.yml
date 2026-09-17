@@ -96,6 +96,8 @@ jobs:
           EOF
 
       - name: Publish to the gpu-packs pre-release
+        id: publish
+        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: gpu-packs
@@ -107,6 +109,27 @@ jobs:
             `ELI --install-gpu-pack`; not meant for manual pip use.
           files: wheelhouse/vulkan-*.whl
           fail_on_unmatched_files: true
+
+      # uploads.github.com is flaky on ~1-2GB files; retry the plain upload
+      # against the release softprops already created rather than rerun the
+      # whole build.
+      - name: Retry upload if the release step failed
+        if: steps.publish.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          f=$(ls wheelhouse/vulkan-*.whl)
+          attempt=1
+          until gh release upload gpu-packs "$f" --clobber; do
+            if [ "$attempt" -ge 4 ]; then
+              echo "::error::upload of $f failed after $attempt attempts"
+              exit 1
+            fi
+            echo "upload failed (attempt $attempt), retrying in $((attempt * 20))s..."
+            sleep $((attempt * 20))
+            attempt=$((attempt + 1))
+          done
 
   build-cuda:
     # NVIDIA packs. Previously NVIDIA relied entirely on the abetlen wheel
@@ -219,6 +242,8 @@ jobs:
           EOF
 
       - name: Publish to the gpu-packs pre-release
+        id: publish
+        continue-on-error: true
         uses: softprops/action-gh-release@v2
         with:
           tag_name: gpu-packs
@@ -231,3 +256,24 @@ jobs:
             pip use.
           files: wheelhouse/cuda-*.whl
           fail_on_unmatched_files: true
+
+      # uploads.github.com is flaky on ~1-2GB files; retry the plain upload
+      # against the release softprops already created rather than rerun the
+      # whole build.
+      - name: Retry upload if the release step failed
+        if: steps.publish.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          f=$(ls wheelhouse/cuda-*.whl)
+          attempt=1
+          until gh release upload gpu-packs "$f" --clobber; do
+            if [ "$attempt" -ge 4 ]; then
+              echo "::error::upload of $f failed after $attempt attempts"
+              exit 1
+            fi
+            echo "upload failed (attempt $attempt), retrying in $((attempt * 20))s..."
+            sleep $((attempt * 20))
+            attempt=$((attempt + 1))
+          done
