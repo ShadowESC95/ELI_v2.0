@@ -27,6 +27,8 @@ like and it tunes itself to the hardware you've got, from a laptop to a multi-GP
 <img src=".github/screenshots/gui-onboarding.png" alt="ELI desktop app — first-run onboarding conversation with a local 35B model" width="880">
 </div>
 
+> **v2.4.41 — fix a real GPU-pack crash (SIGILL) on older CPUs, plus an installer audit.** A GPU-pack verify probe that crashed right after enumerating the CUDA device was being treated as a PASS, so a pack that would SIGILL the main app on first real use got kept anyway — confirmed in the field on an RTX 2060 SUPER paired with a pre-AVX-VNNI CPU. Fixed the verify logic, and gave the CI-built CUDA/Vulkan wheels the same portable AVX2 CPU baseline `install.sh` already uses, so they don't require instructions most machines don't have. Also aligned `install.ps1`'s CUDA rebuild with that same baseline, stopped two launcher scripts from hand-rolling a subset of env isolation instead of sourcing the real thing, and made the Windows uninstaller stop a running ELI first like the Linux/macOS one already does.
+>
 > **v2.4.40 — re-cut of v2.4.39: Linux build shipped with only 1 of 2 GPU packs bundled.** v2.4.39's Linux portable build raced the gpu-packs pre-release mid-reupload and grabbed only the Vulkan wheel, silently shipping without the CUDA one. Same code as v2.4.39; re-cut against a stable gpu-packs release.
 >
 > **v2.4.39 — re-cut of v2.4.38: fix the release pipeline itself.** v2.4.38's own GitHub release page shipped without its installers — `uploads.github.com` kept dropping the connection partway through the ~11GB of large binaries when they all went up in parallel. Same code as v2.4.38; the release workflow now retries whatever didn't make it onto the release, one file at a time, instead of just failing.
