@@ -37,14 +37,40 @@ is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
   `gguf_ready` abstraction the orchestrator, engine, and ReAct loop call, so
   callers don't touch `gguf_inference` directly.
 
-## Hardware profiling (`core/hardware_profile.py`, ~1300 LOC)
+## Hardware profiling (`core/hardware_profile.py`, ~1400 LOC)
 
 Free-VRAM-aware sizing, genuinely cross-vendor: NVIDIA via `nvidia-smi`, then a
 kernel-driver fallback, then AMD via `rocm-smi`, then AMD via the stock `amdgpu`
 sysfs (the common desktop case where ROCm is absent), then discrete Intel Arc,
-then integrated Intel/AMD/Qualcomm. All of them populate the same
-`HardwareProfile` fields, so smart-fit GPU-layer allocation is identical
-whatever the card.
+then integrated Intel/AMD/Qualcomm/Apple unified memory. All of them populate
+the same `HardwareProfile` fields, so smart-fit GPU-layer allocation is
+identical whatever the card.
+
+- **When the live VRAM probe can't run, fall back to a known-model lookup,
+  not one flat number for every card.** `nvidia-smi` can fail for reasons that
+  have nothing to do with whether a GPU is present or how big it is — most
+  concretely, a loaded kernel module out of sync with the userspace driver
+  library after an update with no reboot yet (confirmed in the field: NVML's
+  own "Driver/library version mismatch", RTX 2060 SUPER, halved GPU layer
+  counts). The model name is still readable straight from the kernel module's
+  `/proc/driver/nvidia/gpus/*/information` even when NVML itself is broken, so
+  `_nvidia_vram_mb_from_model_name()` looks up real factory VRAM for common
+  cards (GTX 10xx through RTX 40xx) instead of guessing a flat 4096MB for a
+  card that might have 24GB. Same idea for discrete Intel Arc, which has no
+  free-VRAM sysfs at all (`_intel_arc_vram_mb_from_name()`, A310 through B580).
+  An unrecognized model still falls back to a conservative flat guess — this
+  narrows how often that happens, it doesn't eliminate the last resort.
+- **Unified memory scales with actual RAM, not a flat 8GB ceiling.**
+  `_estimate_integrated_vram_mb()` (Apple Silicon, AMD APUs, Intel iGPUs) used
+  to cap its shared-VRAM budget at 8192MB regardless of how much RAM the
+  machine had — a 64GB+ Mac Studio got the identical GPU-layer budget as an
+  8GB laptop iGPU. It now uses the same uncapped fraction-of-available-RAM
+  basis as `cpu_ram_budget_mb()`, which it was already supposed to match.
+- Subprocess calls to `nvidia-smi` / `rocm-smi` / `lspci` sanitize
+  `LD_LIBRARY_PATH` first (`_external_tool_env()`) — a frozen PyInstaller
+  build points that at its own bundle for its own libraries, and handing that
+  to a *system* binary can make the real tool silently fail, landing on the
+  same conservative-fallback path as a genuinely absent tool.
 
 - `HardwareProfile` dataclass tracks **free** vs total VRAM (free is what
   matters for whether a profile actually loads).
@@ -186,9 +212,13 @@ detected and honestly marked as unable to run that trainer. See
   2. **Settings sprawl** — `DEFAULTS` is large with several overlapping keys
      (`n_gpu_layers`/`gpu_layers`, `n_ctx`/`context_size`) and migration
      logic.
-  3. VRAM heuristics are empirically tuned around an 8GB card; very different
-     hardware (24GB+, or CPU-only) leans on conservative fallbacks rather
-     than tuned values.
+  3. VRAM heuristics are empirically tuned around an 8GB card. The flat-guess
+     fallbacks that used to apply uniformly regardless of actual card/RAM size
+     are narrower now (known-model lookup for NVIDIA/Arc, uncapped budget for
+     unified memory — see above), but an *unrecognized* NVIDIA/Arc model still
+     lands on a conservative flat guess, and the live nvidia-smi/rocm-smi path
+     (when it works) is still the only source of a true measured number rather
+     than a factory-spec lookup or RAM-fraction estimate.
   4. `_portable_settings_for_storage` exists but isn't fully preventing
      personal values (e.g. `user_name`) from being persisted/committed —
      worth tightening for redistribution.
