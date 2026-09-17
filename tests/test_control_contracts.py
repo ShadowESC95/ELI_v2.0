@@ -72,3 +72,56 @@ def test_grounded_statement_does_not_violate():
         "The GPU is running at 45 degrees.", "gpu temperature 45 degrees"
     )
     assert ok is False
+
+
+# --------------------------------------------------------------------------- #
+# output_violates_evidence — concrete runtime-parameter terms
+#
+# These seven terms (context size, gpu layers, batch size, cpu threads, model
+# path, user database, agent database) used to be blanket-exempted from the
+# evidence check, so the model could state any value for them with zero
+# evidence backing. The exemption existed because evidence renders these
+# under a machine-style key (n_gpu_layers, batch_size/n_batch, model_path,
+# user_db, agent_db) while prose says the human phrase — a naive substring
+# check of the phrase against machine-keyed evidence would false-positive.
+# _CONCRETE_TERM_ALIASES closes the confabulation hole while still accepting
+# evidence phrased under its real key.
+# --------------------------------------------------------------------------- #
+def test_gpu_layers_claim_with_no_evidence_violates():
+    # No mention of GPU layers anywhere in the evidence — this used to be
+    # silently allowed through by the blanket exemption.
+    assert cc.output_violates_evidence(
+        "I'm using 32 gpu layers on this run.", "provider: custom_gguf"
+    ) is True
+
+
+def test_gpu_layers_claim_grounded_by_machine_key_does_not_violate():
+    # Evidence phrases the same fact under its real key (n_gpu_layers), not
+    # the human phrase "gpu layers" — must still be accepted.
+    assert cc.output_violates_evidence(
+        "I'm using 32 gpu layers on this run.", '{"n_gpu_layers": 32}'
+    ) is False
+
+
+def test_batch_size_claim_with_no_evidence_violates():
+    assert cc.output_violates_evidence(
+        "The batch size is 512.", "provider: custom_gguf"
+    ) is True
+
+
+def test_batch_size_claim_grounded_by_machine_key_does_not_violate():
+    assert cc.output_violates_evidence(
+        "The batch size is 512.", '{"batch_size": 512}'
+    ) is False
+
+
+def test_user_database_claim_with_no_evidence_violates():
+    assert cc.output_violates_evidence(
+        "I checked your user database for that.", "provider: custom_gguf"
+    ) is True
+
+
+def test_user_database_claim_grounded_by_machine_key_does_not_violate():
+    assert cc.output_violates_evidence(
+        "I checked your user database for that.", "- user_db: /data/db/user.sqlite3"
+    ) is False

@@ -1145,11 +1145,35 @@ def _eli_runtime_audit_v2() -> str:
 
 
 def _eli_last_response_confidence_v2(mode_label: str = "") -> str:
+    """Real confidence assessment of the ACTUAL previous response.
+
+    This used to return a fixed template string ("If the previous answer
+    came from...") regardless of what the last response actually was — a
+    confident-sounding self-assessment that inspected nothing. This is
+    exactly the "confidently lying about its own certainty" failure class:
+    for a product whose entire pitch is trustworthy, grounded local
+    intelligence, an honest answer here matters more than a polished one.
+
+    ``eli.runtime.last_trace.load_last_trace()`` persists the real per-turn
+    trace (confidence, grounding_confidence, agents used, evidence text)
+    independent of the live engine object, and
+    ``control_contracts._trace_text()`` already renders it honestly for the
+    same question elsewhere in the codebase — reuse that instead of
+    duplicating the rendering logic or fabricating a plausible-looking answer.
+    """
+    try:
+        from eli.runtime.last_trace import load_last_trace
+        from eli.runtime.control_contracts import _trace_text
+        trace = load_last_trace() or {}
+        if trace:
+            return _trace_text(trace)
+    except Exception:
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return (
-        "Confidence assessment:\n\n"
-        "- If the previous answer came from a deterministic runtime/memory/audit surface, confidence is high for directly inspected facts and lower for interpretation.\n"
-        "- If the previous answer came from GGUF synthesis after prompt truncation, confidence is medium-to-low unless the trace shows grounded evidence was actually included.\n"
-        "- Agent names in current traces are not proof of contribution if snippets/files_scanned are zero. That is one of the current audit flags."
+        "Confidence assessment: no trace is available for the previous response "
+        "(nothing was recorded yet this session, or this is the first turn) — I "
+        "don't have a real basis to assess it, so I'm telling you that rather "
+        "than guessing."
     )
 
 

@@ -2063,12 +2063,20 @@ class Memory(metaclass=_MemoryMeta):
             conn_primary.commit()
         finally:
             conn_primary.close()
-        # Also index in FAISS vector store
+        # Also index in FAISS vector store. This write is best-effort (the SQL
+        # row above is the durable record), but a failure here must not be
+        # invisible: recall_memory() tries FAISS first and only falls back to
+        # FTS5/LIKE when the vector index looks cold or under-filled overall —
+        # a single row whose embedding silently failed to index stays
+        # effectively unrecallable by semantic search while store_memory()
+        # still reports ok:True, i.e. the caller (and the user, if told "I'll
+        # remember that") believes it succeeded when it only half did.
+        vector_indexed = False
         try:
             from eli.memory.vector_store import get_vector_store
             vs = get_vector_store()
             if vs is not None:
-                added_to_vector_store =                 vs.add(
+                vector_indexed = bool(vs.add(
                     t,
                     metadata={
                         "memory_id": rowid,
@@ -2079,11 +2087,32 @@ class Memory(metaclass=_MemoryMeta):
                         "verification_status": verification_status,
                         "provenance_kind": provenance_kind,
                     },
-                )
-                if added_to_vector_store and hasattr(vs, "flush"):
+                ))
+                if vector_indexed and hasattr(vs, "flush"):
                     vs.flush()
+                elif not vector_indexed:
+                    # vs.add() ran without raising but declined the write (the
+                    # embedder returned no vector) -- a real, attempted-and-failed
+                    # write, not "no vector store configured at all". Feeds the
+                    # World tab's memory_uncertainty awareness bar, which used to
+                    # be driven by nothing real at all (see fire_memory_uncertainty_event).
+                    try:
+                        from eli.world.world_event_bus import fire_memory_uncertainty_event
+                        fire_memory_uncertainty_event("embedder returned no vector", rowid)
+                    except Exception:
+                        log.debug("suppressed exception", exc_info=True)
         except Exception:
-            log.debug("suppressed exception", exc_info=True)
+            log.warning(
+                "[MEMORY] FAISS index write failed for memory id=%s — row is "
+                "stored (recoverable via FTS5/LIKE fallback) but will not "
+                "surface in semantic recall until re-indexed",
+                rowid, exc_info=True,
+            )
+            try:
+                from eli.world.world_event_bus import fire_memory_uncertainty_event
+                fire_memory_uncertainty_event("vector index write raised", rowid)
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
 
         # Extract entity-relation triples into knowledge graph (fire-and-forget)
         try:
@@ -2112,7 +2141,7 @@ class Memory(metaclass=_MemoryMeta):
                                           role=str(source or "user"),
                                           text=t, tags=tags)
 
-        return {"ok": True, "id": rowid, "importance": importance}
+        return {"ok": True, "id": rowid, "importance": importance, "vector_indexed": vector_indexed}
 
     def add_memory(self, text: str, tags: Union[str, List[str], None] = None) -> Optional[Dict[str, Any]]:
         if isinstance(tags, str):

@@ -113,3 +113,58 @@ def test_detect_hardware_reports_consistently():
         assert hw.gpu_name, "GPU reported with no name"
         assert hw.free_vram_mb > 0, "GPU reported with no usable VRAM"
         assert hw.free_vram_mb <= hw.total_vram_mb, "free VRAM exceeds total"
+
+
+# ── "no GPU" vs "couldn't check": confirmed negative and probe failure must
+# not collapse into the same has_gpu=False with no way to tell them apart.
+# Every vendor probe failure used to be silently indistinguishable from a
+# genuinely GPU-less machine, so a probe timeout/missing-tool/permission
+# error got reported to the user with the same confidence as a verified "no
+# GPU here" — the worst failure mode for a product whose pitch is honest,
+# grounded local intelligence. ─────────────────────────────────────────────
+def test_confirmed_no_gpu_is_not_marked_uncertain(monkeypatch):
+    monkeypatch.setattr(hp, "nvidia_smi_path", lambda: None)
+    monkeypatch.setattr(hp, "_nvidia_driver_loaded", lambda: False)
+    monkeypatch.setattr(hp, "_windows_gpus", lambda: [])
+    monkeypatch.setattr(hp, "_macos_gpus", lambda: [])
+    monkeypatch.setattr(hp, "_linux_intel_display_adapters", lambda: [])
+    monkeypatch.setattr(hp, "_linux_qualcomm_display_adapters", lambda: [])
+    monkeypatch.setattr(hp, "_linux_gpu_pci_device_present", lambda: False)
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    hw = hp._detect_hardware_impl()
+    assert hw.has_gpu is False
+    assert hw.gpu_detection_uncertain is False, (
+        "a genuinely GPU-less machine must not be flagged uncertain"
+    )
+    assert hw.gpu_name == "CPU only"
+
+
+def test_probe_failure_with_real_gpu_present_is_marked_uncertain(monkeypatch):
+    """A GPU PCI device exists (kernel sees it) but every vendor-specific probe
+    above failed to characterize it -- this must NOT be reported the same way
+    as a confirmed GPU-less machine."""
+    monkeypatch.setattr(hp, "nvidia_smi_path", lambda: None)
+    monkeypatch.setattr(hp, "_nvidia_driver_loaded", lambda: False)
+    monkeypatch.setattr(hp, "_windows_gpus", lambda: [])
+    monkeypatch.setattr(hp, "_macos_gpus", lambda: [])
+    monkeypatch.setattr(hp, "_linux_intel_display_adapters", lambda: [])
+    monkeypatch.setattr(hp, "_linux_qualcomm_display_adapters", lambda: [])
+    monkeypatch.setattr(hp, "_linux_gpu_pci_device_present", lambda: True)
+    monkeypatch.setattr(sys, "platform", "linux")
+
+    hw = hp._detect_hardware_impl()
+    assert hw.has_gpu is False, "still safe to default to no-offload when uncertain"
+    assert hw.gpu_detection_uncertain is True, (
+        "a real GPU PCI device that no probe could characterize must be "
+        "flagged uncertain, not silently reported as 'no GPU'"
+    )
+    assert hw.gpu_name != "CPU only", (
+        "an uncertain detection must not use the same label as a confirmed negative"
+    )
+
+
+def test_gpu_detection_uncertain_defaults_false_and_round_trips_to_dict():
+    hw = hp.HardwareProfile()
+    assert hw.gpu_detection_uncertain is False
+    assert hp.HardwareProfile(gpu_detection_uncertain=True).to_dict()["gpu_detection_uncertain"] is True

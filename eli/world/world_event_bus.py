@@ -140,6 +140,33 @@ def fire_improvement_event(proposal_count: int, failure_count: int) -> None:
     )
 
 
+def fire_memory_uncertainty_event(reason: str, memory_id: Any = None) -> None:
+    """Fire when a REAL memory-write attempt degrades — a vector-store write
+    that was attempted and failed (an exception, or the embedder returning no
+    vector), not simply "no vector store is configured at all" (that is a
+    permanent, expected condition on some installs, not an uncertainty
+    signal).
+
+    Before this, ``memory_uncertainty`` was defined as a real awareness-bar
+    event type and rendered as a live percentage in the World tab, but no
+    real code path anywhere in the runtime ever fired it — the only thing
+    that ever set it was a manual "Mark Memory Fog" test button in the panel
+    itself. The bar existed and looked like a real signal while representing
+    nothing. This wires it to the actual degradation this session already
+    found and fixed the silent-swallow half of: a memory whose vector index
+    write failed is still stored (recoverable via FTS5/LIKE) but will not
+    surface in semantic recall until re-indexed — that is a real, honest
+    reason for ELI to be less certain about its own recall.
+    """
+    fire_world_event(
+        "memory_uncertainty",
+        "memory",
+        f"Memory vector-index write degraded ({reason})"
+        + (f" for memory id={memory_id}" if memory_id is not None else ""),
+        {"reason": reason, "memory_id": memory_id},
+    )
+
+
 def fire_reasoning_stage_event(
     mode: str,
     stage: int,

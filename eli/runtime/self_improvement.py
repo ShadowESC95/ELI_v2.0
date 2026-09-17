@@ -40,6 +40,44 @@ def _eli_canonical_root_PROJECT_ROOT() -> Path:
 PROJECT_ROOT = _eli_canonical_root_PROJECT_ROOT()
 
 
+_PROTECTED_PATCH_PATHS = {
+    "eli/runtime/security.py",
+    "eli/core/netguard.py",
+    "eli/core/full_control.py",
+    "eli/runtime/approval_engine.py",
+    "eli/runtime/self_improvement.py",
+    "eli/runtime/deterministic_grounding_gate.py",
+    "eli/execution/shell_gate.py",        # shell denylist (extracted from executor)
+    "eli/runtime/authority_gate.py",      # action allow/check gate
+    "eli/execution/route_authority.py",   # routing authority
+    "eli/runtime/persistence_gate.py",    # upstream action/persistence gate
+}
+
+
+def is_protected_patch_path(p: Path) -> bool:
+    """True when `p` is one of ELI's own safety guardrail files (relative to
+    the project source root) — these must never be auto-patched, whether by
+    self-improvement's autonomous path OR a user-triggered fix/improve
+    request (FIX_FILE). A faulty or adversarial patch to any of these would
+    disable the very gates that contain it (network fail-closed, shell
+    denylist, Full Control, grounding, the patcher itself).
+
+    Only applies to paths that resolve inside the project source root — a
+    user's own unrelated file elsewhere is never "protected" by this list,
+    it just won't match. Env-extensible via ELI_PROTECTED_PATCH_PATHS
+    (comma-separated project-relative posix paths), same as before.
+    """
+    try:
+        root = _patch_root()
+        rel = Path(p).resolve().relative_to(root).as_posix()
+    except Exception:
+        return False
+    protected = _PROTECTED_PATCH_PATHS | {
+        x.strip() for x in os.environ.get("ELI_PROTECTED_PATCH_PATHS", "").split(",") if x.strip()
+    }
+    return rel in protected
+
+
 def _patch_root() -> Path:
     """Tree where self-improvement may read/write Python source."""
     from eli.core.paths import source_root
@@ -867,26 +905,13 @@ class SelfImprovementEngine:
         # Protected-path guard — the self-improver must NEVER auto-patch the safety
         # guardrails (or itself): a faulty or adversarial patch to these would disable
         # the very gates that contain it (network fail-closed, shell denylist, Full
-        # Control, grounding, the patcher). Env-extensible via ELI_PROTECTED_PATCH_PATHS
-        # (comma-separated project-relative posix paths).
-        try:
-            _rel = p.relative_to(_root).as_posix()
-        except Exception:
-            _rel = p.as_posix()
-        _protected = {
-            "eli/runtime/security.py",
-            "eli/core/netguard.py",
-            "eli/core/full_control.py",
-            "eli/runtime/approval_engine.py",
-            "eli/runtime/self_improvement.py",
-            "eli/runtime/deterministic_grounding_gate.py",
-            "eli/execution/shell_gate.py",        # shell denylist (extracted from executor)
-            "eli/runtime/authority_gate.py",      # action allow/check gate
-            "eli/execution/route_authority.py",   # routing authority
-            "eli/runtime/persistence_gate.py",    # upstream action/persistence gate
-        }
-        _protected |= {x.strip() for x in os.environ.get("ELI_PROTECTED_PATCH_PATHS", "").split(",") if x.strip()}
-        if _rel in _protected:
+        # Control, grounding, the patcher). Shared with FIX_FILE (executor_enhanced.py)
+        # so both patch paths enforce the identical list — see is_protected_patch_path.
+        if is_protected_patch_path(p):
+            try:
+                _rel = p.relative_to(_root).as_posix()
+            except Exception:
+                _rel = p.as_posix()
             return {"ok": False, "applied": False,
                     "message": f"Refused: {_rel} is a protected safety guardrail and cannot be auto-patched"}
 

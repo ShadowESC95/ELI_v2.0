@@ -352,6 +352,22 @@ BOOL_KEYS = {"use_mmap", "use_mlock", "auto_speak", "mic_enabled",
 
 _MIGRATION_LOGGED = False
 _HEAL_LOGGED = False
+# True when the LAST load found settings_file present but unparsable (corrupt/
+# truncated JSON — a crash mid-write, disk-full, concurrent-write race), so the
+# returned settings silently fell back to DEFAULTS instead of the user's real
+# saved configuration. Deliberately separate from "no settings file yet" (a
+# normal first run), which is not an error and must not raise this flag.
+# Without this, a corrupted settings file was indistinguishable from a clean
+# first boot: n_gpu_layers/n_threads/etc. downstream got reported as "your
+# configuration" with exactly the confidence of genuinely-loaded, verified
+# settings. Callers that render settings to the user should check
+# settings_file_was_corrupt_on_last_load() and say so rather than presenting
+# defaults as if they were read from disk.
+_LAST_LOAD_SETTINGS_FILE_CORRUPT = False
+
+
+def settings_file_was_corrupt_on_last_load() -> bool:
+    return _LAST_LOAD_SETTINGS_FILE_CORRUPT
 
 
 def _coerce_value(key: str, value: Any) -> Any:
@@ -480,18 +496,26 @@ def _heal_model_paths(settings: Dict[str, Any]) -> tuple[Dict[str, Any], bool]:
 
 
 def _load_settings_unsanitized(*, apply_env_overlay: bool = True) -> Dict[str, Any]:
-    global _MIGRATION_LOGGED
+    global _MIGRATION_LOGGED, _LAST_LOAD_SETTINGS_FILE_CORRUPT
     settings = dict(DEFAULTS)
     settings_file = _settings_file()
 
     raw: Dict[str, Any] = {}
+    _LAST_LOAD_SETTINGS_FILE_CORRUPT = False
     if settings_file.exists():
         try:
             parsed = json.loads(settings_file.read_text(encoding="utf-8"))
             if isinstance(parsed, dict):
                 raw = parsed
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
+            else:
+                _LAST_LOAD_SETTINGS_FILE_CORRUPT = True
+        except Exception as exc:
+            _LAST_LOAD_SETTINGS_FILE_CORRUPT = True
+            log.warning(
+                "[SETTINGS] %s exists but could not be parsed (%s) — falling back "
+                "to built-in defaults, NOT your saved configuration",
+                settings_file, exc,
+            )
 
     # Migrate legacy keys in-memory AND persist the cleaned file
     migrated_data, migrated_keys = _migrate_legacy_keys(raw)

@@ -49,8 +49,13 @@ def try_activate_gpu_pack(*, verify: bool = True) -> bool:
         if not (dest / "llama_cpp").is_dir():
             return False
         gp = _import_gpu_pack_module()
-        if not gp.gpu_pack_operational(dest) and not (dest / ".gpu_pack_ok").is_file():
-            return False
+        # Do NOT call gp.gpu_pack_operational(dest) here as a blanket gate: it
+        # spawns a subprocess that live-probes the GPU, which is the right
+        # thing to do at install time but wrong on every normal launch (a
+        # transient driver hiccup makes it fail even when the pack is fine).
+        # activate_gpu_pack_runtime() already gates itself correctly — it
+        # trusts an existing .gpu_pack_ok marker first and only falls back to
+        # the live probe when that marker is missing.
         ok = bool(gp.activate_gpu_pack_runtime(dest, verify=verify))
         if ok:
             log.info("GPU pack active for this session (%s)", dest)

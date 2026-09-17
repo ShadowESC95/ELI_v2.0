@@ -2822,6 +2822,12 @@ class EliMainWindow(QMainWindow):
     _generated_artifact_open_sig = pyqtSignal(object)
     # Confidence/grounding badge update signal (worker → main thread)
     _conf_meta_update_sig = pyqtSignal()
+    # Screen control: OCR / "ask ELI" results (worker → main thread) — was
+    # QTimer.singleShot(0, ...) called FROM the worker thread, which has no
+    # guaranteed event loop and is not the safe cross-thread marshalling
+    # pattern already used a few lines above for capture (_sc_capture_sig).
+    _sc_ocr_done_sig = pyqtSignal(str)
+    _sc_eli_done_sig = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
@@ -2904,6 +2910,8 @@ class EliMainWindow(QMainWindow):
             self._open_generated_artifact_from_result,
             Qt.ConnectionType.QueuedConnection,
         )
+        self._sc_ocr_done_sig.connect(self._sc_ocr_done, Qt.ConnectionType.QueuedConnection)
+        self._sc_eli_done_sig.connect(self._sc_eli_done, Qt.ConnectionType.QueuedConnection)
 
         ensure_dirs()
         self.init_ui()
@@ -7059,7 +7067,7 @@ class EliMainWindow(QMainWindow):
                     "Then restart ELI and try again."
                 )
 
-            QTimer.singleShot(0, lambda: self._sc_ocr_done(text))
+            self._sc_ocr_done_sig.emit(text)
 
         threading.Thread(target=worker, daemon=True).start()
 
@@ -7123,9 +7131,9 @@ class EliMainWindow(QMainWindow):
                     )
                     with self.__class__._inference_lock:
                         resp = backend.generate(prompt=prompt, max_tokens=512, temperature=0.6)
-                QTimer.singleShot(0, lambda: self._sc_eli_done(resp))
+                self._sc_eli_done_sig.emit(resp)
             except Exception as exc:
-                QTimer.singleShot(0, lambda: self._sc_eli_done(f"❌ Error: {exc}"))
+                self._sc_eli_done_sig.emit(f"❌ Error: {exc}")
 
         threading.Thread(target=worker, daemon=True).start()
 

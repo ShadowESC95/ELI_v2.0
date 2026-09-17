@@ -456,3 +456,50 @@ def test_legacy_migrations_defined():
 def test_legacy_migrations_map_to_canonical():
     assert LEGACY_KEY_MIGRATIONS["gpu_layers"] == "n_gpu_layers"
     assert LEGACY_KEY_MIGRATIONS["cpu_threads"] == "n_threads"
+
+
+# ── corrupt settings file must not silently masquerade as real config ──────
+#
+# A corrupt/truncated settings.json used to fall back to DEFAULTS with zero
+# signal that the user's real saved configuration was discarded -- downstream
+# code reporting "gpu layers configured: N" had no way to know N was a
+# built-in default rather than something the user actually set. Confirmed
+# with a clean first-run (no file at all) NOT raising the same flag, since
+# that is not an error.
+def test_corrupt_settings_file_is_flagged(tmp_path, monkeypatch):
+    from eli.core import runtime_settings as rs
+
+    bad = tmp_path / "settings.json"
+    bad.write_text("{not valid json", encoding="utf-8")
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(bad))
+
+    settings = rs._load_settings_unsanitized(apply_env_overlay=False)
+    assert settings["n_gpu_layers"] == rs.DEFAULTS["n_gpu_layers"], (
+        "still falls back to defaults -- that part was already correct"
+    )
+    assert rs.settings_file_was_corrupt_on_last_load() is True, (
+        "corrupt-but-present settings file must be distinguishable from no file at all"
+    )
+
+
+def test_missing_settings_file_is_not_flagged_as_corrupt(tmp_path, monkeypatch):
+    from eli.core import runtime_settings as rs
+
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(tmp_path / "does_not_exist.json"))
+
+    rs._load_settings_unsanitized(apply_env_overlay=False)
+    assert rs.settings_file_was_corrupt_on_last_load() is False, (
+        "a normal first run (no settings file yet) is not an error"
+    )
+
+
+def test_valid_settings_file_is_not_flagged_as_corrupt(tmp_path, monkeypatch):
+    from eli.core import runtime_settings as rs
+
+    good = tmp_path / "settings.json"
+    good.write_text(json.dumps({"n_gpu_layers": 17}), encoding="utf-8")
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(good))
+
+    settings = rs._load_settings_unsanitized(apply_env_overlay=False)
+    assert settings["n_gpu_layers"] == 17
+    assert rs.settings_file_was_corrupt_on_last_load() is False

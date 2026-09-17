@@ -180,3 +180,89 @@ def test_the_engine_does_not_double_store_reflection_insights():
     code = "\n".join(l for l in window.splitlines() if not l.lstrip().startswith("#"))
     assert "store_memory" not in code, \
         "the engine is storing reflection insights again on top of reflect_on_period"
+
+
+# ── "nothing happened" vs "couldn't check" ──────────────────────────────────
+#
+# Every data source reflect_on_period reads is independently try/excepted, so
+# one bad source doesn't kill the whole reflection. That used to mean a
+# section that genuinely found nothing and a section that flat-out FAILED
+# produced the identical confident conclusion: "No evidence-backed activity
+# signals recorded for this period." A periodic self-report that can't tell
+# those apart is exactly the "confidently lying about its own certainty"
+# failure class for a product whose pitch is trustworthy local intelligence.
+class _ReflectionMemBase:
+    def store_memory(self, *a, **kwargs):
+        return {"ok": True, "id": 1}
+
+    db_path = None  # _already_stored() degrades to "not stored" cleanly on this
+
+
+class _AllSectionsFailMem(_ReflectionMemBase):
+    """Every method reflect_on_period calls on `mem` raises."""
+    def get_habit_events(self, **kwargs):
+        raise RuntimeError("habit db locked")
+
+    def get_recent_conversation(self, **kwargs):
+        raise RuntimeError("conversation db locked")
+
+    def recall_memory(self, *a, **kwargs):
+        raise RuntimeError("memory db locked")
+
+
+class _AllSectionsCleanEmptyMem(_ReflectionMemBase):
+    """Every method succeeds and honestly reports nothing found."""
+    def get_habit_events(self, **kwargs):
+        return []
+
+    def get_recent_conversation(self, **kwargs):
+        return []
+
+    def recall_memory(self, *a, **kwargs):
+        return []
+
+
+@pytest.fixture()
+def _isolated_evidence_and_user_model(monkeypatch):
+    """The evidence-ledger and user-model sections read real on-disk state via
+    their own separately-imported functions, not through `mem` -- isolate them
+    too so these tests are deterministic regardless of what this machine has
+    actually logged."""
+    import eli.runtime.evidence_ledger as ledger
+    import eli.runtime.user_model as user_model
+
+    monkeypatch.setattr(ledger, "repeated_event_signals", lambda **kw: [])
+    monkeypatch.setattr(ledger, "recent_events", lambda **kw: [])
+    monkeypatch.setattr(ledger, "recent_generated_artifacts", lambda **kw: [])
+    monkeypatch.setattr(user_model, "read_user_model", lambda: {"is_seeded": False})
+
+
+def test_all_sections_failing_is_not_reported_as_nothing_happened(
+    monkeypatch, _isolated_evidence_and_user_model,
+):
+    from eli.runtime import reflection
+
+    monkeypatch.setattr(reflection, "get_memory", lambda: _AllSectionsFailMem())
+    out = reflection.reflect_on_period(hours=24)
+
+    assert out["section_errors"], "failures must be recorded, not silently absorbed"
+    joined = " ".join(out["insights"])
+    assert "No evidence-backed activity signals recorded" not in joined, (
+        "a reflection where every data source errored must not claim a "
+        "verified 'nothing happened'"
+    )
+    assert "not a confirmed" in joined.lower() or "could not fully verify" in joined.lower()
+
+
+def test_all_sections_genuinely_empty_still_says_so_honestly(
+    monkeypatch, _isolated_evidence_and_user_model,
+):
+    """The original honest message must survive for the case it was actually
+    right for: everything was checked, and there was truly nothing to report."""
+    from eli.runtime import reflection
+
+    monkeypatch.setattr(reflection, "get_memory", lambda: _AllSectionsCleanEmptyMem())
+    out = reflection.reflect_on_period(hours=24)
+
+    assert out["section_errors"] == []
+    assert any("No evidence-backed activity signals recorded" in i for i in out["insights"])

@@ -10306,6 +10306,21 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not pp.exists():
             msg = f"Path not found: {pp}"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        # Protected-path guard — same list self_improvement.py's autonomous
+        # patcher refuses to touch (network fail-closed, shell denylist, Full
+        # Control, grounding, the patcher itself). Autonomous self-patching is
+        # opt-in and off by default, so a directly user-triggered "fix this
+        # file" request is almost certainly the MORE exercised path — it must
+        # not be the LESS protected one. Checked before any model work so a
+        # request against a guardrail file fails fast.
+        try:
+            from eli.runtime.self_improvement import is_protected_patch_path
+            if is_protected_patch_path(pp):
+                msg = (f"Refused: {pp} is a protected safety guardrail and cannot "
+                       "be auto-fixed. Edit it by hand if this is intentional.")
+                return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         original = pp.read_text(encoding='utf-8', errors='replace')
         extra_error = str(args.get("error") or args.get("stderr") or "").strip()
         ext_to_lang = {
@@ -10497,7 +10512,53 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as _bak_err:
             msg = f"FIX_FILE aborted: could not write backup for {pp}: {_bak_err}"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+
+        # Differential import baseline — while `pp` STILL holds the original
+        # content, check whether it importable before our write. Only blame a
+        # broken import on THIS fix if the module imported cleanly beforehand
+        # (tolerates a pre-existing missing optional dep without a false
+        # revert) — same approach self_improvement.py's autonomous patcher
+        # already uses for its own patches.
+        _ff_dotted = None
+        _ff_pre_ok = False
+        if pp.suffix.lower() == ".py":
+            try:
+                from eli.runtime.self_improvement import _dotted_module_for_path, _smoke_import_module
+                _ff_dotted = _dotted_module_for_path(pp)
+                if _ff_dotted:
+                    _ff_pre_ok, _ = _smoke_import_module(_ff_dotted)
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+
         pp.write_text(fixed_code, encoding="utf-8")
+
+        # Behavioural verification — a fix can compile and still break the
+        # module at import time (unresolved name, broken top-level statement).
+        # self_improvement.py's autonomous patcher already smoke-imports +
+        # runs targeted tests + rolls back on failure; FIX_FILE — the
+        # directly user-triggered path, almost certainly the MORE exercised
+        # of the two since autonomous self-patching is opt-in and off by
+        # default — previously had none of that. Reuses the same functions,
+        # not a second implementation.
+        if pp.suffix.lower() == ".py" and _ff_dotted and _ff_pre_ok:
+            try:
+                from eli.runtime.self_improvement import _smoke_import_module, _run_targeted_tests
+                _imp_ok, _imp_detail = _smoke_import_module(_ff_dotted)
+                if not _imp_ok:
+                    pp.write_text(original, encoding="utf-8")
+                    msg = f"Fix broke module import (reverted to original): {_imp_detail}"
+                    return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg,
+                            "backup": str(backup)}
+                if os.environ.get("ELI_SELFPATCH_VERIFY_TESTS", "1").strip().lower() not in ("0", "false", "no", "off"):
+                    _t_ran, _t_passed, _t_detail = _run_targeted_tests(pp)
+                    if _t_ran and not _t_passed:
+                        pp.write_text(original, encoding="utf-8")
+                        msg = f"Fix broke targeted tests (reverted to original): {_t_detail[:300]}"
+                        return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg,
+                                "backup": str(backup)}
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+
         evt = {
             "event": "artifact_generated",
             "kind": "script",

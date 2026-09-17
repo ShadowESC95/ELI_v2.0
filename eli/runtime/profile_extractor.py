@@ -179,6 +179,21 @@ def _scrub_onboarding_snapshot(cur: sqlite3.Cursor, stale_values: list) -> None:
         if len(core) < 12:
             continue
         try:
+            # Capture the ids being scrubbed BEFORE deleting them, so the FAISS
+            # vector store can be tombstoned too (see mark_memories_deleted in
+            # consolidate_memories for the same pattern). Without this, a
+            # retracted/corrected fact's embedding survives in the vector index
+            # and can resurface via semantic recall after the SQL row is gone —
+            # exactly the class of bug this function exists to prevent.
+            cur.execute(
+                """
+                SELECT id FROM memories
+                 WHERE lower(COALESCE(source,'')) = 'onboarding_interview'
+                   AND instr(lower(COALESCE(text,'')), lower(?)) > 0
+                """,
+                (core,),
+            )
+            doomed = [row[0] for row in cur.fetchall()]
             cur.execute(
                 """
                 DELETE FROM memories
@@ -187,6 +202,14 @@ def _scrub_onboarding_snapshot(cur: sqlite3.Cursor, stale_values: list) -> None:
                 """,
                 (core,),
             )
+            if doomed:
+                try:
+                    from eli.memory.vector_store import get_vector_store
+                    _vs = get_vector_store()
+                    if _vs is not None:
+                        _vs.mark_memories_deleted(doomed)
+                except Exception:
+                    log.debug("could not tombstone scrubbed onboarding snapshot", exc_info=True)
         except Exception:
             log.debug("could not scrub onboarding snapshot", exc_info=True)
 

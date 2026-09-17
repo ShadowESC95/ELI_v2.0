@@ -196,27 +196,40 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
     """Generate a reflection summary from the last N hours."""
     mem = get_memory()
     insights: List[str] = []
+    # Every section below independently swallows its own exceptions so one bad
+    # data source doesn't kill the whole reflection. That used to mean "every
+    # section failed" and "every section genuinely found nothing" produced the
+    # IDENTICAL confident "No evidence-backed activity signals recorded"
+    # conclusion — a periodic self-report that can't tell "checked, empty"
+    # from "couldn't check" is exactly the failure this function exists to
+    # avoid. Track failures here so the final message is honest about which
+    # case actually happened.
+    section_errors: List[str] = []
 
     # App usage patterns
-    events = mem.get_habit_events(event_type="app_launch", days=hours / 24)
-    apps = []
-    for e in (events or []):
-        try:
-            details = e.get("details", {}) if isinstance(e, dict) else {}
-            if isinstance(details, str):
-                import json
-                try:
-                    details = json.loads(details)
-                except Exception:
-                    details = {}
-            app = details.get("app") if isinstance(details, dict) else None
-            if app:
-                apps.append(app)
-        except Exception:
-            continue
-    if apps:
-        top = Counter(apps).most_common(5)
-        insights.append(f"App usage: {', '.join(f'{app} ({count}x)' for app, count in top)}")
+    try:
+        events = mem.get_habit_events(event_type="app_launch", days=hours / 24)
+        apps = []
+        for e in (events or []):
+            try:
+                details = e.get("details", {}) if isinstance(e, dict) else {}
+                if isinstance(details, str):
+                    import json
+                    try:
+                        details = json.loads(details)
+                    except Exception:
+                        details = {}
+                app = details.get("app") if isinstance(details, dict) else None
+                if app:
+                    apps.append(app)
+            except Exception:
+                continue
+        if apps:
+            top = Counter(apps).most_common(5)
+            insights.append(f"App usage: {', '.join(f'{app} ({count}x)' for app, count in top)}")
+    except Exception as exc:
+        section_errors.append(f"app_usage: {exc}")
+        log.debug("suppressed exception", exc_info=True)
 
     # Conversation volume
     try:
@@ -241,7 +254,8 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
                           if c >= 2][:5]
             if top_topics:
                 insights.append("Top topics: " + ", ".join(w for w, _ in top_topics))
-    except Exception:
+    except Exception as exc:
+        section_errors.append(f"conversation_volume: {exc}")
         log.debug("suppressed exception", exc_info=True)
 
     # Failure patterns
@@ -249,7 +263,8 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
         failures = mem.recall_memory("failure error", limit=10)
         if failures:
             insights.append(f"Recent issues: {len(failures)} failure-related memories stored")
-    except Exception:
+    except Exception as exc:
+        section_errors.append(f"failure_patterns: {exc}")
         log.debug("suppressed exception", exc_info=True)
 
     # Runtime evidence ledger: repeated actions, challenges, artifacts.
@@ -304,9 +319,11 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
                 _focus_s = "; ".join(_focus[:3]) if isinstance(_focus, list) else str(_focus)
                 if _focus_s:
                     insights.append(f"User model — current focus: {_focus_s}")
-        except Exception:
+        except Exception as exc:
+            section_errors.append(f"user_model_focus: {exc}")
             log.debug("suppressed exception", exc_info=True)
-    except Exception:
+    except Exception as exc:
+        section_errors.append(f"evidence_ledger: {exc}")
         log.debug("suppressed exception", exc_info=True)
 
     # Store reflection as a memory for future context
@@ -342,9 +359,22 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
                 log.debug("reflection: insight store failed", exc_info=True)
 
     if not insights:
-        insights.append("No evidence-backed activity signals recorded for this period.")
+        if section_errors:
+            # Genuinely different from "checked and found nothing": at least one
+            # data source could not be read, so this reflection is incomplete,
+            # not a verified all-clear. Saying so plainly beats a confident
+            # "nothing happened" that was never actually checked.
+            insights.append(
+                f"Could not fully verify activity for this period — "
+                f"{len(section_errors)} data source(s) failed to load "
+                f"({'; '.join(section_errors[:3])}"
+                f"{', ...' if len(section_errors) > 3 else ''}). "
+                f"This is not a confirmed 'nothing happened'."
+            )
+        else:
+            insights.append("No evidence-backed activity signals recorded for this period.")
 
-    return {"insights": insights, "period_hours": hours}
+    return {"insights": insights, "period_hours": hours, "section_errors": section_errors}
 
 
 def reflect_on_memories(days: int = 1) -> Dict[str, Any]:

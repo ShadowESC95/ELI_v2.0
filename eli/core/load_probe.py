@@ -140,7 +140,15 @@ def _gpu_identity() -> str:
             _gpu_identity_memo = f"{getattr(gpu, 'name', '?')}|{getattr(gpu, 'total_mb', 0)}"
             return _gpu_identity_memo
     except Exception:
+        # A probe FAILURE is not the same as a confirmed CPU-only machine --
+        # both used to memoize identically as "cpu", so a transient
+        # early-boot detection error would permanently mislabel this
+        # process's load-probe cache identity for the rest of the session,
+        # even after the GPU becomes detectable. Return "cpu" for THIS call
+        # only (a safe, conservative cache key right now); do not cache it,
+        # so the next call gets a real chance to detect the GPU.
         log.debug("load_probe: GPU identity unavailable", exc_info=True)
+        return "cpu"
     _gpu_identity_memo = "cpu"
     return _gpu_identity_memo
 

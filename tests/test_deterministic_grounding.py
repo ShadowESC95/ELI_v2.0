@@ -126,3 +126,53 @@ def test_empty_and_partial_args_are_safe():
         for action in ("RUNTIME_STATUS", "SELF_REPORT", "MEMORY_STATUS"):
             out = render_action(action, args, "status")
             assert isinstance(out, str)
+
+
+# --------------------------------------------------------------------------- #
+# "How confident are you in your last answer" must inspect the REAL last
+# response, not return a fixed template regardless of what happened.
+#
+# _eli_last_response_confidence_v2() used to return the same canned paragraph
+# every time ("If the previous answer came from a deterministic runtime/
+# memory/audit surface, confidence is high...") without reading any trace at
+# all — a confident-sounding self-assessment that inspected nothing. Fixed to
+# reuse eli.runtime.last_trace + control_contracts._trace_text(), the same
+# real mechanism already used (correctly) for "what was your last message"
+# (see tests/test_last_response_trace.py).
+# --------------------------------------------------------------------------- #
+def test_last_response_confidence_uses_the_real_trace(monkeypatch, tmp_path):
+    from eli.runtime import last_trace as lt
+    from eli.runtime.deterministic_grounding_gate import _eli_last_response_confidence_v2
+
+    target = tmp_path / "last_trace.json"
+    monkeypatch.setattr(lt, "trace_path", lambda: target)
+    lt.save_last_trace({
+        "request_id": "req-000042",
+        "response_text": "The build finished with two warnings.",
+        "user_input": "did the build pass",
+        "confidence": 0.91,
+        "grounding_confidence": 0.77,
+        "agents_used": ["executor"],
+        "evidence_used": True,
+        "grounded": True,
+    })
+
+    out = _eli_last_response_confidence_v2()
+    assert "The build finished with two warnings." in out, (
+        "confidence assessment ignored the real last response"
+    )
+    assert "0.91" in out
+    # The old hardcoded template must be gone.
+    assert "If the previous answer came from a deterministic" not in out
+
+
+def test_last_response_confidence_is_honest_with_no_trace(monkeypatch, tmp_path):
+    from eli.runtime import last_trace as lt
+    from eli.runtime.deterministic_grounding_gate import _eli_last_response_confidence_v2
+
+    monkeypatch.setattr(lt, "trace_path", lambda: tmp_path / "last_trace.json")
+
+    out = _eli_last_response_confidence_v2()
+    assert "no trace is available" in out.lower() or "don't have a real basis" in out.lower()
+    # Must not fall back to the old fabricated-sounding boilerplate.
+    assert "If the previous answer came from a deterministic" not in out

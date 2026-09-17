@@ -753,6 +753,44 @@ def gpu_pack_operational(dest: Path | None = None) -> bool:
     return bool(ok)
 
 
+def gpu_pack_looks_installed(dest: Path | None = None) -> bool:
+    """Cheap, non-invasive check: was this pack verified before, and are its
+    files still there? Does NOT spawn a subprocess or touch the GPU/driver.
+
+    ``gpu_pack_operational()`` re-proves offload live every time it's called,
+    which is correct at install time but wrong to run on every normal app
+    boot: a transient driver hiccup, a busy GPU, or (as seen on this dev box)
+    an NVML driver/library version mismatch makes that live probe fail even
+    though the pack is fine, and every caller that treated a failed live probe
+    as "not installed" ended up deleting a working pack and re-downloading it
+    on the next launch. Boot-time callers should use THIS check first and only
+    fall back to the live probe when it can't confirm the pack (missing
+    marker/files) — see ``ensure_gpu_pack_for_hardware`` and
+    ``eli.core.gpu_pack_runtime.try_activate_gpu_pack``.
+    """
+    try:
+        root = _eli_root()
+    except RuntimeError:
+        return False
+    dest = dest or (root / "runtime" / "gpu")
+    if not (dest / ".gpu_pack_ok").is_file() or not (dest / "llama_cpp").is_dir():
+        return False
+    meta_path = dest / ".gpu_pack.json"
+    if not meta_path.is_file():
+        return False
+    try:
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+    except Exception:
+        return False
+    backend = str((meta or {}).get("backend") or "").strip().lower()
+    lib = dest / "llama_cpp" / "lib"
+    if backend == "cuda":
+        return _libdir_has_cuda_natives(lib)
+    if backend == "vulkan":
+        return _libdir_has_vulkan_natives(lib)
+    return False
+
+
 def _install_from_local_wheel(
     whl_path: Path,
     backend: str,
@@ -802,6 +840,14 @@ def ensure_gpu_pack_for_hardware(*, bundle_only: bool = False) -> int:
         return 0
 
     dest = root / "runtime" / "gpu"
+    # Cheap path first: a pack that was verified before and still has its files
+    # on disk is trusted without re-probing the GPU live on every boot (see
+    # gpu_pack_looks_installed docstring — this is what stops the
+    # redownload-every-launch loop). Only fall through to the live subprocess
+    # probe, which CAN delete a pack and trigger reinstall, when the cheap
+    # check can't confirm the pack.
+    if gpu_pack_looks_installed(dest):
+        return 0
     if gpu_pack_operational(dest):
         return 0
     if (dest / ".gpu_pack_ok").is_file():
