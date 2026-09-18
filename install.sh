@@ -241,6 +241,12 @@ if command -v nvidia-smi &>/dev/null; then
         HAS_NVIDIA=1
     else
         warn "GPU         nvidia-smi present but driver unusable — not selecting CUDA"
+        warn "            This install runs CPU-only. If the card itself is fine (a"
+        warn "            driver update just needs a reboot to take effect, say), you"
+        warn "            do not need to re-run this installer for GPU acceleration --"
+        warn "            reboot if needed, then use ELI's own 'Install CUDA GPU pack'"
+        warn "            button (Startup Model Selection) to fetch a pre-built GPU"
+        warn "            wheel instead of rebuilding llama-cpp-python from source."
     fi
 fi
 # AMD GPU (ROCm) — checked only when there's no NVIDIA + not macOS. rocminfo/rocm-smi or the
