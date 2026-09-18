@@ -763,10 +763,21 @@ def _verify_cpu_runtime() -> None:
 
 
 def _first_run_gpu_offer() -> None:
-    """First-launch GPU chooser (frozen GUI builds, Windows/Linux).
+    """GPU chooser (frozen GUI builds, Windows/Linux) -- runs every launch, not
+    just the first (the name is legacy; the ``.gpu_choice`` marker below is
+    what actually skips re-offering once the user has chosen).
 
     Offers NVIDIA→CUDA or AMD/Intel→Vulkan (user confirms), or CPU-only. Runs
     BEFORE llama_cpp is imported so an installed pack takes effect the same boot.
+
+    2026-09-19: this used to call the live subprocess ``gpu_pack_operational()``
+    probe (up to 180s) unconditionally on every launch once a GPU pack had
+    been chosen -- running before anything else in main(), i.e. before the
+    already-fixed fast-path in ``try_activate_gpu_pack``/
+    ``ensure_gpu_pack_for_hardware`` ever got a chance to run. Same bug, a
+    different call site the earlier fix didn't cover. Now tries the cheap,
+    non-subprocess ``gpu_pack_looks_installed()`` check first, matching the
+    pattern established in ``ensure_gpu_pack_for_hardware``.
     """
     if not getattr(sys, "frozen", False) or sys.platform == "darwin":
         return
@@ -784,7 +795,7 @@ def _first_run_gpu_offer() -> None:
             if choice.startswith("cpu"):
                 return
 
-        if _gp.gpu_pack_operational(dest):
+        if _gp.gpu_pack_looks_installed(dest) or _gp.gpu_pack_operational(dest):
             if not _gp.activate_gpu_pack_runtime(dest, verify=True):
                 try:
                     (dest / ".gpu_pack_ok").unlink(missing_ok=True)

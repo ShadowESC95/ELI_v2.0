@@ -940,6 +940,13 @@ class StartupModelSelectionDialog(QDialog):
             self.hw_summary_label.setText(f"Hardware probe pending ({exc})")
 
     def _refresh_gpu_pack_controls(self) -> None:
+        """2026-09-19: used to call the live subprocess gpu_pack_operational()
+        probe (up to 180s) unconditionally every time this panel is built --
+        i.e. on every normal launch via the Startup Model Selection dialog,
+        independent of (and before) the already-fixed fast path in
+        try_activate_gpu_pack/ensure_gpu_pack_for_hardware. Same bug, a GUI
+        call site the earlier fix didn't cover. Now tries the cheap,
+        non-subprocess gpu_pack_looks_installed() first."""
         try:
             from eli.core.hardware_profile import detect_hardware, _llama_gpu_offload_available
             _hw = detect_hardware()
@@ -955,7 +962,7 @@ class StartupModelSelectionDialog(QDialog):
                 gp = _import_eli_gpu_pack()
                 dest = gp._eli_root() / "runtime" / "gpu"
                 _has_pack_dir = (dest / "llama_cpp").is_dir()
-                _pack_ok = gp.gpu_pack_operational(dest)
+                _pack_ok = gp.gpu_pack_looks_installed(dest) or gp.gpu_pack_operational(dest)
                 if (dest / ".gpu_pack.json").is_file():
                     import json as _json
                     _pack_backend = str(
@@ -1792,6 +1799,10 @@ class FirstBootWizard(QDialog):
                                 f"{err}\n\nYou can retry, or browse to a .gguf you already have.")
 
     def _wiz_refresh_gpu_pack_controls(self) -> None:
+        """Same cheap-first fix as _refresh_gpu_pack_controls -- this is the
+        first-run setup wizard's own copy of the same status check, and ran
+        the live subprocess probe on first entry to this tab, independent of
+        the returning-user dialog's copy."""
         try:
             from eli.core.hardware_profile import detect_hardware, _llama_gpu_offload_available
             _hw = detect_hardware()
@@ -1805,7 +1816,7 @@ class FirstBootWizard(QDialog):
             try:
                 gp = _import_eli_gpu_pack()
                 dest = gp._eli_root() / "runtime" / "gpu"
-                if gp.gpu_pack_operational(dest) and _backend:
+                if (gp.gpu_pack_looks_installed(dest) or gp.gpu_pack_operational(dest)) and _backend:
                     self._wiz_gpu_status.setText("GPU pack active — Vulkan/CUDA offload available.")
                 elif (dest / "llama_cpp").is_dir():
                     self._wiz_gpu_status.setText(
