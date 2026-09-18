@@ -484,16 +484,30 @@ def _insert_user_pattern(
                 log.debug("could not refresh %s", pattern_type, exc_info=True)
         try:
             from eli.cognition.belief import PROVENANCE_WEIGHT
-            cur.execute(
-                "UPDATE user_patterns SET provenance = ? "
+            # Compare the NEW provenance's weight against the EXISTING row's,
+            # in Python -- PROVENANCE_WEIGHT is a Python dict, not a SQL
+            # lookup table, so this can't be expressed as one UPDATE.
+            # (Was previously comparing the new weight against itself via a
+            # `(SELECT ?)` bound to the same parameter -- always False, so
+            # provenance was never actually upgraded through this path;
+            # belief.py's in-memory corroborate() had the correct new-vs-
+            # existing comparison this was meant to mirror.)
+            existing_row = cur.execute(
+                "SELECT provenance FROM user_patterns "
                 " WHERE lower(COALESCE(pattern_type,'')) = lower(?) "
                 "   AND lower(COALESCE(pattern_data,'')) = lower(?) "
-                "   AND COALESCE(?, 0) > COALESCE("
-                "        (SELECT ? ), 0)",
-                (provenance, pattern_type, pattern_data,
-                 PROVENANCE_WEIGHT.get(provenance, 0.0),
-                 PROVENANCE_WEIGHT.get(provenance, 0.0)),
-            )
+                " LIMIT 1",
+                (pattern_type, pattern_data),
+            ).fetchone()
+            existing_provenance = (existing_row or (None,))[0]
+            if (PROVENANCE_WEIGHT.get(provenance, 0.0)
+                    > PROVENANCE_WEIGHT.get(existing_provenance, 0.0)):
+                cur.execute(
+                    "UPDATE user_patterns SET provenance = ? "
+                    " WHERE lower(COALESCE(pattern_type,'')) = lower(?) "
+                    "   AND lower(COALESCE(pattern_data,'')) = lower(?)",
+                    (provenance, pattern_type, pattern_data),
+                )
         except Exception:
             log.debug("could not upgrade provenance", exc_info=True)
         return False

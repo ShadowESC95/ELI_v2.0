@@ -85,6 +85,34 @@ def test_elis_own_inference_cannot_overwrite_the_user(cur):
     assert _role(cur) == [("User is a physicist", 5)]
 
 
+def test_reaffirmation_upgrades_provenance_but_never_downgrades_it(cur):
+    """The SQL-backed reaffirmation path (as opposed to belief.py's in-memory
+    corroborate(), which was already correct and tested) compared the NEW
+    provenance's weight against ITSELF via a `(SELECT ?)` bound to the same
+    parameter -- always False, so provenance here was never actually upgraded
+    through this path despite the surrounding comment's claim. Not a
+    single-valued type: this exercises the exists=True reaffirmation branch,
+    not _supersede_single_valued."""
+    def _prov(cur):
+        return cur.execute(
+            "SELECT provenance FROM user_patterns WHERE pattern_type='interest.topic'"
+        ).fetchone()[0]
+
+    _insert_user_pattern(cur, "interest.topic", "quantum computing",
+                         provenance="user_passing")
+    assert _prov(cur) == "user_passing"
+
+    # Higher-weight reaffirmation of the SAME fact must upgrade provenance.
+    _insert_user_pattern(cur, "interest.topic", "quantum computing",
+                         provenance="user_explicit")
+    assert _prov(cur) == "user_explicit"
+
+    # Lower-weight reaffirmation must NOT downgrade it back.
+    _insert_user_pattern(cur, "interest.topic", "quantum computing",
+                         provenance="inferred")
+    assert _prov(cur) == "user_explicit", "a weaker reaffirmation downgraded provenance"
+
+
 def test_a_refused_claim_does_not_leave_both_values(cur):
     """The caller must honour the refusal. Inserting anyway would leave two
     values on a key that is single-valued by definition — worse than either
