@@ -621,11 +621,13 @@ def _format_runtime_audit(report: Dict[str, Any]) -> str:
     return '\n'.join(lines) if lines else 'No runtime files audited.'
 
 def _gpu_status_report() -> Dict[str, Any]:
-    query = [
-        "nvidia-smi",
-        "--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,power.limit,driver_version",
-        "--format=csv,noheader,nounits",
-    ]
+    # ELI ships to AMD/Intel/Apple/Qualcomm/CPU-only machines, not only
+    # NVIDIA ones -- this used to call nvidia-smi unconditionally regardless
+    # of what GPU (if any) was actually present, so a non-NVIDIA user asking
+    # "what's my GPU" got an nvidia-specific error implying they should have
+    # had nvidia-smi in the first place. Detect the real vendor first via the
+    # same cross-vendor hardware_profile used everywhere else, and only
+    # attempt nvidia-smi when it is actually the right tool to try.
     runtime_snapshot: Dict[str, Any] = {}
     try:
         snap_path = get_paths().artifacts_dir / "runtime_snapshot.json"
@@ -635,11 +637,11 @@ def _gpu_status_report() -> Dict[str, Any]:
         runtime_snapshot = {}
 
     def _runtime_snapshot_lines() -> list:
-        # This is independent of nvidia-smi entirely -- it comes from the
-        # loader's own record of what it actually loaded with. A live
-        # nvidia-smi failure must never suppress it: it used to, and "what
-        # are your settings" got answered "not specified in the evidence"
-        # for a reason that had nothing to do with the actual question.
+        # Independent of any GPU vendor tool entirely -- it comes from the
+        # loader's own record of what it actually loaded with. A live GPU
+        # query failing (any vendor) must never suppress it: it used to, and
+        # "what are your settings" got answered "not specified in the
+        # evidence" for a reason that had nothing to do with the question.
         if not runtime_snapshot:
             return []
         return [
@@ -651,30 +653,31 @@ def _gpu_status_report() -> Dict[str, Any]:
             f"- CPU threads: {runtime_snapshot.get('n_threads', 'unknown')}",
         ]
 
-    def _fallback_report(reason: str, *, returncode: Optional[int] = None) -> Dict[str, Any]:
-        # A live nvidia-smi failure (broken driver, version mismatch, a
-        # transient hiccup) does not mean the GPU can't be described at all --
-        # hardware_profile.detect_hardware() has its own kernel-level
-        # fallbacks (model name straight from /proc/driver/nvidia, PCI device
-        # presence) that answer this honestly instead of just parroting
-        # nvidia-smi's raw error text as if that were the whole truth about
-        # the machine.
-        lines = [f"GPU status: live nvidia-smi query failed ({reason})."]
-        try:
-            from eli.core.hardware_profile import detect_hardware
-            hw = detect_hardware()
-        except Exception:
-            hw = None
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+    except Exception:
+        hw = None
+    vendor = ((hw.gpu_vendor if hw is not None else "") or "").lower()
+
+    def _identity_report(headline: str, *, returncode: Optional[int] = None) -> Dict[str, Any]:
+        # No vendor-specific live tool ran (or the one that did came back
+        # empty) -- report identity + best-known figures from the SAME
+        # cross-vendor hardware_profile detection used at load time, rather
+        # than a vendor-specific error message or silence.
+        lines = [headline]
         if hw is not None and hw.has_gpu:
             note = " (estimated — live probe unavailable)" if hw.gpu_detection_uncertain else ""
             lines.append(f"- name: {hw.gpu_name}{note}")
             if hw.total_vram_mb:
                 lines.append(
                     f"- VRAM: ~{hw.total_vram_mb} MiB total "
-                    "(last known/estimated, not a live reading)"
+                    "(best known figure, not necessarily a live reading)"
                 )
+        elif hw is not None:
+            lines.append("- No GPU detected — running CPU-only.")
         else:
-            lines.append("- No GPU could be identified through kernel-level fallbacks either.")
+            lines.append("- Hardware could not be characterized.")
         lines.extend(_runtime_snapshot_lines())
         msg = "\n".join(lines)
         rep: Dict[str, Any] = {"ok": bool(runtime_snapshot or (hw is not None and hw.has_gpu)),
@@ -683,6 +686,77 @@ def _gpu_status_report() -> Dict[str, Any]:
             rep["returncode"] = returncode
         return rep
 
+    # AMD — live rocm-smi VRAM query, the same proven `--showmeminfo vram
+    # --json` pattern hardware_profile.py already uses for sizing. Live
+    # utilization/temperature/power on AMD needs rocm-smi flags nothing else
+    # in this codebase has exercised or tested -- rather than guess and risk
+    # silently wrong numbers, report VRAM live and say plainly the rest
+    # isn't queried, instead of inventing unverified output.
+    if vendor == "amd" and shutil.which("rocm-smi"):
+        try:
+            _rocm_proc = subprocess.run(
+                ["rocm-smi", "--showmeminfo", "vram", "--json"],
+                timeout=6, capture_output=True, text=True, check=False,
+            )
+            _rocm_data = json.loads(_rocm_proc.stdout or "{}") if _rocm_proc.returncode == 0 else {}
+        except Exception:
+            _rocm_data = {}
+
+        def _amd_mb(info: dict, must: tuple, mustnot: tuple = ()) -> Optional[int]:
+            for k, v in info.items():
+                kl = str(k).lower()
+                if all(n in kl for n in must) and not any(n in kl for n in mustnot):
+                    try:
+                        return int(v)
+                    except Exception:
+                        continue
+            return None
+
+        _amd_total_b = _amd_used_b = None
+        for _card, _info in (_rocm_data or {}).items():
+            if not isinstance(_info, dict):
+                continue
+            _amd_total_b = _amd_mb(_info, ("vram", "total", "memory"), mustnot=("used",))
+            _amd_used_b = _amd_mb(_info, ("vram", "used", "memory"))
+            if _amd_total_b:
+                break
+
+        if _amd_total_b:
+            _amd_total_mib = _amd_total_b / (1024 * 1024)
+            _lines = ["GPU status:", f"- name: {(hw.gpu_name if hw else None) or 'AMD GPU'}"]
+            if _amd_used_b is not None:
+                _amd_used_mib = _amd_used_b / (1024 * 1024)
+                _amd_free_mib = max(0.0, _amd_total_mib - _amd_used_mib)
+                _lines.append(
+                    f"- VRAM: {_amd_used_mib:.0f} MiB used / {_amd_total_mib:.0f} MiB total "
+                    f"({_amd_free_mib:.0f} MiB free, "
+                    f"{_amd_used_mib / _amd_total_mib * 100:.1f}% used)"
+                )
+            else:
+                _lines.append(f"- VRAM: {_amd_total_mib:.0f} MiB total "
+                               "(used/free not reported by rocm-smi here)")
+            _lines.append("- utilization / temperature / power: not queried on AMD in this build")
+            _lines.extend(_runtime_snapshot_lines())
+            _msg = "\n".join(_lines)
+            return {"ok": True, "content": _msg, "response": _msg}
+        # rocm-smi ran but returned nothing usable -- fall through to the
+        # identity report below rather than claim a live reading that isn't there.
+
+    # Not NVIDIA, and not an AMD card rocm-smi could actually read: Intel
+    # Arc/iGPU, Apple unified memory, Qualcomm Adreno, or genuinely no GPU.
+    # None of these have a live per-process query tool this codebase already
+    # exercises -- report identity honestly instead of trying (and failing)
+    # an nvidia-specific tool that was never going to work here.
+    if vendor and vendor != "nvidia":
+        return _identity_report("GPU status:")
+    if not vendor and not shutil.which("nvidia-smi"):
+        return _identity_report("GPU status:")
+
+    query = [
+        "nvidia-smi",
+        "--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,power.limit,driver_version",
+        "--format=csv,noheader,nounits",
+    ]
     try:
         proc = subprocess.run(
             query,
@@ -692,18 +766,20 @@ def _gpu_status_report() -> Dict[str, Any]:
             check=False,
         )
     except Exception as exc:
-        rep = _fallback_report(str(exc))
+        rep = _identity_report(f"GPU status: live nvidia-smi query failed ({exc}).")
         rep["error"] = str(exc)
         return rep
 
     if proc.returncode != 0:
         reason = (proc.stderr or proc.stdout or "nvidia-smi returned no output").strip()
-        return _fallback_report(reason, returncode=proc.returncode)
+        return _identity_report(
+            f"GPU status: live nvidia-smi query failed ({reason}).", returncode=proc.returncode
+        )
 
     import csv
     rows = list(csv.reader((proc.stdout or "").splitlines()))
     if not rows:
-        return _fallback_report("no GPU rows returned")
+        return _identity_report("GPU status: live nvidia-smi query failed (no GPU rows returned).")
 
     fields = [
         "name", "memory_total_mib", "memory_used_mib", "memory_free_mib",

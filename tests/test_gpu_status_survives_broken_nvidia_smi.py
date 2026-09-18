@@ -61,6 +61,7 @@ def test_gpu_name_falls_back_to_hardware_profile_not_raw_error_text(monkeypatch,
         "eli.core.hardware_profile.detect_hardware",
         lambda: type("HW", (), {
             "has_gpu": True, "gpu_name": "NVIDIA GeForce RTX 2060 SUPER",
+            "gpu_vendor": "nvidia",
             "total_vram_mb": 8192, "gpu_detection_uncertain": True,
         })(),
     )
@@ -78,8 +79,82 @@ def test_no_snapshot_and_no_gpu_is_still_honest_not_silent(monkeypatch, tmp_path
     _setup(monkeypatch, tmp_path, snapshot=None)
     monkeypatch.setattr(
         "eli.core.hardware_profile.detect_hardware",
-        lambda: type("HW", (), {"has_gpu": False})(),
+        lambda: type("HW", (), {"has_gpu": False, "gpu_vendor": ""})(),
     )
     rep = ex._gpu_status_report()
     assert rep["ok"] is False
-    assert "No GPU could be identified" in rep["content"]
+    assert "No GPU detected" in rep["content"]
+
+
+# ── ELI ships to AMD/Intel/Apple/Qualcomm machines, not only NVIDIA ones ───
+# _gpu_status_report() used to call nvidia-smi unconditionally regardless of
+# the real vendor, so a non-NVIDIA user got an nvidia-specific error message
+# implying they should have had nvidia-smi in the first place.
+
+def test_intel_igpu_never_touches_nvidia_smi(monkeypatch, tmp_path):
+    _setup(monkeypatch, tmp_path, snapshot=SNAPSHOT)
+    monkeypatch.setattr(
+        "eli.core.hardware_profile.detect_hardware",
+        lambda: type("HW", (), {
+            "has_gpu": True, "gpu_name": "Intel Iris Xe Graphics",
+            "gpu_vendor": "intel", "total_vram_mb": 4096,
+            "gpu_detection_uncertain": False,
+        })(),
+    )
+    called = {"n": 0}
+    def _boom(*a, **k):
+        called["n"] += 1
+        raise AssertionError("nvidia-smi must not be invoked for a non-NVIDIA vendor")
+    monkeypatch.setattr(ex.subprocess, "run", _boom)
+    rep = ex._gpu_status_report()
+    assert called["n"] == 0
+    assert "Intel Iris Xe Graphics" in rep["content"]
+    assert "nvidia" not in rep["content"].lower()
+    assert "context: 12000" in rep["content"]
+
+
+def test_amd_gets_a_live_vram_reading_via_rocm_smi(monkeypatch, tmp_path):
+    _setup(monkeypatch, tmp_path, snapshot=SNAPSHOT)
+    monkeypatch.setattr(
+        "eli.core.hardware_profile.detect_hardware",
+        lambda: type("HW", (), {
+            "has_gpu": True, "gpu_name": "AMD Radeon RX 7900 XTX",
+            "gpu_vendor": "amd", "total_vram_mb": 24576,
+            "gpu_detection_uncertain": False,
+        })(),
+    )
+    monkeypatch.setattr(ex.shutil, "which", lambda name: "/usr/bin/rocm-smi" if name == "rocm-smi" else None)
+
+    class _RocmProc:
+        returncode = 0
+        stdout = json.dumps({
+            "card0": {
+                "VRAM Total Memory (B)": str(24 * 1024**3),
+                "VRAM Total Used Memory (B)": str(4 * 1024**3),
+            }
+        })
+        stderr = ""
+
+    monkeypatch.setattr(ex.subprocess, "run", lambda *a, **k: _RocmProc())
+    rep = ex._gpu_status_report()
+    assert rep["ok"] is True
+    assert "AMD Radeon RX 7900 XTX" in rep["content"]
+    assert "used" in rep["content"].lower()
+    assert "not queried on AMD" in rep["content"]
+    assert "context: 12000" in rep["content"]
+
+
+def test_amd_without_rocm_smi_still_reports_identity(monkeypatch, tmp_path):
+    _setup(monkeypatch, tmp_path, snapshot=SNAPSHOT)
+    monkeypatch.setattr(
+        "eli.core.hardware_profile.detect_hardware",
+        lambda: type("HW", (), {
+            "has_gpu": True, "gpu_name": "AMD Radeon RX 7900 XTX",
+            "gpu_vendor": "amd", "total_vram_mb": 24576,
+            "gpu_detection_uncertain": False,
+        })(),
+    )
+    monkeypatch.setattr(ex.shutil, "which", lambda name: None)
+    rep = ex._gpu_status_report()
+    assert "AMD Radeon RX 7900 XTX" in rep["content"]
+    assert "24576" in rep["content"]
