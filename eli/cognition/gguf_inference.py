@@ -2486,11 +2486,19 @@ try:
             except Exception:
                 return int(default)
 
-        def _eli_probe_nvidia_vram():
+        def _eli_probe_gpu_vram():
             """
-            Return observed GPU VRAM without assuming a specific machine.
-            Shape:
-              {ok, name, total_mib, free_mib}
+            Return observed GPU VRAM without assuming a specific machine or
+            vendor. Shape: {ok, name, total_mib, free_mib}.
+
+            nvidia-smi first (unchanged path for NVIDIA machines); on failure,
+            fall back to hardware_profile.detect_hardware(), which already
+            has cross-vendor detection (AMD via rocm-smi/amdgpu sysfs, Intel
+            Arc, integrated/unified memory). Used to return an all-zero
+            "probe failed" result on every AMD/Intel/Apple machine, which
+            skipped the VRAM-aware intermediate rungs of the adaptive load
+            ladder below and jumped straight toward the CPU-only end of it
+            regardless of how much VRAM the machine actually had.
             """
             try:
                 proc = _eli_adapt_subprocess.run(
@@ -2513,6 +2521,18 @@ try:
                     "free_mib": _eli_adapt_int(parts[2] if len(parts) > 2 else 0, 0),
                 }
             except Exception as e:
+                try:
+                    from eli.core.hardware_profile import detect_hardware
+                    hw = detect_hardware()
+                except Exception:
+                    hw = None
+                if hw is not None and hw.has_gpu and hw.total_vram_mb:
+                    return {
+                        "ok": True,
+                        "name": hw.gpu_name,
+                        "total_mib": int(hw.total_vram_mb),
+                        "free_mib": int(hw.free_vram_mb or hw.total_vram_mb),
+                    }
                 return {
                     "ok": False,
                     "name": "",
@@ -2520,6 +2540,12 @@ try:
                     "free_mib": 0,
                     "error": str(e),
                 }
+
+
+        # Back-compat alias -- some call sites/tests may still reference the
+        # old NVIDIA-specific name.
+        _eli_probe_nvidia_vram = _eli_probe_gpu_vram
+        globals()["_eli_probe_gpu_vram"] = _eli_probe_gpu_vram
 
         def _eli_requested_runtime_from_kwargs(kwargs):
             """
@@ -2886,7 +2912,7 @@ try:
                 _SWLOG.debug("suppressed exception", exc_info=True)
 
             requested = _eli_requested_runtime_from_kwargs(kwargs)
-            gpu = _eli_probe_nvidia_vram()
+            gpu = _eli_probe_gpu_vram()
             candidates = _eli_build_adaptive_candidates(requested, gpu)
 
             _ELI_ADAPTIVE_LOAD_REPORT = {
