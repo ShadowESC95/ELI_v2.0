@@ -29,17 +29,21 @@ def test_recommend_cpu_only_gpu_classes():
     assert recommend_cpu_only(AcceleratorInventory(ram_gb=8), respect_env=False) is True
 
 
+def _fake_smi_result(returncode: int, stdout: str):
+    import subprocess as _sp
+
+    return _sp.CompletedProcess(args=["nvidia-smi"], returncode=returncode, stdout=stdout, stderr="")
+
+
 def test_nvidia_smi_error_text_is_not_a_gpu(monkeypatch):
     from eli.setup import hardware_policy as hp
 
     monkeypatch.setattr(hp.shutil, "which", lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
+    # The classic pre-existing failure: nonzero exit, one line of prose.
     monkeypatch.setattr(
-        hp,
-        "_run",
-        lambda cmd, timeout=4.0: (
-            "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver.\n"
-            if "nvidia-smi" in cmd[0]
-            else ""
+        hp.subprocess, "run",
+        lambda *a, **k: _fake_smi_result(
+            1, "NVIDIA-SMI has failed because it couldn't communicate with the NVIDIA driver.\n"
         ),
     )
     monkeypatch.setattr(hp, "_lspci_display_lines", lambda: [
@@ -51,6 +55,63 @@ def test_nvidia_smi_error_text_is_not_a_gpu(monkeypatch):
     assert inv.nvidia is False
     assert inv.intel_igpu is True
     assert recommend_cpu_only(inv, respect_env=False) is True
+
+
+def test_nvidia_smi_nvml_version_mismatch_is_not_a_gpu(monkeypatch):
+    """Field regression: nvidia-smi's SECOND line on a driver/library version
+    mismatch ("NVML library version: 595.91") matches no keyword filter and
+    used to survive as a fake GPU name. The exit code (nonzero on this
+    failure) is what must gate it, not text pattern-matching alone."""
+    from eli.setup import hardware_policy as hp
+
+    monkeypatch.setattr(hp.shutil, "which", lambda name: "/usr/bin/nvidia-smi" if name == "nvidia-smi" else None)
+    monkeypatch.setattr(
+        hp.subprocess, "run",
+        lambda *a, **k: _fake_smi_result(
+            18,
+            "Failed to initialize NVML: Driver/library version mismatch\n"
+            "NVML library version: 595.91\n",
+        ),
+    )
+    assert hp._nvidia_smi_gpu_names() == []
+    inv = hp.detect_accelerators()
+    assert inv.nvidia is False
+    assert recommend_cpu_only(inv, respect_env=False) is True
+
+
+def test_rocm_smi_present_but_no_amd_gpu_is_not_a_gpu(monkeypatch):
+    """Field regression: rocm-smi can be installed as a generic driver-utils
+    package with no AMD GPU behind it at all ("Driver not initialized
+    (amdgpu not found in modules)"). The binary existing must not be enough —
+    it has to actually report a card."""
+    from eli.setup import hardware_policy as hp
+
+    monkeypatch.setattr(hp.shutil, "which", lambda name: "/usr/bin/rocm-smi" if name == "rocm-smi" else None)
+    monkeypatch.setattr(hp, "_run", lambda cmd, timeout=4.0: (
+        "ERROR:root:Driver not initialized (amdgpu not found in modules)\n"
+        if "rocm-smi" in cmd[0] else ""
+    ))
+    monkeypatch.setattr(hp, "_nvidia_smi_gpu_names", lambda: [])
+    monkeypatch.setattr(hp, "_lspci_display_lines", lambda: [])
+    monkeypatch.setattr(hp, "_ram_gb", lambda: 31)
+    inv = hp.detect_accelerators()
+    assert inv.amd is False
+    assert recommend_cpu_only(inv, respect_env=False) is True
+
+
+def test_rocm_smi_working_still_selects_amd(monkeypatch):
+    from eli.setup import hardware_policy as hp
+
+    monkeypatch.setattr(hp.shutil, "which", lambda name: "/usr/bin/rocm-smi" if name == "rocm-smi" else None)
+    monkeypatch.setattr(hp, "_run", lambda cmd, timeout=4.0: (
+        "GPU[0]\t\t\t\t: Card series: \t\tRadeon RX 7900 XTX\n" if "rocm-smi" in cmd[0] else ""
+    ))
+    monkeypatch.setattr(hp, "_nvidia_smi_gpu_names", lambda: [])
+    monkeypatch.setattr(hp, "_lspci_display_lines", lambda: [])
+    monkeypatch.setattr(hp, "_ram_gb", lambda: 31)
+    inv = hp.detect_accelerators()
+    assert inv.amd is True
+    assert recommend_cpu_only(inv, respect_env=False) is False
 
 
 def test_install_sh_filters_dead_nvidia_smi():

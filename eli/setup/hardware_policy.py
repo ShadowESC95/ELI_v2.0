@@ -133,17 +133,28 @@ def _nvidia_smi_gpu_names() -> list[str]:
     """Return usable GPU names from nvidia-smi — never treat error text as a GPU.
 
     Broken driver installs still print to stdout (e.g. ``NVIDIA-SMI has failed
-    because it couldn't communicate with the NVIDIA driver``). Counting those
-    lines as GPUs incorrectly selects the CUDA install path on CPU laptops.
+    because it couldn't communicate with the NVIDIA driver``, or — confirmed in
+    the field — ``Failed to initialize NVML: Driver/library version mismatch``
+    followed by a SECOND line, ``NVML library version: 595.91``, that matches
+    none of the keyword filters below and survives as a fake "GPU name").
+    Counting either as a GPU incorrectly selects the CUDA install path on a
+    machine whose driver cannot actually run CUDA right now. The exit code is
+    the reliable signal — nvidia-smi returns nonzero on exactly this failure —
+    so check that FIRST, before trusting any line of its stdout.
     """
     if not shutil.which("nvidia-smi"):
         return []
-    smi = _run(
-        ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
-        timeout=6.0,
-    )
+    try:
+        proc = subprocess.run(
+            ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=6.0, check=False,
+        )
+    except Exception:
+        return []
+    if proc.returncode != 0:
+        return []
     names: list[str] = []
-    for ln in smi.splitlines():
+    for ln in (proc.stdout or "").splitlines():
         name = ln.strip()
         if not name or _NVIDIA_SMI_NOISE.search(name):
             continue
@@ -165,7 +176,15 @@ def detect_accelerators() -> AcceleratorInventory:
         notes.append("nvidia-smi present but driver unusable — not selecting CUDA")
 
     if shutil.which("rocm-smi"):
-        amd = True
+        # The BINARY existing is not the same as a working AMD GPU behind it —
+        # confirmed in the field: rocm-smi installed (a generic driver-utils
+        # package) on a machine with no AMD GPU at all, erroring "Driver not
+        # initialized (amdgpu not found in modules)" the moment it's actually
+        # queried. Require it to successfully report something before trusting it.
+        _rocm_out = _run(["rocm-smi", "--showproductname"], timeout=6.0)
+        if re.search(r"(?i)card\s*\d|gpu\s*\[|series|radeon|instinct", _rocm_out) \
+                and not re.search(r"(?i)driver not initialized|not found|error", _rocm_out):
+            amd = True
 
     if sys.platform == "win32":
         out = _run(
