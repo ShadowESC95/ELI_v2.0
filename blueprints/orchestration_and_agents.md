@@ -1,9 +1,11 @@
 # ELI Orchestration & Agents — Full Topology
 
-> **Updated for v2.4.12.** v2.3.37 eliminated the Quick-mode cliff: all CHAT
+> **Updated for v2.4.44.** v2.3.37 eliminated the Quick-mode cliff: all CHAT
 > modes run the orchestrator at scaled depth; retrieval is unified in
 > `eli/memory/retrieval.py`; Stage 12 learning is centralized in
-> `learning_coordinator.py`.
+> `learning_coordinator.py`. v2.4.44 audited the direct-vs-synthesize gate
+> (`_deterministic_direct_payload_actions`) against what executor handlers
+> actually return — see "Two agent stacks" below.
 
 Supersedes the earlier `agent_bus.md`, which only documented the parallel
 specialist bus and missed the real `AgentOrchestrator`. Read-only reference;
@@ -51,6 +53,30 @@ Flow inside `AgentOrchestrator.run()`:
   mode, up to 3 otherwise. For "grounded synthesis" actions the observations are
   assembled into context and passed to the LLM; for direct actions the executor
   result is returned as-is.
+
+  **The direct-vs-synthesize decision itself** is a set membership test —
+  `_deterministic_direct_payload_actions` in `eli/kernel/engine.py` (~118
+  entries as of v2.4.44). An action in the set returns its executor's
+  `content`/`response` string verbatim in quick mode; anything not in it is
+  eligible for `_compact_grounded_synthesis()` to re-narrate through the LLM
+  (constrained to quote from evidence, but still a rewrite pass, not the raw
+  string). A second, stronger set, `_verbatim_always_actions`, forces verbatim
+  in *every* mode, not just quick. A third, narrower set —
+  `eli/runtime/response_contracts.py::_QUICK_ACTIONS` (8 entries) — looks like
+  a competing gate but isn't: it only feeds `set_current_action`/
+  `decorate_prompt`, called from one site in engine.py, and only affects a
+  prompt header, never the verbatim/synthesize choice. Audited 2026-09-18:
+  27 actions whose executor handlers already build a complete, correct
+  `content` string — led by `READ_FILE` and `SHELL_EXEC`, where letting the
+  LLM "synthesize" a file read or command output means the answer is never
+  guaranteed to match what's actually on disk — were missing from
+  `_deterministic_direct_payload_actions` entirely and have been added (see
+  `tests/test_deterministic_actions_cover_status_and_read_file.py`). Roughly
+  80 of the ~186 total routable actions remain unaudited against this set;
+  most are legitimately interpretive (CHAT, WEB_SEARCH, GENERATE_*,
+  ANALYZE_*) but a number of confirmation/status actions (e.g. ADD_EVENT,
+  MEMORY_STORE, GET_WEATHER, PLUGIN_STATUS, WAKE_ENROLL, MCP_ADD) have not
+  yet been individually verified — **known gap, not yet closed.**
 - **CHAT** (orchestrator.py:742–897): planner → shared retrieval →
   **`dispatch_specialists()`** (mode-aware fan-out; memory skipped when already
   prefetched) → context assembly → persona handoff → generation. Private
