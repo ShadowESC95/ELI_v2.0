@@ -13327,16 +13327,27 @@ Answer:"""
                         # overflow — EXCEPT the verbatim-always introspection family
                         # above, which is returned as-is in every mode so a weak
                         # model can't corrupt grounded facts.
-                        _inference_ram_verbatim = (
-                            _action_upper == "EXPLAIN_COGNITION_RUNTIME"
-                            and str((args or {}).get("diagnostic_focus") or "").strip().lower()
-                            in {"inference_ram", "latency_timing", "inference_runtime"}
-                        )
+                        #
+                        # 2026-09-18 (field report, user): a question mentioning
+                        # "gpu layers"/"batch size"/"n_ctx" routes to
+                        # EXPLAIN_COGNITION_RUNTIME with diagnostic_focus in
+                        # {inference_ram, latency_timing, inference_runtime}
+                        # (router_enhanced.py). This USED to force the raw
+                        # diagnostic dump verbatim in every mode, same as
+                        # EXPLAIN_COGNITION_RUNTIME's general case was fixed to NOT
+                        # do on 2026-06-08 ("gather-then-summarise, never a raw
+                        # dump" — moved out of _verbatim_always_actions at the
+                        # user's request). That fix never covered this specific
+                        # diagnostic_focus subset, so a Normal-mode question about
+                        # ctx/gpu_layers/batch still got the terse structured dump
+                        # instead of an LLM-synthesized answer. Removed: quote-
+                        # exact-from-evidence in _compact_grounded_synthesis already
+                        # guards against corrupting these numbers in non-quick mode,
+                        # same as it does for every other deterministic action.
                         _bypass_persona = bool(
                             kwargs.get("bypass_persona")
                             or intent.get("bypass_persona")
                             or _action_upper in _verbatim_always_actions
-                            or _inference_ram_verbatim
                             or (
                                 _direct_mode == "quick"
                                 and _action_upper in _deterministic_direct_payload_actions
