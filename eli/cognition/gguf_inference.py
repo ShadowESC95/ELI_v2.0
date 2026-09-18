@@ -1522,9 +1522,27 @@ def _effective_ctx_limit(llm) -> int:
             except Exception:
                 loaded = 0
     train = _model_train_ctx()
-    if loaded > 0 and train > 0:
-        return min(loaded, train)
-    return loaded or train or 4096
+    # Cross-check against load_model()'s own recorded effective ctx -- the
+    # authoritative record of what THIS llm was actually constructed with.
+    # Confirmed in the field: llm.n_ctx() returned a stale/larger figure for
+    # one streaming call (a smart-fit reload had landed on a smaller ctx a
+    # moment earlier) while every [GGUF][EFFECTIVE] log line for the same
+    # session correctly showed the smaller value, and the mismatch sized a
+    # prompt too large for the context the model actually enforced
+    # ("Requested tokens exceed context window of ..."). A smaller,
+    # more-conservative snapshot figure must never be overridden by a larger
+    # live read -- worst case here is a slightly tighter truncation, never a
+    # failed generate() call.
+    snap_eff = 0
+    try:
+        _rep = globals().get("_ELI_EFFECTIVE_RUNTIME_REPORT") or {}
+        snap_eff = int((_rep.get("effective") or {}).get("n_ctx") or 0)
+    except Exception:
+        snap_eff = 0
+    candidates = [v for v in (loaded, train, snap_eff) if v > 0]
+    if candidates:
+        return min(candidates)
+    return 4096
 
 
 def _ctx_max_tokens(llm, full_prompt: str, reserve: int = 128) -> int:
