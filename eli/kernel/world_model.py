@@ -5,6 +5,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 import json
 import logging
+import os
+import tempfile
 import threading
 import time
 
@@ -184,11 +186,35 @@ def get_world_model(force_reload: bool = False) -> WorldModel:
 
 
 def save_world_model(model: Optional[WorldModel] = None) -> Path:
+    """Atomically persist the world model.
+
+    Was a direct write_text() -- a crash or power loss mid-write (or two
+    writers racing on the same path; this is called from several places
+    under _LOCK, which only serialises within one process) could leave a
+    truncated or interleaved file. eli/world/persistence/storage.py already
+    hit and fixed exactly this for its own, separate world-state file
+    (unique tmp name + fsync + atomic replace) -- same fix, same reasoning,
+    applied here instead of inventing a second one.
+    """
     with _LOCK:
         m = model or load_world_model()
         m.updated_at = time.time()
         p = _world_model_path()
-        p.write_text(json.dumps(m.to_dict(), indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
+        payload = json.dumps(m.to_dict(), indent=2, ensure_ascii=False) + "\n"
+        fd, tmp_name = tempfile.mkstemp(dir=str(p.parent), prefix=f"{p.stem}.", suffix=".tmp")
+        tmp = Path(tmp_name)
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                fh.write(payload)
+                fh.flush()
+                os.fsync(fh.fileno())
+            tmp.replace(p)
+        except Exception:
+            try:
+                tmp.unlink(missing_ok=True)
+            except Exception:
+                log.debug("world-model scratch cleanup failed", exc_info=True)
+            raise
         return p
 
 
