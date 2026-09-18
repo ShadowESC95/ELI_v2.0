@@ -111,6 +111,51 @@ to "GPU telemetry unavailable" on non-NVIDIA hardware they could otherwise
 read from the shared profile. The fix direction is routing those sites through
 `hardware_profile` rather than adding more vendor detection.
 
+### Install-time detection is a SEPARATE stack from `hardware_profile`
+
+`hardware_profile` only runs once ELI itself is importable. Getting there —
+deciding whether to build `llama-cpp-python` with CUDA/ROCm/Vulkan in the
+first place — happens before that, in two more independent detectors that do
+not share its code at all: `install.sh` (bash, the actual build) and
+`eli/setup/hardware_policy.py` (Python, decides `ELI_INSTALL_CPU_ONLY` for
+`eli_setup.sh`'s GUI-wizard-or-terminal install). A bug fixed in one of the
+three does nothing for the other two — confirmed in the field, twice:
+
+- **Both install-time detectors misread nvidia-smi's specific NVML
+  "Driver/library version mismatch" failure as a working GPU.** That failure
+  prints a first line matching the usual "broken driver" keyword filters
+  ("Failed to initialize NVML: ...") *and* a second line that matches none of
+  them — "NVML library version: 595.91" — which both `install.sh`'s bash
+  filter and `hardware_policy._nvidia_smi_gpu_names()` were reading as a real
+  GPU product name. Chosing the GPU build plan on a driver that cannot
+  currently build or run CUDA is what sent one field install into a doomed
+  from-source CUDA build that failed partway through — which is what "the GUI
+  wizard did not finish" actually was; the wizard has no build timeout of its
+  own, `install.sh` really did exit non-zero. Fixed by checking nvidia-smi's
+  *exit code* first in both places (reliable on both failure shapes) rather
+  than only pattern-matching its stdout text.
+- **`hardware_policy.py` also treated a bare `rocm-smi` binary as a working
+  AMD GPU** — installed as part of a generic driver-utils package with no AMD
+  hardware behind it, it still errors ("Driver not initialized (amdgpu not
+  found in modules)") the moment it is actually queried. Fixed to require a
+  real product-name answer, not just the binary existing.
+- `install.sh`'s from-source CUDA build also used to fall back to
+  `CMAKE_CUDA_ARCHITECTURES=native` when nvidia-smi's `compute_cap` query
+  came back empty — but "native" makes `nvcc` re-probe the GPU through the
+  same driver stack nvidia-smi just failed to reach, so it inherits the exact
+  same failure. Falls back to the same known-good architecture list the
+  CI-built GPU pack uses (`61;75;86;89`, Pascal–Ada) instead.
+- **Known gap, not yet closed**: even after these fixes, a portable install
+  that correctly lands on `--cpu-only` (driver unverifiable, or a genuinely
+  weak/absent GPU) has no path back to GPU acceleration *during* that install
+  — `install.sh` and `eli_setup.sh` have no awareness of the CI-built
+  `gpu-packs` release at all; only the runtime "Install CUDA/Vulkan GPU pack"
+  button in the Startup Model Selection dialog does. `install.sh` now at
+  least tells the user that button exists instead of going quiet about GPU
+  acceleration entirely. Teaching the portable installer to try the GPU pack
+  itself (matching what the frozen/AppImage runtime already does
+  automatically) is the real fix and is still open.
+
 ## GPU pack (`packaging/pyinstaller/eli_gpu_pack.py`, `core/gpu_pack_runtime.py`)
 
 Portable/AppImage builds download a CUDA or Vulkan build of `llama-cpp-python`
