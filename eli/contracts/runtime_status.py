@@ -197,17 +197,32 @@ def _gpu_probe_from_nvidia_smi() -> dict[str, Any]:
             text=True,
             timeout=2,
         ).strip()
-        if not out:
-            return {}
-        first = out.splitlines()[0]
-        name, total, free = [x.strip() for x in first.split(",", 2)]
-        return {
-            "name": name,
-            "total_mib": int(float(total)),
-            "free_mib": int(float(free)),
-        }
+        if out:
+            first = out.splitlines()[0]
+            name, total, free = [x.strip() for x in first.split(",", 2)]
+            return {
+                "name": name,
+                "total_mib": int(float(total)),
+                "free_mib": int(float(free)),
+            }
     except Exception:
-        return {}
+        log.debug("suppressed exception", exc_info=True)
+    # Cross-vendor fallback: used to return {} (no GPU info at all) on every
+    # AMD/Intel/Apple machine, and on any NVIDIA machine with a driver hiccup,
+    # even though hardware_profile.detect_hardware() (used everywhere else)
+    # already knows the real card.
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        if hw.has_gpu:
+            return {
+                "name": hw.gpu_name + (" (estimated)" if hw.gpu_detection_uncertain else ""),
+                "total_mib": int(hw.total_vram_mb) if hw.total_vram_mb else None,
+                "free_mib": int(hw.free_vram_mb) if hw.free_vram_mb else None,
+            }
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    return {}
 
 
 def is_runtime_status_question(prompt: Any) -> bool:
