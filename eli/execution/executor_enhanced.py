@@ -621,13 +621,10 @@ def _format_runtime_audit(report: Dict[str, Any]) -> str:
     return '\n'.join(lines) if lines else 'No runtime files audited.'
 
 def _gpu_status_report() -> Dict[str, Any]:
-    # ELI ships to AMD/Intel/Apple/Qualcomm/CPU-only machines, not only
-    # NVIDIA ones -- this used to call nvidia-smi unconditionally regardless
-    # of what GPU (if any) was actually present, so a non-NVIDIA user asking
-    # "what's my GPU" got an nvidia-specific error implying they should have
-    # had nvidia-smi in the first place. Detect the real vendor first via the
-    # same cross-vendor hardware_profile used everywhere else, and only
-    # attempt nvidia-smi when it is actually the right tool to try.
+    # get_live_gpu_telemetry() is THE single place every caller asks "what is
+    # my GPU doing right now" -- nvidia-smi/rocm-smi dispatch, cross-vendor
+    # identity fallback (broken driver, non-NVIDIA vendor) and honest
+    # None-for-unavailable fields all live there once, not reimplemented here.
     runtime_snapshot: Dict[str, Any] = {}
     try:
         snap_path = get_paths().artifacts_dir / "runtime_snapshot.json"
@@ -653,176 +650,40 @@ def _gpu_status_report() -> Dict[str, Any]:
             f"- CPU threads: {runtime_snapshot.get('n_threads', 'unknown')}",
         ]
 
-    try:
-        from eli.core.hardware_profile import detect_hardware
-        hw = detect_hardware()
-    except Exception:
-        hw = None
-    vendor = ((hw.gpu_vendor if hw is not None else "") or "").lower()
+    from eli.core.hardware_profile import get_live_gpu_telemetry
+    telem = get_live_gpu_telemetry()
 
-    def _identity_report(headline: str, *, returncode: Optional[int] = None) -> Dict[str, Any]:
-        # No vendor-specific live tool ran (or the one that did came back
-        # empty) -- report identity + best-known figures from the SAME
-        # cross-vendor hardware_profile detection used at load time, rather
-        # than a vendor-specific error message or silence.
-        lines = [headline]
-        if hw is not None and hw.has_gpu:
-            note = " (estimated — live probe unavailable)" if hw.gpu_detection_uncertain else ""
-            lines.append(f"- name: {hw.gpu_name}{note}")
-            if hw.total_vram_mb:
-                lines.append(
-                    f"- VRAM: ~{hw.total_vram_mb} MiB total "
-                    "(best known figure, not necessarily a live reading)"
-                )
-        elif hw is not None:
-            lines.append("- No GPU detected — running CPU-only.")
-        else:
-            lines.append("- Hardware could not be characterized.")
+    if not telem["ok"]:
+        lines = ["GPU status:", "- No GPU detected — running CPU-only."]
         lines.extend(_runtime_snapshot_lines())
         msg = "\n".join(lines)
-        rep: Dict[str, Any] = {"ok": bool(runtime_snapshot or (hw is not None and hw.has_gpu)),
-                                "content": msg, "response": msg}
-        if returncode is not None:
-            rep["returncode"] = returncode
-        return rep
+        return {"ok": bool(runtime_snapshot), "content": msg, "response": msg}
 
-    # AMD — live rocm-smi VRAM query, the same proven `--showmeminfo vram
-    # --json` pattern hardware_profile.py already uses for sizing. Live
-    # utilization/temperature/power on AMD needs rocm-smi flags nothing else
-    # in this codebase has exercised or tested -- rather than guess and risk
-    # silently wrong numbers, report VRAM live and say plainly the rest
-    # isn't queried, instead of inventing unverified output.
-    if vendor == "amd" and shutil.which("rocm-smi"):
-        try:
-            _rocm_proc = subprocess.run(
-                ["rocm-smi", "--showmeminfo", "vram", "--json"],
-                timeout=6, capture_output=True, text=True, check=False,
-            )
-            _rocm_data = json.loads(_rocm_proc.stdout or "{}") if _rocm_proc.returncode == 0 else {}
-        except Exception:
-            _rocm_data = {}
+    total = telem["total_mb"]
+    free = telem["free_mb"]
+    used = telem["used_mb"]
+    util = telem["util_pct"]
 
-        def _amd_mb(info: dict, must: tuple, mustnot: tuple = ()) -> Optional[int]:
-            for k, v in info.items():
-                kl = str(k).lower()
-                if all(n in kl for n in must) and not any(n in kl for n in mustnot):
-                    try:
-                        return int(v)
-                    except Exception:
-                        continue
-            return None
-
-        _amd_total_b = _amd_used_b = None
-        for _card, _info in (_rocm_data or {}).items():
-            if not isinstance(_info, dict):
-                continue
-            _amd_total_b = _amd_mb(_info, ("vram", "total", "memory"), mustnot=("used",))
-            _amd_used_b = _amd_mb(_info, ("vram", "used", "memory"))
-            if _amd_total_b:
-                break
-
-        if _amd_total_b:
-            _amd_total_mib = _amd_total_b / (1024 * 1024)
-            _lines = ["GPU status:", f"- name: {(hw.gpu_name if hw else None) or 'AMD GPU'}"]
-            if _amd_used_b is not None:
-                _amd_used_mib = _amd_used_b / (1024 * 1024)
-                _amd_free_mib = max(0.0, _amd_total_mib - _amd_used_mib)
-                _lines.append(
-                    f"- VRAM: {_amd_used_mib:.0f} MiB used / {_amd_total_mib:.0f} MiB total "
-                    f"({_amd_free_mib:.0f} MiB free, "
-                    f"{_amd_used_mib / _amd_total_mib * 100:.1f}% used)"
-                )
-            else:
-                _lines.append(f"- VRAM: {_amd_total_mib:.0f} MiB total "
-                               "(used/free not reported by rocm-smi here)")
-            _lines.append("- utilization / temperature / power: not queried on AMD in this build")
-            _lines.extend(_runtime_snapshot_lines())
-            _msg = "\n".join(_lines)
-            return {"ok": True, "content": _msg, "response": _msg}
-        # rocm-smi ran but returned nothing usable -- fall through to the
-        # identity report below rather than claim a live reading that isn't there.
-
-    # Not NVIDIA, and not an AMD card rocm-smi could actually read: Intel
-    # Arc/iGPU, Apple unified memory, Qualcomm Adreno, or genuinely no GPU.
-    # None of these have a live per-process query tool this codebase already
-    # exercises -- report identity honestly instead of trying (and failing)
-    # an nvidia-specific tool that was never going to work here.
-    if vendor and vendor != "nvidia":
-        return _identity_report("GPU status:")
-    if not vendor and not shutil.which("nvidia-smi"):
-        return _identity_report("GPU status:")
-
-    query = [
-        "nvidia-smi",
-        "--query-gpu=name,memory.total,memory.used,memory.free,utilization.gpu,temperature.gpu,power.draw,power.limit,driver_version",
-        "--format=csv,noheader,nounits",
-    ]
-    try:
-        proc = subprocess.run(
-            query,
-            timeout=6,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-    except Exception as exc:
-        rep = _identity_report(f"GPU status: live nvidia-smi query failed ({exc}).")
-        rep["error"] = str(exc)
-        return rep
-
-    if proc.returncode != 0:
-        reason = (proc.stderr or proc.stdout or "nvidia-smi returned no output").strip()
-        return _identity_report(
-            f"GPU status: live nvidia-smi query failed ({reason}).", returncode=proc.returncode
-        )
-
-    import csv
-    rows = list(csv.reader((proc.stdout or "").splitlines()))
-    if not rows:
-        return _identity_report("GPU status: live nvidia-smi query failed (no GPU rows returned).")
-
-    fields = [
-        "name", "memory_total_mib", "memory_used_mib", "memory_free_mib",
-        "utilization_percent", "temperature_c", "power_draw_w", "power_limit_w",
-        "driver_version",
-    ]
-    parsed = []
-    for row in rows:
-        values = [cell.strip() for cell in row]
-        item = {field: (values[i] if i < len(values) else "") for i, field in enumerate(fields)}
-        parsed.append(item)
-
-    first = parsed[0]
-    def _num(value: Any) -> Optional[float]:
-        try:
-            cleaned = re.sub(r"[^0-9.]+", "", str(value or ""))
-            return float(cleaned) if cleaned else None
-        except Exception:
-            return None
-
-    total = _num(first.get("memory_total_mib"))
-    used = _num(first.get("memory_used_mib"))
-    free = _num(first.get("memory_free_mib"))
-    util = _num(first.get("utilization_percent"))
-    used_pct = (used / total * 100.0) if total and used is not None else None
-
-    lines = [
-        "GPU status:",
-        f"- name: {first.get('name') or 'unknown'}",
-        f"- driver: {first.get('driver_version') or 'unknown'}",
-    ]
+    lines = ["GPU status:"]
+    note = " (estimated — live probe unavailable)" if telem["estimated"] or telem["live_probe_failed"] else ""
+    lines.append(f"- name: {telem['name']}{note}")
+    if telem["driver"]:
+        lines.append(f"- driver: {telem['driver']}")
     if total is not None and used is not None and free is not None:
-        lines.append(
-            f"- VRAM: {used:.0f} MiB used / {total:.0f} MiB total "
-            f"({free:.0f} MiB free, {used_pct:.1f}% used)"
-        )
+        used_pct = (used / total * 100.0) if total else None
+        _pct = f", {used_pct:.1f}% used" if used_pct is not None else ""
+        lines.append(f"- VRAM: {used} MiB used / {total} MiB total ({free} MiB free{_pct})")
+    elif total is not None:
+        lines.append(f"- VRAM: ~{total} MiB total (best known figure, not necessarily a live reading)")
     else:
         lines.append("- VRAM: unavailable")
-    lines.extend([
-        f"- GPU utilization: {util:.0f}%" if util is not None else "- GPU utilization: unavailable",
-        f"- temperature: {first.get('temperature_c') or 'unknown'} C",
-        f"- power: {first.get('power_draw_w') or 'unknown'} W / {first.get('power_limit_w') or 'unknown'} W limit",
-    ])
+    lines.append(f"- GPU utilization: {util}%" if util is not None else "- GPU utilization: unavailable")
+    lines.append(f"- temperature: {telem['temp_c']} C" if telem["temp_c"] is not None else "- temperature: unknown")
+    if telem["power_w"] is not None:
+        _limit = f" / {telem['power_limit_w']:.2f} W limit" if telem["power_limit_w"] is not None else ""
+        lines.append(f"- power: {telem['power_w']:.2f} W{_limit}")
+    else:
+        lines.append("- power: unknown")
 
     lines.extend(_runtime_snapshot_lines())
 
@@ -912,7 +773,7 @@ def _gpu_status_report() -> Dict[str, Any]:
     if _reading:
         lines.extend(["", "Performance reading:"] + _reading)
     msg = "\n".join(lines)
-    return {"ok": True, "gpus": parsed, "runtime_snapshot": runtime_snapshot, "content": msg, "response": msg}
+    return {"ok": True, "gpu": telem, "runtime_snapshot": runtime_snapshot, "content": msg, "response": msg}
 
 def _self_improvement_log_report(limit: int = 5, days: int = 30) -> Dict[str, Any]:
     try:
