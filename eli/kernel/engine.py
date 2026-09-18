@@ -13221,6 +13221,12 @@ Answer:"""
                             "LIST_EVENTS", "SEARCH_NOTES", "MCP_STATUS", "MCP_TOOLS",
                             "MCP_LIST", "STT_DIAGNOSTICS", "NAME_SOURCE_AUDIT",
                             "ROUTING_FAULT_EXPLAIN",
+                            # SHELL_EXEC delegates to RUN_CMD's handler, which
+                            # returns the command's raw, unmodified stdout+stderr
+                            # as content/response. Same danger class as READ_FILE:
+                            # without this, an LLM "synthesis" pass could
+                            # misreport what a command actually printed.
+                            "SHELL_EXEC",
                         }
                         try:
                             from eli.cognition.reasoning_modes import canonical_mode as _eli_direct_canon_mode

@@ -33,8 +33,13 @@ AUDITED_2026_09_18 = {
     "GAZE_STATUS", "TIMESTAMP_DIAG", "ELI_IDENTITY_AUDIT", "FILE_AUDIT",
     "CODEBASE_GRAPH", "AUTOPILOT_DEBUG", "LIST_EVENTS", "SEARCH_NOTES",
     "MCP_STATUS", "MCP_TOOLS", "MCP_LIST", "STT_DIAGNOSTICS",
-    "NAME_SOURCE_AUDIT", "ROUTING_FAULT_EXPLAIN",
+    "NAME_SOURCE_AUDIT", "ROUTING_FAULT_EXPLAIN", "SHELL_EXEC",
 }
+
+# The two highest-risk entries: raw content that must never be paraphrased by
+# an LLM synthesis pass, or the "answer" stops being guaranteed to match what
+# is actually on disk / what a command actually printed.
+HIGH_RISK_RAW_CONTENT_ACTIONS = {"READ_FILE", "SHELL_EXEC"}
 
 
 def test_all_audited_actions_are_in_the_set():
@@ -43,14 +48,14 @@ def test_all_audited_actions_are_in_the_set():
     assert not missing, f"regression: dropped from the verbatim set: {sorted(missing)}"
 
 
-def test_read_file_specifically_is_covered():
-    """The highest-risk case: a raw file read whose content must never be
-    paraphrased by an LLM synthesis pass."""
-    assert "READ_FILE" in _deterministic_direct_payload_actions()
+def test_high_risk_raw_content_actions_are_covered():
+    actions = _deterministic_direct_payload_actions()
+    missing = HIGH_RISK_RAW_CONTENT_ACTIONS - actions
+    assert not missing, f"raw-content action(s) at risk of LLM paraphrase: {sorted(missing)}"
 
 
 def test_the_set_did_not_shrink_below_its_pre_audit_size():
     """Loose regression guard -- the set had ~91 entries before this audit
-    added 26 more. A large drop signals something got deleted, not just
+    added 27 more. A large drop signals something got deleted, not just
     reorganized."""
-    assert len(_deterministic_direct_payload_actions()) >= 91 + 26
+    assert len(_deterministic_direct_payload_actions()) >= 91 + 27
