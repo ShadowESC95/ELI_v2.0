@@ -113,7 +113,7 @@ def test_a_dead_pack_is_removed_from_path_and_module_cache():
 
 def test_fallback_tells_the_user_what_happened():
     body = HOOK.read_text(encoding="utf-8")
-    assert "falling back to the bundled runtime" in body
+    assert "using bundled CPU runtime" in body
     assert "--install-gpu-pack --force" in body, "no remedy offered"
 
 
