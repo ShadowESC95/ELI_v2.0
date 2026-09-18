@@ -125,6 +125,19 @@ def _gpu_line() -> str:
     ])
     if rc == 0 and out:
         return out.splitlines()[0]
+    # Cross-vendor fallback: this evidence line feeds grounded answers about
+    # the machine's own GPU, and this used to say "unavailable" on every
+    # AMD/Intel/Apple machine -- and on any NVIDIA machine with a driver
+    # hiccup -- even when hardware_profile.detect_hardware() (used
+    # everywhere else) already knows the real card.
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        if hw.has_gpu:
+            note = " (estimated)" if hw.gpu_detection_uncertain else ""
+            return f"{hw.gpu_name}{note}, {hw.total_vram_mb} MiB total (live query unavailable: {err or 'nvidia-smi failed'})"
+    except Exception:
+        _SWLOG.debug("suppressed exception", exc_info=True)
     return f"unavailable ({err or 'nvidia-smi failed'})"
 
 
@@ -4048,6 +4061,15 @@ def _eli_v14_gpu_line() -> str:
         ).strip().splitlines()
         if out:
             return out[0].strip()
+    except Exception:
+        _SWLOG.debug("suppressed exception", exc_info=True)
+    # Cross-vendor fallback -- see _gpu_line() above for why.
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        if hw.has_gpu:
+            note = " (estimated)" if hw.gpu_detection_uncertain else ""
+            return f"{hw.gpu_name}{note}, {hw.total_vram_mb} MiB total (live query unavailable)"
     except Exception:
         _SWLOG.debug("suppressed exception", exc_info=True)
     return "unavailable"
