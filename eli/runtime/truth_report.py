@@ -42,6 +42,27 @@ def _git_info(root: Path) -> Dict[str, Any]:
     }
 
 
+def _gpu_hardware_fallback() -> Dict[str, Any]:
+    # Cross-vendor: ELI ships to AMD/Intel/Apple/Qualcomm machines too, not
+    # only NVIDIA ones. This used to report {"available": False} on every one
+    # of them the moment nvidia-smi wasn't found -- the same class of bug
+    # fixed elsewhere in self_status.py / executor_enhanced.py's GPU_STATUS.
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+    except Exception as exc:
+        return {"available": False, "error": type(exc).__name__ + ": " + str(exc)}
+    if not hw.has_gpu:
+        return {"available": False}
+    return {
+        "available": True,
+        "name": hw.gpu_name,
+        "vendor": hw.gpu_vendor,
+        "memory_total_mib": int(hw.total_vram_mb) if hw.total_vram_mb else None,
+        "estimated": bool(hw.gpu_detection_uncertain),
+    }
+
+
 def _nvidia_info() -> Dict[str, Any]:
     try:
         out = subprocess.check_output(
@@ -55,7 +76,7 @@ def _nvidia_info() -> Dict[str, Any]:
             timeout=3,
         ).strip()
         if not out:
-            return {"available": False}
+            return _gpu_hardware_fallback()
         first = out.splitlines()[0]
         parts = [p.strip() for p in first.split(",")]
         return {
@@ -66,7 +87,9 @@ def _nvidia_info() -> Dict[str, Any]:
             "driver": parts[3] if len(parts) > 3 else "",
         }
     except Exception as exc:
-        return {"available": False, "error": type(exc).__name__ + ": " + str(exc)}
+        rep = _gpu_hardware_fallback()
+        rep.setdefault("nvidia_smi_error", type(exc).__name__ + ": " + str(exc))
+        return rep
 
 
 def _safe_getattr(obj: Any, names: list[str]) -> Any:
