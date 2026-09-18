@@ -13268,6 +13268,31 @@ Answer:"""
                             "CONVERT_DOCUMENT", "ANALYZE_CSV", "GENERATE_TESTS",
                             "CREATE_DOCUMENT", "GENERATE_DOCUMENT", "DOC_GENERATE",
                             "DESIGN_VOICE", "CREATE_VOICE",
+                            # Audited 2026-09-18 (fourth pass, on re-verification of
+                            # the "genuinely creative" exclusions): these run their
+                            # OWN dedicated, evidence-constrained internal model call
+                            # (or none at all) and the returned content/response is
+                            # already the complete final answer -- letting generic
+                            # non-quick synthesis re-narrate it a second time is
+                            # redundant at best and risks dropping a specific fact
+                            # (a page count, an exact OCR'd line) at worst, the same
+                            # failure class as READ_FILE. ANALYZE_IMAGE/ANALYZE_PDF/
+                            # ANALYZE_PDF_FOLDER: the chat reply is a deterministic
+                            # "saved to X" confirmation or an already-fused,
+                            # evidence-only description -- the raw analysis goes to
+                            # a saved file, not into this string. SCREEN_READ_ANALYZE
+                            # just wraps ANALYZE_IMAGE. DATA_FABRICATOR delegates to
+                            # CREATE_DOCUMENT (already in this set) or returns its own
+                            # "opened editor" confirmation. GENERATE_PROJECT's success
+                            # path embeds real generated code in a fenced block that
+                            # must not be paraphrased; its fallback already calls
+                            # chat() and returns finished text either way. SEQUENCE
+                            # and MULTI_COMMAND do not call a model themselves -- their
+                            # content is a mechanical join of each already-finished
+                            # sub-step result.
+                            "ANALYZE_IMAGE", "ANALYZE_PDF", "ANALYZE_PDF_FOLDER",
+                            "SCREEN_READ_ANALYZE", "DATA_FABRICATOR", "GENERATE_PROJECT",
+                            "SEQUENCE", "MULTI_COMMAND",
                         }
                         try:
                             from eli.cognition.reasoning_modes import canonical_mode as _eli_direct_canon_mode

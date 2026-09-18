@@ -67,36 +67,52 @@ Flow inside `AgentOrchestrator.run()`:
   `decorate_prompt`, called from one site in engine.py, and only affects a
   prompt header, never the verbatim/synthesize choice.
 
-  **Full audit complete, 2026-09-18, three passes, all 186 routable actions
-  individually checked against their executor handler's actual return
-  shape** (not assumed): pass 1 added 27 actions led by `READ_FILE` and
-  `SHELL_EXEC`, where letting the LLM "synthesize" a file read or command
-  output means the answer is never guaranteed to match what's actually on
-  disk; pass 2 added 41 more confirmation/status/report actions
-  (plugin/MCP/voice/wake-word/gaze/pomodoro management, `GET_WEATHER`,
-  `MEMORY_STORE`, `SCHEDULE_TASK`, etc.), led by `MCP_CALL` (raw live-tool
-  output, same risk class); pass 3 added 21 more — `TRANSCRIBE` and
-  `OCR_IMAGE` (raw transcribed/recognized text, same risk class again),
-  plus confirmation-style actions like `HELP`, `LIST_CAPABILITIES`,
-  `MEMORY_RECALL`, `SMART_HOME`, `CREATE_DOCUMENT`/`DESIGN_VOICE`/
-  `CREATE_VOICE` (their creative work happens in a dedicated internal call
-  before the handler returns; the returned message is a deterministic
-  confirmation, not the thing to be narrated). Two were individually
-  checked and deliberately left OUT: `FIX_FILE` (its `content` is a
-  machine-readable JSON event blob for the GUI, not prose — verbatim would
-  show raw JSON in chat) and `RUN_TESTS` (its own code comment states the
-  design intent is "summarise it in chat", not a raw dump). See
-  `tests/test_deterministic_actions_cover_status_and_read_file.py` for the
-  full audited list per pass, including the exclusions.
+  **Full audit complete, 2026-09-18, four passes, every one of the 186
+  routable actions individually checked against its executor handler's
+  actual return shape** (not assumed — a name like "ANALYZE_*" or
+  "GENERATE_*" is not evidence either way). Pass 1 added 27 actions led by
+  `READ_FILE` and `SHELL_EXEC`, where letting the LLM "synthesize" a file
+  read or command output means the answer is never guaranteed to match
+  what's actually on disk; pass 2 added 41 more confirmation/status/report
+  actions (plugin/MCP/voice/wake-word/gaze/pomodoro management,
+  `GET_WEATHER`, `MEMORY_STORE`, `SCHEDULE_TASK`, etc.), led by `MCP_CALL`
+  (raw live-tool output, same risk class); pass 3 added 21 more —
+  `TRANSCRIBE` and `OCR_IMAGE` (raw transcribed/recognized text, same risk
+  class again), plus confirmation-style actions like `HELP`,
+  `LIST_CAPABILITIES`, `MEMORY_RECALL`, `SMART_HOME`, `CREATE_DOCUMENT`/
+  `DESIGN_VOICE`/`CREATE_VOICE`.
 
-  The remaining unaudited-by-inclusion actions are genuinely creative or
-  multi-step, where LLM synthesis is the correct behaviour: `CHAT`,
-  `WEB_SEARCH`, `CODE_SOLVE`, `DATA_FABRICATOR`, `GENERATE_PROJECT`,
-  `GENERATE_SCRIPT`, `ANALYZE_IMAGE`, `ANALYZE_PDF`/`ANALYZE_PDF_FOLDER`,
-  `SCREEN_READ_ANALYZE` (open-ended vision Q&A), `SHOW_DIFF` (routes
-  directly to `chat()`), `MULTI_COMMAND`/`SEQUENCE` (composite of other
-  actions), `EXECUTE_GOAL` (no executor handler — orchestrator-level), and
-  `NOOP` (no single handler in the dispatch ladder to verify against).
+  **Pass 4 re-verified the actions waved through as "genuinely creative"
+  in pass 3 without individually reading them — over half turned out to be
+  misclassified.** `ANALYZE_IMAGE`, `ANALYZE_PDF`, and `ANALYZE_PDF_FOLDER`
+  each run their own dedicated, evidence-constrained internal model call
+  (e.g. `"Never invent apps, text, or activities"` for screen analysis);
+  the chat-facing `content` is either that already-fused, final description
+  or a deterministic `"Document compiled: X, saved to Y"` confirmation —
+  the raw analysis goes to a saved file, not this string.
+  `SCREEN_READ_ANALYZE` just wraps `ANALYZE_IMAGE`. `DATA_FABRICATOR`
+  delegates to `CREATE_DOCUMENT` (already verbatim) or returns its own
+  "opened editor" confirmation. `GENERATE_PROJECT`'s planner-DAG success
+  path embeds real generated code in a fenced block that must not be
+  paraphrased, and its fallback already calls `chat()` and returns
+  finished text either way. `SEQUENCE` and `MULTI_COMMAND` never call a
+  model themselves — their `content` is a mechanical join of each
+  already-finished sub-step's own result. 8 more added this pass.
+
+  Genuinely still excluded, each individually checked: `FIX_FILE` and
+  `GENERATE_SCRIPT` (`content` is a machine-readable JSON event blob for
+  the GUI on their primary success path, not prose — verbatim would show
+  raw JSON in chat), `RUN_TESTS` (its own code comment states the design
+  intent is "summarise it in chat", not a raw dump), `CHAT` (this *is* the
+  model call), `SHOW_DIFF` (routes straight to `chat()`), `WEB_SEARCH`
+  (its own code comment: the results are evidence for the model to answer
+  from, not the answer itself), `CODE_SOLVE` (generative, routes into the
+  coding agent), `EXECUTE_GOAL` (no executor handler at all to verify
+  against — handled elsewhere, orchestrator-level), and `NOOP` (no single
+  handler in the dispatch ladder). See
+  `tests/test_deterministic_actions_cover_status_and_read_file.py` for the
+  full audited list per pass, the exclusion list with reasons, and a
+  completeness test that fails if any routable action lands in neither.
 - **CHAT** (orchestrator.py:742–897): planner → shared retrieval →
   **`dispatch_specialists()`** (mode-aware fan-out; memory skipped when already
   prefetched) → context assembly → persona handoff → generation. Private

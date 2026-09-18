@@ -13,16 +13,35 @@ MEMORY_STORE, SCHEDULE_TASK, etc.) -- 41 more actions, each individually
 verified against its handler's actual return shape, led by MCP_CALL (same
 raw-tool-output risk class as READ_FILE/SHELL_EXEC).
 
-A third pass finished the sweep of the ~186 routable actions: 20 more,
+A third pass finished the sweep of the ~186 routable actions: 21 more,
 including TRANSCRIBE and OCR_IMAGE (raw transcribed/recognized text, same
 danger class as READ_FILE). Two were deliberately left OUT after reading
 their handlers -- FIX_FILE (its content is a machine-readable JSON event
 blob, not prose; verbatim would show raw JSON in chat) and RUN_TESTS (its
 own code comment says the design intent is "summarise it in chat", not a
-raw dump). The remaining unaudited actions are genuinely creative/
-multi-step (CHAT, WEB_SEARCH, GENERATE_SCRIPT, CODE_SOLVE, ANALYZE_IMAGE/
-PDF, SEQUENCE, MULTI_COMMAND, EXECUTE_GOAL, ...) where LLM synthesis is the
-correct behaviour.
+raw dump).
+
+A fourth pass re-verified the actions initially waved through as
+"genuinely creative" rather than individually read -- the user's standing
+rule throughout this audit was to verify the handler, not assume from the
+action name. Half of them turned out to be misclassified: ANALYZE_IMAGE,
+ANALYZE_PDF, and ANALYZE_PDF_FOLDER all run their own dedicated,
+evidence-constrained internal model call and the chat-facing content is
+already the complete final answer (or a deterministic "saved to X"
+confirmation -- the raw analysis goes to a file, not this string);
+SCREEN_READ_ANALYZE just wraps ANALYZE_IMAGE; DATA_FABRICATOR delegates to
+CREATE_DOCUMENT or returns its own confirmation; GENERATE_PROJECT's
+success path embeds real generated code that must not be paraphrased, and
+its fallback already calls chat() and returns finished text either way;
+SEQUENCE and MULTI_COMMAND never call a model themselves, they mechanically
+join already-finished sub-step results. 8 more added. Genuinely still
+excluded after this closer look: CHAT (the model call itself), CODE_SOLVE
+and GENERATE_SCRIPT (both real code-generation actions whose primary
+success path returns a JSON event blob, same as FIX_FILE), SHOW_DIFF
+(routes straight to chat()), WEB_SEARCH (its own code comment: the results
+are evidence for the model to answer from, not the answer), EXECUTE_GOAL
+(no executor handler at all to verify against), and NOOP (no single
+handler in the dispatch ladder).
 
 No test previously verified this set's membership at all, so it could (and
 did) silently miss actions as new ones were added. This is a regression
@@ -80,10 +99,25 @@ AUDITED_2026_09_18_PASS3 = {
     "GENERATE_DOCUMENT", "DOC_GENERATE", "DESIGN_VOICE", "CREATE_VOICE",
 }
 
+# Fourth pass, same day: re-verified "genuinely creative" exclusions by
+# actually reading each handler; over half turned out to be misclassified.
+AUDITED_2026_09_18_PASS4 = {
+    "ANALYZE_IMAGE", "ANALYZE_PDF", "ANALYZE_PDF_FOLDER", "SCREEN_READ_ANALYZE",
+    "DATA_FABRICATOR", "GENERATE_PROJECT", "SEQUENCE", "MULTI_COMMAND",
+}
+
 # Deliberately NOT in the set, verified by reading the handler: their content
-# is either not meant for verbatim display (FIX_FILE: JSON event blob) or the
-# handler's own comment states the design intent is LLM narration (RUN_TESTS).
-AUDITED_2026_09_18_EXCLUDED = {"FIX_FILE", "RUN_TESTS"}
+# is either not meant for verbatim display (FIX_FILE/CODE_SOLVE/GENERATE_SCRIPT:
+# JSON event blob on the primary success path; RUN_TESTS: handler's own comment
+# states the design intent is LLM narration) or the action never reaches a
+# verifiable single handler (CHAT is the model call itself; SHOW_DIFF routes
+# straight to chat(); WEB_SEARCH's own comment says its results are evidence
+# for the model, not the answer; EXECUTE_GOAL has no executor handler at all;
+# NOOP has no single handler in the dispatch ladder).
+AUDITED_2026_09_18_EXCLUDED = {
+    "FIX_FILE", "RUN_TESTS", "CODE_SOLVE", "GENERATE_SCRIPT", "CHAT",
+    "SHOW_DIFF", "WEB_SEARCH", "EXECUTE_GOAL", "NOOP",
+}
 
 # The highest-risk entries: raw content/tool output that must never be
 # paraphrased by an LLM synthesis pass, or the "answer" stops being
@@ -112,6 +146,12 @@ def test_all_pass3_audited_actions_are_in_the_set():
     assert not missing, f"regression: dropped from the verbatim set: {sorted(missing)}"
 
 
+def test_all_pass4_audited_actions_are_in_the_set():
+    actions = _deterministic_direct_payload_actions()
+    missing = AUDITED_2026_09_18_PASS4 - actions
+    assert not missing, f"regression: dropped from the verbatim set: {sorted(missing)}"
+
+
 def test_excluded_actions_stay_out_of_the_set():
     """FIX_FILE and RUN_TESTS were deliberately left out -- adding them would
     put raw JSON (FIX_FILE) or a wall of pytest text designed to be narrated
@@ -132,7 +172,40 @@ def test_high_risk_raw_content_actions_are_covered():
 
 def test_the_set_did_not_shrink_below_its_pre_audit_size():
     """Loose regression guard -- the set had ~91 entries before this audit
-    added 27, then 41 more in a second pass, then 21 more in a third pass,
-    all the same day. A large drop signals something got deleted, not just
-    reorganized."""
-    assert len(_deterministic_direct_payload_actions()) >= 91 + 27 + 41 + 21
+    added 27, then 41, then 21, then 8 more across four passes the same
+    day. A large drop signals something got deleted, not just reorganized."""
+    assert len(_deterministic_direct_payload_actions()) >= 91 + 27 + 41 + 21 + 8
+
+
+def test_every_routable_action_is_covered_or_documented_excluded():
+    """Full-coverage guard: every action in capability_manifest.json marked
+    routable must be either in the verbatim set (this file or
+    _verbatim_always_actions in engine.py) or in AUDITED_2026_09_18_EXCLUDED
+    with a reason. Catches a newly-added routable action silently landing in
+    neither -- the exact gap this whole audit exists to close."""
+    import json
+
+    manifest_path = ENGINE_PY.parents[2] / "capability_manifest.json"
+    if not manifest_path.exists():
+        import pytest
+        pytest.skip("capability_manifest.json not present in this environment")
+
+    data = json.loads(manifest_path.read_text(encoding="utf-8"))
+    caps = data.get("capabilities", data)
+    items = caps.items() if isinstance(caps, dict) else (
+        (c.get("action") or c.get("name"), c) for c in caps
+    )
+    routable = {k for k, v in items if isinstance(v, dict) and v.get("routable")}
+
+    text = ENGINE_PY.read_text(encoding="utf-8")
+    va_start = text.index("_verbatim_always_actions = {")
+    va_end = text.index("\n                        }", va_start)
+    verbatim_always = set(re.findall(r'"([A-Z_]+)"', text[va_start:va_end]))
+
+    covered = _deterministic_direct_payload_actions() | verbatim_always
+    uncovered = routable - covered - AUDITED_2026_09_18_EXCLUDED
+    assert not uncovered, (
+        f"routable action(s) neither in the verbatim set nor in "
+        f"AUDITED_2026_09_18_EXCLUDED with a documented reason: "
+        f"{sorted(uncovered)}"
+    )
