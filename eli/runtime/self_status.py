@@ -35,8 +35,11 @@ def _run(cmd: list[str], timeout: float = 2.0) -> str:
     return ""
 
 
-def _gpu() -> Optional[dict[str, Any]]:
-    """Real GPU telemetry via the local driver. None when no NVIDIA GPU / no smi."""
+def _gpu_nvidia() -> Optional[dict[str, Any]]:
+    """Real GPU telemetry via nvidia-smi. None when no NVIDIA GPU / no smi /
+    a broken driver (matches detect_hardware()'s own returncode-first check —
+    a version-mismatch failure still prints two lines of text on stdout that
+    must never be parsed as real numbers)."""
     out = _run([
         "nvidia-smi",
         "--query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total",
@@ -57,6 +60,74 @@ def _gpu() -> Optional[dict[str, Any]]:
         }
     except Exception:
         return None
+
+
+def _gpu_amd() -> Optional[dict[str, Any]]:
+    """Real AMD VRAM via rocm-smi (the same --showmeminfo vram --json pattern
+    hardware_profile.py already uses). No temperature/utilization here --
+    those need rocm-smi flags nothing else in this codebase has exercised or
+    tested; report what is genuinely known rather than guess."""
+    import shutil
+    if not shutil.which("rocm-smi"):
+        return None
+    out = _run(["rocm-smi", "--showmeminfo", "vram", "--json"], timeout=4.0)
+    if not out:
+        return None
+    try:
+        data = json.loads(out)
+    except Exception:
+        return None
+    for _card, info in (data or {}).items():
+        if not isinstance(info, dict):
+            continue
+        total = used = None
+        for k, v in info.items():
+            kl = str(k).lower()
+            if all(n in kl for n in ("vram", "total", "memory")) and "used" not in kl:
+                try:
+                    total = int(v)
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
+            elif all(n in kl for n in ("vram", "used", "memory")):
+                try:
+                    used = int(v)
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
+        if total:
+            return {
+                "name": "AMD GPU", "temp_c": None, "util_pct": None,
+                "vram_used_mb": (used // (1024 * 1024)) if used is not None else None,
+                "vram_total_mb": total // (1024 * 1024),
+            }
+    return None
+
+
+def _gpu_identity_fallback() -> Optional[dict[str, Any]]:
+    """Last resort for any vendor with no live per-process telemetry tool in
+    this build (Intel Arc/iGPU, Apple unified memory, Qualcomm, or an NVIDIA/
+    AMD card whose live tool just failed) -- name + best-known VRAM from the
+    SAME cross-vendor detection used at load time, rather than pretending
+    nothing is known just because no *live* number is available."""
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+    except Exception:
+        return None
+    if not hw.has_gpu:
+        return None
+    return {
+        "name": hw.gpu_name + (" (estimated)" if hw.gpu_detection_uncertain else ""),
+        "temp_c": None, "util_pct": None, "vram_used_mb": None,
+        "vram_total_mb": int(hw.total_vram_mb) if hw.total_vram_mb else None,
+    }
+
+
+def _gpu() -> Optional[dict[str, Any]]:
+    """Real GPU telemetry, vendor-agnostic. None only when no GPU is known at
+    all -- ELI ships to AMD/Intel/Apple/Qualcomm machines too, not only
+    NVIDIA ones, and this used to unconditionally return None on every one
+    of them the moment nvidia-smi wasn't found."""
+    return _gpu_nvidia() or _gpu_amd() or _gpu_identity_fallback()
 
 
 def _cpu() -> dict[str, Any]:
@@ -150,10 +221,18 @@ def render_self_status_block() -> str:
     lines: list[str] = []
     g = st.get("gpu")
     if isinstance(g, dict):
-        lines.append(
-            f"  GPU: {g['name']} — {g['temp_c']}°C, {g['util_pct']}% util, "
-            f"{g['vram_used_mb']}/{g['vram_total_mb']} MB VRAM"
-        )
+        _bits = []
+        if g.get("temp_c") is not None:
+            _bits.append(f"{g['temp_c']}°C")
+        if g.get("util_pct") is not None:
+            _bits.append(f"{g['util_pct']}% util")
+        if g.get("vram_total_mb") is not None:
+            _used = g.get("vram_used_mb")
+            _bits.append(
+                f"{_used}/{g['vram_total_mb']} MB VRAM" if _used is not None
+                else f"{g['vram_total_mb']} MB VRAM total"
+            )
+        lines.append(f"  GPU: {g['name']}" + (" — " + ", ".join(_bits) if _bits else ""))
     c = st.get("cpu")
     if isinstance(c, dict) and c:
         bits = []
@@ -179,7 +258,7 @@ def render_self_status_block() -> str:
     )
     if not isinstance(g, dict):
         lines.append(
-            "  GPU telemetry: unavailable (no nvidia-smi) — say you don't track it; "
-            "do NOT invent a temperature"
+            "  GPU telemetry: unavailable (no GPU detected by any known method) — "
+            "say you don't track it; do NOT invent a temperature"
         )
     return "\n".join(lines)

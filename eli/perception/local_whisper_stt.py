@@ -24,19 +24,29 @@ def _env(name, default):
 
 
 def _gpu_total_mb() -> int:
-    """Total VRAM of GPU 0 in MB (0 if no GPU / can't tell). Cheap, cached."""
+    """Total VRAM of the NVIDIA GPU in MB (0 if none / can't tell). Cheap, cached.
+
+    NVIDIA-specific on purpose, not an oversight: the caller sets
+    device="cuda" for ctranslate2 (what faster-whisper uses), and ctranslate2
+    has no ROCm/Vulkan backend to offload to on AMD/Intel/Apple -- those stay
+    on CPU here regardless of VRAM, correctly.
+
+    Used to shell out to nvidia-smi directly, which is fragile (a raw
+    subprocess call with no fallback for a broken driver reads as "no GPU",
+    same failure class fixed elsewhere in hardware_profile.py) and returns 0
+    on a driver hiccup even on a machine with a perfectly good big card,
+    silently forcing whisper onto CPU. Route through detect_hardware()
+    instead, which already has the kernel-level fallbacks for that.
+    """
     global _GPU_TOTAL_MB
     if _GPU_TOTAL_MB is not None:
         return _GPU_TOTAL_MB
     mb = 0
     try:
-        import subprocess
-        out = subprocess.run(
-            ["nvidia-smi", "--query-gpu=memory.total", "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=3,
-        )
-        if out.returncode == 0 and out.stdout.strip():
-            mb = int(out.stdout.splitlines()[0].strip())
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        if hw.has_gpu and (hw.gpu_vendor or "").lower() == "nvidia":
+            mb = int(hw.total_vram_mb or 0)
     except Exception:
         mb = 0
     _GPU_TOTAL_MB = mb
