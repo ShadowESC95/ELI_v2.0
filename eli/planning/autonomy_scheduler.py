@@ -9,6 +9,15 @@ from eli.execution.operator_policy import load_policy
 from eli.runtime.operator_state import safe_proposal_summary, safe_goal_summary
 from eli.planning.attention_queue import append_attention, recent_attention, summarize_attention
 
+# Autonomous self-upgrade/LoRA triggering (see below): only ever fires in
+# "goal_driven" mode, the one existing policy mode that already carries
+# elevated-autonomy semantics elsewhere in this file (goal_tick attention
+# severity is bumped for it). Deliberately conservative intervals -- this
+# decides WHETHER to invoke the existing, already-gated upgrade/training
+# machinery, not how to run it.
+_SELF_UPGRADE_CHECK_INTERVAL_SEC = 3 * 24 * 3600
+_LORA_CHECK_INTERVAL_SEC = 7 * 24 * 3600
+
 
 def _artifacts_dir() -> Path:
     """The user data dir on a packaged install; the source tree in dev."""
@@ -42,6 +51,8 @@ def load_scheduler_state() -> Dict[str, Any]:
             "last_status": "never_run",
             "last_goal_tick_count": 0,
             "last_attention_added": 0,
+            "last_self_upgrade_check": None,
+            "last_lora_check": None,
         }
     try:
         raw = json.loads(p.read_text(encoding="utf-8"))
@@ -56,6 +67,8 @@ def load_scheduler_state() -> Dict[str, Any]:
     raw.setdefault("last_status", "unknown")
     raw.setdefault("last_goal_tick_count", 0)
     raw.setdefault("last_attention_added", 0)
+    raw.setdefault("last_self_upgrade_check", None)
+    raw.setdefault("last_lora_check", None)
     return raw
 
 
@@ -80,6 +93,101 @@ def _proposal_counts(summary: Dict[str, Any]) -> Dict[str, int]:
         for k, v in summary.items()
         if isinstance(v, (int, float))
     }
+
+
+def _maybe_check_self_upgrade(state: Dict[str, Any], now: float) -> int:
+    """Autonomously schedule a self-upgrade check when a newer release exists
+    and it has been long enough since the last check. Returns attention items
+    added (0 or 1). Never raises -- a failed check just tries again next
+    interval.
+
+    This is the "decide to invoke it" layer that was missing: SelfUpgrader
+    and the `self_upgrade` scheduled-task kind both already exist and are
+    fully gated (network behind netguard, the upgrade itself behind the same
+    verified-download/rollback machinery as a manual "update ELI" request) --
+    nothing here bypasses that. It only decides WHEN to ask.
+    """
+    last = state.get("last_self_upgrade_check")
+    last_f = float(last) if isinstance(last, (int, float)) else 0.0
+    if last_f > 0 and (now - last_f) < _SELF_UPGRADE_CHECK_INTERVAL_SEC:
+        return 0
+    state["last_self_upgrade_check"] = now
+    try:
+        from eli.core.config import network_allowed
+        if not network_allowed():
+            return 0
+        from eli.kernel.self_upgrade import SelfUpgrader, _ver_tuple
+        up = SelfUpgrader()
+        local_v = up._local_version()
+        latest_tag = up._latest_tag()
+        if _ver_tuple(latest_tag.lstrip("v")) <= _ver_tuple(local_v):
+            return 0
+        from eli.runtime.scheduled_tasks import schedule_request
+        res = schedule_request(
+            f"Autonomous check: a newer ELI release ({latest_tag}) is available -- "
+            f"apply the update.",
+            when_spec="now", kind="self_upgrade", recurring=False,
+        )
+        if not res.get("ok"):
+            return 0
+        append_attention(
+            kind="self_upgrade_available",
+            title=f"Newer ELI release available ({latest_tag} > {local_v}) -- upgrade scheduled",
+            state="pending",
+            severity="medium",
+            source="autonomy_scheduler",
+            metadata={"local_version": local_v, "latest_tag": latest_tag, "job": res.get("job_id")},
+            suppression_key="self_upgrade_available",
+            suppression_window_sec=_SELF_UPGRADE_CHECK_INTERVAL_SEC,
+        )
+        return 1
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug("autonomous self-upgrade check failed", exc_info=True)
+        return 0
+
+
+def _maybe_check_lora_retrain(state: Dict[str, Any], now: float) -> int:
+    """Autonomously schedule a LoRA training pass when preflight reports at
+    least one target ready to train and it has been long enough since the
+    last check. Same "decide when to ask" role as _maybe_check_self_upgrade --
+    the actual training still runs through the existing scheduled `lora`
+    task kind and its own preflight/DAG machinery."""
+    last = state.get("last_lora_check")
+    last_f = float(last) if isinstance(last, (int, float)) else 0.0
+    if last_f > 0 and (now - last_f) < _LORA_CHECK_INTERVAL_SEC:
+        return 0
+    state["last_lora_check"] = now
+    try:
+        from eli.learning.training_preflight import preflight_all
+        pf = preflight_all()
+        ready = [r for r in (pf.get("reports") or []) if r.get("can_train")]
+        if not ready:
+            return 0
+        target = str(ready[0].get("target") or "eli_phi")
+        from eli.runtime.scheduled_tasks import schedule_request
+        res = schedule_request(
+            f"Autonomous check: {target} is ready for LoRA training -- run it.",
+            when_spec="tonight", kind="lora", recurring=False,
+        )
+        if not res.get("ok"):
+            return 0
+        append_attention(
+            kind="lora_ready",
+            title=f"LoRA training ready for '{target}' -- run scheduled",
+            state="pending",
+            severity="medium",
+            source="autonomy_scheduler",
+            metadata={"target": target, "ready_targets": [r.get("target") for r in ready],
+                      "job": res.get("job_id")},
+            suppression_key="lora_ready",
+            suppression_window_sec=_LORA_CHECK_INTERVAL_SEC,
+        )
+        return 1
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug("autonomous LoRA check failed", exc_info=True)
+        return 0
 
 
 def scheduler_tick(limit: int = 3, now: float | None = None, cooldown_sec: int = 60) -> Dict[str, Any]:
@@ -192,6 +300,17 @@ def scheduler_tick(limit: int = 3, now: float | None = None, cooldown_sec: int =
             suppression_window_sec=300,
         )
         attention_added += 1
+
+    # Autonomous self-maintenance triggering -- the "decide to invoke it"
+    # layer for self_upgrade/lora that previously did not exist (both were
+    # pull-only: a human had to explicitly ask or pre-schedule every time,
+    # even with a newer release sitting on GitHub or enough reviewed
+    # training data accumulated). Only in goal_driven mode, the one policy
+    # mode that already carries elevated-autonomy semantics above; every
+    # other mode leaves this exactly as pull-only as before.
+    if mode == "goal_driven":
+        attention_added += _maybe_check_self_upgrade(state, now)
+        attention_added += _maybe_check_lora_retrain(state, now)
 
     out["proposal_summary"] = proposal_summary
     out["goal_summary"] = safe_goal_summary()

@@ -45,7 +45,17 @@ Background cognition + goal/queue machinery:
   a two-DB split: reads user-facing memory/conversation from the **user DB**,
   writes proactive observations/improvements/errors to the **agent DB** (keeps
   ELI's own machinations out of user recall). Background thread.
-- `autonomy_scheduler.py` — schedules autonomous actions (throttled).
+- `autonomy_scheduler.py` — schedules autonomous actions (throttled). Also
+  the "decide to invoke it" layer for self-upgrade and LoRA retraining
+  (`_maybe_check_self_upgrade`/`_maybe_check_lora_retrain`, added
+  2026-09-18): both mechanisms were fully built and safety-gated but
+  pull-only — nothing inside ELI ever decided on its own to use them, even
+  with a newer release on GitHub or enough reviewed training data sitting
+  idle. Only fires in `goal_driven` operator-policy mode (every other mode
+  is unchanged, still pull-only), on a multi-day throttle per check kind,
+  and routes through the same `schedule_request(kind=...)` entry point and
+  downstream safety machinery a human-typed "update ELI overnight" already
+  used — this closes the trigger gap without adding a new execution path.
 - `goal_store.py`, `proposal_queue.py`, `proposal_adapters.py`,
   `attention_queue.py`, `jobqueue.py`, `operator_goal_actions.py`, `habits.py` —
   goal persistence, capability-proposal queue, attention prioritisation, a job
@@ -137,3 +147,7 @@ downloads; runtime stays local.)
   4. Plugin registry points at an `eli-plugins/registry` GitHub URL — fine as
      opt-in, but ensure it degrades cleanly offline (the bundled fallback
      exists; verify it's always used when the network is absent).
+  5. **Self-upgrade/LoRA were pull-only — RESOLVED 2026-09-18** —
+     `autonomy_scheduler.py` now decides on its own, in `goal_driven` mode,
+     when to schedule a `self_upgrade` check or a `lora` retrain, instead of
+     requiring an explicit human ask or pre-schedule every time.
