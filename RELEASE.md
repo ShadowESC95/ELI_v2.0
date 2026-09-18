@@ -3,11 +3,11 @@
 > Maintainer walkthrough: **`blueprints/v2_release.pdf`**  
 > **New users:** **`first time Installation/INSTALLATION_GUIDE.md`**
 
-Current semver: **`pyproject.toml`** → **2.4.44** (tag **`v2.4.44`**).
+Current semver: **`pyproject.toml`** → **2.4.45** (tag **`v2.4.45`**).
 
 ## 1. Build packages
 
-**CI / tag push (recommended):** push tag `v2.4.44` — workflow builds AppImage, portable, Windows, macOS.
+**CI / tag push (recommended):** push tag `v2.4.45` — workflow builds AppImage, portable, Windows, macOS.
 
 **Local Linux AppImage + portable:**
 
@@ -30,5 +30,5 @@ SKIP_TESTS=1 bash scripts/build_grandma_release.sh
 ## 3. Tag and publish
 
 ```bash
-git tag v2.4.44 && git push origin v2.4.44
+git tag v2.4.45 && git push origin v2.4.45
 ```

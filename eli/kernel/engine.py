@@ -13227,6 +13227,29 @@ Answer:"""
                             # without this, an LLM "synthesis" pass could
                             # misreport what a command actually printed.
                             "SHELL_EXEC",
+                            # Audited 2026-09-18 (second pass): remaining
+                            # confirmation/status/report actions whose executor
+                            # handler already builds a complete content/response
+                            # string — verified by reading each handler, not
+                            # assumed. MCP_CALL is the same danger class as
+                            # READ_FILE/SHELL_EXEC: it returns a live tool's raw
+                            # output, which must not be re-narrated.
+                            "ADD_EVENT", "PLUGIN_STATUS", "MEMORY_STORE",
+                            "GET_WEATHER", "PERSONA_LOCK_SET", "PERSONA_LOCK_CLEAR",
+                            "SET_TONE", "CLEAR_TONE", "SET_USER_NAME",
+                            "SET_COMMUNICATION_STYLE", "SET_VOICE",
+                            "POMODORO_START", "POMODORO_STOP",
+                            "WAKE_SET", "WAKE_ENROLL", "WAKE_TRAIN", "TRAIN_VOICE",
+                            "GAZE_CALIBRATE", "GAZE_CLICK", "GAZE_ENABLE", "GAZE_DISABLE",
+                            "MCP_ADD", "MCP_REMOVE", "MCP_DOCTOR", "MCP_CALL",
+                            "PLUGIN_LIST", "PLUGIN_SEARCH", "PLUGIN_INSTALL",
+                            "PLUGIN_ENABLE", "PLUGIN_DISABLE", "PLUGIN_UNINSTALL",
+                            "LIST_VOICES", "DOWNLOAD_VOICE",
+                            "SCHEDULE_TASK", "SKIP_YOUTUBE_AD", "SCREEN_LOCATE",
+                            "LORA_TRAIN", "LISTEN_FOR_COMMAND", "AMBIENT_VISION",
+                            "CANCEL_PENDING_REMEDIATION", "CONFIRM_PENDING_REMEDIATION",
+                            "CLEAR_CHAT_HISTORY", "REFRESH_USER_INFO",
+                            "MESSAGE_TIME_QUERY",
                         }
                         try:
                             from eli.cognition.reasoning_modes import canonical_mode as _eli_direct_canon_mode

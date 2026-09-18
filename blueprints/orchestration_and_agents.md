@@ -65,18 +65,20 @@ Flow inside `AgentOrchestrator.run()`:
   `eli/runtime/response_contracts.py::_QUICK_ACTIONS` (8 entries) — looks like
   a competing gate but isn't: it only feeds `set_current_action`/
   `decorate_prompt`, called from one site in engine.py, and only affects a
-  prompt header, never the verbatim/synthesize choice. Audited 2026-09-18:
-  27 actions whose executor handlers already build a complete, correct
-  `content` string — led by `READ_FILE` and `SHELL_EXEC`, where letting the
-  LLM "synthesize" a file read or command output means the answer is never
-  guaranteed to match what's actually on disk — were missing from
-  `_deterministic_direct_payload_actions` entirely and have been added (see
-  `tests/test_deterministic_actions_cover_status_and_read_file.py`). Roughly
-  80 of the ~186 total routable actions remain unaudited against this set;
-  most are legitimately interpretive (CHAT, WEB_SEARCH, GENERATE_*,
-  ANALYZE_*) but a number of confirmation/status actions (e.g. ADD_EVENT,
-  MEMORY_STORE, GET_WEATHER, PLUGIN_STATUS, WAKE_ENROLL, MCP_ADD) have not
-  yet been individually verified — **known gap, not yet closed.**
+  prompt header, never the verbatim/synthesize choice. Audited 2026-09-18 in
+  two passes: the first covered 27 actions led by `READ_FILE` and
+  `SHELL_EXEC`, where letting the LLM "synthesize" a file read or command
+  output means the answer is never guaranteed to match what's actually on
+  disk; the second covered the remaining confirmation/status/report actions
+  (plugin/MCP/voice/wake-word/gaze/pomodoro management, `GET_WEATHER`,
+  `MEMORY_STORE`, `SCHEDULE_TASK`, etc.) — 41 more, led by `MCP_CALL` (raw
+  live-tool output, same risk class as `READ_FILE`/`SHELL_EXEC`). All were
+  missing from `_deterministic_direct_payload_actions` entirely and have
+  been added (see
+  `tests/test_deterministic_actions_cover_status_and_read_file.py`). The
+  remaining unaudited actions are mostly legitimately interpretive (CHAT,
+  WEB_SEARCH, GENERATE_*, ANALYZE_*, EXECUTE_GOAL) where LLM synthesis is
+  the correct behaviour, not a gap.
 - **CHAT** (orchestrator.py:742–897): planner → shared retrieval →
   **`dispatch_specialists()`** (mode-aware fan-out; memory skipped when already
   prefetched) → context assembly → persona handoff → generation. Private
