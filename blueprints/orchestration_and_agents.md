@@ -65,20 +65,38 @@ Flow inside `AgentOrchestrator.run()`:
   `eli/runtime/response_contracts.py::_QUICK_ACTIONS` (8 entries) — looks like
   a competing gate but isn't: it only feeds `set_current_action`/
   `decorate_prompt`, called from one site in engine.py, and only affects a
-  prompt header, never the verbatim/synthesize choice. Audited 2026-09-18 in
-  two passes: the first covered 27 actions led by `READ_FILE` and
+  prompt header, never the verbatim/synthesize choice.
+
+  **Full audit complete, 2026-09-18, three passes, all 186 routable actions
+  individually checked against their executor handler's actual return
+  shape** (not assumed): pass 1 added 27 actions led by `READ_FILE` and
   `SHELL_EXEC`, where letting the LLM "synthesize" a file read or command
   output means the answer is never guaranteed to match what's actually on
-  disk; the second covered the remaining confirmation/status/report actions
+  disk; pass 2 added 41 more confirmation/status/report actions
   (plugin/MCP/voice/wake-word/gaze/pomodoro management, `GET_WEATHER`,
-  `MEMORY_STORE`, `SCHEDULE_TASK`, etc.) — 41 more, led by `MCP_CALL` (raw
-  live-tool output, same risk class as `READ_FILE`/`SHELL_EXEC`). All were
-  missing from `_deterministic_direct_payload_actions` entirely and have
-  been added (see
-  `tests/test_deterministic_actions_cover_status_and_read_file.py`). The
-  remaining unaudited actions are mostly legitimately interpretive (CHAT,
-  WEB_SEARCH, GENERATE_*, ANALYZE_*, EXECUTE_GOAL) where LLM synthesis is
-  the correct behaviour, not a gap.
+  `MEMORY_STORE`, `SCHEDULE_TASK`, etc.), led by `MCP_CALL` (raw live-tool
+  output, same risk class); pass 3 added 21 more — `TRANSCRIBE` and
+  `OCR_IMAGE` (raw transcribed/recognized text, same risk class again),
+  plus confirmation-style actions like `HELP`, `LIST_CAPABILITIES`,
+  `MEMORY_RECALL`, `SMART_HOME`, `CREATE_DOCUMENT`/`DESIGN_VOICE`/
+  `CREATE_VOICE` (their creative work happens in a dedicated internal call
+  before the handler returns; the returned message is a deterministic
+  confirmation, not the thing to be narrated). Two were individually
+  checked and deliberately left OUT: `FIX_FILE` (its `content` is a
+  machine-readable JSON event blob for the GUI, not prose — verbatim would
+  show raw JSON in chat) and `RUN_TESTS` (its own code comment states the
+  design intent is "summarise it in chat", not a raw dump). See
+  `tests/test_deterministic_actions_cover_status_and_read_file.py` for the
+  full audited list per pass, including the exclusions.
+
+  The remaining unaudited-by-inclusion actions are genuinely creative or
+  multi-step, where LLM synthesis is the correct behaviour: `CHAT`,
+  `WEB_SEARCH`, `CODE_SOLVE`, `DATA_FABRICATOR`, `GENERATE_PROJECT`,
+  `GENERATE_SCRIPT`, `ANALYZE_IMAGE`, `ANALYZE_PDF`/`ANALYZE_PDF_FOLDER`,
+  `SCREEN_READ_ANALYZE` (open-ended vision Q&A), `SHOW_DIFF` (routes
+  directly to `chat()`), `MULTI_COMMAND`/`SEQUENCE` (composite of other
+  actions), `EXECUTE_GOAL` (no executor handler — orchestrator-level), and
+  `NOOP` (no single handler in the dispatch ladder to verify against).
 - **CHAT** (orchestrator.py:742–897): planner → shared retrieval →
   **`dispatch_specialists()`** (mode-aware fan-out; memory skipped when already
   prefetched) → context assembly → persona handoff → generation. Private

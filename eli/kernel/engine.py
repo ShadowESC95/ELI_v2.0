@@ -13250,6 +13250,24 @@ Answer:"""
                             "CANCEL_PENDING_REMEDIATION", "CONFIRM_PENDING_REMEDIATION",
                             "CLEAR_CHAT_HISTORY", "REFRESH_USER_INFO",
                             "MESSAGE_TIME_QUERY",
+                            # Audited 2026-09-18 (third pass): the remaining
+                            # confirmation/report/raw-content actions from the
+                            # ~186 routable-action list. TRANSCRIBE and OCR_IMAGE
+                            # return raw transcribed/recognized text — same danger
+                            # class as READ_FILE/SHELL_EXEC/MCP_CALL, must not be
+                            # re-narrated. Explicitly NOT added after reading their
+                            # handlers: FIX_FILE (content is a machine-readable
+                            # JSON event blob, not prose — verbatim would show raw
+                            # JSON in chat) and RUN_TESTS (its own code comment:
+                            # "ELI can run this and SUMMARISE it in chat" — the
+                            # design intent is LLM narration, not a raw dump).
+                            "CODE_CHANGES", "TRANSCRIBE", "DICTATE", "SMART_HOME",
+                            "PERSONA_REFRESH", "PROACTIVE_START", "PROACTIVE_STOP",
+                            "HELP", "LIST_CAPABILITIES", "MEMORY_RECALL",
+                            "TEST_REVIEW", "OCR_IMAGE", "SUMMARIZE_FILE",
+                            "CONVERT_DOCUMENT", "ANALYZE_CSV", "GENERATE_TESTS",
+                            "CREATE_DOCUMENT", "GENERATE_DOCUMENT", "DOC_GENERATE",
+                            "DESIGN_VOICE", "CREATE_VOICE",
                         }
                         try:
                             from eli.cognition.reasoning_modes import canonical_mode as _eli_direct_canon_mode
