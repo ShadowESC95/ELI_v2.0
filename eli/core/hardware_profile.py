@@ -1051,6 +1051,120 @@ def detect_hardware(*, force: bool = False) -> HardwareProfile:
     return hw
 
 
+def get_live_gpu_telemetry() -> Dict[str, Any]:
+    """THE single place every caller asks "what is my GPU doing right now" —
+    name, VRAM, and (vendor permitting) live utilization/temperature/power.
+
+    Confirmed in the field: at least eight separate call sites
+    (executor_enhanced.GPU_STATUS, self_status, truth_report,
+    deterministic_grounding_gate x2, user_visible_response_surface,
+    contracts.runtime_status, gguf_inference's adaptive loader) each
+    independently shelled out to nvidia-smi with their own parsing and their
+    own (each slightly different, each separately buggy) handling of a
+    failed/absent driver. Patching each site's failure handling one at a
+    time treats the symptom; this is the fix for the actual disease — ONE
+    implementation every caller uses, so a fix here is a fix everywhere, and
+    a new caller gets vendor-agnostic behavior for free instead of writing
+    an nvidia-smi call of their own.
+
+    Always returns a dict (never raises): {ok, name, vendor, estimated,
+    total_mb, free_mb, used_mb, util_pct, temp_c, power_w, power_limit_w,
+    driver}. Fields the vendor/tool can't supply are None, not fabricated.
+    live_probe_failed is True when a live per-process tool (nvidia-smi,
+    rocm-smi) exists for this vendor but its call itself failed -- the
+    identity/VRAM figures below are then detect_hardware()'s own fallback
+    estimate, not a live reading.
+    """
+    out: Dict[str, Any] = {
+        "ok": False, "name": "", "vendor": "", "estimated": False,
+        "total_mb": None, "free_mb": None, "used_mb": None,
+        "util_pct": None, "temp_c": None, "power_w": None, "power_limit_w": None,
+        "driver": None, "live_probe_failed": False,
+    }
+    try:
+        hw = detect_hardware()
+    except Exception:
+        hw = None
+    if hw is None or not hw.has_gpu:
+        return out
+
+    out.update({
+        "ok": True, "name": hw.gpu_name, "vendor": (hw.gpu_vendor or "").lower(),
+        "estimated": bool(hw.gpu_detection_uncertain),
+        "total_mb": int(hw.total_vram_mb) if hw.total_vram_mb else None,
+        "free_mb": int(hw.free_vram_mb) if hw.free_vram_mb else None,
+    })
+    vendor = out["vendor"]
+
+    if vendor == "nvidia" and shutil.which("nvidia-smi"):
+        try:
+            proc = subprocess.run(
+                ["nvidia-smi",
+                 "--query-gpu=name,memory.total,memory.used,memory.free,"
+                 "utilization.gpu,temperature.gpu,power.draw,power.limit,driver_version",
+                 "--format=csv,noheader,nounits"],
+                timeout=6, capture_output=True, text=True, check=False,
+                env=_external_tool_env(),
+            )
+            if proc.returncode == 0 and (proc.stdout or "").strip():
+                row = [c.strip() for c in proc.stdout.strip().splitlines()[0].split(",")]
+                def _f(i):
+                    try:
+                        return float(row[i]) if i < len(row) and row[i] not in ("", "[N/A]") else None
+                    except Exception:
+                        return None
+                out.update({
+                    "name": row[0] if row and row[0] else out["name"],
+                    "estimated": False,
+                    "total_mb": int(_f(1)) if _f(1) is not None else out["total_mb"],
+                    "used_mb": int(_f(2)) if _f(2) is not None else None,
+                    "free_mb": int(_f(3)) if _f(3) is not None else out["free_mb"],
+                    "util_pct": int(_f(4)) if _f(4) is not None else None,
+                    "temp_c": int(_f(5)) if _f(5) is not None else None,
+                    "power_w": _f(6),
+                    "power_limit_w": _f(7),
+                    "driver": row[8] if len(row) > 8 and row[8] else None,
+                })
+            else:
+                out["live_probe_failed"] = True
+        except Exception:
+            out["live_probe_failed"] = True
+    elif vendor == "amd" and shutil.which("rocm-smi"):
+        try:
+            proc = subprocess.run(
+                ["rocm-smi", "--showmeminfo", "vram", "--json"],
+                timeout=6, capture_output=True, text=True, check=False,
+                env=_external_tool_env(),
+            )
+            data = json.loads(proc.stdout or "{}") if proc.returncode == 0 else {}
+        except Exception:
+            data = {}
+        found = False
+        for _card, info in (data or {}).items():
+            if not isinstance(info, dict):
+                continue
+            for k, v in info.items():
+                kl = str(k).lower()
+                try:
+                    if all(n in kl for n in ("vram", "total", "memory")) and "used" not in kl:
+                        out["total_mb"] = int(v) // (1024 * 1024)
+                        found = True
+                    elif all(n in kl for n in ("vram", "used", "memory")):
+                        out["used_mb"] = int(v) // (1024 * 1024)
+                except Exception:
+                    continue
+            if found:
+                if out["total_mb"] and out["used_mb"] is not None:
+                    out["free_mb"] = max(0, out["total_mb"] - out["used_mb"])
+                break
+        if not found:
+            out["live_probe_failed"] = True
+        # utilization/temperature/power on AMD need rocm-smi flags nothing in
+        # this codebase has exercised or tested -- left None rather than guessed.
+
+    return out
+
+
 def gpu_offload_unavailable_message(
     *,
     gpu_vendor: str = "",
