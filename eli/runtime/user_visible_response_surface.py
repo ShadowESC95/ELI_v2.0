@@ -8,6 +8,10 @@ import subprocess
 from pathlib import Path
 from typing import Any
 
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
+
 
 def _eli_canonical_root_PROJECT_ROOT() -> Path:
     # Canonical env-honoring root — __file__ resolves into the read-only
@@ -64,9 +68,23 @@ def _gpu_line() -> str:
             text=True,
             timeout=2,
         ).strip().splitlines()
-        return out[0].strip() if out else "unavailable"
+        if out:
+            return out[0].strip()
     except Exception:
-        return "unavailable"
+        log.debug("suppressed exception", exc_info=True)
+    # Cross-vendor fallback: this feeds text the user actually sees, and used
+    # to say "unavailable" on every AMD/Intel/Apple machine (and on any
+    # NVIDIA machine with a driver hiccup) even when hardware_profile's
+    # cross-vendor detection already knows the real card.
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        if hw.has_gpu:
+            note = " (estimated)" if hw.gpu_detection_uncertain else ""
+            return f"{hw.gpu_name}{note}, {hw.total_vram_mb} MiB total (live query unavailable)"
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    return "unavailable"
 
 
 def _mode_is_quick(mode: Any) -> bool:
