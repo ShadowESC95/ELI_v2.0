@@ -42,6 +42,7 @@ from typing import Any, Dict, List, Optional
 
 MAX_PINS = 20          # hard cap on pinned items
 MAX_AGE_TURNS = 40     # evict if not referenced for this many turns
+MAX_AGE_SECONDS = 86400.0 * 3  # wall-clock backstop -- see _evict_stale
 IMPORTANCE_THRESHOLD = 0.65  # auto-pin memories above this score
 
 # Executor command-echo signature, e.g. "SET_USER_NAME: Got it. I'll call you
@@ -57,22 +58,47 @@ def _is_junk_pin(text: str) -> bool:
     return bool(_ACTION_ECHO_RE.match(text or ""))
 
 
+def _age_label(age_seconds: float) -> str:
+    """Human age suffix, e.g. '(pinned 2d ago)'. Empty for anything under 4h
+    -- a fact pinned minutes ago needs no age annotation cluttering the
+    prompt; the model already has this turn's own timeline for that."""
+    hours = age_seconds / 3600.0
+    if hours < 4:
+        return ""
+    if hours < 48:
+        return f"(pinned {hours:.0f}h ago)"
+    return f"(pinned {hours / 24:.0f}d ago)"
+
+
 class _PinnedFact:
     __slots__ = ("text", "source", "pinned_at_turn", "last_hit_turn",
-                 "hit_count", "importance", "ts")
+                 "hit_count", "importance", "ts", "last_hit_ts")
 
     def __init__(self, text: str, source: str, turn: int,
-                 importance: float = 0.5):
+                 importance: float = 0.5, ts: Optional[float] = None):
         self.text = text
         self.source = source
         self.pinned_at_turn = turn
         self.last_hit_turn = turn
         self.hit_count = 1
         self.importance = importance
-        self.ts = time.time()
+        # When was this fact FIRST pinned, wall-clock -- immutable after
+        # this. Was set here unconditionally to time.time(), including by
+        # restore(), which silently discarded the real age of every
+        # cross-session fact and reported it as freshly pinned "now".
+        # restore() already persists this exact value as `saved_at`; it
+        # just never read it back. Also never consumed anywhere after being
+        # set -- now backs age display (context_block/summary).
+        self.ts = float(ts) if ts is not None else time.time()
+        # Wall-clock of the last reference, mirroring last_hit_turn (a turn
+        # COUNT) so staleness can be judged by real elapsed time too, not
+        # just how many other turns happened in between. A restored fact
+        # starts "last touched" at restore time, same as last_hit_turn.
+        self.last_hit_ts = time.time()
 
     def touch(self, turn: int) -> None:
         self.last_hit_turn = turn
+        self.last_hit_ts = time.time()
         self.hit_count += 1
 
 
@@ -213,11 +239,14 @@ class WorkingMemory:
         """
         if not self._facts:
             return ""
+        now = time.time()
         lines = ["WORKING MEMORY (pinned facts for this session):"]
         for fact in sorted(self._facts.values(),
                            key=lambda f: f.importance, reverse=True):
             src = f"({fact.source})" if fact.source != "auto" else ""
-            lines.append(f"  • {fact.text} {src}".rstrip())
+            age = _age_label(now - fact.ts)
+            suffix = " ".join(p for p in (src, age) if p)
+            lines.append(f"  • {fact.text} {suffix}".rstrip())
         return "\n".join(lines)
 
     def flush_to_memory(self, memory_store: Any) -> int:
@@ -257,13 +286,18 @@ class WorkingMemory:
                 )
             """)
             conn.execute("DELETE FROM working_memory_pins")
-            now = time.time()
             for key, fact in self._facts.items():
                 if fact.importance >= 0.65:
+                    # saved_at stores the fact's real original pin time
+                    # (fact.ts), not "when this flush ran" -- restore() reads
+                    # it back as the restored fact's ts, and a flush-time
+                    # value there would make every restored fact look exactly
+                    # as old as its LAST persist() call, not how long it has
+                    # actually been known.
                     conn.execute(
                         "INSERT OR REPLACE INTO working_memory_pins "
                         "(key, text, source, importance, hit_count, saved_at) VALUES (?,?,?,?,?,?)",
-                        (key, fact.text, fact.source, fact.importance, fact.hit_count, now),
+                        (key, fact.text, fact.source, fact.importance, fact.hit_count, fact.ts),
                     )
             conn.commit()
             conn.close()
@@ -278,7 +312,7 @@ class WorkingMemory:
             conn = sqlite3.connect(str(db_path))
             try:
                 rows = conn.execute(
-                    "SELECT key, text, source, importance, hit_count "
+                    "SELECT key, text, source, importance, hit_count, saved_at "
                     "FROM working_memory_pins ORDER BY importance DESC LIMIT ?",
                     (MAX_PINS,),
                 ).fetchall()
@@ -287,9 +321,13 @@ class WorkingMemory:
                 return 0
             conn.close()
             for row in rows:
-                key, text, source, importance, hit_count = row
+                key, text, source, importance, hit_count, saved_at = row
                 if text and text.strip():
-                    fact = _PinnedFact(text, source or "auto", self._turn, float(importance or 0.5))
+                    # saved_at is this fact's real original pin time, written
+                    # by persist() -- preserve it instead of reporting every
+                    # restored fact as freshly pinned "now".
+                    fact = _PinnedFact(text, source or "auto", self._turn,
+                                       float(importance or 0.5), ts=saved_at)
                     fact.hit_count = int(hit_count or 1)
                     self._facts[key or self._key(text)] = fact
                     loaded += 1
@@ -298,12 +336,14 @@ class WorkingMemory:
         return loaded
 
     def summary(self) -> Dict[str, Any]:
+        now = time.time()
         return {
             "turn": self._turn,
             "pinned_count": len(self._facts),
             "facts": [
                 {"text": f.text[:80], "importance": f.importance,
-                 "source": f.source, "hits": f.hit_count}
+                 "source": f.source, "hits": f.hit_count,
+                 "pinned_at": f.ts, "age_seconds": round(now - f.ts, 1)}
                 for f in sorted(self._facts.values(),
                                 key=lambda x: x.importance, reverse=True)
             ],
@@ -317,10 +357,22 @@ class WorkingMemory:
         return re.sub(r"\s+", " ", (text or "").lower().strip())[:120]
 
     def _evict_stale(self) -> None:
-        """Remove facts not referenced in the last MAX_AGE_TURNS turns."""
+        """Remove facts not referenced in the last MAX_AGE_TURNS turns, OR
+        not referenced in MAX_AGE_SECONDS of wall-clock time (by last_hit_ts,
+        NOT ts -- a fact reaffirmed daily must not age out just because it
+        was first pinned a while ago).
+
+        Turn count alone under-evicts a session that's left open but chatted
+        with rarely: a user who sends one message every few days would need
+        MAX_AGE_TURNS separate DAYS before a stale pin from the first message
+        ever aged out, since the turn counter barely moves. The wall-clock
+        check catches that case; the turn check still catches a BUSY session
+        where MAX_AGE_TURNS passes quickly but little real time has."""
+        now = time.time()
         stale = [
             k for k, f in self._facts.items()
             if (self._turn - f.last_hit_turn) > MAX_AGE_TURNS
+            or (now - f.last_hit_ts) > MAX_AGE_SECONDS
         ]
         for k in stale:
             del self._facts[k]
