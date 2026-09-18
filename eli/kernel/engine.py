@@ -13198,6 +13198,29 @@ Answer:"""
                             "CREATE_FILE", "CREATE_FOLDER", "WRITE_NOTE",
                             "NEW_NOTE", "LIST_NOTES", "SET_TIMER", "SET_ALARM",
                             "LIST_DIR", "SPEAK",
+                            # Audited 2026-09-18: every action's executor handler
+                            # already returns a complete, well-formed content/
+                            # response string (confirmed by reading each handler
+                            # directly, not assumed) — the same shape as the
+                            # GPU_STATUS/MEMORY_STATUS pattern above, just never
+                            # added to this set. Left in non-quick synthesis, each
+                            # one either got needlessly re-narrated by a small
+                            # local model (latency + risk of dropped detail) or —
+                            # for READ_FILE specifically — had its raw file
+                            # content rewritten by the LLM instead of shown
+                            # as-is, which is the exact class of bug this
+                            # project exists to not have: a "read this file"
+                            # request whose answer was never guaranteed to
+                            # match the file on disk.
+                            "READ_FILE", "HARDWARE_PROFILE", "AWARENESS_STATUS",
+                            "FRONTIER_STATUS", "BACKGROUND_JOBS", "CHECK_JOB",
+                            "ORCHESTRATION_STATUS", "LORA_STATUS", "PROACTIVE_STATUS",
+                            "PERSONA_LOCK_STATUS", "POMODORO_STATUS", "HABIT_STATUS",
+                            "GAZE_STATUS", "TIMESTAMP_DIAG", "ELI_IDENTITY_AUDIT",
+                            "FILE_AUDIT", "CODEBASE_GRAPH", "AUTOPILOT_DEBUG",
+                            "LIST_EVENTS", "SEARCH_NOTES", "MCP_STATUS", "MCP_TOOLS",
+                            "MCP_LIST", "STT_DIAGNOSTICS", "NAME_SOURCE_AUDIT",
+                            "ROUTING_FAULT_EXPLAIN",
                         }
                         try:
                             from eli.cognition.reasoning_modes import canonical_mode as _eli_direct_canon_mode
