@@ -139,6 +139,9 @@ def _flush_recall_writes_locked() -> None:
                 conn.close()
         except Exception:
             log.debug("[MEMORY] recall write batch flush failed", exc_info=True)
+
+
+def flush_recall_writes() -> None:
     """Public flush — call on idle or shutdown to drain the queue."""
     with _recall_write_lock:
         _flush_recall_writes_locked()
