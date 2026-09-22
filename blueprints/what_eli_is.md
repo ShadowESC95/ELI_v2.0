@@ -22,8 +22,8 @@ form a complete **cognitive operating system for one person and one machine** �
 2026-06-28, a self-hosted **web app** that brings the same local brain (chat, a live
 dashboard, ELI's own smart-home, multi-user accounts, a tamper-evident audit trail, shared
 research, and browser voice) to any device on your network. It is **source-available**
-(PolyForm Internal Use 1.0.0): read, run, and modify it for yourself — redistribution and
-resale are reserved to the author.
+(PolyForm Noncommercial 1.0.0): read, run, modify, and share it for any noncommercial
+purpose — commercial use and resale are reserved to the author.
 
 ---
 

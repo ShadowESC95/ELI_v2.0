@@ -1,6 +1,6 @@
 """CLAIM: every download can put the PolyForm licence in front of its user.
 
-ELI is source-available under PolyForm Internal Use 1.0.0, so the terms have to
+ELI is source-available under PolyForm Noncommercial 1.0.0, so the terms have to
 be reachable from each shape it ships in — not just the Windows installer, which
 is the only wrapper with a licence pane of its own. These pin the surfaces:
 
@@ -30,8 +30,8 @@ def test_license_doc_present(name):
 
 def test_license_names_polyform():
     text = (REPO / "LICENSE").read_text(encoding="utf-8")
-    assert "PolyForm Internal Use License 1.0.0" in text
-    assert "you may not distribute the software" in text.lower().replace("\n", " ")
+    assert "PolyForm Noncommercial License 1.0.0" in text
+    assert "any noncommercial purpose is a permitted purpose" in text.lower().replace("\n", " ")
 
 
 @pytest.mark.parametrize("name", DOCS + ("models/MODEL_LICENSES.md",))
@@ -72,5 +72,5 @@ def test_license_resolves_at_runtime():
 
     assert license_path() is not None, "LICENSE not resolvable from a source checkout"
     text = license_text()
-    assert "PolyForm Internal Use License 1.0.0" in text
+    assert "PolyForm Noncommercial License 1.0.0" in text
     assert "Jason Fitzgibbon Bridgeman" in text

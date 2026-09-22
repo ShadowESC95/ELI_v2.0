@@ -1,14 +1,15 @@
 # Third-Party Notices — ELI v2.0
 
 ELI v2.0 (© 2026 Jason Fitzgibbon Bridgeman) is licensed under the
-**PolyForm Internal Use License 1.0.0** (see `LICENSE`). This file lists
+**PolyForm Noncommercial License 1.0.0** (see `LICENSE`). This file lists
 **third-party** components used at runtime or shipped in release packages,
 with their licenses. It accompanies portable tarballs, wheels, and source
 checkouts.
 
 > **LGPL note:** PySide6 and some other components are LGPL-licensed. If you
-> redistribute ELI binaries (only the copyright holder may do so under PolyForm),
-> you must comply with LGPL source/relink requirements for those components.
+> redistribute ELI binaries for a noncommercial purpose (the only purpose
+> PolyForm permits), you must comply with LGPL source/relink requirements
+> for those components.
 
 ---
 

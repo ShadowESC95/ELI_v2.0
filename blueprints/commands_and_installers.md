@@ -257,9 +257,9 @@ bash eli_diagnose.sh                     # system diagnosis report
 
 ### Reading the licence
 
-ELI is **source-available**, not open-source: PolyForm Internal Use License 1.0.0.
-Run and modify it for your own personal or internal use; you may not redistribute,
-host, sublicense or sell it. The terms are reachable identically from every
+ELI is **source-available**, not open-source: PolyForm Noncommercial License 1.0.0.
+Run, modify, and distribute it for any noncommercial purpose; you may not use it,
+or a modified version, for a commercial purpose. The terms are reachable identically from every
 download — installed app, portable folder, AppImage or `.app`:
 
 ```bash
@@ -287,8 +287,8 @@ delete the `.desktop` files from `~/.local/share/applications/`.
 
 ---
 
-*ELI v2.0 — © 2026 Jason Fitzgibbon Bridgeman. Source-available under the PolyForm Internal
-Use License 1.0.0. Questions: jaybridgeman0095@gmail.com*
+*ELI v2.0 — © 2026 Jason Fitzgibbon Bridgeman. Source-available under the PolyForm
+Noncommercial License 1.0.0. Questions: jaybridgeman0095@gmail.com*
 
 
 ## Update — 2.3.7

@@ -28,7 +28,7 @@
   #pragma error "dist\ELI\ELI.exe not found - run `pyinstaller --noconfirm ELI.spec` first"
 #endif
 
-; ELI is source-available under PolyForm Internal Use, so the installer must put
+; ELI is source-available under PolyForm Noncommercial, so the installer must put
 ; the terms in front of the user before anything is written to disk. LICENSE.txt
 ; is a generated UTF-8+BOM copy of LICENSE - Inno decodes a BOM-less UTF-8 file
 ; as ANSI and mangles the (c), em-dash and rule characters.

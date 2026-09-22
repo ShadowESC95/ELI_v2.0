@@ -7,7 +7,7 @@ Flags:
                    Register a custom agent file as trusted (adds its SHA-256
                    hash to config/trusted_agents.json) then exit.
   --license, --licence
-                   Print the PolyForm Internal Use terms ELI ships under, then
+                   Print the PolyForm Noncommercial terms ELI ships under, then
                    exit. Same command in every download.
 """
 from __future__ import annotations

@@ -8,9 +8,9 @@ version = "2.4.53"
 description = "ELI v2.0 — Local cognitive runtime, assistant GUI, memory, tools, and GGUF inference"
 readme = "README.md"
 requires-python = ">=3.10"
-# Source-available (NOT open-source): use + modify for internal/personal use; no
-# redistribution. Full terms in LICENSE. All commercial/distribution rights reserved.
-license = "LicenseRef-PolyForm-Internal-Use-1.0.0"
+# Source-available (NOT open-source): use, modify, and distribute for any
+# noncommercial purpose. Full terms in LICENSE. All commercial rights reserved.
+license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
 authors = [{ name = "ELI Contributors" }]
 keywords = ["ai", "assistant", "llm", "local", "gpu", "gguf"]
 classifiers = [

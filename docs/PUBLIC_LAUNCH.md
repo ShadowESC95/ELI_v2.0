@@ -10,7 +10,7 @@
 
 - **Repo:** https://github.com/ShadowESC95/ELI_v2.0
 - **Release v2.4.6:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.12
-- **License:** PolyForm Internal Use (source-available, personal use — not OSI open source)
+- **License:** PolyForm Noncommercial (source-available, noncommercial use — not OSI open source)
 
 ## Easiest install — Linux
 

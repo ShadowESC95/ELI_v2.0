@@ -601,7 +601,7 @@ PyInstaller frozen entry. Modes:
 | (default) | GUI via `eli.gui.app:main` |
 | `--server` | `api.server:main` (ELI-Server.exe) |
 | `--selftest` | Verify mutable paths outside read-only bundle |
-| `--license` | Print PolyForm Internal Use terms |
+| `--license` | Print PolyForm Noncommercial terms |
 | `-c` / `-m` | Python passthrough for self-spawned helpers |
 
 Calls `multiprocessing.freeze_support()` first; clears `QT_STYLE_OVERRIDE`.

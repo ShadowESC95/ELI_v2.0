@@ -362,8 +362,9 @@ Terminal command:
   If your shell cached an older eli: hash -r
 
 Licence:
-  ELI is source-available under the PolyForm Internal Use License 1.0.0 —
-  run and modify it for your own use; you may not redistribute it.
+  ELI is source-available under the PolyForm Noncommercial License 1.0.0 —
+  run, modify, and share it for any noncommercial purpose; commercial use
+  requires a separate license.
   Full terms:  ./LICENSE      (or run: eli --license)
   Third-party: ./THIRD_PARTY_NOTICES.md, ./models/MODEL_LICENSES.md
 

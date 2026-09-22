@@ -13,7 +13,7 @@ Modes:
   --selftest    boot the runtime stack + verify every mutable path resolves
                 OUTSIDE the read-only bundle, then exit 0/1. CI runs this on
                 the built bundle for every platform before anything ships.
-  --license     print the PolyForm Internal Use terms ELI ships under, then
+  --license     print the PolyForm Noncommercial terms ELI ships under, then
                 exit. The Windows installer has a licence pane of its own; the
                 dmg, AppImage and portable zip do not, so this is how the terms
                 stay reachable from every download.

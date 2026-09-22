@@ -5,7 +5,7 @@ Website: https://geteli.tech
 
 **A strictly local, private AI assistant and cognitive runtime.**
 
-![License](https://img.shields.io/badge/license-PolyForm%20Internal%20Use-blue)
+![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)
 [![Release](https://img.shields.io/github/v/release/ShadowESC95/ELI_v2.0?label=release&color=success)](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)
 ![Platform](https://img.shields.io/badge/platform-Linux%20·%20macOS%20·%20Windows-lightgrey)
 ![GPU](https://img.shields.io/badge/GPU-CUDA%20·%20Vulkan%20·%20Metal-76B900)
@@ -710,22 +710,21 @@ what works, what breaks, what's missing shapes future releases and tells me whet
 ## License
 
 ELI v2.0 is **source-available, not open-source**, under the
-**[PolyForm Internal Use License 1.0.0](LICENSE)** — © 2026 Jason Fitzgibbon Bridgeman.
+**[PolyForm Noncommercial License 1.0.0](LICENSE)** — © 2026 Jason Fitzgibbon Bridgeman.
 
 | You **may** | You **may not** |
 |---|---|
-| Download, read, run, and **modify** the source | **Redistribute**, share, publish, or sublicense it |
-| Use it for your own internal / personal purposes | **Host it as a service** for others |
-| Keep your own private modifications | **Sell** it or any modified version |
+| Download, read, run, **modify**, and **share** it for any noncommercial purpose | Use it, or a modified version, for a **commercial purpose** |
+| Redistribute it for personal, research, educational, or nonprofit use | **Sell** it or run it as a **paid/revenue-generating** service |
+| Keep your own private modifications | Use it in the course of business without a separate license |
 
-**Why PolyForm?** I want anyone to be able to read, run, and modify ELI on their own machine for
-free — and I want commercial and distribution rights to stay with me while v2 is out in the open
-and v3 is in development. PolyForm Internal Use is the cleanest off-the-shelf license that does
+**Why PolyForm?** I want anyone to be able to read, run, modify, and share ELI freely for
+noncommercial purposes — and I want commercial rights to stay with me while v2 is out in the open
+and v3 is in development. PolyForm Noncommercial is the cleanest off-the-shelf license that does
 exactly that, without pretending to be open source when it isn't.
 
-Forks for **public re-publishing** violate the license — contribute improvements back here instead
-of publishing your own copy. **Seeing ELI redistributed, hosted, or sold somewhere?** Please report
-it — with a link — to [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com).
+**Seeing ELI sold, or used commercially, somewhere?** Please report it — with a link — to
+[jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com).
 
 **Custom work?** Personalised ELI builds, themes, training, and commercial licensing are available
 by email — separate from the free PolyForm grant above. Provided "as is", without warranty.

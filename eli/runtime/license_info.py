@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Locate and print ELI's licence, wherever ELI happens to be running from.
 
-ELI is source-available under PolyForm Internal Use 1.0.0, so every artifact has
+ELI is source-available under PolyForm Noncommercial 1.0.0, so every artifact has
 to be able to put the terms in front of the user — not just the Windows
 installer, which is the only wrapper with a licence pane of its own. This module
 is the one place that knows where `LICENSE` lives in each shape ELI ships in:
@@ -23,11 +23,11 @@ from typing import Optional
 _COMPANIONS = ("NOTICE", "THIRD_PARTY_NOTICES.md", "models/MODEL_LICENSES.md")
 
 SUMMARY = (
-    "ELI v2.0 — source-available under the PolyForm Internal Use License 1.0.0.\n"
+    "ELI v2.0 — source-available under the PolyForm Noncommercial License 1.0.0.\n"
     "Copyright (c) 2026 Jason Fitzgibbon Bridgeman. All rights reserved.\n"
     "\n"
-    "You may run and modify ELI for your own personal or internal use.\n"
-    "You may NOT redistribute, publish, host for others, sublicense or sell it.\n"
+    "You may run, modify, and distribute ELI for any noncommercial purpose.\n"
+    "You may NOT use it, or a modified version, for a commercial purpose.\n"
 )
 
 
