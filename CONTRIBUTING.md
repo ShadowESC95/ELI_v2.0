@@ -9,9 +9,11 @@ work.
 - **Report bugs** or suggest improvements via
   [issues](https://github.com/ShadowESC95/ELI_v2.0/issues).
 - **Submit fixes or features** via pull request.
-- You may **use and modify** ELI for your own purposes under the license, but you
-  may **not redistribute** it. Contributing improvements back here — rather than
-  publishing your own copy — is the supported path.
+- You may **use, modify, and redistribute** ELI under the license for any
+  **noncommercial** purpose, but you may **not** use it, or a modified version,
+  for a **commercial** purpose without a separate license. Contributing
+  improvements back here — rather than publishing your own fork — is still the
+  supported path.
 
 ## Contributor terms (please read before opening a PR)
 
