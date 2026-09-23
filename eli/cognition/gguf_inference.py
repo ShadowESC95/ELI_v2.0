@@ -914,6 +914,7 @@ def load_model(force_reload: bool = False):
                         kv_quantized=_kvq, min_batch=_min_batch,
                         model_path=str(_mp),
                         gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)),
+                        user_gpu_layers=int(n_gpu_layers) if int(n_gpu_layers) > 0 else None,
                     )
                     log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
                               f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "

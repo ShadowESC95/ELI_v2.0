@@ -105,3 +105,58 @@ def test_unified_fit_igpu_merges_budgets():
     )
     assert ctx >= 2048
     assert batch >= 128
+
+
+# Regression for a live 2.4.54 bug report (see test_smart_fit.py for the
+# VRAM-only version): the ceiling must hold across EVERY backend this planner
+# serves, not just discrete NVIDIA/CUDA. hardware_profile.py funnels AMD
+# (ROCm and the sysfs fallback), Intel iGPU, Apple unified memory and
+# Qualcomm Adreno through these same HardwareProfile fields specifically so
+# they share one fit algorithm -- so the ceiling fix has to live at this one
+# choke point, not per-vendor, and these tests prove it actually reaches both
+# code paths (discrete VRAM-only, and the iGPU/unified-memory RAM-clamp path).
+def test_unified_fit_respects_gpu_layers_ceiling_discrete_gpu():
+    # Generous VRAM: with no ceiling this backfills to 99 (all TOTAL layers),
+    # same setup as test_generous_vram_keeps_user_settings_full_offload.
+    ctx, layers, batch = unified_fit_config(
+        MODEL_GB, 40000, AVAIL_RAM_GB,
+        user_ctx=USER_CTX, user_batch=USER_BATCH,
+        reserve_mb=700, kv_quantized=True, total_layers=TOTAL,
+        gpu_integrated=False,
+        user_gpu_layers=10,
+    )
+    assert layers == 10, (
+        f"discrete-GPU path (NVIDIA/AMD/Intel Arc) must cap the backfill at "
+        f"the operator's chosen layer count, got {layers}"
+    )
+
+
+def test_unified_fit_respects_gpu_layers_ceiling_igpu_unified_memory():
+    # gpu_integrated=True is the AMD APU / Intel iGPU / Apple unified-memory
+    # path, which additionally runs through _clamp_fit_to_ram_budget -- a
+    # second, separate backfill loop that needs the same ceiling.
+    ctx, layers, batch = unified_fit_config(
+        MODEL_GB, 20000, 64.0,
+        user_ctx=USER_CTX, user_batch=USER_BATCH,
+        reserve_mb=400, kv_quantized=True, total_layers=TOTAL,
+        gpu_integrated=True,
+        user_gpu_layers=10,
+    )
+    assert layers <= 10, (
+        f"iGPU/unified-memory path must also cap the backfill at the "
+        f"operator's chosen layer count, got {layers}"
+    )
+
+
+def test_max_gpu_priority_also_respects_ceiling():
+    # FIT_PRIORITY_MAX_GPU is specifically the "pack VRAM with layers" mode --
+    # the ceiling has to hold there too, or choosing that priority would be a
+    # way to silently bypass an explicit layer count.
+    ctx, layers, batch = smart_fit_config(
+        MODEL_GB, 40000,
+        user_ctx=USER_CTX, user_batch=USER_BATCH,
+        reserve_mb=700, kv_quantized=True, total_layers=TOTAL,
+        fit_priority=FIT_PRIORITY_MAX_GPU,
+        user_gpu_layers=10,
+    )
+    assert layers == 10

@@ -8,10 +8,11 @@ TOTAL = _layers_for_size(MODEL_GB)  # 32
 USER_CTX, USER_BATCH = 16384, 256
 
 
-def _fit(free_mb, reserve=700):
+def _fit(free_mb, reserve=700, user_gpu_layers=None):
     return smart_fit_config(
         MODEL_GB, free_mb, user_ctx=USER_CTX, user_batch=USER_BATCH,
         reserve_mb=reserve, kv_quantized=True, total_layers=TOTAL,
+        user_gpu_layers=user_gpu_layers,
     )
 
 
@@ -73,3 +74,35 @@ def test_reduction_priority_order_holds_monotonically():
         # batch only changes after layers left full offload (99)
         if batch < USER_BATCH:
             assert layers != 99
+
+
+# Regression for a live 2.4.54 bug report: operator chose gpu_layers=10 in the
+# startup GUI; smart-fit cut ctx to fit VRAM, and the extra headroom that freed
+# up got spent backfilling layers 10->11 -- silently overriding a value the
+# operator never asked to change. gpu_layers must be a CEILING, exactly like
+# ctx and batch already are, not a number smart-fit is free to grow.
+def test_user_gpu_layers_is_never_exceeded_by_the_backfill():
+    # Generous VRAM: with no ceiling this backfills to 99 (all 32 layers), same
+    # as test_generous_vram_keeps_user_settings_full_offload above.
+    ctx, layers, batch = _fit(24000, user_gpu_layers=10)
+    assert layers == 10, (
+        f"operator asked for 10 GPU layers; smart-fit must not hand back more "
+        f"even when VRAM allows it, got {layers}"
+    )
+    assert ctx == USER_CTX and batch == USER_BATCH
+
+
+def test_user_gpu_layers_ceiling_still_sheds_when_it_does_not_fit():
+    # Tight VRAM: 10 layers still doesn't fit, so the ceiling must still yield
+    # to the same shed-first behaviour as an unconstrained fit.
+    ctx, layers, batch = _fit(2700, user_gpu_layers=10)
+    assert layers <= 10
+    assert ctx == USER_CTX, "ctx preserved by shedding GPU layers before crushing ctx"
+
+
+def test_user_gpu_layers_ceiling_matches_unconstrained_when_above_full_offload():
+    # A ceiling at or above the model's own layer count is a no-op -- same
+    # result as passing no ceiling at all.
+    unconstrained = _fit(24000)
+    ceiling_above_total = _fit(24000, user_gpu_layers=99)
+    assert unconstrained == ceiling_above_total
