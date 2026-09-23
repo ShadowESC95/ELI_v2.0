@@ -7005,8 +7005,22 @@ def _eli_phase38_final_memory_question_contract(raw):
         or "all the databases" in low
         or "all databases" in low
         # Explicit mechanism names → unmistakably about the retrieval/storage stack.
-        or _re.search(r"\b(faiss|fts5?|knowledge graph|kg|hyde|rag|vector store|embedder|"
-                      r"vector index|dag pipeline)\b", low)
+        #
+        # "kg" and bare "rag" were dropped from this list at 2.4.55: both are
+        # too short to be unambiguous, and "kg" is what ELI's OWN console
+        # noise prints on every single turn ("persona_updater: kg sync
+        # complete -- N entities, M relations"). Live report: a user pasted a
+        # GUI load-ladder log back at ELI to ask about a GPU/ctx problem; the
+        # paste's incidental "kg sync complete" line matched here, routed the
+        # whole question to EXPLAIN_MEMORY_RUNTIME at confidence 0.995 as a
+        # "final" (override-priority) contract, and preempted the long-
+        # question guard before it ever ran. "knowledge graph" (the unabridged
+        # phrase, below) and "rag pipeline"/"retrieval augmented" (covered by
+        # the mechanism-phrasing branches above) still match on genuine intent
+        # without keying off a two-letter abbreviation that collides with
+        # ELI's own logging.
+        or _re.search(r"\b(faiss|fts5?|knowledge graph|hyde|rag pipeline|"
+                      r"vector store|embedder|vector index|dag pipeline)\b", low)
         )
     )
 
