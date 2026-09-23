@@ -6,6 +6,7 @@ import re
 import time
 from pathlib import Path
 from typing import Any, Dict, Optional
+from unittest.mock import Mock
 
 from eli.utils.log import get_logger
 
@@ -86,9 +87,52 @@ def _process_memory() -> Dict[str, int]:
     return out
 
 
+def _as_int(value: Any) -> Optional[int]:
+    """int(value), but only for the primitive numeric types a real ctypes/native
+    binding call actually returns.
+
+    A native call's return value is never trusted structurally past this
+    point. `int(x)` on an arbitrary object invokes `x.__int__()` -- for a
+    plain wrong-shaped value that is a quick TypeError, caught by the callers'
+    `except Exception`. But under test, `llama_cpp.llama_cpp` is mocked
+    wholesale (conftest.py), so `lc.llama_model_size(model)` returns a
+    MagicMock, and `int(MagicMock())` walks into unittest.mock's own
+    recursive magic-method/child-mock machinery -- deep enough, under
+    accumulated test-session mock state, to blow the C stack. That is a
+    genuine SIGSEGV, not a Python exception, so no `except Exception` here or
+    in the callers can catch it; it takes the whole interpreter down mid test
+    suite. Reproduced twice via two unrelated call paths (both bottoming out
+    here), confirmed fixed by this guard. The isinstance check is a real
+    system-boundary validation (a dynamically loaded native library's return
+    value), not defensive theater: nothing upstream can prove SIGSEGV can't
+    also occur here on a genuinely malformed native response.
+    """
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return int(value)
+    return None
+
+
 def _read_llama_live(llm) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     if llm is None:
+        return out
+    # A test double is not live state, same as None -- and unlike None, it is
+    # NOT safe to pass one further. `_as_int` above guards the int() edge, but
+    # a bare, unspecced Mock also auto-vivifies attribute access AND call
+    # results as further Mocks, so `getattr(llm, "model", None)` never
+    # actually returns None -- it returns a child Mock, which then gets
+    # handed to `lc.llama_model_size(model)`. That call is itself Mock
+    # machinery (not the real ctypes binding), and reproduced live: two
+    # unrelated call paths both bottomed out in unittest.mock's own recursive
+    # child-mock/magic-method setup deep enough to blow the C stack -- a
+    # genuine SIGSEGV, before `_as_int` ever got a chance to run on the
+    # result. One test leaking a Mock into `eli.cognition.gguf_inference._llm`
+    # (module-level global state, not torn down) was enough to make an
+    # unrelated "model not loaded" test crash the whole process under a full
+    # suite run despite passing in isolation. Closing it here, at the one
+    # entry point every path into this module funnels through, is more
+    # robust than chasing each individual attribute/call site.
+    if isinstance(llm, Mock):
         return out
     try:
         import llama_cpp.llama_cpp as lc
@@ -100,27 +144,35 @@ def _read_llama_live(llm) -> Dict[str, Any]:
     ctx = getattr(llm, "ctx", None)
     if model is not None:
         try:
-            out["model_bytes"] = int(lc.llama_model_size(model))
+            val = _as_int(lc.llama_model_size(model))
+            if val is not None:
+                out["model_bytes"] = val
         except Exception:
             log.debug("llama_model_size failed", exc_info=True)
         try:
-            out["n_params"] = int(lc.llama_model_n_params(model))
+            val = _as_int(lc.llama_model_n_params(model))
+            if val is not None:
+                out["n_params"] = val
         except Exception:
             log.debug("llama_model_n_params failed", exc_info=True)
     if ctx is not None:
         try:
-            out["n_ctx_live"] = int(lc.llama_n_ctx(ctx))
+            val = _as_int(lc.llama_n_ctx(ctx))
+            if val is not None:
+                out["n_ctx_live"] = val
         except Exception:
             log.debug("llama_n_ctx failed", exc_info=True)
         try:
-            out["kv_state_bytes"] = int(lc.llama_get_state_size(ctx))
+            val = _as_int(lc.llama_get_state_size(ctx))
+            if val is not None:
+                out["kv_state_bytes"] = val
         except Exception:
             log.debug("llama_get_state_size failed", exc_info=True)
         try:
             mem = lc.llama_get_memory(ctx)
             if mem:
-                pos = int(lc.llama_memory_seq_pos_max(mem, 0))
-                if pos >= 0:
+                pos = _as_int(lc.llama_memory_seq_pos_max(mem, 0))
+                if pos is not None and pos >= 0:
                     out["tokens_in_context"] = pos + 1
         except Exception:
             log.debug("llama memory seq pos failed", exc_info=True)

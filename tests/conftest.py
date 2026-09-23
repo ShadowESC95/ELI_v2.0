@@ -108,6 +108,35 @@ def force_persistence_gate():
         yield
 
 
+# gguf_inference keeps its "currently loaded model" as bare module globals
+# (_llm, _live_runtime_override, _load_failed, _last_error), set by
+# load_model() with no test-facing reset hook. Any test that exercises the
+# real load_model() path (llama_cpp is mocked, so `Llama(**kwargs)` returns a
+# MagicMock) leaves `_llm` set to that Mock for the rest of the SESSION -- an
+# unrelated later test asking "what's currently loaded" then inherits it.
+# Confirmed live: this is what let a Mock reach
+# eli.runtime.inference_footprint._read_llama_live(), which called into the
+# also-mocked llama_cpp.llama_cpp native bindings and segfaulted the whole
+# pytest process (unittest.mock's own recursive child-mock setup, not
+# catchable). inference_footprint now refuses a Mock outright, but the leak
+# itself is the actual root cause -- reset it after every test so state never
+# crosses a test boundary, same isolation guarantee as the DB/persistence
+# fixtures above.
+@pytest.fixture(autouse=True, scope="function")
+def reset_gguf_inference_globals():
+    yield
+    try:
+        import eli.cognition.gguf_inference as _ggi
+        _ggi._llm = None
+        _ggi._live_runtime_override = None
+        _ggi._load_failed = False
+        _ggi._last_error = None
+        if "_live_runtime_params" in vars(_ggi):
+            _ggi._live_runtime_params = None
+    except Exception:
+        pass
+
+
 # ── Auto-updating test-results document ──────────────────────────────────────
 # Every pytest run (re)writes artifacts/test_report.md with the live results, so
 # the report is dynamic — never stale. ELI's RUN_TESTS action reads/summarises it.
