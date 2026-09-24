@@ -77,10 +77,10 @@ def test_recommend_matches_the_load_for_a_large_model_on_a_small_card():
     }]
     rec = recommend(hw, models)
     total = _layers_for_size(20.61)
-    try:
-        from eli.core.runtime_settings import DEFAULT_N_CTX as _target_ctx
-    except Exception:
-        _target_ctx = 12288
+    from eli.core.hardware_profile import auto_ctx_target
+    _target_ctx = auto_ctx_target(
+        "/fake/big.gguf", 20.61, free_vram_mb=hw.free_vram_mb,
+        available_ram_gb=hw.available_ram_gb, use_gpu=True, kv_quantized=True)
     _ctx, _layers, _ = unified_fit_config(
         20.61, 6635, hw.available_ram_gb,
         user_ctx=int(_target_ctx), user_batch=128,
