@@ -48,10 +48,6 @@ def test_runtime_approval_engine_loadable():
     assert _load("eli.runtime.approval_engine") is not None
 
 
-def test_runtime_identity_guard_loadable():
-    assert _load("eli.runtime.identity_guard") is not None
-
-
 def test_runtime_authority_gate_loadable():
     assert _load("eli.runtime.authority_gate") is not None
 

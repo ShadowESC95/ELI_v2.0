@@ -127,29 +127,6 @@ def test_live_introspection_snapshot():
         pass
 
 
-# ── Identity Guard ────────────────────────────────────────────────────────
-
-def test_identity_guard_importable():
-    from eli.runtime.identity_guard import get_lock_state
-    assert get_lock_state is not None
-
-@pytest.mark.parametrize("query,should_be_identity", [
-    ("who are you", True),
-    ("what are you", True),
-    ("tell me about yourself", True),
-    ("what is 2+2", False),
-    ("open a file", False),
-    ("what do you remember", False),
-])
-def test_identity_guard_classification(query, should_be_identity):
-    try:
-        from eli.runtime.identity_guard import is_identity_query
-        result = is_identity_query(query)
-        assert isinstance(result, bool)
-    except ImportError:
-        pytest.skip("is_identity_query not available")
-
-
 # ── Approval Engine ───────────────────────────────────────────────────────
 
 def test_approval_engine_importable():

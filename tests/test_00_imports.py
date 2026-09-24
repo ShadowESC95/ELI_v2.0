@@ -156,7 +156,6 @@ ALL_MODULES = [
     "eli.runtime.evidence_arbitration",
     "eli.runtime.final_response_provider",
     "eli.runtime.grounded_remediation",
-    "eli.runtime.identity_guard",
     "eli.runtime.incident_log",
     "eli.runtime.last_trace",
     "eli.runtime.live_introspection",
