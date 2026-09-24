@@ -38,6 +38,41 @@ def test_sandbox_missing_optional_dep_tolerated():
     assert r.clean and not r.crashed
 
 
+# Regression: a candidate that dies via an explicit, uncaught SystemExit
+# (sys.exit(n)/os._exit(n) for n != 0) used to be misclassified identically to
+# a genuine signal/rlimit kill -- CPython prints no traceback for SystemExit
+# either, and the old rule was "no traceback => tolerated", full stop. Found
+# live: a candidate with a bare `sys.exit(1)` scored 0.96 with "1/1 tests
+# passed". The fix distinguishes them by the OS-level signal a real kill sets
+# (a negative returncode) vs. the plain positive code sys.exit()/os._exit()
+# produce.
+def test_sandbox_sys_exit_nonzero_is_a_crash_not_tolerated():
+    r = run_code("import sys\nsys.exit(1)", "python", timeout=8)
+    assert r.crashed and not r.clean and r.returncode == 1
+
+
+def test_sandbox_os_exit_nonzero_is_a_crash_not_tolerated():
+    r = run_code("import os\nos._exit(7)", "python", timeout=8)
+    assert r.crashed and not r.clean and r.returncode == 7
+
+
+def test_sandbox_sys_exit_zero_is_still_clean():
+    """sys.exit(0) / sys.exit() / sys.exit(None) all mean success -- must not
+    be swept into the new "positive nonzero exit" failure path."""
+    r = run_code("import sys\nsys.exit(0)", "python", timeout=8)
+    assert r.clean and not r.crashed and r.returncode == 0
+
+
+# A genuine signal kill must remain tolerated -- this is the case the
+# "no traceback" rule was actually meant for, and the fix must not regress it.
+# Distinguished from sys.exit() by the returncode's sign: POSIX subprocess
+# reports a NEGATIVE returncode for signal termination, never for sys.exit().
+def test_sandbox_signal_kill_is_still_tolerated():
+    r = run_code("import os, signal\nos.kill(os.getpid(), signal.SIGKILL)", "python", timeout=8)
+    assert r.clean and not r.crashed
+    assert r.returncode is not None and r.returncode < 0
+
+
 # ── bug classification ─────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("tb,expected", [
@@ -73,6 +108,48 @@ def test_verify_clean_scores_higher_than_crash():
     good = verify_candidate(Candidate(code="def main():\n    return 1\nmain()\n"))
     bad = verify_candidate(Candidate(code="raise ValueError('boom')\n"))
     assert good.score > bad.score and good.runs_clean and bad.runs_clean is False
+
+
+# Live report: a candidate AND its test both exited with failure status, yet
+# verify_candidate reported "1/1 tests passed" and a 0.92-0.96 score. Root
+# cause was two-layered: sandbox.py's signal-vs-SystemExit misclassification
+# (see the sandbox tests above), plus _parse_test_result inferring a pass from
+# "the process didn't crash" whenever no ELI_TESTS: marker was found --  which
+# a signal/rlimit kill mid-run, or a missing-optional-dep import failure in
+# the HARNESS's own setup (before any test ran), also satisfy. Both fixed;
+# these two tests exercise them independently of each other.
+def test_a_candidate_that_sys_exits_is_not_scored_as_passing():
+    """The candidate itself dies via sys.exit(1) -- must fail at Gate 2
+    (execution), never even reaching the tests gate as a false pass."""
+    bad_code = "import sys\ndef add(a, b):\n    return a + b\nsys.exit(1)\n"
+    tests = (
+        "import candidate, sys\n"
+        "p = 0; t = 1\n"
+        "try:\n"
+        "    assert candidate.add(2, 3) == 5\n"
+        "    p += 1\n"
+        "except Exception:\n"
+        "    pass\n"
+        "print(f'ELI_TESTS: {p}/{t}')\n"
+        "sys.exit(0 if p == t else 1)\n"
+    )
+    cand = verify_candidate(Candidate(code=bad_code), tests=tests)
+    assert cand.gate_failed == "execution"
+    assert cand.runs_clean is False
+    assert not (cand.tests_total and cand.tests_passed == cand.tests_total), (
+        "a candidate that never ran must not be scored as if its tests passed")
+
+
+def test_a_test_harness_that_sys_exits_before_the_marker_is_not_a_pass():
+    """The CANDIDATE is innocent; the test HARNESS itself dies via sys.exit()
+    before ever printing ELI_TESTS: -- this must fail Gate 3, not silently
+    credit a pass just because the harness process "didn't crash"."""
+    good_code = "def add(a, b):\n    return a + b\n"
+    tests = "import candidate, sys\nsys.exit(1)\n"  # dies before any print
+    cand = verify_candidate(Candidate(code=good_code), tests=tests)
+    assert cand.runs_clean is True, "the candidate alone is fine"
+    assert cand.gate_failed == "tests"
+    assert cand.tests_passed < cand.tests_total
 
 
 # ── full agent loop (stub generator) ────────────────────────────────────────────

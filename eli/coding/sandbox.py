@@ -193,13 +193,35 @@ def run_code(
         return RunResult(True, False, 0, False, out, err, note="exited cleanly")
 
     # Non-zero exit. Decide crash vs tolerated.
-    if _TRACEBACK_MARKER not in err and language == "python":
+    #
+    # A genuine OS-level kill (the CPU rlimit above, an out-of-memory kill, an
+    # operator-sent signal) never prints a traceback AND is reported by
+    # subprocess as a NEGATIVE returncode on POSIX ("-N indicates terminated
+    # by signal N") -- that combination is the actual "signal/limit" case this
+    # tolerance exists for.
+    #
+    # A plain positive returncode with no traceback is a DIFFERENT thing: an
+    # explicit `sys.exit(n)` / `os._exit(n)` / uncaught `SystemExit`. CPython's
+    # top-level handler does not print a traceback for SystemExit, so this
+    # used to be misclassified as "tolerated" too -- which meant a candidate
+    # (or a synthesised test harness, dying via `sys.exit(1)` during
+    # `import candidate` before it ever reached its own `ELI_TESTS:` print)
+    # could deliberately report failure and have run_code silently agree it
+    # was fine. Reproduced live: a candidate with a bare `sys.exit(1)` scored
+    # 0.96 and "1/1 tests passed". The returncode sign is what actually
+    # distinguishes the two cases; the absence of a traceback does not.
+    if proc.returncode < 0 and _TRACEBACK_MARKER not in err and language == "python":
         return RunResult(True, False, proc.returncode, False, out, err,
-                         note="non-zero exit, no Python traceback (signal/limit) — tolerated")
+                         note="killed by signal, no Python traceback (limit/interrupt) — tolerated")
     if any(m in err for m in ("ModuleNotFoundError", "ImportError")):
         return RunResult(True, False, proc.returncode, False, out, err,
                          note="missing optional dependency on this machine — tolerated")
     tail = "\n".join(err.strip().splitlines()[-8:])
+    if _TRACEBACK_MARKER not in err and language == "python":
+        return RunResult(True, True, proc.returncode, False, out, err,
+                         traceback_tail=tail,
+                         note=f"exited with status {proc.returncode} and no traceback "
+                              "(sys.exit()/os._exit() or similar) — treated as a failure")
     return RunResult(True, True, proc.returncode, False, out, err,
                      traceback_tail=tail, note="genuine runtime crash")
 

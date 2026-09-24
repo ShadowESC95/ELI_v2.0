@@ -225,9 +225,17 @@ def _parse_test_result(res: RunResult) -> tuple[int, int]:
     m = _TEST_RESULT_RE.search((res.stdout or "") + "\n" + (res.stderr or ""))
     if m:
         return int(m.group(1)), int(m.group(2))
-    # No parseable marker: fall back to exit-code semantics.
-    if res.clean and not res.crashed:
-        return (1, 1)        # harness ran to completion without failing
+    # No parseable marker: the harness never told us what actually happened.
+    # This used to infer a pass from `res.clean` -- but "clean" only means
+    # run_code's classifier did not call it a crash, which a signal/rlimit
+    # kill mid-run (killed before the harness could print anything) or a
+    # tolerated missing-optional-dependency import failure (in the HARNESS's
+    # own imports, before any test ran) both satisfy just as well as a
+    # genuine full pass does. Inferring (1, 1) from "didn't crash" is the same
+    # class of mistake as the sandbox.py SystemExit bug this was found
+    # alongside: absence of a failure signal is not a pass signal. The only
+    # thing that may report a pass is the harness's own ELI_TESTS: line, so
+    # anything else is scored as a single failed test.
     return (0, 1)
 
 
