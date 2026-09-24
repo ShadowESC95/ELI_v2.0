@@ -22,7 +22,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 | `eli/core/netguard.py` | 3 |
 | `eli/gui/docks/operator_console_dock.py` | 3 |
 | `eli/kernel/self_upgrade.py` | 3 |
-| `eli/memory/memory_service.py` | 3 |
 | `eli/perception/analyze_csv.py` | 3 |
 | `eli/plugins/document_reader/plugin.py` | 3 |
 | `eli/runtime/evidence_arbitration.py` | 3 |
@@ -39,13 +38,10 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 | `eli/memory/__init__.py` | 2 |
 | `eli/memory/habits_memory_db.py` | 2 |
 | `eli/perception/log_rotation.py` | 2 |
-| `eli/perception/voice_worker.py` | 2 |
 | `eli/planning/autonomy_controller.py` | 2 |
-| `eli/planning/habits_state.py` | 2 |
 | `eli/plugins/web/plugin.py` | 2 |
 | `eli/runtime/active_project.py` | 2 |
 | `eli/runtime/generated_script_guard.py` | 2 |
-| `eli/runtime/memory_evidence.py` | 2 |
 | `eli/runtime/operator_state.py` | 2 |
 | `eli/runtime/runtime_policy.py` | 2 |
 | `eli/runtime/server_util.py` | 2 |
@@ -68,24 +64,20 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 | `eli/core/runtime_settings.py` | 1 |
 | `eli/execution/portable_intent_contract.py` | 1 |
 | `eli/execution/route_authority.py` | 1 |
-| `eli/execution/tool_execution_authority.py` | 1 |
 | `eli/integrations/ollama/client.py` | 1 |
 | `eli/kernel/engine.py` | 1 |
 | `eli/kernel/scheduler.py` | 1 |
 | `eli/learning/dataset_builder.py` | 1 |
 | `eli/memory/memory.py` | 1 |
 | `eli/memory/memory_truth.py` | 1 |
-| `eli/memory/sqlite_memory.py` | 1 |
 | `eli/perception/analyze_image.py` | 1 |
 | `eli/perception/os_controller.py` | 1 |
 | `eli/perception/ui_ground.py` | 1 |
 | `eli/runtime/api_users.py` | 1 |
 | `eli/runtime/approval_engine.py` | 1 |
 | `eli/runtime/evidence_ledger.py` | 1 |
-| `eli/runtime/evidence_store.py` | 1 |
 | `eli/runtime/experimental_inventory.py` | 1 |
 | `eli/runtime/final_response_provider.py` | 1 |
-| `eli/runtime/identity_guard.py` | 1 |
 | `eli/runtime/license_info.py` | 1 |
 | `eli/runtime/personal_memory_clean_response.py` | 1 |
 | `eli/runtime/reasoning_status.py` | 1 |
@@ -687,21 +679,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
    26|             pass
 ```
 
-## `eli/execution/tool_execution_authority.py` (1)
-
-### Line 33 — `def latest_execution_intent_payload()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Try/return fallback — exception swallowed to return None/False/default.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   31|             if getattr(pkt, "kind", "") == "execution_intent_packet":
-   32|                 return dict(getattr(pkt, "payload", {}) or {})
-   33|         except Exception:
-   34|             pass
-```
-
 ## `eli/gui/docks/operator_console_dock.py` (3)
 
 ### Line 256 — `def refresh_all()`
@@ -1142,47 +1119,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
  4553| 
 ```
 
-## `eli/memory/memory_service.py` (3)
-
-### Line 15 — `def ensure_schema()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   13|         from eli.memory import get_memory
-   14|         get_memory()  # Schema created on init
-   15|     except Exception:
-   16|         pass
-```
-
-### Line 42 — `def append_chat_turn()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   40|         mem.add_conversation_turn("user", user_msg, session_id=session_id)
-   41|         mem.add_conversation_turn("assistant", assistant_msg, session_id=session_id)
-   42|     except Exception:
-   43|         pass  # Never crash the chat pipeline
-```
-
-### Line 55 — `def get_last_user_utterance()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   53|             if turn.get("role") == "user":
-   54|                 return turn.get("content")
-   55|     except Exception:
-   56|         pass
-```
-
 ## `eli/memory/memory_truth.py` (1)
 
 ### Line 33 — `def _artifact_path()`
@@ -1196,21 +1132,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
    32|             return Path(val).expanduser().resolve().joinpath(*parts)
    33|     except Exception:
    34|         pass
-```
-
-## `eli/memory/sqlite_memory.py` (1)
-
-### Line 42 — `def log_event()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   40|     try:
-   41|         get_memory().log_habit_event(event_type, data or {})
-   42|     except Exception:
-   43|         pass
 ```
 
 ## `eli/perception/analyze_csv.py` (3)
@@ -1381,34 +1302,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
   454|                 pass
 ```
 
-## `eli/perception/voice_worker.py` (2)
-
-### Line 26 — `def stop()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   24|         try:
-   25|             p.send_signal(signal.SIGINT)
-   26|         except Exception:
-   27|             pass
-```
-
-### Line 30 — `def stop()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   28|         try:
-   29|             p.terminate()
-   30|         except Exception:
-   31|             pass
-```
-
 ## `eli/planning/autonomy_controller.py` (2)
 
 ### Line 72 — `module-level`
@@ -1435,34 +1328,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
    95|         AutonomyController.scheduler_tick = _scheduler_tick
    96| except Exception:
    97|     pass
-```
-
-## `eli/planning/habits_state.py` (2)
-
-### Line 14 — `def _load_state()`
-
-- **Except:** `bare except`
-- **Why it exists / risk:** Settings read/write — silent pass can leave stale config or failed deletes unnoticed.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   12|         if _STATE_PATH.exists():
-   13|             return json.loads(_STATE_PATH.read_text(encoding="utf-8"))
-   14|     except:
-   15|         pass
-```
-
-### Line 22 — `def _save_state()`
-
-- **Except:** `bare except`
-- **Why it exists / risk:** Settings read/write — silent pass can leave stale config or failed deletes unnoticed.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   20|         _STATE_PATH.parent.mkdir(parents=True, exist_ok=True)
-   21|         _STATE_PATH.write_text(json.dumps(state, indent=2), encoding="utf-8")
-   22|     except:
-   23|         pass
 ```
 
 ## `eli/planning/insight_synthesis.py` (4)
@@ -1756,21 +1621,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
   565|             pass
 ```
 
-## `eli/runtime/evidence_store.py` (1)
-
-### Line 15 — `def clear_pipeline_state()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Unclassified best-effort block — review whether failure should surface to operator logs.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   13|         try:
-   14|             delattr(_tls, k)
-   15|         except Exception:
-   16|             pass
-```
-
 ## `eli/runtime/experimental_inventory.py` (1)
 
 ### Line 31 — `def _first_heading()`
@@ -1896,21 +1746,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
   149|                     pass
 ```
 
-## `eli/runtime/identity_guard.py` (1)
-
-### Line 61 — `def clear_lock()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   59|         if hasattr(state, "persona_lock"):
-   60|             state.persona_lock = None
-   61|     except Exception:
-   62|         pass
-```
-
 ## `eli/runtime/license_info.py` (1)
 
 ### Line 97 — `def print_license()`
@@ -1924,34 +1759,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
    96|             sys.stdout.write(SUMMARY)
    97|         except Exception:
    98|             pass
-```
-
-## `eli/runtime/memory_evidence.py` (2)
-
-### Line 91 — `def _memory_instance()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   89|         if mem is not None:
-   90|             return mem
-   91|     except Exception:
-   92|         pass
-```
-
-### Line 80 — `def _coerce_score()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Invalid env override — falls back to default; silent pass hides misconfiguration.
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-   78|             if 0.0 <= f <= 1.0:
-   79|                 return max(base, f)
-   80|         except Exception:
-   81|             pass
 ```
 
 ## `eli/runtime/operator_state.py` (2)

@@ -248,9 +248,9 @@ of those ten patterns are `app_cmd` JSON blobs the KG mapper discards.
 
 ## Update — 2.3.7 (recent-history window widened)
 
-*`runtime/memory_evidence.py` was removed in 2.4.63; shared turn retrieval in `memory/retrieval.py` replaced it. Kept for history.*
+*The old memory-evidence module was removed in 2.4.63; shared turn retrieval in `memory/retrieval.py` replaced it. Kept for history.*
 
-`runtime/memory_evidence.py` capped every recent-history pull at
+The old memory-evidence module capped every recent-history pull at
 `max(4, min(limit, 8))`. The cap **silently ignored a larger limit**: a caller asking
 for 40 recent turns still received 8, so continuity was being thrown away by a
 constant nobody could see or configure.

@@ -209,9 +209,9 @@ and runs `NEWS_FETCH` again instead of falling through to web-escalation hedge.
 
 ## Update — 2.3.7 (evidence layer stopped discarding history)
 
-*`runtime/memory_evidence.py` was removed in 2.4.63; shared turn retrieval in `memory/retrieval.py` replaced it. Kept for history.*
+*The old memory-evidence module was removed in 2.4.63; shared turn retrieval in `memory/retrieval.py` replaced it. Kept for history.*
 
-`runtime/memory_evidence.collect_memory_evidence` pulled recent processed memories,
+`collect_memory_evidence` in the old memory-evidence module pulled recent processed memories,
 observations and conversation turns with `limit = max(4, min(limit, 8))`. The inner
 `min` meant a caller asking for 40 recent turns silently received 8 — history was
 being dropped *before* the prompt budgeter ever saw it, by a constant with no setting
