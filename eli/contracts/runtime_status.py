@@ -394,10 +394,7 @@ def build_content(
         "",
     ]
 
-    # Requested vs loaded. The "Effective runtime" block above lists only what
-    # LOADED, so a load reduced to fit (layers requested 7, loaded 6) read exactly
-    # like an untouched one -- and asked "is this configuration consistent?", a
-    # model handed only that block says yes. State the comparison outright.
+    # Requested vs loaded: the block above shows only what loaded, so state the comparison.
     facts = e.get("load_facts") or {}
     if facts:
         lines.append("Requested vs loaded:")
@@ -410,6 +407,14 @@ def build_content(
             lines.append("- tuner_suggestion (a stored fallback, NOT what loaded): "
                          + ", ".join(f"{k}={v}" for k, v in tuner.items()))
         lines.append("")
+
+    try:
+        from eli.runtime.truth_report import system_memory_line
+        _sys = system_memory_line()
+    except Exception:
+        _sys = ""
+    if _sys:
+        lines += ["System:", f"- {_sys}", ""]
 
     lines += [
         "Project/runtime paths:",

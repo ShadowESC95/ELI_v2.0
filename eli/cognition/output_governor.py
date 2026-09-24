@@ -823,6 +823,67 @@ _RUNTIME_NUM_RX = re.compile(
     re.IGNORECASE,
 )
 
+# Concrete figures and model designations (H100, 512 GB, 32K) stated without
+# support in the evidence. Hardware- and model-agnostic: no name lists.
+_FIG_RX = re.compile(
+    r"(?<![\w./-])(\d[\d,]*(?:\.\d+)?)\s*"
+    r"(kib|kb|k|mib|mb|gib|gb|tib|tb|%|cores?|threads?|layers?|tokens?|ghz|mhz)?(?![\w])",
+    re.I,
+)
+_DESIGNATION_RX = re.compile(r"\b([A-Za-z][A-Za-z-]*\d[\w-]*)\b")
+_CAPS_MODEL_RX = re.compile(r"\b[A-Z]{2,}\s+(\d{3,5})[A-Za-z]{0,2}\b")
+_EV_NUM_RX = re.compile(r"(?<![\w.])(\d[\d,]*(?:\.\d+)?)")
+_SMALL_BARE_INT = 12
+_FIG_TOLERANCE = 0.02
+
+
+def _figure_supported(val: float, unit: str, ev_nums: List[float]) -> bool:
+    u = (unit or "").lower()
+    candidates = {val}
+    if u.startswith("k"):
+        candidates |= {val * 1000, val * 1024}
+    if u in ("gb", "gib", "tb", "tib"):
+        candidates |= {val * 1024, val * 1000, val * 1024 * 1024, val * 1000 * 1000}
+    if u in ("mb", "mib"):
+        candidates |= {val / 1024, val / 1000, val * 1024}
+    return any(e == c or (c and abs(e - c) / abs(c) <= _FIG_TOLERANCE)
+               for c in candidates for e in ev_nums)
+
+
+def _unsupported_figures(out: str, ev: str) -> List[str]:
+    """Figures/designations in ``out`` absent from ``ev`` after unit conversion.
+
+    Small unitless integers are ignored; two or more unexplained bare numbers
+    count as a claim.
+    """
+    ev_low = ev.lower()
+    ev_nums: List[float] = []
+    for m in _EV_NUM_RX.finditer(ev):
+        try:
+            ev_nums.append(float(m.group(1).replace(",", "")))
+        except ValueError:
+            continue
+    bad = [m.group(1) for m in _DESIGNATION_RX.finditer(out) if m.group(1).lower() not in ev_low]
+    for m in _CAPS_MODEL_RX.finditer(out):
+        if not _figure_supported(float(m.group(1)), "", ev_nums):
+            bad.append(m.group(0))
+    bare: List[str] = []
+    for m in _FIG_RX.finditer(out):
+        raw, unit = m.group(1), m.group(2) or ""
+        try:
+            val = float(raw.replace(",", ""))
+        except ValueError:
+            continue
+        if (not unit and val <= _SMALL_BARE_INT) or _figure_supported(val, unit, ev_nums):
+            continue
+        if any(raw in b for b in bad):
+            continue
+        (bad if unit else bare).append(f"{raw} {unit}".strip())
+    if len(bare) >= 2:
+        bad.extend(bare)
+    return bad
+
+
 _TOT_SCAFFOLDING_RXES = (
     re.compile(r"^\s*\d+\.\s+[A-Z][\w\s\-/&]+?\s*\n\s*Core\s+Idea\s*:", re.MULTILINE),
     re.compile(r"\bFeasibility\s*:\s*\d+\s*/\s*10\b", re.IGNORECASE),
@@ -1156,6 +1217,17 @@ def validate_against_evidence(
             "reason": "runtime parameter value not present in evidence",
         })
 
+    # 4b. Figures and model designations the evidence does not contain.
+    for fig in _unsupported_figures(out, ev):
+        claims_total += 1
+        claims_unverified += 1
+        violations.append({
+            "kind": "fabricated_figure",
+            "value": fig,
+            "reason": "figure or model designation not present in evidence",
+        })
+        catastrophic = True
+
     # 5. PASS/FAIL audit lines for specific files
     for status, fname in _PASS_FAIL_AUDIT_RX.findall(out):
         claims_total += 1
@@ -1239,7 +1311,7 @@ def validate_against_evidence(
     if mode == "strip_silent":
         for v in violations:
             kind = v["kind"]
-            if kind in ("fabricated_path", "fabricated_signature", "fabricated_audit_line", "fabricated_line_reference", "unsupported_mutation_claim"):
+            if kind in ("fabricated_path", "fabricated_signature", "fabricated_audit_line", "fabricated_line_reference", "unsupported_mutation_claim", "fabricated_figure"):
                 sanitized = _strip_violating_lines(sanitized, v["value"])
             elif kind == "fabricated_runtime_value":
                 key_part = v["value"].split("=", 1)[0].strip()
@@ -1254,7 +1326,7 @@ def validate_against_evidence(
     elif mode == "mark_inline":
         for v in violations:
             kind = v["kind"]
-            if kind in ("fabricated_path", "fabricated_signature", "fabricated_audit_line", "fabricated_line_reference", "unsupported_mutation_claim"):
+            if kind in ("fabricated_path", "fabricated_signature", "fabricated_audit_line", "fabricated_line_reference", "unsupported_mutation_claim", "fabricated_figure"):
                 sanitized = sanitized.replace(v["value"], f"<unverified: {v['value']}>")
             elif kind == "fabricated_runtime_value":
                 # mark inline near the key

@@ -747,10 +747,7 @@ def allocate(
     model_vram_mb = model_gb * 1024.0          # VRAM needed for full offload
     kv_per_token  = layers_total * 1024 / 1048576.0  # MB per ctx token (q4_0 KV)
 
-    # Auto target: the model's own trained context x the fraction spinbox, not a
-    # constant shared by every model and machine. The operator's own value
-    # (Context window field -> ELI_FORCE_CTX, or user_preferred_ctx) is handled
-    # below and never comes through here; VRAM/RAM caps below still reduce this.
+    # Auto target: trained context x fraction; an operator-chosen value is handled below.
     _default_target = round_ctx(int(train_ctx * ctx_fraction))
     _DEFAULT_CTX = _default_target
 

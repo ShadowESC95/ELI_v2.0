@@ -193,23 +193,8 @@ def run_code(
         return RunResult(True, False, 0, False, out, err, note="exited cleanly")
 
     # Non-zero exit. Decide crash vs tolerated.
-    #
-    # A genuine OS-level kill (the CPU rlimit above, an out-of-memory kill, an
-    # operator-sent signal) never prints a traceback AND is reported by
-    # subprocess as a NEGATIVE returncode on POSIX ("-N indicates terminated
-    # by signal N") -- that combination is the actual "signal/limit" case this
-    # tolerance exists for.
-    #
-    # A plain positive returncode with no traceback is a DIFFERENT thing: an
-    # explicit `sys.exit(n)` / `os._exit(n)` / uncaught `SystemExit`. CPython's
-    # top-level handler does not print a traceback for SystemExit, so this
-    # used to be misclassified as "tolerated" too -- which meant a candidate
-    # (or a synthesised test harness, dying via `sys.exit(1)` during
-    # `import candidate` before it ever reached its own `ELI_TESTS:` print)
-    # could deliberately report failure and have run_code silently agree it
-    # was fine. Reproduced live: a candidate with a bare `sys.exit(1)` scored
-    # 0.96 and "1/1 tests passed". The returncode sign is what actually
-    # distinguishes the two cases; the absence of a traceback does not.
+    # A real signal kill (rlimit, OOM) prints no traceback and has a NEGATIVE returncode.
+    # A positive exit with no traceback is sys.exit()/os._exit(), which must not be tolerated.
     if proc.returncode < 0 and _TRACEBACK_MARKER not in err and language == "python":
         return RunResult(True, False, proc.returncode, False, out, err,
                          note="killed by signal, no Python traceback (limit/interrupt) — tolerated")

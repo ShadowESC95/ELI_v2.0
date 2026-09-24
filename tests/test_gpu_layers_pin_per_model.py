@@ -131,16 +131,7 @@ def test_a_different_model_is_still_rejected_after_normalisation():
         {"n_gpu_layers": 7, "n_gpu_layers_model": "qwen-27b.gguf"}) is None
 
 
-# ── ctx-awareness (2.4.56) ──────────────────────────────────────────────────
-# A pinned layer count is only as valid as the ctx it was measured at: KV
-# cache for every layer lives on GPU regardless of offload, so it scales with
-# ctx directly. Live report: gpu_layers=7 was measured (and correctly pinned)
-# for THIS model at ctx=2048; the operator then typed ctx=12200 and loaded --
-# the model-identity check alone still said the pin applied (same model!),
-# so 7 was enforced as a hard ceiling at a ctx it was never validated for,
-# and the loader crushed batch and ctx far harder than necessary trying to
-# squeeze under it. Same failure shape as the cross-model case above, one
-# dimension over.
+# ── ctx-awareness (2.4.56) ── a pinned layer count is only valid at the ctx it was measured at.
 def test_a_pin_from_a_much_smaller_ctx_is_dropped():
     got = rs.pinned_gpu_layers_for_model(
         "/models/phi3.gguf",

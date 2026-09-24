@@ -1935,11 +1935,15 @@ def _format_runtime_status(report: Dict[str, Any]) -> str:
         f"- cpu_threads: {_pick('n_threads', 'n_threads', 'cpu_threads', 'threads')}",
         f"- gguf_loaded_in_this_process: {loaded}",
     ]
+    try:
+        from eli.runtime.truth_report import system_memory_line
+        _sys = system_memory_line()
+        if _sys:
+            lines.append(f"- system: {_sys}")
+    except Exception:
+        log.debug("system memory line unavailable", exc_info=True)
 
-    # What was ASKED of the loader vs what LOADED, computed by the one shared rule
-    # (truth_report.runtime_load_facts) so this surface cannot say less than the
-    # others. Without it the lines above were all "loaded" values, and a question
-    # like "why is my config inconsistent?" had nothing to be inconsistent with.
+    # Requested vs loaded, from the shared rule (truth_report.runtime_load_facts).
     try:
         from eli.runtime.truth_report import runtime_load_facts
         _facts = runtime_load_facts(runtime, settings)

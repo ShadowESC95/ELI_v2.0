@@ -791,15 +791,8 @@ class LocalModelManager:
                 if requested_n_gpu_layers is not None
                 else effective_n_gpu_layers
             )
-            # ctx/batch used to collapse onto whatever actually loaded here --
-            # only gpu_layers kept an honest requested-vs-effective split. That
-            # meant a smart-fit fallback (e.g. ctx cut 12384->4096 to fit VRAM)
-            # got reported back as "requested", and GPU_STATUS/EXPLAIN grounded
-            # a confident "loaded exactly as requested, no fallback occurred"
-            # on evidence the load ladder had already overwritten. The caller
-            # now passes the operator's TRUE original ask; default to the
-            # effective value only when a caller genuinely has nothing else
-            # (e.g. a snapshot re-publish with no fallback story to tell).
+            # ctx/batch requested values are the operator's true ask, not what the fallback loaded;
+            # default to effective only when the caller has nothing else.
             requested_ctx = int(
                 requested_n_ctx if requested_n_ctx is not None else effective_n_ctx
             )
@@ -10602,10 +10595,7 @@ class EliMainWindow(QMainWindow):
                 _s = dict(_rs_load() or {})
                 _s["n_ctx"] = _canonical_ctx        # user's chosen ctx, preserved
                 _s["n_gpu_layers"] = _canonical_layers   # user's choice, preserved
-                # Stamp the model AND ctx the count now belongs to, so the next
-                # swap -- or the next ctx change on the SAME model -- can tell a
-                # deliberate pin from one inherited from a different model or a
-                # different (usually much smaller) ctx it was never measured at.
+                # Record the model and ctx this pin was measured at, so a swap or ctx change can invalidate it.
                 _s["n_gpu_layers_model"] = _this_model
                 _s["n_gpu_layers_ctx"] = _canonical_ctx
                 _s["batch_size"] = _canonical_batch   # user's choice, preserved
@@ -10733,12 +10723,8 @@ class EliMainWindow(QMainWindow):
             else:
                 self.model_path_input.setText(selected_path)
 
-            # The dialog's "Target batch" is what the operator just asked for. The
-            # tuner treats the Settings-tab batch spinbox as a pinned user choice
-            # that beats its own number, and that spinbox still held the previous
-            # session's value -- so a dialog set to 256 loaded 512, with nothing
-            # anywhere saying the request had been overridden. Carry the dialog's
-            # value into the spinbox so there is one request, not two.
+            # The dialog's Target batch is the request; the Settings-tab spinbox held a stale value
+            # that the tuner treated as a pinned choice, so copy the dialog's value into it.
             try:
                 _dlg_batch = int(dlg.target_batch_spin.value())
                 if _dlg_batch > 0:

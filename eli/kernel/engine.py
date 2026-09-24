@@ -10457,6 +10457,54 @@ Answer:"""
         """
         return None
 
+    def _publish_orchestrator_turn_meta(self, user_input: str, final: str,
+                                        trace: Optional[Dict[str, Any]] = None) -> None:
+        """Publish this turn's confidence/grounding/agents for both orchestrator exits.
+
+        Confidence is the reasoning loop's final score when recorded, else the bus
+        aggregate; a value the turn did not measure stays None, not 0.
+        """
+        try:
+            _bus = getattr(self, "_last_bus_result", None)
+            _trace = dict(getattr(self, "_last_orchestrator_trace", {}) or {})
+            if isinstance(trace, dict):
+                _trace.update({k: v for k, v in trace.items() if k not in _trace})
+            _agents = list(getattr(_bus, "agents_used", []) or []) if _bus else []
+            _agg = float(getattr(_bus, "aggregated_confidence", 0.0) or 0.0) if _bus else None
+            _grnd = float(getattr(_bus, "grounding_confidence", 0.0) or 0.0) if _bus else None
+            _score = None
+            try:
+                _passes = [c for c in (_trace.get("confidence") or []) if isinstance(c, dict)]
+                if _passes:
+                    _score = float(_passes[-1].get("score"))
+            except Exception:
+                _score = None
+            if _bus is not None:
+                # The badge prefers aggregated_confidence, so record it only when it is the headline number.
+                if _score is None:
+                    _trace["agent_confidence"] = _agg
+                else:
+                    _trace.pop("agent_confidence", None)
+                _trace["grounding_confidence"] = _grnd
+                _trace["agents_used"] = _agents
+            _ctx = str(getattr(self, "_last_orchestrator_memory_context", "") or "")
+            self._publish_last_response_meta(
+                _trace,
+                action="CHAT",
+                result_action="CHAT",
+                response=final,
+                agents_used=_agents,
+                confidence=_score if _score is not None else _agg,
+                grounding_confidence=_grnd,
+                confidence_label=(str(getattr(_bus, "confidence_label", "") or "")
+                                  if (_bus and _score is None) else ""),
+                user_input=user_input,
+                evidence_used=bool(_ctx),
+                grounded=bool(_ctx),
+            )
+        except Exception as _meta_err:
+            log.debug(f"[COGNITIVE] orchestrator meta publish failed: {_meta_err}")
+
     def _run_internal_orchestrator(self, user_input: str, stream: bool = False,
                                    reasoning_mode: Optional[str] = None):
         if getattr(self, "_orchestrator_active", False):
@@ -10479,6 +10527,21 @@ Answer:"""
             self._orchestrator_active = False
 
         if not stream:
+            # Every non-streamed orchestrated turn exits here; publish its meta so the badge and
+            # last_trace.json are not left stale.
+            try:
+                _txt = ""
+                if isinstance(result, dict):
+                    _txt = str(result.get("response") or result.get("content") or "")
+                elif isinstance(result, str):
+                    _txt = result
+                if _txt.strip():
+                    self._publish_orchestrator_turn_meta(
+                        user_input, _txt.strip(),
+                        trace=(result.get("trace") if isinstance(result, dict) else None),
+                    )
+            except Exception as _meta_err:
+                log.debug(f"[COGNITIVE] orchestrator meta publish failed: {_meta_err}")
             return result
 
         import types as _types
@@ -10512,38 +10575,7 @@ Answer:"""
                         )
                     except Exception as _gov_err:
                         log.debug(f"[COGNITIVE] orchestrator stream governance skipped: {_gov_err}")
-                    try:
-                        _bus = getattr(self, "_last_bus_result", None)
-                        _trace = dict(getattr(self, "_last_orchestrator_trace", {}) or {})
-                        if _bus is not None:
-                            _trace["agent_confidence"] = float(
-                                getattr(_bus, "aggregated_confidence", 0.0) or 0.0
-                            )
-                            _trace["grounding_confidence"] = float(
-                                getattr(_bus, "grounding_confidence", 0.0) or 0.0
-                            )
-                            _trace["agents_used"] = list(getattr(_bus, "agents_used", []) or [])
-                        self._publish_last_response_meta(
-                            _trace,
-                            action="CHAT",
-                            result_action="CHAT",
-                            response=final,
-                            agents_used=list(getattr(_bus, "agents_used", []) or []) if _bus else [],
-                            confidence=float(
-                                getattr(_bus, "aggregated_confidence", 0.0) or 0.0
-                            ) if _bus else None,
-                            grounding_confidence=float(
-                                getattr(_bus, "grounding_confidence", 0.0) or 0.0
-                            ) if _bus else None,
-                            confidence_label=str(
-                                getattr(_bus, "confidence_label", "") or ""
-                            ) if _bus else "",
-                            user_input=user_input,
-                            evidence_used=bool(_wm_ctx),
-                            grounded=bool(_wm_ctx),
-                        )
-                    except Exception as _meta_err:
-                        log.debug(f"[COGNITIVE] orchestrator stream meta publish failed: {_meta_err}")
+                    self._publish_orchestrator_turn_meta(user_input, final)
                     try:
                         self.enqueue_post_response_storage(
                             user_input, final, {"action": "CHAT"}, command=False)
@@ -13428,6 +13460,25 @@ Answer:"""
                                 action=_action_upper,
                                 mode=_direct_mode,
                             )
+                            _synth_rejected = []
+                            if _compact_synth and _compact_synth.strip():
+                                try:
+                                    from eli.cognition.output_governor import validate_against_evidence
+                                    _verdict = validate_against_evidence(
+                                        _compact_synth, f"{_synth_evidence}\n{_direct_content}",
+                                        mode="strip_silent")
+                                    if _verdict.get("unsafe"):
+                                        _synth_rejected = sorted({
+                                            f"{v.get('kind')}:{v.get('value')}"
+                                            for v in _verdict.get("violations") or []})
+                                        log.warning(
+                                            f"[COGNITIVE] {_action_upper} synthesis rejected "
+                                            f"{_synth_rejected[:6]}; returning the evidence itself")
+                                        _compact_synth = _direct_content
+                                    else:
+                                        _compact_synth = (_verdict.get("sanitized") or _compact_synth)
+                                except Exception:
+                                    log.debug("synthesis validation failed", exc_info=True)
                             if _compact_synth and _compact_synth.strip():
                                 _final_text = _compact_synth.strip()
                                 try:
@@ -13467,7 +13518,9 @@ Answer:"""
                                     "tool_result": _chosen_payload,
                                     "confidence": _direct_conf,
                                     "meta": {
-                                        "response_mode": "compact_grounded_synthesis",
+                                        "response_mode": ("compact_synthesis_rejected"
+                                                          if _synth_rejected else "compact_grounded_synthesis"),
+                                        "synthesis_violations": list(_synth_rejected)[:12],
                                         "mode": _direct_mode,
                                         "raw_tool_text": _direct_content,
                                     },
@@ -15665,6 +15718,13 @@ Answer:"""
             )
             if _self_status:
                 log.debug("[MEMORY] not storing ELI's own self-status remark as knowledge")
+                return
+            # Runtime state is measured live and goes stale; a stored statement of it
+            # (or an invented one) comes back later as fact.
+            if (re.search(r"\b(n_ctx|context (?:length|window|size)|ctx|gpu|vram|layers?|"
+                          r"batch|threads?|ram)\b", _t_low)
+                    and re.search(r"\d{2,}", _t_low)):
+                log.debug("[MEMORY] not storing ELI's own runtime-state statement as knowledge")
                 return
             kind = "assistant_insight"
             source = "assistant"

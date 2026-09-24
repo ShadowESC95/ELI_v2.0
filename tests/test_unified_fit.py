@@ -107,14 +107,8 @@ def test_unified_fit_igpu_merges_budgets():
     assert batch >= 128
 
 
-# Regression for a live 2.4.54 bug report (see test_smart_fit.py for the
-# VRAM-only version): the ceiling must hold across EVERY backend this planner
-# serves, not just discrete NVIDIA/CUDA. hardware_profile.py funnels AMD
-# (ROCm and the sysfs fallback), Intel iGPU, Apple unified memory and
-# Qualcomm Adreno through these same HardwareProfile fields specifically so
-# they share one fit algorithm -- so the ceiling fix has to live at this one
-# choke point, not per-vendor, and these tests prove it actually reaches both
-# code paths (discrete VRAM-only, and the iGPU/unified-memory RAM-clamp path).
+# The layer ceiling must hold on every backend that shares this planner (discrete VRAM and
+# the iGPU/unified-memory RAM-clamp path).
 def test_unified_fit_respects_gpu_layers_ceiling_discrete_gpu():
     # Generous VRAM: with no ceiling this backfills to 99 (all TOTAL layers),
     # same setup as test_generous_vram_keeps_user_settings_full_offload.
@@ -132,9 +126,7 @@ def test_unified_fit_respects_gpu_layers_ceiling_discrete_gpu():
 
 
 def test_unified_fit_respects_gpu_layers_ceiling_igpu_unified_memory():
-    # gpu_integrated=True is the AMD APU / Intel iGPU / Apple unified-memory
-    # path, which additionally runs through _clamp_fit_to_ram_budget -- a
-    # second, separate backfill loop that needs the same ceiling.
+    # gpu_integrated=True also runs _clamp_fit_to_ram_budget, a second backfill loop.
     ctx, layers, batch = unified_fit_config(
         MODEL_GB, 20000, 64.0,
         user_ctx=USER_CTX, user_batch=USER_BATCH,
@@ -149,9 +141,7 @@ def test_unified_fit_respects_gpu_layers_ceiling_igpu_unified_memory():
 
 
 def test_max_gpu_priority_also_respects_ceiling():
-    # FIT_PRIORITY_MAX_GPU is specifically the "pack VRAM with layers" mode --
-    # the ceiling has to hold there too, or choosing that priority would be a
-    # way to silently bypass an explicit layer count.
+    # The ceiling must hold in the max-GPU priority too.
     ctx, layers, batch = smart_fit_config(
         MODEL_GB, 40000,
         user_ctx=USER_CTX, user_batch=USER_BATCH,

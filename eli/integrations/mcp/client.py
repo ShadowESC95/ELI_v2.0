@@ -134,13 +134,7 @@ class _Session:
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> bool:
-        # A server lands in config disabled by default (eli/plugins/mcp.py's
-        # install_server()) and stays that way until set_enabled(True) -- but
-        # this live path used to launch and call ANY configured server
-        # regardless, because it reads the same config file without ever
-        # checking the flag. "It is switched OFF until you enable it" (the
-        # install response's own words) was therefore not true for the path
-        # that actually matters.
+        # Servers install disabled; the live path must honour that, as install_server() promises.
         if not bool(self.spec.get("enabled")):
             self.error = f"{self.name} is disabled — enable it before it can be used"
             return False
@@ -159,14 +153,7 @@ class _Session:
         if isinstance(extra, dict):
             env.update({str(k): str(v) for k, v in extra.items()})
 
-        # Containment. This mirrors eli/plugins/mcp.py:probe() exactly -- same
-        # permission fields, same subprocess_sandbox module -- because this is
-        # the path that actually runs every time a tool is called, not just at
-        # install/doctor time. Before this fix an MCP server ran here with
-        # full, unsandboxed access (network, filesystem, no PID isolation)
-        # regardless of what the install-time consent screen and permissions
-        # list said it was allowed. See subprocess_sandbox.py for what
-        # "contained" means per platform.
+        # Containment mirrors eli/plugins/mcp.py:probe(): same permissions, same subprocess_sandbox.
         cwd = str(Path(self.spec["cwd"]).expanduser()) if self.spec.get("cwd") else None
         allow_network = "network" in (self.spec.get("permissions") or [])
         read_paths = list(self.spec.get("read_paths") or [])

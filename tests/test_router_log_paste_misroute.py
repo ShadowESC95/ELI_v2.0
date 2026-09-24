@@ -1,21 +1,5 @@
-"""Regression for a live 2.4.54 bug report: pasting ELI's OWN console output
-back at it could hijack routing.
-
-`eli.gui.panels.startup` prints `persona_updater: kg sync complete -- N
-entities, M relations` on every single turn -- it is not incidental, it is
-the normal steady-state log line. The memory-internals route contract
-(`_eli_phase38_final_memory_question_contract`) matched the bare word "kg"
-anywhere in the input, so a user who pasted a GUI load-ladder log to ask "why
-did my GPU settings get overridden?" had their whole question re-routed to
-EXPLAIN_MEMORY_RUNTIME at confidence 0.995, registered as a "final" (i.e.
-override-priority) pipeline stage -- which preempted the long-question guard
-before it got a chance to run at all. The reply that came back answered a
-question about SQLite memory internals, not the GPU/ctx question that was
-actually asked.
-
-Fix: drop the bare "kg" / "rag" tokens from the mechanism-name alternation
-(both too short to be unambiguous); keep the full, unambiguous phrases.
-"""
+"""ELI's own log noise (\"kg sync complete\") pasted into chat must not route to
+EXPLAIN_MEMORY_RUNTIME."""
 from __future__ import annotations
 
 from eli.execution.router_enhanced import route

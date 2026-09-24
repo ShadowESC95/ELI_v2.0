@@ -1,20 +1,5 @@
-"""Every runtime-status surface must say when what LOADED differs from what was ASKED.
-
-Live report (2.4.57): the operator asked ELI why its ctx / batch / GPU-layer
-numbers looked inconsistent. The log showed layers requested 7 / loaded 6 (free
-VRAM had dropped ~950MB since the last run) and three different ctx figures --
-the tuner's 12288 and 10240, the operator's own 12200. ELI answered "my current
-runtime configuration is consistent and not conflicting".
-
-Every fact it was handed was true. The evidence just never contained the
-comparison: it listed what LOADED, plus a `clamped` flag no real snapshot writer
-ever sets (always null). A model asked "is this consistent?" of evidence that
-lacks the comparison says yes.
-
-There are four separate formatters for runtime status (truth_report, the compact
-user-visible surface, the executor's RUNTIME_STATUS, and the engine's
-contracts.runtime_status), so this pins the shared rule AND each surface.
-"""
+"""Every runtime-status surface must state when what loaded differs from what was
+requested (layers 7 asked, 6 loaded), from one shared rule, runtime_load_facts()."""
 from __future__ import annotations
 
 import json

@@ -6186,6 +6186,25 @@ def _eli_runtime_cognition_failure_guard(text):
                       r"free|available|left|spare|"
                       r"tell me what it means|temp|temperature|how hot)\b", _asked)
     ):
+        # A GPU question that also names other runtime dimensions needs the full runtime
+        # evidence; GPU_STATUS covers the GPU only.
+        _final_sentence = re.split(r"(?<=[.!?])\s+", _asked.strip())[-1]
+        _other_dims = set(re.findall(
+            r"\b(cpu|ram|ctx|context|batch|btch|threads?|settings?|params?|"
+            r"parameters?|config(?:uration)?)\b", _final_sentence))
+        if _other_dims and not re.search(r"\bnvidia-smi\b", _asked):
+            return {
+                "action": "RUNTIME_STATUS",
+                "args": {"question": raw},
+                "confidence": 0.995,
+                "meta": {
+                    "matched_by": "eli.runtime_status_broad_settings_guard",
+                    "need_grounding": True,
+                    "allow_chat_without_evidence": False,
+                    "task_family": "grounded_status",
+                    "response_contract": "quick_direct_nonquick_persona_synthesis",
+                },
+            }
         return {
             "action": "GPU_STATUS",
             "args": {"question": raw, "explain": True},
@@ -7005,20 +7024,8 @@ def _eli_phase38_final_memory_question_contract(raw):
         or "all the databases" in low
         or "all databases" in low
         # Explicit mechanism names → unmistakably about the retrieval/storage stack.
-        #
-        # "kg" and bare "rag" were dropped from this list at 2.4.55: both are
-        # too short to be unambiguous, and "kg" is what ELI's OWN console
-        # noise prints on every single turn ("persona_updater: kg sync
-        # complete -- N entities, M relations"). Live report: a user pasted a
-        # GUI load-ladder log back at ELI to ask about a GPU/ctx problem; the
-        # paste's incidental "kg sync complete" line matched here, routed the
-        # whole question to EXPLAIN_MEMORY_RUNTIME at confidence 0.995 as a
-        # "final" (override-priority) contract, and preempted the long-
-        # question guard before it ever ran. "knowledge graph" (the unabridged
-        # phrase, below) and "rag pipeline"/"retrieval augmented" (covered by
-        # the mechanism-phrasing branches above) still match on genuine intent
-        # without keying off a two-letter abbreviation that collides with
-        # ELI's own logging.
+        # "kg" and bare "rag" were dropped: ELI's own log line "kg sync complete" matched them
+        # and misrouted pasted logs to EXPLAIN_MEMORY_RUNTIME.
         or _re.search(r"\b(faiss|fts5?|knowledge graph|hyde|rag pipeline|"
                       r"vector store|embedder|vector index|dag pipeline)\b", low)
         )

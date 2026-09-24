@@ -76,11 +76,7 @@ def test_reduction_priority_order_holds_monotonically():
             assert layers != 99
 
 
-# Regression for a live 2.4.54 bug report: operator chose gpu_layers=10 in the
-# startup GUI; smart-fit cut ctx to fit VRAM, and the extra headroom that freed
-# up got spent backfilling layers 10->11 -- silently overriding a value the
-# operator never asked to change. gpu_layers must be a CEILING, exactly like
-# ctx and batch already are, not a number smart-fit is free to grow.
+# gpu_layers is a ceiling like ctx and batch: freed headroom must not backfill more layers.
 def test_user_gpu_layers_is_never_exceeded_by_the_backfill():
     # Generous VRAM: with no ceiling this backfills to 99 (all 32 layers), same
     # as test_generous_vram_keeps_user_settings_full_offload above.

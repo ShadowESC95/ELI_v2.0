@@ -1710,14 +1710,7 @@ def _smart_fit_balanced(
     ctx = max(min_ctx, int(user_ctx))
     _target_ctx = int(ctx)
     batch = max(min_batch, int(user_batch))
-    # The operator's own layer count is a CEILING, same as ctx/batch below: this
-    # function may reduce it to fit VRAM, but must never hand back more layers
-    # than were asked for just because headroom opened up elsewhere. Without
-    # this, cutting ctx to fit frees VRAM and the backfill loop further down
-    # spends that headroom on MORE layers than the operator chose — live at
-    # 2.4.54: operator asked for gpu_layers=10, smart-fit cut ctx 12384->4096
-    # to fit, then backfilled layers 10->11 because the smaller KV cache left
-    # room, silently overriding a value the operator never asked to change.
+    # The operator's layer count is a ceiling: never return more layers than asked, even if headroom opens up.
     ceiling = total if user_gpu_layers is None else max(0, min(total, int(user_gpu_layers)))
     layers = ceiling
 
@@ -2110,27 +2103,15 @@ def auto_ctx_target(
     kv_quantized: bool = False,
     grain: int = 2048,
 ) -> int:
-    """The context window "auto" aims for, derived from this model and this machine.
+    """The ctx "auto" aims for: the smaller of the model's trained context x ELI_CTX_FRACTION
+    and the ctx whose KV cache fits ELI_CTX_KV_SHARE of the memory left after the weights.
 
-    Auto used to aim at a fixed DEFAULT_N_CTX, so every model on every machine was
-    capped at the same number -- too small for a 32k-trained model on a 64GB box,
-    too large for a 4k one on a laptop, and the same wherever the operator had not
-    chosen. It is now the smaller of two measured limits:
-
-    * the model's own trained context x ``ELI_CTX_FRACTION`` (the dialog's
-      "Context target fraction"), read from GGUF metadata; and
-    * the context whose KV cache fits within ``ELI_CTX_KV_SHARE`` of the memory left
-      once the weights are placed (free VRAM when offloading + the RAM budget).
-
-    It is a target, not a guarantee: the fit that follows still reduces it against
-    the real VRAM/RAM budget. An operator-chosen ctx never comes through here.
-    DEFAULT_N_CTX is only the last resort when neither limit can be measured.
+    A target only; the fit still reduces it. DEFAULT_N_CTX is the last resort when
+    neither limit can be measured.
     """
     wanted = 0
     try:
-        # Only a trained context that was actually READ counts. train_ctx_for_model
-        # substitutes a conservative constant when the header is unreadable; using
-        # that here would put a hidden fixed figure back under "auto".
+        # Only a trained context that was actually read counts; train_ctx_for_model substitutes a constant.
         from eli.core.startup_hardware_optimizer import _gguf_metadata_ctx
         _forced = (os.environ.get("ELI_MODEL_TRAIN_CTX") or "").strip()
         if _forced.isdigit():
@@ -2151,9 +2132,7 @@ def auto_ctx_target(
             + cpu_ram_budget_mb(available_ram_gb) - float(model_size_gb) * 1024.0
         per_token = _kv_cache_mb(1024, layers, quant=kv_quantized) / 1024.0
         if per_token > 0:
-            # A MEASURED shortage (weights alone exceed the budget) is a cap of
-            # zero -> the floor, not "no limit". Only a failed measurement
-            # leaves cap as None.
+            # A measured shortage is a cap of zero (the floor), not "no limit".
             cap = max(0, int(max(0.0, spare_mb) * max(0.05, min(1.0, share)) / per_token))
     except Exception:
         log.debug("memory-derived ctx cap unavailable", exc_info=True)

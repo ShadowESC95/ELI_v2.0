@@ -296,16 +296,7 @@ def capture_llama_log():
     with _LOG_SINK_LOCK:
         try:
             import llama_cpp
-            # A test double is not the native library -- same reasoning as
-            # eli/runtime/inference_footprint.py's Mock guard. Calling a Mock
-            # "prototype" with a real callback function, then calling the
-            # mocked setter with the result, is Mock machinery calling Mock
-            # machinery; reproduced live as a SIGSEGV inside unittest.mock's
-            # own recursive child-mock setup under accumulated test-session
-            # mock state, not a catchable Python exception. Checked BEFORE
-            # touching proto/setter, and left `installed=False` so the
-            # unlocked yield/finally below behaves exactly like the existing
-            # "no native log hooks found" case -- no lock is held across it.
+            # A Mock is not the native library; calling Mock prototypes with real callbacks segfaults.
             proto = None if isinstance(llama_cpp, Mock) else getattr(
                 llama_cpp, "llama_log_callback", None)
             setter = None if isinstance(llama_cpp, Mock) else getattr(

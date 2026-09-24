@@ -108,20 +108,8 @@ def force_persistence_gate():
         yield
 
 
-# gguf_inference keeps its "currently loaded model" as bare module globals
-# (_llm, _live_runtime_override, _load_failed, _last_error), set by
-# load_model() with no test-facing reset hook. Any test that exercises the
-# real load_model() path (llama_cpp is mocked, so `Llama(**kwargs)` returns a
-# MagicMock) leaves `_llm` set to that Mock for the rest of the SESSION -- an
-# unrelated later test asking "what's currently loaded" then inherits it.
-# Confirmed live: this is what let a Mock reach
-# eli.runtime.inference_footprint._read_llama_live(), which called into the
-# also-mocked llama_cpp.llama_cpp native bindings and segfaulted the whole
-# pytest process (unittest.mock's own recursive child-mock setup, not
-# catchable). inference_footprint now refuses a Mock outright, but the leak
-# itself is the actual root cause -- reset it after every test so state never
-# crosses a test boundary, same isolation guarantee as the DB/persistence
-# fixtures above.
+# gguf_inference keeps the loaded model in module globals; a test that runs the real
+# load_model() leaves a Mock there for the whole session. Reset it after every test.
 @pytest.fixture(autouse=True, scope="function")
 def reset_gguf_inference_globals():
     yield
@@ -137,10 +125,41 @@ def reset_gguf_inference_globals():
         pass
 
 
+# A test that escapes ELI_ARTIFACTS_DIR can overwrite the real runtime snapshot with
+# junk (a MagicMock loads as n_ctx=1), which later runs read as machine state. Restore
+# it after the session and name any test that touches it.
+_REAL_SNAPSHOT = ROOT / "artifacts" / "runtime_snapshot.json"
+_SNAPSHOT_TOUCHED: list = []
+
+
+def _snapshot_state():
+    try:
+        return _REAL_SNAPSHOT.read_bytes() if _REAL_SNAPSHOT.exists() else None
+    except OSError:
+        return None
+
+
+@pytest.fixture(autouse=True, scope="function")
+def guard_real_runtime_snapshot(request):
+    before = _snapshot_state()
+    yield
+    if _snapshot_state() != before:
+        _SNAPSHOT_TOUCHED.append(request.node.nodeid)
+        try:
+            if before is None:
+                _REAL_SNAPSHOT.unlink(missing_ok=True)
+            else:
+                _REAL_SNAPSHOT.write_bytes(before)
+        except OSError:
+            pass
+
+
 # ── Auto-updating test-results document ──────────────────────────────────────
 # Every pytest run (re)writes artifacts/test_report.md with the live results, so
 # the report is dynamic — never stale. ELI's RUN_TESTS action reads/summarises it.
 def pytest_sessionfinish(session, exitstatus):
+    if _SNAPSHOT_TOUCHED:
+        print("\n[conftest] tests that modified the REAL runtime_snapshot.json (restored):", *_SNAPSHOT_TOUCHED[:10], sep="\n  ")
     try:
         import datetime
         from collections import defaultdict

@@ -117,12 +117,7 @@ def _uncapped_budget(size_gb: float, n_ctx: int) -> float:
 
 
 def budget_is_ceiling_cut(model_path: str, n_ctx: int) -> bool:
-    """True when the probe's own estimate exceeds the ceiling it is held to.
-
-    Such a probe is expected to be cut off, so the operator is told that up front
-    instead of "up to Ns this once", and a timeout is remembered long-term (it will
-    time out the same way next launch) rather than for an hour.
-    """
+    """True when the probe's own estimate exceeds its ceiling, so it is expected to be cut off."""
     if (os.environ.get("ELI_LOAD_PROBE_TIMEOUT", "") or "").strip():
         return False
     try:
@@ -222,11 +217,8 @@ def _recently_timed_out(model_path: str, n_ctx: int, n_gpu_layers: int,
     entry = _load_cache().get(_timeout_key(model_path, n_ctx, n_gpu_layers, n_batch))
     if not isinstance(entry, dict):
         return False
-    # A timeout at a ceiling-cut budget is not a transient slowness: the same
-    # config gets the same budget and the same cut-off on every launch, and the key
-    # already carries the model file's size and the GPU identity, so it stops
-    # applying when either changes. Re-paying the full ceiling every hour (i.e.
-    # every fresh session) bought nothing -- it cost 3 minutes per launch, live.
+    # A timeout at a ceiling-cut budget repeats identically every launch; the key already
+    # carries model size and GPU identity, so remember it for the full TTL.
     ttl = _DEFAULT_TTL_S if entry.get("ceiling_cut") else _TIMEOUT_MEMO_TTL_S
     return (time.time() - float(entry.get("ts", 0) or 0)) < ttl
 

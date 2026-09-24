@@ -1,23 +1,5 @@
-"""Regression for a live 2.4.54 bug report: ELI told the operator "I loaded
-exactly as requested... no fallback occurred" when a smart-fit fallback had
-in fact cut ctx 12384->4096. The claim was grounded on real evidence -- but
-the evidence itself was wrong. `requested_n_gpu_layers` was tracked honestly;
-`n_ctx`/`n_batch` were not -- the same post-fallback value was written into
-BOTH the `requested` and `effective` blocks of runtime_snapshot.json, because
-the writer had no way to know what the operator originally asked for.
-
-tests/test_gpu_performance_reading_is_measured.py already proves the READER
-(`runtime_load_gap`, `_gpu_status_report`) correctly reports a clamp *when
-given an honest snapshot* -- this file proves the WRITER now produces one.
-
-Same offscreen-GUI lane as tests/test_gui_offscreen.py: `LocalModelManager`
-lives in the full main-window module, which pulls in real Qt widgets. Under
-the default full-suite conftest (PySide6 mocked) this skips, same reason and
-same guard as that file; run for real with:
-
-    QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest \
-        tests/test_runtime_snapshot_requested_ctx_batch.py --noconftest
-"""
+"""The runtime snapshot must record the operator's requested ctx/batch separately from
+what loaded, so a fallback is not reported as \"loaded as requested\"."""
 from __future__ import annotations
 
 import json

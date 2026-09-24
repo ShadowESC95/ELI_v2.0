@@ -32,6 +32,19 @@ _LOAD_LABELS = {"n_ctx": "context (n_ctx)", "n_gpu_layers": "GPU layers",
                 "n_batch": "batch"}
 
 
+def system_memory_line() -> str:
+    """Total/available RAM and CPU threads, from the same probe the loader uses."""
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        hw = detect_hardware()
+        if not getattr(hw, "ram_gb", 0):
+            return ""
+        return (f"ram_total_gb: {hw.ram_gb:.1f}, ram_available_gb: "
+                f"{hw.available_ram_gb:.1f}, cpu_threads_total: {hw.cpu_threads}")
+    except Exception:
+        return ""
+
+
 def runtime_load_facts(snapshot: Dict[str, Any] | None,
                        settings: Dict[str, Any] | None = None) -> Dict[str, Any]:
     """The requested-vs-loaded comparison, computed once, for every runtime surface.
@@ -71,9 +84,7 @@ def runtime_load_facts(snapshot: Dict[str, Any] | None,
                 f"{label}: requested {pair['requested']}, loaded {pair['effective']} — "
                 f"reduced to fit this machine's free memory")
 
-    # A saved value that differs from what loaded, where the loader's own
-    # requested block did not already explain it (e.g. a snapshot from a writer
-    # that predates the requested/effective split).
+    # A saved value differing from what loaded, when the requested block did not explain it.
     cfg_keys = {"n_ctx": "n_ctx", "n_gpu_layers": "n_gpu_layers", "n_batch": "batch_size"}
     for key, cfg_key in cfg_keys.items():
         if key in reduced:
@@ -371,9 +382,7 @@ def format_runtime_truth(report: Dict[str, Any] | None = None) -> str:
     load_mode     = snapshot.get("load_mode")
     on_gpu        = snapshot.get("on_gpu")
     facts         = report.get("load_facts") or runtime_load_facts(snapshot, settings)
-    # `snapshot["clamped"]` is a flag no real writer sets, so it was always null
-    # here. An explicit flag still wins when one is present; otherwise the
-    # comparison decides.
+    # snapshot["clamped"] is never set by a real writer; an explicit flag wins, else the comparison.
     clamped       = snapshot.get("clamped") if snapshot.get("clamped") is not None \
         else facts.get("clamped")
 

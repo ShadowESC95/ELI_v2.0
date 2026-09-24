@@ -1,21 +1,5 @@
-"""The live MCP path (eli.integrations.mcp.client) is a SEPARATE implementation
-from eli.plugins.mcp's install/doctor path -- they share one config file but not
-one launch mechanism. Two gaps found there, both fixed:
-
-1. The `enabled` flag (written False by default on install -- see
-   test_plugin_mcp.py::test_installed_server_lands_in_the_config_disabled, and
-   the install response's own words, "It is switched OFF until you enable it")
-   was checked only by the lifecycle module's own read paths (list_servers,
-   get_server, doctor). The live path's load_config() had no enabled filter at
-   all, so a disabled -- or never-yet-enabled -- server could still be
-   launched and have its tools called by MCP_CALL/MCP_TOOLS/MCP_STATUS.
-2. The install-time probe() launches through eli.plugins.subprocess_sandbox
-   (bubblewrap containment on Linux: no network namespace unless the server
-   declared it, read-only filesystem, PID isolation). The live path launched
-   with a bare subprocess.Popen -- full, unsandboxed access -- every single
-   time a tool was actually called, regardless of what the install-time
-   consent screen and declared permissions said.
-"""
+"""The live MCP client must honour the enabled flag and launch through the sandbox,
+as the install-time probe does."""
 from __future__ import annotations
 
 import json

@@ -145,6 +145,10 @@ def test_examine_confirm_patch_roundtrip(tmp_module, monkeypatch):
     from eli.execution import executor_enhanced as EX
     import eli.cognition.inference_broker as IB
 
+    # Run inline: on a CPU-only runtime the examine is queued as a background job and
+    # the pending fix appears asynchronously.
+    monkeypatch.setenv("ELI_EXAMINE_CODE_BACKGROUND", "0")
+
     # REAL breakage (undefined name) on an explicitly-named file → fix is offered.
     p = tmp_module("_ce_e2e.py", "def g():\n    return undefined_xyz\n")
 

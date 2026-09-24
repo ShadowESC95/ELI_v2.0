@@ -116,22 +116,8 @@ def _read_llama_live(llm) -> Dict[str, Any]:
     out: Dict[str, Any] = {}
     if llm is None:
         return out
-    # A test double is not live state, same as None -- and unlike None, it is
-    # NOT safe to pass one further. `_as_int` above guards the int() edge, but
-    # a bare, unspecced Mock also auto-vivifies attribute access AND call
-    # results as further Mocks, so `getattr(llm, "model", None)` never
-    # actually returns None -- it returns a child Mock, which then gets
-    # handed to `lc.llama_model_size(model)`. That call is itself Mock
-    # machinery (not the real ctypes binding), and reproduced live: two
-    # unrelated call paths both bottomed out in unittest.mock's own recursive
-    # child-mock/magic-method setup deep enough to blow the C stack -- a
-    # genuine SIGSEGV, before `_as_int` ever got a chance to run on the
-    # result. One test leaking a Mock into `eli.cognition.gguf_inference._llm`
-    # (module-level global state, not torn down) was enough to make an
-    # unrelated "model not loaded" test crash the whole process under a full
-    # suite run despite passing in isolation. Closing it here, at the one
-    # entry point every path into this module funnels through, is more
-    # robust than chasing each individual attribute/call site.
+    # A Mock auto-vivifies attributes and calls, so passing one into the native binding
+    # segfaults; treat it as no live state at the single entry point.
     if isinstance(llm, Mock):
         return out
     try:

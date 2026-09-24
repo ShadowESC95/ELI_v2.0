@@ -280,13 +280,7 @@ def coerce_user_visible(result: Any, user_input: Any = "", mode: Any = "") -> st
                         ),
                         f"GPU: {_gpu_name or 'unavailable'}",
                     ]
-                    # The comparison the numbers above cannot show on their own:
-                    # this compact surface listed only what LOADED, so a load that
-                    # had been reduced to fit (layers requested 7, loaded 6) read
-                    # exactly like one that was not -- and an operator asking
-                    # "why is this inconsistent?" got a status card with nothing
-                    # in it to be inconsistent with. Same facts every other
-                    # runtime surface uses (truth_report.runtime_load_facts).
+                    # Requested vs loaded, from the shared rule (truth_report.runtime_load_facts).
                     _facts = _blob.get("load_facts") or {}
                     if _facts.get("differences"):
                         _lines.append("Loaded differently from what was requested:")

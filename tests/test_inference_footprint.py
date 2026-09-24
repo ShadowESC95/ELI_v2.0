@@ -53,15 +53,8 @@ def test_read_live_inference_memory_not_loaded():
     assert live["inference_active"] is False
 
 
-# ── segfault regression ─────────────────────────────────────────────────────
-# Live crash, reproduced twice via two unrelated call paths (both bottoming
-# out in _read_llama_live): with llama_cpp.llama_cpp mocked wholesale (as the
-# global test suite does for every test that never explicitly touches GGUF),
-# `int(lc.llama_model_size(model))` calls `MagicMock().__int__()`, which walks
-# into unittest.mock's own recursive child-mock machinery deep enough to blow
-# the C stack -- a genuine SIGSEGV that took the whole pytest process down,
-# not a catchable Python exception. `_as_int` fixes this by never calling
-# `int()` on anything that isn't already a plain int/float.
+# ── segfault regression ── int() on a wholesale-mocked llama_cpp result segfaults the process;
+# _as_int never calls int() on anything that is not already a plain number.
 def test_as_int_rejects_a_mock_without_crashing():
     assert _as_int(MagicMock()) is None
 
