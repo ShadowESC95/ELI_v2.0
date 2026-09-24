@@ -46,14 +46,9 @@ MEMORY_KINDS: frozenset = frozenset({
     "assistant_insight", "episodic", "reflection",
 })
 
-# Sources that only ever write generated records. `eli_reflection` covers both
-# reflection writers; on a live machine it accounted for 242 of the 257 memories
-# that were reaching recall, every one of them a statistic (Conversation volume,
-# Top topics, Recent issues, User correction signals, User model focus, Repeated
-# actions, App usage) and none a fact about anyone.
-#
-# `eli_world` is intentionally absent: autonomy notes describe something that
-# actually happened and remain recallable.
+# Sources that only ever write generated records. `eli_reflection` covers both reflection
+# writers; on a live machine it was 242 of the 257 memories reaching recall, all statistics, none
+# a fact about anyone. `eli_world` is left out: autonomy notes describe things that happened.
 MEMORY_SOURCES: frozenset = frozenset({
     "orchestrator", "eli_reflection",
 })
@@ -67,19 +62,15 @@ MEMORY_TAG_MARKERS: Tuple[str, ...] = (
 # A recalled memory longer than this is a transcript blob, not a fact.
 MEMORY_MAX_CHARS = 1500
 
-# ── memory rows scanned in bulk (word counting, topic extraction) ───────────
-# Broader than MEMORY_TAG_MARKERS: when COUNTING words rather than recalling a
-# fact, every auto-generated row must be skipped, including news and briefings
-# whose text is real prose but is not the user speaking.
+# Memory rows scanned in bulk (word counting, topic extraction). Broader than MEMORY_TAG_MARKERS:
+# when counting words rather than recalling a fact, skip every auto-generated row, including news
+# and briefings whose prose isn't the user speaking.
 AUTO_TAG_MARKERS: Tuple[str, ...] = (
     "auto", "insight", "reflection", "proactive", "news", "briefing",
 )
 
-# ── observations ───────────────────────────────────────────────────────────
-# Categories written by ELI's own loops. Measured on a live machine:
-# agent.sqlite3 held 220 observations, 104 `proactive_pattern_tick` and 104
-# `runtime`; the ten most recent rows in user.sqlite3 were "Proactive daemon
-# started" repeated.
+# Observation categories written by ELI's own loops (on a live machine 104 `proactive_pattern_tick`
+# and 104 `runtime` of 220; the newest user.sqlite3 rows were "Proactive daemon started" repeated).
 OBSERVATION_CATEGORIES: frozenset = frozenset({
     "proactive_pattern_tick", "runtime", "world_autonomy", "system",
 })
@@ -202,11 +193,9 @@ def memory_exclusion_sql(
     return "".join(parts), list(kinds) + list(sources)
 
 
-# ── retention ──────────────────────────────────────────────────────────────
-# Bookkeeping observations are pure churn: the daemon appends one per tick
-# forever. They are filtered from every reasoning path above, so their only
-# remaining cost is unbounded growth in the store. Cap them; leave genuine
-# observations a generous ceiling.
+# Retention. Bookkeeping observations are churn (the daemon appends one per tick forever) and are
+# filtered from every reasoning path, so the only remaining cost is unbounded growth. Cap them; give
+# genuine observations a generous ceiling.
 OBSERVATION_RETENTION_BOOKKEEPING = 250
 OBSERVATION_RETENTION_DEFAULT = 5000
 

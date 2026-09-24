@@ -287,11 +287,8 @@ def _gather_user_patterns(conn: sqlite3.Connection, user_id: str | None = None) 
     type_expr = _sql_coalesce_expr(cols, ["pattern_type", "kind", "tags"], "''")
     time_expr = _sql_time_expr(cols)
 
-    # The canonical user_patterns table has NO user_id column (it is single-user;
-    # see eli/core/db_schema). Requiring one made this return empty for EVERY
-    # pattern — the durable user-info synthesis got zero pattern evidence (incl.
-    # the learned preference.tone.* tone signals). Only scope by user_id when the
-    # column actually exists; otherwise read the whole (single-user) table.
+    # user_patterns is single-user and has no user_id column; requiring one returned nothing and the
+    # user-info synthesis got no pattern evidence. Only scope by user_id when the column exists.
     if "user_id" in cols:
         where = "WHERE COALESCE(user_id,'') = ? AND COALESCE(%s, '') != ''" % text_expr
         params = (str(user_id or ""),)

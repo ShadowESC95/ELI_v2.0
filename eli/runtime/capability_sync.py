@@ -133,11 +133,9 @@ def _ast_extract_dispatch_actions(source: str) -> Set[str]:
             ):
                 actions.add(v.value.upper())
 
-    # The `{"action": …}` heuristic above also catches string literals that are NOT
-    # dispatchable actions: TEMPLATE is a Google-Calendar URL parameter
-    # (`{"action": "TEMPLATE", "dates": …}`) and SEQUENCE_STEP is an error-result label
-    # (`{"ok": False, "action": "SEQUENCE_STEP", …}`). Neither is routed or handled, so
-    # exclude them — they were phantom capabilities in the manifest.
+    # The `{"action": ...}` heuristic also catches string literals that aren't dispatchable actions:
+    # TEMPLATE (a Google-Calendar URL parameter) and SEQUENCE_STEP (an error-result label). Neither
+    # is routed or handled, so exclude them; they were phantom capabilities in the manifest.
     return actions - {"TEMPLATE", "SEQUENCE_STEP"}
 
 
@@ -396,11 +394,9 @@ class CapabilitySync:
             ],
         }
         try:
-            # A new timestamp on identical capabilities is not a change. This file
-            # is tracked, and rewriting it on every app start and every test run
-            # left it permanently dirty in git — noise that had to be manually
-            # excluded from each release commit, and which would mask a REAL
-            # capability change sitting in the same diff.
+            # A new timestamp on identical capabilities is not a change. This file is tracked, and
+            # rewriting it on every start and test run left it permanently dirty in git (noise excluded by
+            # hand from every release commit, and able to mask a real capability change in the same diff).
             if self._unchanged_but_for_timestamp(payload):
                 return
             self.inventory_path.write_text(

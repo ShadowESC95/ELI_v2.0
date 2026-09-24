@@ -176,13 +176,11 @@ def get_self_facts() -> Dict[str, Any]:
     return facts
 
 
-# Denials of ELI's own web capability. The observed failure was verbatim: "I don't
-# have internet access. I am a local, private AI running on this machine, with no
-# external connectivity or web search capabilities" — emitted immediately after a
-# WEB_SEARCH returned five live results at grounding 0.98. Matching the DENIAL is
-# the point: a truthful "web access is off right now" must survive untouched, so
-# these patterns require the absolute form (no/never/cannot/unable), not a
-# statement about the current toggle.
+# Denials of ELI's own web capability. Seen verbatim right after a WEB_SEARCH returned five
+# live results at grounding 0.98: "I don't have internet access. I am a local, private AI...
+# with no external connectivity or web search capabilities". Matching the denial is the point: a
+# truthful "web access is off right now" must survive, so these need the absolute form
+# (no/never/cannot/unable), not a statement about the current toggle.
 _WEB_DENIAL_RX = re.compile(
     r"(?:I\s+(?:do\s*n[o']t|don'?t|cannot|can'?t|am\s+unable\s+to)\s+"
     r"(?:have|access|reach|search|browse)[^.!?\n]*"
@@ -194,10 +192,10 @@ _WEB_DENIAL_RX = re.compile(
     re.I,
 )
 
-# Sentence splitter for the repair below. Substituting inside a sentence left
-# wreckage ("…egress ledger access.") because a denial is rarely one contiguous
-# span — the observed reply carried two, phrased differently. Replacing the whole
-# sentence is the only version that reads like something a person wrote.
+# Sentence splitter for the repair below. Substituting inside a sentence left wreckage
+# ("...egress ledger access.") because a denial is rarely one contiguous span (the observed reply
+# had two, phrased differently). Replacing the whole sentence is the only version that reads
+# like a person wrote it.
 _SENTENCE_RX = re.compile(r"[^.!?\n]*[.!?\n]|[^.!?\n]+$")
 
 
@@ -252,10 +250,9 @@ def repair_self_description(text: str) -> Tuple[str, List[str]]:
     corrections: List[str] = []
     out = original
 
-    # Disowning a real capability misinforms the user exactly as badly as inventing
-    # one, and it is worse in practice: it teaches them not to ask again. Replace
-    # the denial with the live netguard state instead of deleting it, so the reply
-    # still answers the question it was answering.
+    # Disowning a real capability misinforms the user as badly as inventing one, and teaches them
+    # not to ask again. Replace the denial with the live netguard state instead of deleting it, so
+    # the reply still answers the question it was answering.
     if _denies_web and (real_net := facts.get("network")):
         out, _did = _replace_web_denials(out, real_net)
         if _did:

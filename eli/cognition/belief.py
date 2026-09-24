@@ -51,10 +51,8 @@ HOLD = "hold"
 QUESTION = "question"
 CONCEDE = "concede"
 
-# How much a claim is worth by where it came from. The ordering is the point:
-# something the user stated about themselves outright is strong evidence; ELI's
-# own inference about the user is the weakest thing in the room and must never
-# outrank the user on their own life.
+# Claim weight by source: what the user states about themselves is strongest; ELI's own inference
+# about the user is weakest and never outranks the user.
 PROVENANCE_WEIGHT: Dict[str, float] = {
     "user_explicit": 1.0,    # "I am a physicist" / "remember that I …"
     "user_passing": 0.65,    # mentioned in passing, not the point of the turn
@@ -75,18 +73,11 @@ CORROBORATION_HALF = 3.0
 EVIDENCE_HALF_LIFE_DAYS = 240.0
 EVIDENCE_AGE_FLOOR = 0.5
 
-# How much better the challenger must be before ELI changes its mind, and how
-# close the two must be before it treats the matter as genuinely open.
-# Reachable by design. With equal provenance and recency the largest ratio
-# corroboration alone can produce against a well-established belief is about
-# 1.3, so a margin of 1.35 was unreachable — ELI could never change its mind,
-# which is the opposite failure to the yes-man and just as useless.
+# How much better a challenger must be to change ELI's mind, and how close two claims must be to
+# count as open. The margin has to be reachable: 1.35 was not, so ELI could never change its mind.
 CONCEDE_MARGIN = 1.15
-# Tuned against the ladder in the tests rather than picked. At 0.75 a single
-# EXPLICIT correction from the user about their own life was scored HOLD, which
-# is not a colleague standing its ground — it is someone who will not listen. The
-# user is authoritative about themselves, so a direct correction must at least
-# open the question; sustained correction then carries it.
+# Tuned against the test ladder. At 0.75 an explicit user correction about their own life scored
+# HOLD; a direct correction must at least open the question.
 QUESTION_BAND = 0.55
 
 
@@ -114,11 +105,8 @@ class Belief:
         now = float(now or time.time())
         prov = PROVENANCE_WEIGHT.get(self.provenance, PROVENANCE_WEIGHT["unknown"])
 
-        # Diminishing, but never fully saturating: 1 -> .25, 3 -> .50, 5 -> .63,
-        # 9 -> .75. An earlier version doubled this and clamped at 1.0, which hit
-        # the ceiling at three observations — so four corroborations and ninety
-        # scored identically and sustained correction could never outweigh
-        # anything. The ordering has to survive all the way up.
+        # Diminishing but never saturating (1 -> .25, 3 -> .50, 5 -> .63, 9 -> .75), so many
+        # corroborations still outrank few.
         n = max(0, int(self.corroboration))
         corr = n / (n + CORROBORATION_HALF) if n else 0.0
 

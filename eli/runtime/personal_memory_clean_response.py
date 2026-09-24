@@ -70,11 +70,10 @@ _FACT_PATTERNS = [
     r"\bUser is developing\b.{3,220}",
     r"\bUser uses\b.{3,220}",
     r"\bUser is using\b.{3,220}",
-    # Biographical / interest / project / research facts were being DROPPED:
-    # the extractor emits "User focuses on…", "is actively debugging…",
-    # "references a research framework…", but none matched the narrow set
-    # above, so recall only ever surfaced response-preferences. Surface the
-    # full curated fact set from user_patterns (a reset-aware SQLite table).
+    # Biographical/interest/project/research facts were being dropped: the extractor emits "User
+    # focuses on...", "is actively debugging...", "references a research framework...", none matching
+    # the narrow set above, so recall only surfaced response preferences. Surface the full curated
+    # fact set from user_patterns (a reset-aware SQLite table).
     r"\bUser focuses on\b.{3,220}",
     r"\bUser is focused on\b.{3,220}",
     r"\bUser is actively\b.{3,220}",

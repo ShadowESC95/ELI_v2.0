@@ -315,12 +315,8 @@ def search_memory(q: str, k: int = 5) -> Dict[str, Any]:
         "db": str(DB_PATH),
     }
 
-# ============================================================
-# MKV HOTFIX: robust recall_recent() implementation
-# - Auto-detects table + columns
-# - Returns {"ok": True, "results": [...], "count": N, "db": DB_PATH}
-# - Never throws on schema mismatches
-# ============================================================
+# Robust recall_recent(): auto-detects the table and columns, returns {"ok": True, "results": [...],
+# "count": N, "db": DB_PATH}, and never throws on schema mismatches.
 
 def _recall_recent_legacy_2(limit: int = 10) -> Dict[str, Any]:
     con = _db()

@@ -20,13 +20,10 @@ log = get_logger(__name__)
 
 _MIN_REFRESH_INTERVAL = 1800.0  # 30 min — don't re-synthesise more often than this
 
-# What counts as ELI's own record-keeping lives in ONE place. This module used
-# to carry a private category set and prefix list; see eli/core/self_provenance.
-#
-# The behaviour it preserves: `get_recent_observations` handed this synthesiser
-# ten rows of its own bookkeeping ("Proactive daemon started", repeated), the
-# prompt asked it to "reflect on your OWN recent activity", and it answered the
-# question it was given — every 30 minutes, all night, in almost the same words.
+# What counts as ELI's own record-keeping lives in one place (eli/core/self_provenance); this
+# module used to carry a private category set and prefix list. Keeps the fix for
+# get_recent_observations handing this synthesiser ten rows of its own bookkeeping ("Proactive
+# daemon started", repeated), which it answered every 30 minutes all night in nearly the same words.
 from eli.core.self_provenance import observation_text as _observation_text  # noqa: F401
 
 

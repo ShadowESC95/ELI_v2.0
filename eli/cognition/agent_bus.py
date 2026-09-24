@@ -172,13 +172,7 @@ def recent_dispatches(limit: int = 12) -> List[Dict[str, Any]]:
     return out
 
 
-# ---------------------------------------------------------------------------
-# Evidence-driven confidence scoring (no hardcoded per-agent weights)
-# ---------------------------------------------------------------------------
-#
-# Design constants. These describe the *structure* of the scoring algorithm,
-# not arbitrary per-agent weights. Per-agent contributions are derived from
-# (agent.confidence × evidence_density × calibration), all dynamic.
+# Confidence scoring is evidence-driven; nothing here is a per-agent weight.
 
 _ROUTE_BASE_WEIGHT = 0.30          # route-certainty share of total score
 _SINGLE_AGENT_CAP = 0.30           # max contribution from any one agent
@@ -693,18 +687,9 @@ def _select_agents_for_intent(user_input: str, action: str) -> Optional[Set[str]
     return None
 
 
-# ---------------------------------------------------------------------------
-# Agent dependency DAG
-# ---------------------------------------------------------------------------
-# Edges among bus agents: {agent: {agents it depends on}}. The bus builds a DAG
-# from the *selected* agents intersected with this map, runs them in topological
-# layers, and passes each completed layer's results to downstream agents via
-# intent["_upstream"]. Agents with no declared dependency stay in the first
-# layer and run fully in parallel (identical to the legacy flat fan-out).
-#
-# knowledge_graph ← memory: the KG agent seeds its lookup with what the memory
-# agent surfaced this turn (see KnowledgeGraphAgent.run). Add more edges here to
-# express further dependencies; cycles are rejected at build time.
+# Agent dependency graph {agent: agents it needs}. Agents run in topological layers and get
+# upstream results via intent["_upstream"]; no dependency means first layer, in parallel.
+# knowledge_graph depends on memory. Cycles are rejected at build time.
 _AGENT_DEPENDENCIES: Dict[str, Set[str]] = {
     "knowledge_graph": {"memory"},
     "critic": {"memory", "system", "knowledge_graph", "file_code"},
@@ -773,11 +758,8 @@ def _eli_memory_should_run(user_input: str, action: str) -> bool:
     if any(m in low for m in memory_markers):
         return True
 
-    # Accepting what ELI just offered is the SHORTEST possible message and the
-    # one that most needs the previous turn. Live at 2.3.6: ELI asked "Want to
-    # know how it compares to other setups?", the user said "yeah, why not"
-    # (3 words), memory was skipped as a tiny fragment, and ELI answered with no
-    # idea what it had offered — the user had to quote the offer back to get it.
+    # Accepting an offer is the shortest message and needs the previous turn most, so don't skip
+    # memory for it.
     _continuation = re.fullmatch(
         r"(?:yes|yeah|yeh|yep|yup|sure|ok|okay|k|alright|aight|aye|please|"
         r"go|go on|go ahead|do it|why not|sounds good|tell me|carry on|"
@@ -794,12 +776,8 @@ def _eli_memory_should_run(user_input: str, action: str) -> bool:
     if len(words) < 4:
         return False
 
-    # Self-contained knowledge / logic / math / coding questions don't need the user's
-    # personal memory — pulling old conversation context only bloats the prompt (slower,
-    # noisier, especially on a weak GPU) without helping the answer. Skip memory when the
-    # query is a standalone question/task AND carries NO personal or contextual referent.
-    # (The memory_markers + personal-referent veto keep "what do you know about me",
-    # "remember when…", "as I said earlier", etc. firmly on the memory path.)
+    # Standalone knowledge/logic/math/coding questions don't need personal memory; skip it unless
+    # the query has a personal or contextual referent ("about me", "remember when", "as I said").
     _personal_referent = re.search(
         r"\b(i|my|mine|i'?m|i'?ve|me|we|our|us|myself|ourselves)\b"
         r"|you (remember|told|said|mentioned|recall|know)|last time|earlier|"
@@ -969,10 +947,8 @@ class BusMemoryAgent(_BaseAgent):
                     "⚠ Conflicting memory (prefer the most recent/strongest, do not assert "
                     f"both): {_cl}")
             if recent:
-                # get_recent_conversation returns CHRONOLOGICAL order (oldest first)
-                # — confirmed at memory.py: fetches DESC then list(reversed(rows)).
-                # Take the newest 20, then drop the trailing user+assistant pair
-                # so the model doesn't regurgitate the live prompt or its own last reply.
+                # History is oldest-first. Take the newest 20 and drop the trailing user+assistant
+                # pair so the model doesn't repeat the live prompt or its own last reply.
                 turns_to_show = list(recent[-_tn["cog.mem_recent_turns"]:])  # newest N, still chronological
                 if turns_to_show and turns_to_show[-1].get("role") == "assistant":
                     turns_to_show = turns_to_show[:-1]  # drop model's last reply
@@ -988,22 +964,9 @@ class BusMemoryAgent(_BaseAgent):
                             continue
                     except Exception:
                         _SWLOG.debug("suppressed exception", exc_info=True)
-                    # CROSS-SESSION block (get_recent_conversation above is called
-                    # without a session_id — "full history"). ELI's own prior replies
-                    # must NOT appear here: the header below tells the model to use
-                    # this "when asked about past topics", so a single fabrication
-                    # becomes authoritative history. Observed three times across four
-                    # days: ELI invented "you're in the Simulation Lab, the Branch Tree
-                    # is humming", it was recycled verbatim on later days, and purging
-                    # the rows only bought one session before it said it again.
-                    #
-                    # Labelling was tried in v2.1.74 ("treat these as things you said,
-                    # not verified facts") and did NOT hold — an instruction to a model
-                    # is not a filter. Withholding is.
-                    #
-                    # Continuity is not lost: WITHIN-session history comes from the
-                    # session-scoped block in engine.py, and the anti-repeat guard
-                    # fetches ELI's own turns separately and directly.
+                    # Cross-session history never includes ELI's own replies: a fabricated one
+                    # becomes authoritative history and gets recycled. Withholding works; labelling
+                    # it did not. Within-session continuity comes from engine.py.
                     if str(t.get("role") or "").lower() != "user":
                         continue
                     role = "User"
@@ -1065,13 +1028,8 @@ class BusMemoryAgent(_BaseAgent):
                         _SWLOG.debug("suppressed exception", exc_info=True)
                     txt = (h.get("content") or "")[:_tn["cog.mem_conv_chars"]]
                     role = h.get("role", "?")
-                    # Date recalled dialogue the way stored memories directly above
-                    # already are. Undated, a snippet from an earlier session reads
-                    # as part of THIS exchange: last night's sign-off ("Sleep tight",
-                    # the film they were watching) came back at 14:39 the next day as
-                    # "Night's still young" and "I'll be here when you finally wake
-                    # up". The clock line was correct the whole time -- the model was
-                    # not misreading the time, it was reading yesterday as now.
+                    # Date recalled dialogue like stored memories, so an old sign-off isn't read as
+                    # part of this exchange.
                     _raw_ts = h.get("ts") or h.get("timestamp") or 0
                     try:
                         _ts_str = (time.strftime("%Y-%m-%d %H:%M", time.localtime(float(_raw_ts)))
@@ -1129,11 +1087,9 @@ class SystemAgent(_BaseAgent):
     name = "system"
     timeout_s = 8.0
 
-    # Actions this agent handles directly in the parallel phase.
-    # CRITICAL: exclude LLM-dependent actions (GENERATE_SCRIPT, DOC_GENERATE, FIX_FILE,
-    # DATA_FABRICATOR) — these call GGUF which takes minutes. They must be executed by the
-    # CognitiveEngine AFTER the bus returns, not inside the bus's parallel phase.
-    # The bus runs with hard timeouts; LLM actions would always time out and double-execute.
+    # Actions this agent handles in the parallel phase. LLM-dependent ones (GENERATE_SCRIPT,
+    # DOC_GENERATE, FIX_FILE, DATA_FABRICATOR) are excluded: they take minutes, would time out here,
+    # and run in the engine after the bus returns.
     SYSTEM_ACTIONS: Set[str] = {
         # ── App / OS control ──────────────────────────────────────────────────
         "OPEN_APP", "OPEN_URL", "OPEN_FILE_SYSTEM", "OPEN_BROWSER",
@@ -1160,12 +1116,8 @@ class SystemAgent(_BaseAgent):
         "TIME", "DATE",
         # ── Screen intelligence ───────────────────────────────────────────────
         "SCREEN_LOCATE", "OCR_IMAGE", "SCREEN_READ_ANALYZE",
-        # NOTE: ANALYZE_PDF / ANALYZE_CSV / ANALYZE_PDF_FOLDER are GGUF-heavy (they call
-        # the model to summarise) — they live in LLM_ACTIONS (deferred to the engine), NOT
-        # here. Running them in the parallel bus phase + the engine's self-contained path
-        # caused the same file to be summarised TWICE (e.g. a 26-page PDF processed once at
-        # ~1255s, then re-processed for ~900s). Deferring them = executed exactly once.
-        # ── Notes ────────────────────────────────────────────────────────────
+        # ANALYZE_PDF / ANALYZE_CSV / ANALYZE_PDF_FOLDER call the model, so they are deferred to the
+        # engine (LLM_ACTIONS). Running them in both places summarised the same file twice.
         "WRITE_NOTE", "NEW_NOTE", "LIST_NOTES", "SEARCH_NOTES",
         # ── System stats ─────────────────────────────────────────────────────
         "GPU_STATUS", "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS", "HARDWARE_PROFILE",
@@ -1199,12 +1151,8 @@ class SystemAgent(_BaseAgent):
         "SEQUENCE",
     }
 
-    # LLM-heavy actions: executed by CognitiveEngine after bus returns, never dispatched
-    # inside the parallel phase (avoids timeout + double-execution).
-    # SUMMARIZE_FILE / ANALYZE_PDF(_FOLDER) / ANALYZE_CSV read a file and call GGUF to
-    # summarise it; CONVERT_DOCUMENT may use GGUF; all GENERATE_* / FIX_FILE /
-    # DATA_FABRICATOR / SHOW_DIFF are multi-second GGUF calls. The engine's
-    # self-contained path runs each EXACTLY ONCE and returns the result verbatim.
+    # LLM-heavy actions run in the engine after the bus returns, exactly once, never in the parallel
+    # phase (avoids timeouts and double execution).
     LLM_ACTIONS: Set[str] = {
         "GENERATE_SCRIPT", "GENERATE_PROJECT", "GENERATE_DOCUMENT",
         "DOC_GENERATE", "CREATE_DOCUMENT", "FIX_FILE", "DATA_FABRICATOR",
@@ -1272,10 +1220,8 @@ class HabitAgent(_BaseAgent):
             from eli.memory import get_memory
             mem = get_memory()
             rules = mem.get_habit_rules(enabled_only=False)
-            # The proactive daemon fills the `habits` table via detect_habits(), but this
-            # agent used to read ONLY the (usually empty) habit_rules table — so the chat
-            # path was disconnected from ELI's actual detected behaviour. Read the real
-            # detected habits too, so a chat about routines/habits is grounded in them.
+            # Read the habits the daemon actually detects, not only the (usually empty) habit_rules
+            # table.
             detected = (mem.get_detected_habits(min_count=3, limit=8)
                         if hasattr(mem, "get_detected_habits") else [])
             events = mem.get_habit_events(event_type="app_launch", days=14)
@@ -1616,15 +1562,9 @@ class VoiceAgent(_BaseAgent):
         t0 = time.perf_counter()
         try:
             import os
-            # Ask the TTS layer what is actually loaded; do NOT read an env
-            # var and call it a diagnostic. ELI_TTS_ENGINE is almost never
-            # set, so this defaulted to the literal string "espeak" and
-            # reported engine=espeak while Piper was demonstrably speaking
-            # (the same session logged TTS_FINAL_PIPER_ONLY
-            # voice=en_US-amy-medium for every utterance). The model then
-            # repeated that as fact and told the user Piper was missing.
-            # Reporting configuration instead of reality is worse than
-            # reporting nothing.
+            # Ask the TTS layer what is loaded instead of reading an env var; reporting
+            # configuration instead of reality made the model say Piper was missing.
+            # (ELI_TTS_ENGINE)
             engine, model, voice = "", "", ""
             backends = {}
             try:
@@ -2038,10 +1978,7 @@ class AgentBus:
         action = (intent.get("action") or "CHAT").upper()
         intent_conf = float(intent.get("confidence") or 0.5)
 
-        # Per-mode agent time budget (Stage 1b): deeper reasoning modes give
-        # agents proportionally more time to gather. Quick/Normal default to 1.0
-        # (no change to the common path). Threaded via the intent so _collect_layer
-        # scales per-agent timeouts without method-signature changes.
+        # Per-mode agent time budget: deeper modes give agents more time. Quick/Normal stay at 1.0.
         try:
             from eli.cognition.reasoning_modes import mode_budget_multiplier as _mbm
             _mode_mult = _mbm(reasoning_mode if reasoning_mode is not None
@@ -2053,12 +1990,8 @@ class AgentBus:
         elif isinstance(intent, dict):
             intent = {**intent, "_mode_budget_mult": _mode_mult}
 
-        # ── Tiny-query gate ────────────────────────────────────────────────
-        # Short filler inputs ("ok", "yes", "sure", "thanks") routed to CHAT
-        # gain nothing from a 14-agent broad fanout: MemoryAgent already self-
-        # gates on < 10 words, and the rest skip too. Avoid spawning 14 futures
-        # whose only work is to return skipped=True.
-        # Gate: CHAT + ≤ 3 tokens + matches filler pattern → minimal set.
+        # Tiny-query gate: short filler ("ok", "yes", "thanks") in CHAT gets a minimal agent set
+        # instead of a 14-agent fan-out.
         _low_input = (user_input or "").strip().lower()
         _word_count = len(_low_input.split())
         _is_tiny_chat = (
@@ -2104,10 +2037,8 @@ class AgentBus:
         if selected_names is None:
             _profile_names = [a.name for a in _ALL_AGENTS if getattr(a, "_enabled", True)]
         else:
-            # Always give enabled CUSTOM agents a dispatch slot — built-in intent
-            # selection never names them, so without this a user-created agent
-            # would never run. They self-gate on their own triggers (returning
-            # confidence 0.0 on no match), so this can't pollute results.
+            # Enabled custom agents always get a slot (built-in selection never names them). They
+            # gate themselves and return confidence 0.0 on no match.
             _custom_names = {
                 a.name for a in _ALL_AGENTS
                 if getattr(a, "_custom", False) and getattr(a, "_enabled", True)
@@ -2142,10 +2073,8 @@ class AgentBus:
         ]
         if (intent or {}).get("_skip_memory_agent"):
             active_agents = [a for a in active_agents if a.name != "memory"]
-        # Execute on the dependency DAG (topological layers, upstream → downstream),
-        # falling back to flat parallel dispatch. When no dependency edges apply to
-        # the selected set, the DAG collapses to a single layer = identical to the
-        # flat fan-out, so this is non-regressive.
+        # Run on the dependency DAG, falling back to flat parallel dispatch. With no edges it is a
+        # single layer, identical to the flat fan-out.
         results: List[AgentResult] = self._run_agents(
             active_agents, user_input, intent, session_id, user_id)
 
@@ -2318,12 +2247,9 @@ class AgentBus:
                        intent: Dict[str, Any], session_id: str, user_id: str) -> List[AgentResult]:
         """Run one layer in parallel with per-agent hard timeouts; robust to the
         outer as_completed timeout (stragglers recorded as timeouts)."""
-        # Some system-agent actions run a FULL local LLM synthesis in the
-        # executor (their result IS the answer, e.g. the news briefing). On
-        # CPU-offloaded loads that legitimately takes 30-60s+, far beyond the
-        # short evidence-agent timeout — and they run essentially alone in their
-        # layer (memory etc. skip), so a generous ceiling here can't stall fast
-        # agents. Don't drop the answer on the evidence timeout.
+        # Some system actions run a full local LLM synthesis and can take 30-60s+ on CPU-offloaded
+        # loads. They run nearly alone in their layer, so a generous ceiling is safe; don't drop the
+        # answer on the evidence timeout.
         _SLOW_SYNTH_ACTIONS = {"NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT"}
         _intent_action = str((intent or {}).get("action") or "").upper()
 
@@ -2370,14 +2296,8 @@ class AgentBus:
         for fut, agent in futures.items():
             if agent.name in done:
                 continue
-            # The outer wait elapsed -- but a straggler may have FINISHED in the
-            # meantime, and recording a timeout without looking throws away work
-            # that has already been paid for. Live on a CPU-offloaded 27B: the
-            # memory agent returned 6,279 chars of context 1.4s past its ~121s
-            # deadline, this loop discarded it unread, the bus logged mem=0ch,
-            # and the reply was generated with memory_chars=0 -- grounding 0.30
-            # (low) after two minutes of retrieval. Collect only what is ALREADY
-            # done; this never waits, so a genuinely hung agent still times out.
+            # If the outer wait elapses, still collect any agent that finished meanwhile; discarding
+            # it wasted paid-for work. This never waits, so a hung agent still times out.
             if fut.done():
                 try:
                     results.append(fut.result(timeout=0))
@@ -2507,11 +2427,8 @@ def _filecode_extract_terms(text: str) -> set:
         terms.add(m.lower())
     for m in re.findall(r"\b(eli(?:\.\w+)+)\b", low):
         terms.add(m.lower())
-    # snake_case, or GENUINE CamelCase — an internal capital is required. The old
-    # `[A-Z][a-zA-Z0-9]{3,}` matched any capitalised word, so an ordinary sentence
-    # ("Sound, thanks for clarifying…") produced a "code identifier" and sent the
-    # file_code agent grepping the repo mid-conversation, padding the prompt with
-    # 20 irrelevant snippets. CognitiveEngine/AgentBus still match; Sound/Thanks don't.
+    # Match snake_case or real CamelCase (needs an internal capital). Plain capitalised words
+    # ("Sound", "Thanks") were treated as identifiers and sent file_code grepping mid-conversation.
     for m in re.findall(r"\b([a-z][a-z0-9]*(?:_[a-z0-9]+)+|[A-Z][a-z0-9]*[A-Z][a-zA-Z0-9]*)\b", text):
         terms.add(m.lower())
     for m in re.findall(r"[\"'`]([^\"'`]{3,40})[\"'`]", low):
@@ -2649,11 +2566,8 @@ class FileCodeAgent(_BaseAgent):
 
             root = Path(__file__).resolve().parents[1]  # eli/ — files_map paths are relative to eli/
 
-            # phaseBW5 fix: canonicalised paths under the live `eli/`
-            # layout. Previous values pointed at `brain/...` and
-            # `tools/automation/...` paths that no longer exist,
-            # so the file_code agent's grep returned 0 results
-            # for every memory/cognition query.
+            # Paths use the live eli/ layout; the old brain/ and tools/automation/ paths made the
+            # file_code grep return nothing.
             files_map = {
                 "agent_bus":         "cognition/agent_bus.py",
                 "cognitive_engine": "kernel/engine.py",
@@ -2851,10 +2765,8 @@ class FileCodeAgent(_BaseAgent):
             snippets = []
             files_scanned = 0
 
-            # Repo-FIRST for specific file/symbol queries: a named file/symbol is
-            # more relevant than the curated map's generic matches (which would
-            # otherwise greedily fill the budget and bury the real target). Seed
-            # up to 14 so the curated architecture context can still top up.
+            # Repo-first for specific file/symbol queries so the named target isn't buried under the
+            # curated map's generic matches. Seed up to 14, then let the map top up.
             if _code_terms or _named_files:
                 try:
                     _seed, _seed_files = _filecode_repo_search(
@@ -2939,10 +2851,8 @@ class IntrospectionBusAgent(_BaseAgent):
         low = (user_input or "").lower()
         action = (intent.get("action") or "").upper()
 
-        # Identity / awareness introspection: gather the grounded audit as EVIDENCE
-        # so the persona SUMMARISES it conversationally (never a verbatim data dump,
-        # never answered from the model's weights). These are cheap, deterministic
-        # local reports.
+        # Identity/awareness introspection: gather the grounded audit as evidence for the persona to
+        # summarise (cheap, deterministic local reports).
         _identity = action == "ELI_IDENTITY_AUDIT" or any(x in low for x in (
             "audit your identity", "your identity", "identity audit",
             "who are you really", "are you really", "prove who you are"))
@@ -3327,11 +3237,8 @@ _apply_runtime_policy_timeouts()
 _DIRECT_ACTIONS: Set[str] = SystemAgent.SYSTEM_ACTIONS | PluginAgent.PLUGIN_ACTIONS
 
 
-# ── Auto-load custom agents ───────────────────────────────────────────────────
-# The wizard (GUI) writes agent files to eli/brain/agents/custom/.
-# Older or hand-rolled agents may sit at eli/cognition/custom/.
-# Either location is loaded at import time so register_agent() inside the
-# module attaches the new class to _ALL_AGENTS.
+# Custom agents load at import from eli/brain/agents/custom/ (wizard) or eli/cognition/custom/, so
+# register_agent() attaches them.
 def _get_trusted_agents_registry() -> dict:
     """Load the trusted-agents hash registry from config/trusted_agents.json.
 
@@ -3567,10 +3474,8 @@ def _load_custom_agents() -> None:
                     continue
                 seen.add(py_file.name)
 
-                # ── Trust verification ──────────────────────────────────────
-                # Keyed on the resolved path with recorded provenance, not on the
-                # basename alone — two files called `helper.py` used to share one
-                # entry, so approving either authorised both.
+                # Trust is keyed on the resolved path with recorded provenance, not the basename
+                # (two helper.py files used to share one entry).
                 entry = {"kind": "code", "id": py_file.stem, "name": py_file.name,
                          "path": str(py_file), "loaded": False, "reason": ""}
                 if not trust_bypass:

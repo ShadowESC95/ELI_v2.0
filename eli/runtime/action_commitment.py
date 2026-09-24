@@ -45,10 +45,9 @@ _FAKE_THEATRE_RE = re.compile(
 )
 
 
-# User directives/challenges that mean "actually (re-)do the task" — the caller
-# re-runs the last real action instead of letting ELI chat about it / defend
-# itself. Deliberately requires "again / it / that" or a doubt ("are you
-# actually …ing") so a fresh request ("check the news") is NOT treated as a redo.
+# User directives/challenges that mean "actually (re-)do the task": the caller re-runs the last real
+# action instead of letting ELI chat or defend itself. Requires "again / it / that" or a doubt ("are
+# you actually ...ing") so a fresh request ("check the news") isn't treated as a redo.
 _REDO_RE = re.compile(
     r"\b(?:"
     r"(?:do|run|check|fetch|search|look)\s+(?:it|that)\s+again|"
@@ -129,10 +128,10 @@ def extract_deepen_topic(text: str) -> str:
     while toks and toks[-1].lower() in _DEEPEN_STOP:
         toks.pop()
     topic = " ".join(toks).strip()
-    # Reject runaway captures (a whole frustrated sentence). A deepen topic can be a
-    # descriptive phrase ("magnetic fields that help binary star systems form" = 8 words),
-    # so allow up to 12 words — the old 6-word cap silently dropped real news-article topics
-    # and made the topic-deepen path never fire for anything beyond a one/two-word subject.
+    # Reject runaway captures (a whole frustrated sentence). A deepen topic can be a descriptive
+    # phrase ("magnetic fields that help binary star systems form" is 8 words), so allow up to 12.
+    # The old 6-word cap dropped real article topics and stopped topic-deepen for anything past a
+    # one- or two-word subject.
     if not topic or len(toks) > 12:
         return ""
     return topic
@@ -166,10 +165,10 @@ def detect_action_commitment(text: str) -> Optional[Dict[str, str]]:
     m = _COMMIT_RE.search(s) or _DOING_RE.search(s) or _FAKE_THEATRE_RE.search(s)
     if not m:
         return None
-    # Past / perfect-continuous NARRATION ("I've been checking", "I was searching", "I have
-    # been looking", "I checked earlier") is not a commitment to act NOW — re-running it
-    # carpet-bombs the user with an action they never asked for. Only a forward commitment
-    # ("let me check", "I'll fetch", "checking now") should trigger followthrough.
+    # Past or perfect-continuous narration ("I've been checking", "I was searching", "I checked
+    # earlier") isn't a commitment to act now, and re-running it buries the user in an action they
+    # never asked for. Only a forward commitment ("let me check", "I'll fetch", "checking now")
+    # triggers followthrough.
     _pre = s[max(0, m.start() - 30):m.start()].lower()
     if re.search(r"\b(?:been|was|were|have\s+been|had\s+been|i'?ve\s+been|"
                  r"earlier|already|recently|just\s+(?:checked|finished))\b", _pre):

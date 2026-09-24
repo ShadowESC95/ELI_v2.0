@@ -66,10 +66,9 @@ def _gpu_line() -> str:
             return out[0].strip()
     except Exception:
         log.debug("suppressed exception", exc_info=True)
-    # Cross-vendor fallback: this feeds text the user actually sees, and used
-    # to say "unavailable" on every AMD/Intel/Apple machine (and on any
-    # NVIDIA machine with a driver hiccup) even when hardware_profile's
-    # cross-vendor detection already knows the real card.
+    # Cross-vendor fallback: this feeds text the user sees and said "unavailable" on every
+    # AMD/Intel/Apple machine (and NVIDIA with a driver hiccup) although hardware_profile's
+    # cross-vendor detection already knows the card.
     try:
         from eli.core.hardware_profile import detect_hardware
         hw = detect_hardware()
@@ -241,13 +240,11 @@ def coerce_user_visible(result: Any, user_input: Any = "", mode: Any = "") -> st
                     _cfg = _blob.get("configured", {}) or {}
                     _gpu = _blob.get("gpu", {}) or {}
                     _live = (_blob.get("gguf", {}) or {}).get("live_override", {}) or {}
-                    # provider/model/gpu are NOT top-level here — they live under
-                    # configured / gguf.live_override / gpu. Reading _blob['provider']
-                    # etc. returned 'unknown' while a model was clearly loaded, so this
-                    # compact surface contradicted the full RUNTIME_STATUS dump seconds
-                    # apart. Resolve from the correct places, preferring the LIVE model,
-                    # and fall back to the same resolver the full dump uses so the two
-                    # surfaces can never disagree again.
+                    # provider/model/gpu aren't top-level here, they live under configured / gguf.live_override /
+                    # gpu. Reading _blob['provider'] returned 'unknown' with a model loaded, so this compact surface
+                    # contradicted the full RUNTIME_STATUS dump seconds apart. Resolve from the right places,
+                    # preferring the live model, falling back to the resolver the full dump uses so the two can't
+                    # disagree.
                     _provider = _live.get("provider") or _cfg.get("provider")
                     _model = (_live.get("model_path") or _live.get("model_name")
                               or _cfg.get("model_path"))

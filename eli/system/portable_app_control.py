@@ -48,12 +48,10 @@ def _run(args: list[str], timeout: float = 8.0) -> subprocess.CompletedProcess:
     )
 
 
-# Launched children we deliberately do not wait for. Dropping the Popen object
-# while its child is alive is what produced "ResourceWarning: subprocess <pid>
-# is still running" on every app launch -- and, worse, left the finished child
-# unreaped as a zombie because nobody ever called wait(). Holding the handle
-# until the process actually exits fixes both: the warning is legitimate (we
-# WERE discarding a live handle) and the reap is what stops the zombie.
+# Launched children we deliberately don't wait for. Dropping the Popen object while its child
+# is alive gave "ResourceWarning: subprocess <pid> is still running" on every app launch and left
+# the finished child unreaped as a zombie because nobody called wait(). Holding the handle until
+# the process exits fixes both.
 _LAUNCHED: list = []
 _LAUNCH_LOCK = threading.Lock()
 # An app launcher is a handful of processes; this cap only bounds a pathological
@@ -303,13 +301,11 @@ def close_app(name: str, force: bool = False) -> dict:
                     if rc == 0:
                         return _result(True, "CLOSE_APP", f"Closed app/window: {target.name}", resolved=target.__dict__)
         if force:
-            # `pkill -f` matches the full command line of every process as a
-            # regex, so a short target signals unrelated infrastructure — a
-            # "file" target matches `dbus-daemon --session ... --nopidfile`
-            # and ends the login session. The guard dry-runs the pattern and
-            # only signals processes it has verified are ordinary apps.
-            # The old code also treated pkill's "nothing matched" exit status
-            # as success, so a no-op reported a force-close that never happened.
+            # `pkill -f` matches every process's full command line as a regex, so a short target signals
+            # unrelated infrastructure (a "file" target matches `dbus-daemon --session ... --nopidfile` and
+            # ends the login session). The guard dry-runs the pattern and signals only processes verified as
+            # ordinary apps. The old code also treated pkill's "nothing matched" status as success, so a
+            # no-op reported a force-close that never happened.
             from eli.system.process_guard import safe_pkill
 
             res = safe_pkill(target.name, full_cmdline=True)
@@ -443,10 +439,9 @@ def _wayland_window_advice(what: str) -> str:
     )
 
 
-# Phrases that mean "the window I am looking at", not a window called "it".
-# Shared so the executor branch and the dispatch middleware cannot disagree
-# about what counts as a named target — they already did once, which is how
-# "maximise" ended up with two different notions of a bare request.
+# Phrases that mean "the window I am looking at", not a window called "it". Shared so the executor
+# branch and the dispatch middleware can't disagree about what counts as a named target (they once
+# did, giving "maximise" two notions of a bare request).
 BARE_WINDOW_TARGETS = frozenset({
     "", "it", "this", "that", "current", "active", "window", "screen",
     "current window", "this window", "that window", "active window",

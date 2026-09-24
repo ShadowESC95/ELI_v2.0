@@ -49,33 +49,13 @@ from typing import Any, Dict, List, Optional
 _KV_BYTES_PER_TOKEN_PER_LAYER = 6_000
 _CUDA_OVERHEAD_MB = 350
 
-# Headroom left unallocated on the GPU, and the ONE default for it.
-#
-# This knob had two different defaults in four places: the startup dialog's
-# spin box and the startup optimizer said 250, while the loader and
-# gguf_inference said 700. The dialog exports its value into
-# ELI_VRAM_RESERVE_MB, so the 250 always won — and 250 is on the wrong side of
-# a cliff. Measured on a 2060 SUPER with 6,346MB free and a 4.68GB model at
-# ctx=10384:
-#
-#     reserve=250MB -> "all 99 layers fit"   <- llama.cpp then REFUSED to
-#                                               create the context
-#     reserve=400MB -> reduce to 31 layers
-#     reserve=700MB -> reduce to 29 layers   <- loads
-#
-# A 150MB swing flips the answer from 99 layers to 31, so at 250 the fit sits
-# exactly on the boundary and whether it loads depends on fragmentation. It had
-# been loading; on 2.1.98 it did not, the loader fell through to a static 4,096
-# profile, and the whole session ran in a window smaller than its own prompt.
-#
-# 700MB is the value the loader already trusted. Anyone who wants the layers
-# back can lower the spin box deliberately — that is what it is for; it just
-# must not DEFAULT to the edge of what the driver will allocate.
+# GPU headroom we leave unallocated, one default (700MB, ELI_VRAM_RESERVE_MB). 250 looked fine
+# on paper but sat on a cliff: a 2060 SUPER with 6,346MB free said "all 99 layers fit" and
+# llama.cpp then refused to make the context. Lower it in the spin box if you want layers back.
 DEFAULT_VRAM_RESERVE_MB = 700
-# Integrated / unified-memory GPUs (Intel Iris Xe, AMD APU, Adreno) share RAM with
-# the display stack but do not hit the same CUDA lazy-allocation cliff as discrete
-# cards. Reserving 700MB on a ~1.4GB budget left zero room for even partial layer
-# offload — every iGPU machine reported gpu_layers=0 despite a usable budget.
+# Integrated / unified-memory GPUs (Iris Xe, AMD APU, Adreno) share RAM and don't hit the CUDA
+# lazy-allocation cliff. A 700MB reserve on a ~1.4GB budget left no room for partial offload, so
+# every iGPU machine reported gpu_layers=0.
 DEFAULT_IGPU_VRAM_RESERVE_MB = 400
 
 
@@ -181,11 +161,9 @@ class HardwareProfile:
     free_vram_mb: int = 0       # FREE VRAM, not total
     total_vram_mb: int = 0
     vram_gb: float = 0.0        # convenience: free_vram_mb / 1024 (legacy callers)
-    # True when has_gpu=False because a real GPU PCI device exists that no
-    # vendor probe could characterize (timeout, missing tool, permission
-    # error) — distinct from a genuinely GPU-less machine. has_gpu itself
-    # stays False either way (still the safe default for offload decisions);
-    # I want anything that reports the result to say which case it is.
+    # True when has_gpu=False only because a real GPU PCI device exists that no vendor probe could
+    # read (timeout, missing tool, permissions), as opposed to no GPU at all. has_gpu stays False
+    # either way; reporting code uses this to say which.
     gpu_detection_uncertain: bool = False
 
     def to_dict(self) -> Dict[str, Any]:
@@ -261,10 +239,9 @@ def _derive_mode_presets(_base_n_ctx: int, base_max_tokens: int,
     """
     base_max = max(512, int(base_max_tokens) if base_max_tokens > 0 else 2048)
 
-    # MODEL-AGNOSTIC capability scaling for the sample/branch COUNTS (the per-stage token
-    # budgets already follow base_max). tier_scale() is 1.0 for the current small model
-    # (behaviour-preserving) and rises for medium/large/frontier models, so a stronger model
-    # gets more samples / wider search instead of staying at the small-model default of 3.
+    # Model-agnostic scaling of the sample/branch counts (per-stage token budgets already follow
+    # base_max). tier_scale() is 1.0 for the current small model and rises for larger ones, so a
+    # stronger model gets more samples instead of the small-model default of 3.
     try:
         from eli.core.model_tier import tier_scale as _ts
         _scale = float(_ts())
@@ -289,10 +266,9 @@ def _derive_mode_presets(_base_n_ctx: int, base_max_tokens: int,
         },
         "chain_of_thought": {
             "passes": 1,
-            # CoT spends tokens on hidden reasoning BEFORE the visible answer,
-            # so it needs more budget than the base, not less — below ~1536 the
-            # answer truncates mid-reasoning. Floor there whenever ctx allows
-            # (still ctx-derived: tiny-ctx machines keep a proportional cap).
+            # CoT spends tokens on hidden reasoning before the visible answer, so it needs more than
+            # the base budget (below ~1536 the answer truncates mid-reasoning). Floor there whenever
+            # ctx allows; tiny-ctx machines keep a proportional cap.
             "max_tokens": max(int(base_max * 0.85),
                               min(1536, max(256, int(_base_n_ctx * 0.4)))),
             "temperature": max(0.3, float(base_temperature) - 0.2),
@@ -496,15 +472,9 @@ def _macos_gpus() -> List[tuple]:
     return gpus
 
 
-# Known factory VRAM for common NVIDIA cards, longest/most specific name match
-# first (checked in order, first hit wins). Used ONLY when nvidia-smi/NVML
-# cannot be queried (e.g. a loaded kernel module out of sync with the
-# userspace driver library after an update with no reboot — confirmed in the
-# field: NVML reports "Driver/library version mismatch" while the model name
-# is still readable straight from the kernel module's own /proc interface).
-# Ambiguous multi-VRAM-SKU cards (GTX 1060 3/6GB, RTX 3080 10/12GB, RTX 4060 Ti
-# 8/16GB, ...) intentionally list the SMALLER factory config — conservative,
-# and the loader's reduce-to-fit-on-OOM corrects any underestimate risk-free.
+# Known factory VRAM for common NVIDIA cards, most specific name first. Used only when
+# nvidia-smi/NVML can't be queried (e.g. kernel module out of sync after an update, name still
+# readable from /proc). Multi-SKU cards list the smaller config; reduce-to-fit fixes an underestimate.
 _NVIDIA_VRAM_MB_BY_MODEL: tuple[tuple[str, int], ...] = (
     ("rtx 4090", 24576), ("rtx 4080 super", 16384), ("rtx 4080", 16384),
     ("rtx 4070 ti super", 16384), ("rtx 4070 ti", 12288), ("rtx 4070 super", 12288),
@@ -1249,10 +1219,9 @@ def _detect_hardware_impl() -> HardwareProfile:
             else:
                 out = []
             if out:
-                # Sum across ALL GPUs (readiness #5: multi-GPU was under-counted by
-                # reading only the first card). llama.cpp splits across visible CUDA
-                # devices, and the adaptive-load fallback reduces layers on any OOM —
-                # so provisioning against total capacity is safe.
+                # Sum across all GPUs (multi-GPU was under-counted by reading only the first card).
+                # llama.cpp splits across visible CUDA devices and the fallback reduces layers on
+                # any OOM, so provisioning against total capacity is safe.
                 free_sum = total_sum = 0
                 names: list = []
                 for line in out:
@@ -1274,19 +1243,10 @@ def _detect_hardware_impl() -> HardwareProfile:
         except Exception:
             log.debug("nvidia-smi query unavailable", exc_info=True)
 
-    # NVIDIA driver-loaded fallback — if nvidia-smi is missing or its query failed
-    # (a broken/partial userspace, an Optimus card the tool couldn't read, or a
-    # loaded kernel module out of sync with the userspace driver library after
-    # an update with no reboot — confirmed in the field via NVML's own "Driver/
-    # library version mismatch") but the kernel driver is clearly loaded, still
-    # report the GPU so the smart loader and the GPU pack engage.
-    # ``_nvidia_driver_loaded`` reads kernel-provided signals that are
-    # identical on every distro. The model name is still readable straight
-    # from the kernel module's /proc interface even when NVML is broken, so
-    # look up its real factory VRAM instead of guessing a flat 4GB for every
-    # card — that flat guess was cutting GPU layers to a fraction of what a
-    # bigger card can actually hold. Falls back to the flat guess only for an
-    # unrecognized model; the loader's reduce-to-fit corrects either way.
+    # NVIDIA driver-loaded fallback: nvidia-smi is missing or failed (broken userspace, Optimus, a
+    # module out of sync) but the kernel driver is loaded, so still report the GPU and let the
+    # loader and GPU pack engage. Look up factory VRAM from the name in /proc; a flat 4GB guess
+    # (unrecognised models only) cut layers on bigger cards.
     if not hw.has_gpu and sys.platform.startswith("linux") and _nvidia_driver_loaded():
         _model = _nvidia_gpu_model_from_proc()
         _known_mb = _nvidia_vram_mb_from_model_name(_model) if _model else 0
@@ -1298,11 +1258,8 @@ def _detect_hardware_impl() -> HardwareProfile:
         hw.gpu_vendor = "nvidia"
         hw.gpu_detection_uncertain = True
 
-    # Windows / macOS fallback. This block used to be Linux-only -- the whole
-    # fallback was gated on sys.platform.startswith("linux") -- so on Windows a
-    # machine whose nvidia-smi was simply not on PATH reported NO GPU AT ALL and
-    # loaded with 0 offloaded layers. The kernel-signal rewrite made Linux robust
-    # and left the other two platforms with nothing behind nvidia-smi.
+    # Windows / macOS fallback. This was Linux-only, so a Windows machine with nvidia-smi off PATH
+    # reported no GPU and loaded with 0 layers.
     if not hw.has_gpu:
         _native = _windows_gpus() or _macos_gpus()
         if _native:
@@ -1353,10 +1310,8 @@ def _detect_hardware_impl() -> HardwareProfile:
             log.info("[HW] GPU detected without nvidia-smi: %s (%d MB usable)",
                      hw.gpu_name, hw.free_vram_mb)
 
-    # AMD ROCm fallback — nvidia-smi doesn't exist on AMD GPUs, so the block above finds
-    # nothing there. Read free/total VRAM from rocm-smi so the smart loader can size GPU
-    # layers on AMD too (mirrors the nvidia path; llama.cpp + hipBLAS splits across HIP
-    # devices the same way). Non-fatal: if rocm-smi is absent it falls through to CPU.
+    # AMD ROCm fallback: nvidia-smi doesn't exist on AMD, so read free/total VRAM from rocm-smi and
+    # let the loader size layers on AMD too. Non-fatal: without rocm-smi it falls through to CPU.
     if not hw.has_gpu:
         try:
             import json as _json
@@ -1404,10 +1359,8 @@ def _detect_hardware_impl() -> HardwareProfile:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    # AMD without ROCm (the common desktop case, and what the Vulkan GPU pack
-    # targets) — rocm-smi rarely exists there. Read VRAM from the stock
-    # amdgpu driver's sysfs so AMD flows through the SAME HardwareProfile
-    # fields (and therefore the same smart-fit layer allocation) as NVIDIA.
+    # AMD without ROCm (the common desktop case, and what the Vulkan pack targets): read VRAM from
+    # the amdgpu driver's sysfs so AMD uses the same HardwareProfile fields and smart-fit as NVIDIA.
     if not hw.has_gpu and sys.platform.startswith("linux"):
         try:
             free_sum = total_sum = cards = 0
@@ -1435,13 +1388,9 @@ def _detect_hardware_impl() -> HardwareProfile:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    # Discrete Intel Arc (Linux) — same HardwareProfile pipeline as NVIDIA/AMD so
-    # the smart loader and the Vulkan GPU pack see it. Only DISCRETE Arc (the newer
-    # `xe` driver, or an Arc-family PCI device id) — an Intel iGPU (Iris/UHD) is left
-    # on CPU because Vulkan offload to shared memory rarely beats CPU. Intel exposes
-    # no stable free-VRAM sysfs, but lspci's model string usually identifies the
-    # exact card, so look up its real factory VRAM instead of a flat guess for
-    # every Arc SKU from the 4GB A310 to the 16GB A770.
+    # Discrete Intel Arc (Linux) through the same HardwareProfile pipeline. Only the `xe` driver or
+    # an Arc PCI id; Iris/UHD iGPUs stay on CPU because Vulkan offload to shared memory rarely
+    # wins. Intel exposes no free-VRAM sysfs, so look up factory VRAM from lspci's model string.
     if not hw.has_gpu and sys.platform.startswith("linux"):
         try:
             _INTEL = _PCI_VENDOR_INTEL
@@ -1467,11 +1416,9 @@ def _detect_hardware_impl() -> HardwareProfile:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    # AMD (and discrete Intel Arc) on Windows — no CLI ships with the driver; VRAM
-    # total + name live in the display-class registry keys. Free VRAM is not
-    # exposed, so estimate conservatively (85% of total on an idle desktop); the
-    # loader's reduce-to-fit attempts and live tuner correct any optimism at load
-    # time. Intel iGPUs (Iris/UHD) are skipped — only Arc is offered a GPU pack.
+    # AMD and discrete Intel Arc on Windows: no CLI ships with the driver, so total VRAM and name
+    # come from the display-class registry keys. Free VRAM isn't exposed, so estimate 85% of total;
+    # reduce-to-fit and the live tuner correct optimism. Iris/UHD are skipped.
     if not hw.has_gpu and sys.platform == "win32":
         try:
             import winreg
@@ -1557,10 +1504,9 @@ def _detect_hardware_impl() -> HardwareProfile:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    # Last resort, before concluding "no GPU": a real GPU PCI device may still
-    # be sitting in /sys/class/drm that every vendor-specific probe above
-    # failed to characterize (unrecognised subvendor, a driver that doesn't
-    # expose the sysfs files those probes read, a permission error).
+    # Last resort before concluding "no GPU": a real GPU PCI device may be in /sys/class/drm that
+    # every vendor probe failed to characterise (unrecognised subvendor, a driver not exposing the
+    # sysfs files, permissions).
     if not hw.has_gpu and sys.platform.startswith("linux") and _linux_gpu_pci_device_present():
         hw.gpu_detection_uncertain = True
 
@@ -2249,14 +2195,9 @@ def recommend(hw: Optional[HardwareProfile] = None,
     else:
         rec.reasoning.append("KV cache: fp16 (no quantization)")
 
-    # Context window:
-    # • GPU systems  — drive ctx from VRAM KV budget, not RAM.
-    #   Available RAM fluctuates with other processes and gives misleadingly
-    #   low values (e.g. 2 GB free when 16 GB total) that result in ctx=2048
-    #   on a machine that can handle 18 K+ tokens.  We start with the model's
-    #   full training window and let the VRAM refinement below set the real
-    #   ceiling after model selection.
-    # • CPU-only     — RAM is the binding constraint; use available RAM.
+    # Context window: on GPU systems drive ctx from the VRAM KV budget, not RAM (available RAM
+    # fluctuates and gave ctx=2048 on a machine that handles 18K+). Start from the model's full
+    # training window and let the VRAM refinement below set the ceiling. CPU-only is RAM-bound.
     _ctx_grain = 2048
     if user_ctx and int(user_ctx) >= 2048:
         rec.n_ctx = max(2048, (int(user_ctx) // _ctx_grain) * _ctx_grain)
@@ -2318,31 +2259,18 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"Falling back to smallest: {chosen['name']} ({chosen['size_gb']:.1f}GB)"
         )
 
-    # If the largest-model attempt found 0 GPU layers at this ctx, retry
-    # smaller-model first before giving up — this is the regime where ctx
-    # is so big the KV cache eats VRAM. recommend() should always produce
-    # something usable on GPU when one is present.
+    # If the largest-model attempt found 0 GPU layers at this ctx, retry smaller-model first: ctx is
+    # so big the KV cache eats VRAM. recommend() should give something usable on GPU whenever one
+    # exists.
 
     rec.model_path = chosen["path"]
     rec.model_name = chosen["name"]
     rec.model_size_gb = chosen["size_gb"]
     rec.n_gpu_layers = chosen_layers
 
-    # ONE fit, not two. This recommendation is shown to the operator and stored
-    # as the hw_profile_* fallback, so it must predict what the loader will do —
-    # and it did the opposite. Three blocks here picked layers first and then cut
-    # CONTEXT to pay for them ("n_ctx set 12288 -> 8192", "n_gpu_layers adjusted
-    # 28->30 after ctx settled", "n_ctx-> to reach 10 GPU layers"), while
-    # smart_fit_config — the function the load ladder actually runs — keeps the
-    # context and sheds LAYERS, reducing ctx only as a last resort.
-    #
-    # Same machine, same model, one second apart, the two disagreed in the
-    # Hardware Tuning tab: the tuner reported ctx=8192 gpu_layers=30 while the
-    # load selected ctx=12288 gpu_layers=27.
-    #
-    # smart_fit_config is the authority because it is what runs. Calling it here
-    # means the recommendation is a prediction of the load rather than a second
-    # opinion about it.
+    # One fit, not two. This recommendation is shown to the operator and stored as the hw_profile_*
+    # fallback, so it has to predict what the loader does. The old blocks cut ctx to pay for layers,
+    # while smart_fit_config keeps ctx and sheds layers, so the tuner and the load disagreed.
     import os as _os_fit
     _env_target_batch = int(_os_fit.environ.get("ELI_TARGET_BATCH", "0") or "0")
     _fit_batch_in = (
@@ -2424,14 +2352,9 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"all layers on GPU (free VRAM sufficient)"
         )
     elif chosen_layers > 0:
-        # Report the KV size actually being BUDGETED, which means honouring kv_q —
-        # every fit call above already passes it. This line did not, so on a card
-        # using q4_0 it printed the fp16 figure: 1901MB where the loader had
-        # reserved 475MB, four lines under "KV cache: q4_0 (4x more ctx for the same
-        # VRAM)". Overstating KV fourfold makes context look like the lever for
-        # winning back GPU layers when it is nearly the weakest one — on a 5GB/32
-        # layer model at q4_0, cutting 1900 tokens frees 87MB against a 161MB layer,
-        # i.e. half a layer, while the panel implied roughly two.
+        # Report the KV size actually budgeted, honouring kv_q. This printed the fp16 figure
+        # (1901MB) where the loader reserved 475MB at q4_0, which made ctx look like the lever for
+        # winning back layers when it is nearly the weakest.
         rec.reasoning.append(
             f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — "
             f"{chosen_layers}/{total_layers} layers on GPU "
@@ -2452,18 +2375,9 @@ def recommend(hw: Optional[HardwareProfile] = None,
                 f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — CPU only"
             )
 
-    # Batch size.
-    #
-    # The operator's explicit target (startup dialog -> ELI_TARGET_BATCH) IS the
-    # request. It anchors the value here and only the VRAM-headroom pass below may
-    # reduce it, for the same reason ctx and layers work that way: what you type is
-    # what loads unless the hardware is measured to refuse it.
-    #
-    # This block used to overwrite rec.batch_size unconditionally from the offload
-    # ratio, which silently discarded BOTH the operator's target and the batch the
-    # joint fit had just computed twelve lines earlier -- so a dialog set to 512
-    # stored hw_profile_batch_size=128 and the panel looked like it had ignored the
-    # setting. Without a target the offload heuristic still supplies the default.
+    # Batch size. The operator's target (startup dialog -> ELI_TARGET_BATCH) is the request; only
+    # the VRAM-headroom pass below may reduce it, same as ctx and layers. It used to be overwritten
+    # from the offload ratio (a dialog set to 512 stored 128). No target means the heuristic default.
     if _env_target_batch > 0:
         rec.batch_size = max(_igpu_min_batch, int(_env_target_batch))
         rec.reasoning.append(
@@ -2481,10 +2395,9 @@ def recommend(hw: Optional[HardwareProfile] = None,
         _raw_b = int(128 + _offload * (512 - 128))
         rec.batch_size = max(128, (_raw_b // 64) * 64)
 
-    # VRAM headroom check: llama.cpp compute buffers (rope, attention accumulation,
-    # graph workspace) consume VRAM beyond the model + KV allocation. On 8 GB cards
-    # with full offload and long ctx, this leaves insufficient room for batch=512.
-    # Thresholds derived empirically: ~750 MB needed for batch=512 on 7B models.
+    # VRAM headroom check: llama.cpp compute buffers (rope, attention, graph workspace) use VRAM
+    # beyond model + KV. On 8 GB cards with full offload and long ctx that leaves too little for
+    # batch=512 (about 750 MB needed on 7B models, empirically).
     if hw.has_gpu and hw.free_vram_mb > 0 and chosen_layers > 0 and rec.batch_size > 128:
         _offload_f = min(1.0, chosen_layers / max(1, total_layers))
         _kv_at_ctx = _kv_cache_mb(rec.n_ctx, total_layers, quant=kv_q)
@@ -2493,12 +2406,9 @@ def recommend(hw: Optional[HardwareProfile] = None,
                              - _gpu_model_for_batch
                              - _kv_at_ctx
                              - float(_CUDA_OVERHEAD_MB))
-        # Pick the largest batch whose DECODE-time compute buffer actually fits
-        # the remaining headroom, plus a safety margin. The compute buffer grows
-        # with BOTH ctx and batch, so the old fixed thresholds (1000/400MB)
-        # under-estimated at long ctx and let batch stay too high — loading fine
-        # then OOMing on first decode. _compute_graph_reserve_mb errs high and
-        # the margin absorbs estimate error + display/VRAM fluctuation.
+        # Pick the largest batch whose decode-time compute buffer fits the remaining headroom plus a
+        # margin. The buffer grows with ctx and batch, so the old fixed thresholds under-estimated at
+        # long ctx and OOMed on first decode. _compute_graph_reserve_mb errs high on purpose.
         _SAFETY_MARGIN_MB = 400.0
         _safe_batch = _igpu_min_batch
         # The operator's own value leads the ladder: a target above 512 was
@@ -2540,12 +2450,9 @@ def recommend(hw: Optional[HardwareProfile] = None,
     rec.max_tokens = -1   # unlimited — use full remaining context
     rec.temperature = 0.7
 
-    # Per-reasoning-mode presets derived from the base tune. Quick is
-    # the reference (full base); each other mode carves a stage budget.
-    # The base max_tokens for derivation is whichever is larger between
-    # the configured cap and a context-scaled ceiling. `-1` means
-    # unlimited at runtime, so for derivation we use n_ctx/4 capped at
-    # 4096 as a stable per-stage reference.
+    # Per-reasoning-mode presets derived from the base tune: Quick is the reference and each other
+    # mode carves a stage budget. The base max_tokens is the larger of the configured cap and a
+    # ctx-scaled ceiling; `-1` (unlimited) uses n_ctx/4 capped at 4096.
     _max_for_derivation = (
         rec.max_tokens
         if rec.max_tokens > 0
@@ -2593,11 +2500,9 @@ def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
         settings["mode_presets"] = dict(rec.mode_presets)
         save_settings(settings)
 
-        # Keep the GUI's hw-profile artifact in sync.
-        # eli_pro_audio_gui_v2_0.py reads artifacts/runtime_hardware_profile.json
-        # (keys: n_ctx, n_gpu_layers, batch_size) as its hw-profile fallback.
-        # Without this write the GUI would show stale values from a previous
-        # optimizer run, making it look like the profile wasn't updated.
+        # Keep the GUI's hw-profile artifact in sync: eli_pro_audio_gui_v2_0.py reads
+        # artifacts/runtime_hardware_profile.json (n_ctx, n_gpu_layers, batch_size) as its fallback,
+        # and would show stale values without this write.
         try:
             import json as _json
             from eli.core.paths import artifacts_dir as _artifacts_dir
@@ -2634,14 +2539,9 @@ def run_benchmark() -> Dict[str, Any]:
     }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Hardware-profile authority: the profiler is the source of truth (ELI design
-# directive #1). At startup, settings that drift above what `recommend()`
-# would produce on this machine are re-applied automatically. We never silently
-# downgrade the model — only the runtime tune (n_ctx, n_gpu_layers, batch).
-# Model swap recommendations (e.g. Q3→Q4 on a 4 GB card) are emitted as a
-# warning banner, never auto-applied.
-# ─────────────────────────────────────────────────────────────────────────────
+# Hardware-profile authority: the profiler is the source of truth. At startup, settings above
+# what recommend() would give here are re-applied. Only the runtime tune (n_ctx, n_gpu_layers,
+# batch) changes, never the model; swap suggestions are a warning banner, never auto-applied.
 
 def compute_hardware_fingerprint(hw: HardwareProfile) -> str:
     """Stable short hash of the machine's identifying hardware traits.
@@ -2744,13 +2644,9 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
 
     hw = detect_hardware()
 
-    # Phase 11 fix (2026-05-11): if this process already has a GGUF model
-    # loaded, the live free_vram_mb is artificially small (the model is
-    # eating its own budget). Computing layer recommendations from that
-    # number gives nonsense values (a real session showed n_gpu_layers
-    # → 1, effectively CPU-only). Predict free VRAM AS IF no chat model
-    # was loaded: total_vram - (display server estimate, ~500 MB) - kv
-    # cache, leaving room for the chat model itself.
+    # If this process already has a GGUF loaded, live free_vram_mb is artificially small (the model
+    # is eating its own budget) and gave n_gpu_layers -> 1. Predict free VRAM as if no chat model
+    # were loaded: total minus the display server (~500MB) and KV cache.
     try:
         from eli.cognition import gguf_inference as _gi_check
         _loaded = bool(getattr(_gi_check, "_llm", None))

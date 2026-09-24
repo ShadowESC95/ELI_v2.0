@@ -519,10 +519,9 @@ def resolve_audio_sink(query: str) -> Optional[Dict[str, Any]]:
     if hits:
         return min(hits, key=lambda s: min(len(n) for n in _sink_full_names(s) if q in n))
 
-    # 4. A sink name appears inside a longer phrase ("play through the amp now").
-    #    Word boundaries + longest-wins, so a specific name beats the generic
-    #    token inside it. No match returns None — the caller then says so instead
-    #    of quietly playing through whatever it found first.
+    # 4. A sink name inside a longer phrase ("play through the amp now"): word boundaries and
+    # longest-wins, so a specific name beats the generic token inside it. No match returns None and
+    # the caller says so, instead of quietly playing through whatever it found first.
     best, best_len = None, 0
     for s in sinks:
         for n in _sink_full_names(s):
@@ -722,11 +721,10 @@ def set_default_audio(sink: str) -> Dict[str, Any]:
                     mrc, _ = _sh(["pactl", "move-sink-input", parts[0], sink], timeout=6)
                     if mrc == 0:
                         moved += 1
-        # VERIFY the switch actually took — set-default-sink can exit 0 while the
-        # default is unchanged (stale/renamed sink id). Reporting "connected" on a
-        # bare exit code is how ELI claimed success while no audio moved. Confirm
-        # the running default now matches, and surface how many live streams moved
-        # so the caller can say "set as default" vs "now playing through" honestly.
+        # Verify the switch took: set-default-sink can exit 0 while the default is unchanged (stale or
+        # renamed sink id), and reporting "connected" on a bare exit code is how ELI claimed success
+        # while no audio moved. Confirm the running default matches and report how many live streams
+        # moved, so the caller can honestly say "set as default" vs "now playing through".
         _, defnow = _sh(["pactl", "get-default-sink"], timeout=6)
         default_now = (defnow or "").strip().splitlines()[0].strip() if defnow.strip() else ""
         switched = rc == 0 and (not default_now or default_now == sink)

@@ -257,11 +257,10 @@ class SelfImprovementEngine:
     # ─────────────────────────────────────────────────────────────────────────
 
     def log_failure(self, input_text: str, error: str = "", confidence: float = 0.0, context: dict = None):
-        # Guard: never persist a unit-test mock as a real failure. When a test patches
-        # subprocess.run, the executor's stdout concat yields a MagicMock repr
-        # ("<MagicMock name='run().stdout.__add__()' …>") that previously leaked into the
-        # live failures DB and polluted SELF_ANALYZE. Drop mock reprs at the write source,
-        # so a test-isolation slip can't pollute real runtime failures.
+        # Guard: never persist a unit-test mock as a real failure. When a test patches subprocess.run,
+        # the executor's stdout concat gives a MagicMock repr ("<MagicMock name='run().stdout.__add__()'
+        # ...>") that leaked into the live failures DB and polluted SELF_ANALYZE. Drop mock reprs at the
+        # write source so a test-isolation slip can't pollute real failures.
         import re as _re_mock
         if _re_mock.search(r"<\s*(?:Magic)?Mock\b|(?:Magic)?Mock\s+name=|\bMock\s+id=0x",
                            f"{error} {input_text}"):
@@ -297,10 +296,9 @@ class SelfImprovementEngine:
         finally:
             conn.close()
 
-        # Escalation clauses (recurring error → ELI proactively raises it with the user):
-        #   ≥5×  → "notice": flag it to the user in the next conversation turn.
-        #   ≥10× → "act":    additionally attempt a self-resolution and report the outcome.
-        # Skip user-input/clarification cases (fault=False) — those aren't real faults.
+        # Escalation clauses (a recurring error is raised with the user): >=5x is "notice" (flag it
+        # in the next conversation turn); >=10x is "act" (also attempt a self-resolution and report
+        # the outcome). Skip user-input/clarification cases (fault=False); they aren't real faults.
         if new_count in (5, 10) or (new_count > 10 and new_count % 5 == 0):
             if not (isinstance(ctx, dict) and ctx.get("fault") is False):
                 stage = "notice" if new_count < 10 else "act"
@@ -528,10 +526,9 @@ class SelfImprovementEngine:
             desc = f"Investigate failure: {ui} → {err}".strip()
             if desc.lower() in existing_descs:
                 continue
-            # Classified from the failure itself. This was a hardcoded
-            # stability/runtime for every proposal, whatever had failed, so the
-            # improvements table carried no signal to prioritise or filter on —
-            # a CUDA OOM and a wrong dict key were indistinguishable.
+            # Classified from the failure itself. This was a hardcoded stability/runtime for every
+            # proposal, so the improvements table carried no signal to prioritise or filter on: a
+            # CUDA OOM and a wrong dict key were indistinguishable.
             try:
                 from eli.runtime.failure_taxonomy import classify
                 tags = classify(err, _safe_str(f.get("command")), ui)
@@ -547,11 +544,9 @@ class SelfImprovementEngine:
                 "description": desc,
             })
 
-        # Real defects before environmental noise. Only five are logged per pass,
-        # and a machine that is deliberately offline can produce enough network
-        # failures to fill that slice on its own — burying the TypeError that is
-        # an actual bug. Order is stable within each group, so the newest
-        # actionable failure still leads.
+        # Real defects before environmental noise. Only five are logged per pass, and a deliberately
+        # offline machine can fill that slice with network failures, burying the TypeError that is an
+        # actual bug. Order is stable within each group, so the newest actionable failure still leads.
         try:
             from eli.runtime.failure_taxonomy import is_actionable
             improvements.sort(key=lambda i: not is_actionable(i.get("category", "")))
@@ -564,12 +559,10 @@ class SelfImprovementEngine:
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
 
-        # Frontier self-repair: when there are NEW (un-investigated) failures and the model
-        # is resident, route them through the coding agent (decompose→solve→VERIFY) and
-        # PERSIST the verified/candidate fixes as proposal-only goals — so they survive and
-        # surface via GET_PROPOSALS. Previously analyze_and_improve only logged 'investigate'
-        # stubs that never became anything (the proposals=0 root cause). Propose-only:
-        # nothing is auto-applied. Gated so the daemon never thrashes the GGUF/coding agent.
+        # Frontier self-repair: with new failures and a model resident, route them through the coding
+        # agent (decompose, solve, verify) and keep the fixes as proposal-only goals that surface via
+        # GET_PROPOSALS. It used to log 'investigate' stubs that went nowhere (why proposals stayed 0).
+        # Nothing is auto-applied, and it's gated so the daemon can't thrash the GGUF.
         proposals_made = 0
         if improvements and propose:
             try:
@@ -736,10 +729,9 @@ class SelfImprovementEngine:
                 if candidate.exists() and candidate.stat().st_size < max_file_chars * 3:
                     full_src = candidate.read_text(encoding="utf-8")
                     file_ref = str(candidate.relative_to(_patch_root()))
-                    # Give the model the ENCLOSING SCOPE around the failing line (+ the file's
-                    # imports) instead of just the head — the same scope-aware context the code
-                    # examiner uses, so it can produce a verbatim, in-scope fix. The deepest
-                    # traceback frame for THIS file is the actual error site.
+                    # Give the model the enclosing scope around the failing line (plus the file's imports) instead
+                    # of just the head, the same scope-aware context the code examiner uses, so it can write a
+                    # verbatim in-scope fix. The deepest traceback frame for this file is the error site.
                     _frames = re.findall(
                         rf'File "[^"]*{re.escape(candidate.name)}", line (\d+)', err)
                     _err_line = int(_frames[-1]) if _frames else None
@@ -751,11 +743,10 @@ class SelfImprovementEngine:
             except (ValueError, Exception):
                 log.debug("suppressed exception", exc_info=True)
 
-        # Only patch failures we can ground to a REAL in-project file. Without a file
-        # from the traceback the model invents a path (observed: phantom api_client.py /
-        # command_handler.py for the 11434 / "No commands" errors) and apply_code_patch
-        # then fails "File not found". Skip honestly — these are surfaced for goal-based
-        # / self-heal handling instead of a hallucinated patch.
+        # Only patch failures we can ground to a real in-project file. Without a file from the
+        # traceback the model invents a path (phantom api_client.py / command_handler.py for the 11434
+        # and "No commands" errors) and apply_code_patch fails "File not found". Skip honestly, these go
+        # to goal-based/self-heal handling instead of a hallucinated patch.
         if not file_ref or not file_content:
             return {
                 "ok": False,
@@ -804,11 +795,11 @@ class SelfImprovementEngine:
         except Exception as _bm_e:
             log.debug(f"[SELF-IMPROVE] bug-memory recall skipped: {_bm_e}")
 
-        # Validate-and-retry: a patch is only returned once 'old' is a verbatim substring of the
-        # real file AND applying it still parses — the SAME pre-flight the code examiner uses, so
-        # the autonomous loop stops handing apply_code_patch syntax-broken patches ("Fix failed
-        # after retries: corrected code has SyntaxError"). On rejection the specific error is fed
-        # back and the model retries. apply_code_patch still import-verifies + auto-reverts after.
+        # Validate-and-retry: a patch is returned only once 'old' is a verbatim substring of the real
+        # file and applying it still parses (the same pre-flight the code examiner uses), so the
+        # autonomous loop stops handing apply_code_patch syntax-broken patches. On rejection the specific
+        # error is fed back and the model retries. apply_code_patch still import-verifies and
+        # auto-reverts after.
         try:
             from eli.runtime.code_examiner import _validate_patch as _vp
         except Exception:
@@ -890,11 +881,11 @@ class SelfImprovementEngine:
         except ValueError:
             return {"ok": False, "applied": False, "message": f"Refused: {p} is outside source root"}
 
-        # Protected-path guard — the self-improver must NEVER auto-patch the safety
-        # guardrails (or itself): a faulty or adversarial patch to these would disable
-        # the very gates that contain it (network fail-closed, shell denylist, Full
-        # Control, grounding, the patcher). Shared with FIX_FILE (executor_enhanced.py)
-        # so both patch paths enforce the identical list — see is_protected_patch_path.
+        # Protected-path guard: the self-improver must never auto-patch the safety guardrails (or
+        # itself), since a faulty or adversarial patch to them would disable the gates that contain it
+        # (network fail-closed, shell denylist, Full Control, grounding, the patcher). Shared with
+        # FIX_FILE (executor_enhanced.py) so both patch paths enforce the same list, see
+        # is_protected_patch_path.
         if is_protected_patch_path(p):
             try:
                 _rel = p.relative_to(_root).as_posix()
@@ -963,10 +954,9 @@ class SelfImprovementEngine:
             return {"ok": False, "applied": False,
                     "message": f"Compile error after patch (reverted): {exc}"}
 
-        # Behavioural verification — a patch can compile and still break the
-        # module at import time (unresolved name, broken top-level statement,
-        # bad import). For importable `eli` modules that imported cleanly before
-        # the patch, smoke-import the patched file in an isolated subprocess and
+        # Behavioural verification: a patch can compile and still break the module at import time
+        # (unresolved name, broken top-level statement, bad import). For importable `eli` modules that
+        # imported cleanly before the patch, smoke-import the patched file in an isolated subprocess and
         # revert if it no longer loads.
         if verify_dotted and pre_import_ok:
             imp_ok, imp_detail = _smoke_import_module(verify_dotted)
@@ -977,10 +967,10 @@ class SelfImprovementEngine:
                 return {"ok": False, "applied": False,
                         "message": f"Patch broke module import (reverted): {imp_detail}"}
 
-        # Targeted regression (CI-grade): a patch can compile + import cleanly and
-        # still break behaviour. Run the patched module's related tests and revert
-        # on a genuine failure. Timeouts / no-matching-tests / infra errors are
-        # tolerated (never a false revert). Disable with ELI_SELFPATCH_VERIFY_TESTS=0.
+        # Targeted regression (CI-grade): a patch can compile and import and still break behaviour.
+        # Run the patched module's related tests and revert on a genuine failure. Timeouts, no matching
+        # tests and infra errors are tolerated (never a false revert). ELI_SELFPATCH_VERIFY_TESTS=0
+        # disables it.
         if verify and os.environ.get("ELI_SELFPATCH_VERIFY_TESTS", "1").strip().lower() not in ("0", "false", "no", "off"):
             t_ran, t_passed, t_detail = _run_targeted_tests(p)
             if t_ran and not t_passed:
@@ -1436,16 +1426,14 @@ class SelfImprovementEngine:
 # Module-level singletons
 # ─────────────────────────────────────────────────────────────────────────────
 
-# ── Self-heal notices (recurring-error → proactive conversation surface) ──────
-# When an error recurs ≥5× (flag) or ≥10× (act + report), a user-facing notice is
-# queued here. The engine pops the most pressing one at the start of a conversational
-# turn and mentions it — so ELI raises recurring problems with the user himself and
-# reports what he tried, instead of failing silently.
+# Self-heal notices (recurring error -> proactive conversation surface). When an error recurs
+# >=5x (flag) or >=10x (act + report), a user-facing notice is queued here. The engine pops the
+# most pressing one at the start of a conversational turn and mentions it, so ELI raises
+# recurring problems itself and reports what it tried instead of failing silently.
 def _self_heal_notices_path() -> Path:
-    # A WRITE path. PROJECT_ROOT is the install tree, read-only in a packaged
-    # build, so the notice queue could never persist there — ELI would keep
-    # silently failing to raise recurring problems, which is the whole point of
-    # this file. The artifacts dir is user-writable by construction.
+    # A write path. PROJECT_ROOT is the install tree, read-only in a packaged build, so the notice
+    # queue could never persist there and ELI silently failed to raise recurring problems, the point
+    # of this file. The artifacts dir is user-writable.
     try:
         from eli.core.paths import data_dir as _dd
         return Path(_dd()) / "runtime" / "self_heal_notices.json"

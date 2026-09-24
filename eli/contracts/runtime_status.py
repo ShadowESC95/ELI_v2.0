@@ -210,10 +210,8 @@ def _gpu_probe_from_nvidia_smi() -> dict[str, Any]:
             }
     except Exception:
         log.debug("suppressed exception", exc_info=True)
-    # Cross-vendor fallback: used to return {} (no GPU info at all) on every
-    # AMD/Intel/Apple machine, and on any NVIDIA machine with a driver hiccup,
-    # even though hardware_profile.detect_hardware() (used everywhere else)
-    # already knows the real card.
+    # Cross-vendor fallback: this returned {} on every AMD/Intel/Apple machine and on NVIDIA with a
+    # driver hiccup, although hardware_profile.detect_hardware() already knows the card.
     try:
         from eli.core.hardware_profile import detect_hardware
         hw = detect_hardware()

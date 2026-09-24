@@ -129,10 +129,9 @@ COMMON_APP_ALIASES = {
     "disk usage": "disk usage",
 }
 
-# Terminal emulators, as (executable, argv-separator flags). The rest of the argv
-# is appended, so every entry must take a command as argv — not as one string.
-# Ordered: Debian's alternatives symlink, the big desktops, then the standalone
-# terminals that are usually all you get on Arch / a minimal WM, then xterm.
+# Terminal emulators as (executable, argv-separator flags). The rest of the argv is appended, so
+# every entry must take a command as argv, not one string. Order: Debian's alternatives symlink, the
+# big desktops, then the standalone terminals common on Arch or a minimal WM, then xterm.
 TERMINAL_CANDIDATES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("x-terminal-emulator", ("-e",)),      # Debian/Ubuntu alternatives symlink
     ("gnome-terminal", ("--",)),
@@ -152,11 +151,10 @@ TERMINAL_CANDIDATES: tuple[tuple[str, tuple[str, ...]], ...] = (
     ("xterm", ("-e",)),
 )
 
-# Linux desktops disagree about which apps exist, so a single name per role is a
-# Ubuntu/GNOME assumption, not a Linux one: `x-terminal-emulator` is a Debian
-# alternatives symlink, and gnome-*/gedit/eog/rhythmbox are absent on a KDE or
-# minimal Arch install. Each role is a candidate list resolved against PATH on
-# the host at call time; the first entry is the fallback label when none exist.
+# Linux desktops disagree about which apps exist, so one name per role is an Ubuntu/GNOME
+# assumption: x-terminal-emulator is a Debian alternatives symlink, and gnome-*/gedit/eog/
+# rhythmbox are absent on KDE or minimal Arch. Each role is a candidate list resolved against
+# PATH at call time; the first entry is the fallback label when none exist.
 LINUX_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
     "browser": ("xdg-open",),
     "mail": ("thunderbird", "evolution", "kmail", "geary"),
@@ -193,10 +191,9 @@ LINUX_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
     "disk usage": ("baobab", "filelight", "qdirstat"),
 }
 
-# macOS names are .app bundle names, not PATH executables, and they move between
-# OS releases: "System Settings" is Ventura (13) and later — on Monterey and older
-# it is "System Preferences", and `open -a "System Settings"` simply fails there.
-# Same story for Music/iTunes (Catalina split). Candidates cover both eras.
+# macOS names are .app bundle names, not PATH executables, and they move between releases: "System
+# Settings" is Ventura (13) and later, "System Preferences" before, and `open -a "System Settings"`
+# fails on older ones. Same for Music/iTunes (Catalina split). Candidates cover both eras.
 MACOS_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
     "browser": ("Safari", "Google Chrome", "Firefox", "Arc", "Brave Browser"),
     "mail": ("Mail", "Microsoft Outlook", "Spark", "Thunderbird"),
@@ -444,11 +441,10 @@ def normalize_app_name(name: str, platform_name: str | None = None) -> str:
     return app_aliases(platform_name).get(raw, raw)
 
 
-# Well-known per-user folders, in the vocabulary people actually speak. The
-# single source of truth for "is this phrase a location or an app name?" —
-# routing asked that question in three places with three different hand-kept
-# lists, so "open downloads" reached the app launcher and was answered
-# "downloads is not installed, shall I install it?".
+# Well-known per-user folders, in the words people use. The single source of truth for "is
+# this phrase a location or an app name?": routing asked in three places with three hand-kept
+# lists, so "open downloads" reached the app launcher and got "downloads is not installed,
+# shall I install it?".
 USER_DIR_NAMES = ("home", "desktop", "downloads", "documents", "music", "pictures", "videos")
 
 # XDG keys are irregular (DOWNLOAD is singular, DOCUMENTS is plural), so they

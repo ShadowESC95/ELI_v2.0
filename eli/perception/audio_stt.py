@@ -44,13 +44,10 @@ except Exception:  # pragma: no cover
     np = None
 
 
-# Purpose:
-#   - When wake word is heard, reduce playback volume while user speaks command.
-#   - After command dispatch, restore playback volume.
-#   - Suppress obvious assistant/media echo that the microphone hears afterwards.
-#
-# This does NOT alter mic device selection, STT backend, Whisper, Google, Vosk,
-# sample rate, or recognizer model.
+# When the wake word is heard, lower playback volume while the user speaks the command, restore
+# it after dispatch, and suppress the assistant/media echo the mic hears afterwards. Doesn't
+# change mic device selection, the STT backend (Whisper, Google, Vosk), sample rate or
+# recognizer model.
 
 import os as _eli_os
 import re as _eli_re
@@ -560,16 +557,14 @@ REQUIRE_WAKE_FOR_SAFE_DIRECT = os.environ.get(
     "ELI_STT_REQUIRE_WAKE_FOR_SAFE_DIRECT", "0"
 ).lower() in ("1", "true", "yes", "on")
 
-# Per-cycle ambient chatter ("Listening…", "Heard …", "ignored — no wake word",
-# echo/music drops) floods the CLI and buries real logs, making debugging hard.
-# Hidden unless ELI_STT_VERBOSE=1. Real command-lifecycle events (wake word
-# detected, Command, armed) stay visible regardless.
+# Per-cycle ambient chatter ("Listening...", "Heard ...", "ignored — no wake word", echo/music
+# drops) floods the CLI and buries real logs. Hidden unless ELI_STT_VERBOSE=1; real
+# command-lifecycle events (wake word detected, Command, armed) always show.
 _STT_VERBOSE = os.environ.get("ELI_STT_VERBOSE", "0").lower() in ("1", "true", "yes", "on")
 
-# Runtime noise adaptation. Deliberately NOT gated on ELI_STT_CALIBRATE: that switch
-# means "do an ambient measurement at startup", and people turn it off precisely
-# because a noisy launch produced a wild reading. Coupling the two meant the one
-# configuration that most needs runtime adaptation was the one that had it disabled.
+# Runtime noise adaptation. Deliberately not gated on ELI_STT_CALIBRATE: that means "measure ambient
+# at startup", and people turn it off because a noisy launch gave a wild reading. Coupling them
+# disabled adaptation for exactly the setups that need it.
 _STT_ADAPTIVE = os.environ.get("ELI_STT_ADAPTIVE", "1").lower() not in ("0", "false", "no", "off")
 # Ceiling for the noise-driven lift. Separate from ELI_STT_CAL_CAP (2000): that caps a
 # STARTUP ambient reading, whereas real speaker bleed measures ~8000 RMS, so a 2000 cap
@@ -647,10 +642,9 @@ def _collapse_repeated_phrase(text: str, *, strip_punctuation: bool = True) -> s
 
 
 
-# Fast command alias resolution
-# Whisper/base.en often mangles very short commands because there is almost no
-# linguistic context. This layer is deliberately tiny and only rewrites observed
-# short command mishears before VoiceGate/router classification.
+# Fast command alias resolution. Whisper/base.en often mangles very short commands (almost no
+# linguistic context). This layer is deliberately tiny and only rewrites observed short-command
+# mishears before VoiceGate/router classification.
 def _eli_fast_command_alias(text: str) -> str:
     raw = str(text or "")
     t = " ".join(raw.lower().replace("-", " ").replace("_", " ").split())
@@ -960,12 +954,9 @@ def _is_potentially_incomplete_media_play(text: str) -> bool:
 
 
 
-# Media voice alias and pending-command guard
-# This sits before VoiceGate classification. It fixes short media-service
-# fragments that Whisper regularly mangles:
-#   "algezera on you"       -> "al jazeera on youtube"
-#   "open alt-0 on youtube" -> "open al jazeera on youtube"
-#   "party ... on spot"     -> "party ... on spotify"
+# Media voice alias and pending-command guard, before VoiceGate. Fixes short media-service fragments
+# Whisper regularly mangles: "algezera on you" -> "al jazeera on youtube", "open alt-0 on youtube"
+# -> "open al jazeera on youtube", "party ... on spot" -> "party ... on spotify".
 def _media_voice_alias_legacy(text: str) -> str:
     t = _cleanup(text)
     if not t:
@@ -976,10 +967,9 @@ def _media_voice_alias_legacy(text: str) -> str:
     t = re.sub(r"^played\s+", "play ", t)
     t = re.sub(r"^opens\s+", "open ", t)
 
-    # "put" → "play" when it looks like a media search (Whisper mishears "play"
-    # as "put" / "put our" / "put a" very often with short commands).
-    # Only rewrite when followed by a filler article that signals the original
-    # was "play" — bare "put X" could be a legitimate system command.
+    # "put" -> "play" when it looks like a media search (Whisper often hears "play" as "put" / "put
+    # our" / "put a"). Only when followed by a filler article that signals the original was "play";
+    # a bare "put X" may be a real system command.
     t = re.sub(r"^put\s+(?:our|a|the)\s+", "play ", t)
     # Also rewrite "put X on spotify/youtube/yt/mpv" unconditionally.
     t = re.sub(
@@ -1014,11 +1004,9 @@ def _media_voice_alias_legacy(text: str) -> str:
     for pat in alj_patterns:
         t = re.sub(rf"\b{pat}\b", "al jazeera", t)
 
-    # Service aliases. Strip junk after a clear service fragment at the end.
-    # GUARD: only rewrite a trailing "on you[tube]" / "on spot[ify]" into a
-    # service when the text is actually a media-play command. Without this,
-    # ordinary conversation ending in "on you" / "on your ..." ("checking up
-    # on you", "turned on your network") was being corrupted into "...youtube".
+    # Service aliases: strip junk after a clear service fragment at the end. Rewrite a trailing
+    # "on you[tube]" / "on spot[ify]" only when the text is a media-play command, otherwise ordinary
+    # talk ("checking up on you", "turned on your network") was corrupted into "...youtube".
     _looks_media_cmd = bool(re.match(
         r"^(play|pay|played|put|open|opens|listen|watch|stream|queue)\b", t
     )) or " play " in f" {t} "
@@ -1080,11 +1068,9 @@ def _eli_pending_media_can_complete(prefix: str, fragment: str) -> bool:
     return bool(f)
 
 
-# Internal-prompt echo phrases. When ELI's TTS reads internal prompt content
-# back into the mic (or the LLM emits internal scaffolding), the STT can
-# capture phrases like "the situation brief and conversation history" and
-# try to dispatch them as commands. These phrases are unlikely in natural
-# user speech and should be dropped before routing.
+# Internal-prompt echo phrases. When ELI's TTS reads internal prompt content into the mic (or the
+# LLM emits scaffolding), STT can capture phrases like "the situation brief and conversation
+# history" and try to dispatch them. They're unlikely in real speech; drop them before routing.
 _INTERNAL_PROMPT_ECHO_RE = re.compile(
     r"\b("
     r"situation\s+brief|"
@@ -1289,10 +1275,9 @@ def _resolve_input_device_index() -> Optional[int]:
         # source without touching the system-wide default.
         os.environ["PULSE_SOURCE"] = choice.pulse_source
         log.debug(f"[AUDIO] PULSE_SOURCE pinned → {choice.pulse_source}")
-    # Re-resolve by NAME against the enumeration this process will actually open with:
-    # PortAudio indices shift between PyAudio instances, so the probed index can be out
-    # of range here (and silently fall back to a DIFFERENT microphone). See
-    # mic_resolver.live_device_index.
+    # Re-resolve by name against the enumeration this process will open with: PortAudio indices
+    # shift between PyAudio instances, so the probed index can be out of range here and silently
+    # fall back to a different microphone. See mic_resolver.live_device_index.
     try:
         index = live_device_index(choice)
     except Exception:
@@ -1319,10 +1304,9 @@ class ELIAudioSTT:
         # existing mic loop — no second microphone, no device conflict).
         self._enroll_remaining = 0
         self._enroll_target = 0
-        # Generic mic-capture SCRIPT (wake enrollment, voice training, labelled
-        # emotion — one mechanism). Each step = {"prompt": spoken cue, "sink":
-        # callable(int16, sr)}; captured clips advance through the script; a 'done'
-        # callback runs after the last step.
+        # Generic mic-capture script (wake enrollment, voice training, labelled emotion: one
+        # mechanism). Each step is {"prompt": spoken cue, "sink": callable(int16, sr)}; captured
+        # clips advance through the script and a 'done' callback runs after the last.
         self._capture_steps: list = []
         self._capture_idx = 0
         self._capture_done = None
@@ -1385,31 +1369,23 @@ class ELIAudioSTT:
         self._eli_ignore_until = 0.0
         self._eli_ignore_reason = ""
 
-        # Voice profile state — runtime statistics on the user's speech volume
-        # so the energy threshold can be biased toward what the local user
-        # actually sounds like, not the SpeechRecognition library's ambient
-        # estimate alone.
+        # Voice profile state: runtime statistics on the user's speech volume so the energy
+        # threshold is biased toward how the local user sounds, not the SpeechRecognition library's
+        # ambient estimate alone.
         self._voice_profile = self._load_voice_profile()
 
-        # Ambient calibration: adjusts the energy threshold to sit above the
-        # current room noise floor. With echo cancellation active (ELI_STT_ECHO_CANCEL=1,
-        # see ensure_echo_cancel) ambient RMS is ~30-60 so calibration is safe. Without
-        # it — the DEFAULT, and for a long time the only reality, since the "launcher"
-        # that this comment used to credit with loading module-echo-cancel never
-        # existed — a raw mic next to speakers reads 800-8000 and calibration spikes,
-        # making normal speech undetectable. Hence ELI_STT_CALIBRATE=0 by default, using
-        # the fixed ELI_STT_ENERGY_THRESHOLD; runtime drift is handled instead by the
-        # noise self-heal in _listen_loop, which does not depend on this switch.
+        # Ambient calibration sets the energy threshold above the room noise. With echo cancel on
+        # (ELI_STT_ECHO_CANCEL=1) that's safe. Without it a raw mic next to speakers reads 800-8000 and
+        # calibration spikes, so speech becomes undetectable. Off by default (ELI_STT_CALIBRATE=0) with
+        # a fixed ELI_STT_ENERGY_THRESHOLD; drift is handled by the noise self-heal in _listen_loop.
         _do_calibrate = os.environ.get("ELI_STT_CALIBRATE", "0").lower() not in {"0", "false", "no", "off"}
         if _do_calibrate:
             log.debug("[AUDIO] Calibrating microphone for ambient noise...")
             cal_duration = float(os.environ.get("ELI_STT_AMBIENT_CAL_SEC", "1.5"))
-            # Watchdog: a dead/misconfigured capture device (e.g. the raw ALSA
-            # "default" PCM wired through dead JACK PCMs, or a stale Bluetooth
-            # default source that delivers no frames) makes adjust_for_ambient_noise
-            # block on read forever. Run it in a daemon thread and abandon it if it
-            # overruns, so ELI startup degrades to the fixed threshold instead of
-            # hanging. Headroom = calibration duration + open/IO slack.
+            # Watchdog: a dead or misconfigured capture device (raw ALSA "default" through dead JACK PCMs,
+            # a stale Bluetooth default source delivering no frames) makes adjust_for_ambient_noise block on
+            # read forever. Run it in a daemon thread and abandon it on overrun so startup falls back to the
+            # fixed threshold instead of hanging. Headroom = calibration duration + open/IO slack.
             _cal_timeout = float(os.environ.get("ELI_STT_CAL_TIMEOUT", "0")) or (cal_duration + 4.0)
 
             def _calibrate():
@@ -1871,10 +1847,9 @@ class ELIAudioSTT:
                 # of silence, redo ambient_noise to follow drifting fan/HVAC noise.
                 _recal_every = int(os.environ.get("ELI_STT_RECALIBRATE_EVERY", "60"))
                 _silent_streak = 0
-                # Consecutive listen() timeouts = no phrase even STARTED, which is the
-                # only clean evidence the room is genuinely quiet. (`_silent_streak`
-                # cannot serve here: it also counts the drowning case, where captures
-                # keep arriving and transcribe to nothing.)
+                # Consecutive listen() timeouts mean no phrase even started, the only clean evidence
+                # the room is quiet. (_silent_streak can't serve: it also counts the drowning case,
+                # where captures keep arriving and transcribe to nothing.)
                 _quiet_streak = 0
                 _decay_after = int(os.environ.get("ELI_STT_NOISE_DECAY_CYCLES", "10"))
 
@@ -1906,15 +1881,9 @@ class ELIAudioSTT:
                     except Exception:
                         return False
 
-                # ── Background TTS monitor ───────────────────────────────────
-                # recognizer.listen() blocks for up to phrase_time_limit (20 s in
-                # direct-chat mode).  While it's blocking the while-loop's
-                # _eli_is_speaking() guard never runs — so TTS audio accumulates
-                # in the open PyAudio stream and is returned as a transcript.
-                # A daemon thread continuously polls the speaking lock every 0.1 s
-                # so _tts_mon_last[0] is updated even while listen() is blocking.
-                # After listen() returns we can tell whether TTS overlapped the
-                # capture window and drop the echo before Whisper even sees it.
+                # Background TTS monitor. listen() blocks up to phrase_time_limit so the _eli_is_speaking()
+                # guard never runs and TTS audio comes back as a transcript. A daemon thread polls the speaking
+                # lock every 0.1s, so after listen() returns we can tell if TTS overlapped and drop the echo.
                 import threading as _threading
                 _tts_mon_last: list[float] = [0.0]   # shared: last seen active (monotonic)
                 _tts_mon_stop = _threading.Event()
@@ -1946,12 +1915,9 @@ class ELIAudioSTT:
                             time.sleep(0.15)
                             continue
 
-                        # Post-TTS drain cooldown ─────────────────────────────
-                        # If TTS ended less than _post_tts_drain_s ago, skip
-                        # the listen() call entirely and let PyAudio's ring
-                        # buffer cycle through stale TTS frames before we
-                        # accept new mic input.
-                        # Override: ELI_STT_POST_TTS_DRAIN_SEC
+                        # Post-TTS drain cooldown: if TTS ended less than _post_tts_drain_s ago,
+                        # skip listen() and let PyAudio's ring buffer cycle out stale TTS frames
+                        # before accepting mic input. Override: ELI_STT_POST_TTS_DRAIN_SEC.
                         if _tts_mon_last[0] > 0:
                             _drain_elapsed = time.monotonic() - _tts_mon_last[0]
                             if _drain_elapsed < _post_tts_drain_s:
@@ -1961,10 +1927,9 @@ class ELIAudioSTT:
                         self._listen_count = getattr(self, '_listen_count', 0) + 1
                         if self._listen_count <= 1 or self._listen_count % 20 == 0:
                             _vprint(f"👂 [AUDIO] Listening... (cycle {self._listen_count})")
-                        # Wider pause window during armed (multi-word command) state.
-                        # Default pause_threshold (1.20s) was set in __init__; only
-                        # adjust it when the gate is armed so natural pauses don't
-                        # cut commands short.
+                        # Wider pause window while armed (multi-word command): the default
+                        # pause_threshold (1.20s) is set in __init__ and only adjusted when the gate
+                        # is armed so natural pauses don't cut commands short.
                         if self._voice_gate.armed():
                             # Wider pause window while armed — user is mid-command
                             # and natural pauses (e.g. "play ... on spotify") must
@@ -1977,12 +1942,9 @@ class ELIAudioSTT:
                             )
                             _active_phrase_limit = PHRASE_TIME_LIMIT
                         elif _allow_direct_chat():
-                            # Direct listen mode — user may speak long natural sentences.
-                            # 1.5s silence ends the phrase (short enough that "pause" or
-                            # "next" dispatch promptly even with mild background noise;
-                            # long enough to not cut mid-sentence natural pauses).
-                            # 20s phrase cap guarantees a submit if background noise
-                            # prevents silence detection entirely.
+                            # Direct listen mode: the user may speak long sentences. 1.5s of silence ends the phrase (short
+                            # enough that "pause" or "next" dispatch promptly in mild noise, long enough not to cut natural
+                            # pauses); a 20s cap guarantees a submit if noise prevents silence detection.
                             self.recognizer.pause_threshold = float(
                                 os.environ.get("ELI_STT_DIRECT_PAUSE", "1.5")
                             )
@@ -1993,10 +1955,9 @@ class ELIAudioSTT:
                                 os.environ.get("ELI_STT_DIRECT_PHRASE_LIMIT", "20.0")
                             )
                         else:
-                            # Tight pause when unarmed — we're only listening for
-                            # the wake word (1-3 words). 0.30s of silence is enough;
-                            # shorter non_speaking_duration and phrase_time_limit
-                            # reduce whisper input size for faster wake detection.
+                            # Tight pause when unarmed: we only listen for the wake word (1-3 words). 0.30s of silence is
+                            # enough, and a shorter non_speaking_duration and phrase_time_limit shrink the whisper input for
+                            # faster wake detection.
                             self.recognizer.pause_threshold = UNARMED_PAUSE_S
                             self.recognizer.non_speaking_duration = float(
                                 os.environ.get("ELI_STT_UNARMED_NON_SPEAKING", "0.15")
@@ -2031,13 +1992,10 @@ class ELIAudioSTT:
                         _active_main_timeout = (
                             ARMED_MAIN_TIMEOUT if self._voice_gate.armed() else MAIN_TIMEOUT
                         )
-                        # Duration-adaptive end-of-phrase pause for command/dictation
-                        # states (NOT the unarmed wake-word window, which stays tight
-                        # for fast wake detection): short commands finalise after
-                        # ELI_STT_SHORT_PAUSE (0.5s) of silence; a prompt that's been
-                        # going past ELI_STT_LONG_AFTER (12s) needs ELI_STT_LONG_PAUSE
-                        # (2s) of silence so a mid-sentence pause doesn't cut it off.
-                        # Flag-gated; falls back to stock listen() on any error.
+                        # Duration-adaptive end-of-phrase pause for command/dictation states. Short commands finish
+                        # after ELI_STT_SHORT_PAUSE (0.5s) of silence; past ELI_STT_LONG_AFTER (12s) it waits
+                        # ELI_STT_LONG_PAUSE (2s) so a mid-sentence pause doesn't cut you off. Falls back to stock
+                        # listen() on error.
                         _adaptive = os.environ.get("ELI_STT_ADAPTIVE_PAUSE", "1").lower() not in {"0", "false", "no", "off"}
                         _adaptive_state = self._voice_gate.armed() or _allow_direct_chat()
                         _used_limit = _active_phrase_limit   # cap the capture ran under
@@ -2105,10 +2063,9 @@ class ELIAudioSTT:
                                         log.debug(f"[AUDIO] mic re-open failed: {_reopen_err}")
                             except Exception:
                                 log.debug("suppressed exception", exc_info=True)
-                        # Nothing even crossed the gate — the room is quiet. If an
-                        # earlier noise episode lifted the threshold, walk it back down
-                        # so the mic recovers its normal sensitivity instead of staying
-                        # deafened long after the music stopped.
+                        # Nothing crossed the gate: the room is quiet. If an earlier noise episode
+                        # lifted the threshold, walk it back down so the mic recovers its
+                        # sensitivity instead of staying deafened after the music stops.
                         _quiet_streak += 1
                         if _decay_after > 0 and _quiet_streak >= _decay_after:
                             self._decay_threshold_toward_base()
@@ -2117,17 +2074,9 @@ class ELIAudioSTT:
                     except Exception as e:
                         if not self.is_listening or self._stop_event.is_set():
                             break
-                        # ── Shared-microphone recovery ────────────────────────
-                        # `listen_once()` and the calibration helper open
-                        # `with self.microphone` on the SAME Microphone object we
-                        # are holding here. speech_recognition's __exit__ sets
-                        # `stream = None`, so when one of those finishes it kills
-                        # the stream out from under this loop. Every subsequent
-                        # listen() then raises "Audio source must be entered
-                        # before listening" — forever, at full speed, which is
-                        # what floods the log with thousands of identical lines
-                        # and pins a core. Re-enter the source instead of
-                        # spinning; the outer `with` still owns cleanup.
+                        # Shared-microphone recovery. listen_once() and calibration `with self.microphone` on the same
+                        # object, and __exit__ sets stream = None under this loop. Every later listen() then raised
+                        # "Audio source must be entered" at full speed and pinned a core. Re-enter the source instead.
                         if getattr(source, "stream", None) is None:
                             try:
                                 source.__enter__()
@@ -2154,14 +2103,10 @@ class ELIAudioSTT:
                     _quiet_streak = 0          # a phrase started; room is not quiet
                     transcript = self._recognize(audio)
 
-                    # ── Noise self-heal ──────────────────────────────────────────
-                    # A capture that ran all the way to the phrase cap never saw
-                    # silence, so the noise floor is sitting above energy_threshold
-                    # and the phrase could not finalise. Paired with a transcript
-                    # that came back empty, that is not someone talking for six
-                    # seconds — it is the mic drowning. Left alone this spins
-                    # forever, transcribing background noise into nothing, and the
-                    # only outward sign is that ELI has stopped responding at all.
+                    # Noise self-heal. A capture that ran to the phrase cap never saw silence, so the noise floor
+                    # sits above energy_threshold and the phrase can't finalise. With an empty transcript that isn't
+                    # someone talking for six seconds, the mic is drowning. Left alone it spins forever
+                    # transcribing noise into nothing, and the only sign is ELI going quiet.
                     try:
                         import audioop as _aop
                         _raw = audio.get_raw_data()
@@ -2178,13 +2123,10 @@ class ELIAudioSTT:
                     except Exception:
                         log.debug("[AUDIO_ADAPT] noise check failed", exc_info=True)
 
-                    # Acoustic wake-word detector (self-trained, robust over music)
-                    # When UNARMED and a local model is trained, score the captured audio
-                    # directly. This catches "computer" even when whisper transcribed the
-                    # background music instead of the wake word — the whole reason it exists.
-                    # We inject the wake word so the existing VoiceGate arms naturally.
-                    # Fully fallback-safe: no model → no-op; any error → ignored. Disable
-                    # with ELI_WAKE_ACOUSTIC=0.
+                    # Acoustic wake-word detector (self-trained, robust over music). When unarmed and a local model
+                    # is trained, score the captured audio directly: it catches "computer" even when whisper
+                    # transcribed the music instead. Inject the wake word so VoiceGate arms naturally. No model is a
+                    # no-op, errors are ignored. ELI_WAKE_ACOUSTIC=0 disables it.
                     if (os.environ.get("ELI_WAKE_ACOUSTIC", "1").lower() not in {"0", "false", "no", "off"}
                             and not self._voice_gate.armed()):
                         try:
@@ -2211,13 +2153,10 @@ class ELIAudioSTT:
                         continue
                     _silent_streak = 0
 
-                    # ── TTS window overlap check ──────────────────────────────
-                    # The background monitor stamped _tts_mon_last[0] whenever TTS
-                    # was active.  If that stamp falls at or after _listen_start
-                    # (with a small 0.2 s pre-roll tolerance), TTS was playing
-                    # while the mic was open — the transcript is ELI's own voice.
-                    # Drop it and restart the drain cooldown so the next listen()
-                    # call only fires after fresh frames fill the buffer.
+                    # TTS window overlap check. The background monitor stamps _tts_mon_last[0] whenever TTS is
+                    # active; if that stamp is at or after _listen_start (0.2s pre-roll tolerance), TTS was playing
+                    # with the mic open and the transcript is ELI's own voice. Drop it and restart the drain
+                    # cooldown so the next listen() waits for fresh frames.
                     if _tts_mon_last[0] >= _listen_start - 0.2:
                         _tts_mon_last[0] = time.monotonic()   # restart drain timer
                         _vprint(
@@ -2236,11 +2175,10 @@ class ELIAudioSTT:
                             flush=True,
                         )
                         continue
-                    # ── Mic-capture SCRIPT (wake enrollment / voice training / emotion) ──
-                    # Past the TTS-echo guards = clean user speech. Each clip feeds the
-                    # current step's sink, then the next cue is spoken; after the last
-                    # step the 'done' callback runs in the background (retrain the wake
-                    # model / build the voice + emotion profile). Skips command routing.
+                    # Mic-capture script (wake enrollment, voice training, emotion). Past the TTS-echo guards this
+                    # is clean user speech: each clip feeds the current step's sink, then the next cue is spoken;
+                    # after the last step the 'done' callback runs in the background (retrain the wake model, build
+                    # the voice/emotion profile). Skips command routing.
                     if getattr(self, "_capture_steps", None) and self._capture_idx < len(self._capture_steps):
                         try:
                             _raw = audio.get_raw_data()
@@ -2268,10 +2206,9 @@ class ELIAudioSTT:
                             log.debug(f"[CAPTURE] capture failed: {_cap_err}")
                         continue
 
-                    # ── Publish the user's vocal tone for cognition (real-time) ──
-                    # On a genuine command, read prosody/emotion from THIS audio and
-                    # publish it on a fresh side-channel the engine reads to adapt its
-                    # response (no callback change). Cheap, numpy; best-effort.
+                    # Publish the user's vocal tone for cognition in real time: on a genuine command, read
+                    # prosody/emotion from this audio and publish it on a side channel the engine reads to adapt its
+                    # reply (no callback change). Cheap (numpy), best effort.
                     if os.environ.get("ELI_VOICE_TONE", "1").lower() not in {"0", "false", "no", "off"}:
                         try:
                             _raw = audio.get_raw_data()
@@ -2376,10 +2313,9 @@ class ELIAudioSTT:
 
                     if action == "ignore_unarmed":
                         _vprint("🫥 [AUDIO] ignored — no wake word", flush=True)
-                        # _vprint is stdout-only and off unless ELI_STT_VERBOSE=1, so a
-                        # correctly-heard command dropped for want of a wake word left
-                        # NO trace anywhere — indistinguishable from a dead microphone,
-                        # which is exactly how a working mic came to be reported broken.
+                        # _vprint is stdout-only and off unless ELI_STT_VERBOSE=1, so a correctly heard command dropped
+                        # for lack of a wake word left no trace, indistinguishable from a dead microphone (which is how
+                        # a working mic got reported broken).
                         _now_hint = time.monotonic()
                         if _now_hint - getattr(self, "_last_wake_hint_ts", 0.0) >= 45.0:
                             _pw = primary_wake_word()
@@ -2459,10 +2395,9 @@ def listen_for_command(timeout=5):
     except Exception:
         return ""
 
-# Noise-alias hardening: block dangerous false-positive aliases
-# Keep useful normalisation, but block dangerous garbage aliases such as:
-#   "valium up" / "value mode" / "follow him up" -> "volume up"
-# Those are common background/TV/music false positives and should NOT become commands.
+# Noise-alias hardening: keep useful normalisation but block dangerous garbage aliases ("valium up"
+# / "value mode" / "follow him up" -> "volume up"). They are common TV/music false positives and
+# must not become commands.
 
 _LEGACY_MEDIA_VOICE_ALIAS = globals().get("_media_voice_alias_legacy")
 

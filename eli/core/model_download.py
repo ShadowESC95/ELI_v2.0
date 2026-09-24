@@ -35,11 +35,9 @@ from typing import Any, Callable, Dict, List, Optional
 from eli.core import netguard
 from eli.core.paths import models_dir
 
-# --------------------------------------------------------------------------- #
-# Curated catalog — suggested downloads, NOT an inference-path constraint.     #
-# size_gb is approximate (for display + a download sanity check, not exact).   #
-# vram_gb is the rough minimum for a comfortable GPU offload; all run on CPU.  #
-# --------------------------------------------------------------------------- #
+# Curated catalog: suggested downloads, not an inference-path constraint. size_gb is approximate
+# (display and a download sanity check). vram_gb is the rough minimum for comfortable GPU offload;
+# all run on CPU.
 CATALOG: List[Dict[str, Any]] = [
     {
         "key": "qwen2.5-3b",
@@ -109,11 +107,8 @@ CATALOG: List[Dict[str, Any]] = [
     },
 ]
 
-# --------------------------------------------------------------------------- #
-# Auxiliary models — NOT the chat LLM. The embedder is REQUIRED for memory/RAG #
-# and is tiny, so it is fetched automatically on install; vision is optional.  #
-# `subdir` places the file under models/<subdir>/ where the runtime looks.     #
-# --------------------------------------------------------------------------- #
+# Auxiliary models (not the chat LLM). The embedder is required for memory/RAG and tiny, so it is
+# fetched on install; vision is optional. `subdir` places the file under models/<subdir>/.
 AUX_MODELS: List[Dict[str, Any]] = [
     {
         "key": "embedder",
@@ -457,10 +452,9 @@ def download_model(
         return {"ok": False, "error": f"Download failed: {e}",
                 "resumable": bool(part_path.exists()), "part": str(part_path)}
 
-    # Truncation guard: the stream can end "cleanly" yet short (e.g. a silently
-    # half-closed connection). If the server told us the size, the bytes on disk
-    # must match it — otherwise keep the .part for resume rather than renaming a
-    # truncated file into place and calling it done.
+    # Truncation guard: a stream can end cleanly yet short. If the server gave a size, the bytes on
+    # disk must match it, otherwise keep the .part for resume instead of renaming a truncated file
+    # into place.
     if total > 0:
         actual = part_path.stat().st_size if part_path.exists() else 0
         if actual < total:

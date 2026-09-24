@@ -962,17 +962,10 @@ def _jsonify_contract_value(v):
         return str(v)
 
 
-# ── observation retention ──────────────────────────────────────────────────
-# The proactive daemon appends one observation per tick, forever. They are
-# filtered out of every reasoning path (see eli/core/self_provenance), so their
-# only remaining cost is unbounded growth: a live machine reached 220 rows of
-# which 104 were `proactive_pattern_tick` and 104 `runtime`, and nothing ever
-# removed one.
-#
-# Pruning is per CATEGORY, so a flood of daemon ticks can never evict a genuine
-# observation, and it keeps the newest rows. Throttled per process: the first
-# insert for a category prunes (so an already-bloated store is trimmed at
-# startup), then once every _OBS_PRUNE_EVERY inserts.
+# Observation retention. The daemon appends one observation per tick forever and they're
+# filtered from every reasoning path, so the only cost is growth. Prune per category so a flood
+# of ticks can't evict a real observation, keeping the newest. Throttled: the first insert per
+# category prunes, then every _OBS_PRUNE_EVERY inserts.
 _OBS_PRUNE_EVERY = 50
 _obs_insert_counts: Dict[str, int] = {}
 
@@ -1430,10 +1423,9 @@ def _repair_readonly_db(p: Path) -> str | None:
     return "; ".join(fixed) or None
 
 
-# Public name: other stores (profile, knowledge-graph, news, evidence ledger)
-# open user.sqlite3 with their own connections and would each hit the same
-# unwritable-sidecar condition. init_data repairs every store up front so
-# recovery does not depend on which one happens to open the file first.
+# Public name: other stores (profile, knowledge graph, news, evidence ledger) open user.sqlite3 with
+# their own connections and would each hit the same unwritable-sidecar condition. init_data repairs
+# every store up front so recovery doesn't depend on which one opens the file first.
 repair_unwritable_db = _repair_readonly_db
 
 
@@ -1744,11 +1736,10 @@ class Memory(metaclass=_MemoryMeta):
             self.db_type = str(dtype)
         else:
             self.db_type = "agent" if self.db_path.name.lower() == "agent.sqlite3" else "user"
-        # Whether this instance is the canonical default store. The process-global
-        # knowledge-graph / vector singletons are bound to the canonical DB and ignore
-        # a custom db_path, so they must only enrich recall for the canonical instance —
-        # otherwise an isolated instance (tests, per-project workspaces) leaks global
-        # content into its own recall and breaks isolation.
+        # Whether this instance is the canonical default store. The process-global knowledge-graph and
+        # vector singletons are bound to the canonical DB and ignore a custom db_path, so they may only
+        # enrich recall for the canonical instance. Otherwise an isolated one (tests, per-project
+        # workspaces) leaks global content into its recall.
         try:
             self._is_canonical = (self.db_path == _path_from_args(db_path=None, db_type=dtype))
         except Exception:
@@ -2025,10 +2016,9 @@ class Memory(metaclass=_MemoryMeta):
         if isinstance(tags, str):
             tags = [t.strip() for t in tags.split(",") if t.strip()]
 
-        # Phase 2 — project namespacing: scope durable FACTS to the active project
-        # (if one is set), so a project accumulates its relevant memories. Only
-        # plain "memory" facts are tagged — never reflections / session summaries /
-        # continuity (those are global). Default (no active project) = no change.
+        # Project namespacing: scope durable facts to the active project (if set) so a project
+        # accumulates its own memories. Only plain "memory" facts are tagged, never reflections,
+        # session summaries or continuity (those are global). No active project, no change.
         if kind == "memory":
             try:
                 from eli.runtime.active_project import active_memory_tag
@@ -2066,10 +2056,9 @@ class Memory(metaclass=_MemoryMeta):
             conn_primary.commit()
         finally:
             conn_primary.close()
-        # Also index in FAISS vector store. Best-effort (the SQL row above is
-        # the durable record), but a failed write here must not be invisible:
-        # recall_memory() tries FAISS first, so a silently unindexed row stays
-        # unrecallable by semantic search even though store_memory() reports ok.
+        # Also index in the FAISS vector store. Best effort (the SQL row is the durable record), but
+        # a failed write mustn't be invisible: recall_memory() tries FAISS first, so a silently
+        # unindexed row stays unrecallable by semantic search though store_memory() reports ok.
         vector_indexed = False
         try:
             from eli.memory.vector_store import get_vector_store
@@ -2090,9 +2079,8 @@ class Memory(metaclass=_MemoryMeta):
                 if vector_indexed and hasattr(vs, "flush"):
                     vs.flush()
                 elif not vector_indexed:
-                    # Ran without raising but declined the write (embedder
-                    # returned no vector) -- a real failed write, not "no
-                    # vector store configured". Feeds the World tab's
+                    # Ran without raising but declined the write (the embedder returned no vector):
+                    # a real failed write, not "no vector store configured". Feeds the World tab's
                     # memory_uncertainty bar.
                     try:
                         from eli.world.world_event_bus import fire_memory_uncertainty_event
@@ -2234,11 +2222,9 @@ class Memory(metaclass=_MemoryMeta):
             # importance column present in schema — use it in ordering
             imp_expr = "COALESCE(importance, 0.5)" if "importance" in cols else "0.5"
 
-            # What counts as ELI's own record-keeping is decided in ONE place —
-            # eli/core/self_provenance.py — because it used to be decided in four,
-            # with four different mechanisms, and each new reader inherited the
-            # bug by default. This fragment was also written out twice here, once
-            # aliased and once not, and the two had to be kept in step by hand.
+            # What counts as ELI's own record-keeping is decided in one place, eli/core/self_provenance.py.
+            # It used to be decided in four and each new reader inherited the bug. This fragment was also
+            # written twice here (aliased and not) and had to be kept in step by hand.
             from eli.core.self_provenance import memory_exclusion_sql
             from eli.runtime.memory_provenance import (
                 filter_grounding_hits,
@@ -2256,14 +2242,10 @@ class Memory(metaclass=_MemoryMeta):
                 cols, alias="", verified_only=verified_only,
             )
 
-            # --- Stage 5: Vector semantic search (primary path) ---
-            # FAISS runs first.  FTS5/LIKE only runs as a supplementary
-            # path when the vector index is empty or returns fewer than
-            # limit // 2 results (e.g. very short query or cold start).
-            # When keyword_only=True (called from orchestrator's keyword_search),
-            # FAISS is skipped entirely — the orchestrator runs its own dedicated
-            # semantic_search() step, so running FAISS here would produce
-            # duplicate vector hits with a mismatched "fts5" source label.
+            # Stage 5: vector semantic search. FAISS runs first; FTS5/LIKE is supplementary when the vector
+            # index is empty or returns fewer than limit // 2 (very short query, cold start). With
+            # keyword_only=True (the orchestrator's keyword_search) FAISS is skipped: the orchestrator runs
+            # its own semantic_search() and running it here would duplicate vector hits under an "fts5" label.
             vector_results = []
             _vector_index_populated = False
             if not keyword_only:
@@ -2289,35 +2271,18 @@ class Memory(metaclass=_MemoryMeta):
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
 
-            # --- Stage 6: FTS5 keyword search (CO-EQUAL channel) ---
-            # This used to be a fallback:
-            #     _need_keyword = keyword_only or (not populated) or
-            #                     (len(vector_results) < max(1, limit // 2))
-            # FAISS IndexFlat applies no similarity threshold — it returns top_k
-            # nearest for ANY query — so with 442 vectors and limit=10 the count was
-            # always 10, `10 < 5` was never true, and the branch was unreachable in
-            # normal operation. A fully populated, trigger-maintained `memories_fts`
-            # (441 rows, one per memory) was built on every write and never read.
-            #
-            # Live cost: asked "what did I say about fallout", recall returned seven
-            # semantically-near rows and NOT the two turns containing the literal
-            # word — they were never looked for.
-            #
-            # Both channels now always run and are fused by rank (see Stage 8).
+            # Stage 6: FTS5 keyword search runs alongside vectors, not as a fallback. FAISS IndexFlat has no
+            # similarity threshold and always returns top_k, so the fallback never ran and a fully built
+            # memories_fts was never read ("what did I say about fallout" missed the turns with the word).
+            # Both channels always run and are fused by rank in Stage 8.
             _need_keyword = True
             fts_rows = []
             if _need_keyword and _has_table(conn, "memories_fts"):
                 try:
-                    # Content terms only. This was every token OR'd together, so
-                    # "what did I say about fallout" became
-                    #     "what" OR "did" OR "say" OR "about" OR "fallout"
-                    # and matched any memory containing "what" or "say". The branch
-                    # had been unreachable since FAISS became primary, so the naive
-                    # query was never exercised; making the channels co-equal
-                    # surfaced it immediately as a flood of noise ranked first.
-                    #
-                    # The LIKE fallback below already filtered stopwords — the FTS5
-                    # path simply never got the same treatment.
+                    # Content terms only. This OR'd every token, so "what did I say about fallout" matched any
+                    # memory containing "what" or "say". The branch had been unreachable since FAISS became primary,
+                    # so the naive query was never exercised, and making the channels co-equal exposed a flood of
+                    # noise. The LIKE fallback below already filtered stopwords, FTS5 never did.
                     try:
                         from eli.runtime.reflection import TOPIC_STOPWORDS as _STOP
                     except Exception:
@@ -2408,18 +2373,10 @@ class Memory(metaclass=_MemoryMeta):
                 for r in (fts_rows or like_rows)[:limit]
             ]
 
-            # --- Stage 8: Hybrid Merge — Reciprocal Rank Fusion ---
-            # Was an interleave: every vector hit, then every keyword hit, deduped by
-            # the first 120 characters. That makes the channels ordered rather than
-            # combined — a memory both retrievers rank first is indistinguishable
-            # from one only FAISS found, and vector always won on position alone.
-            #
-            # RRF scores each candidate by 1/(k+rank) summed over the channels that
-            # found it, so agreement between the two beats a strong showing in
-            # either. It fuses by POSITION, which matters here because the scores are
-            # not comparable: FAISS similarity is 1/(1+L2) — 0.559 for a real query
-            # against 0.524 for gibberish — and FTS5 emits BM25. Any weighted sum of
-            # those two is arbitrary; ranks need no shared scale.
+            # Stage 8: Reciprocal Rank Fusion. The old interleave ordered the channels instead of combining
+            # them, so vector won on position. RRF sums 1/(k+rank) over the channels that found a hit, so
+            # agreement beats one strong showing. It uses rank because the scores (L2 vs BM25) aren't
+            # comparable.
             try:
                 from eli.cognition.reranker import fuse_ranked_lists
                 out: List[Dict] = fuse_ranked_lists({
@@ -2438,14 +2395,10 @@ class Memory(metaclass=_MemoryMeta):
                             out.append(r)
                         elif not txt:
                             out.append(r)
-            # Sort merged results by composite score:
-            #   importance × 0.5 + weight × 0.3 + recency × 0.2 + preference boost
-            # importance already encodes preference/identity/user-authored salience
-            # (_score_importance) and is reinforced on every recall (+0.02), so
-            # repetition is built in. The bounded preference boost below makes
-            # durable user-context facts (preferences, identity, active projects/
-            # interests) surface higher even when their stored importance is mid —
-            # i.e. recall weighted by user preference / current work / interests.
+            # Sort merged results by composite score: importance x 0.5 + weight x 0.3 + recency x 0.2 +
+            # preference boost. importance already encodes preference/identity/user-authored salience
+            # (_score_importance) and is reinforced on every recall (+0.02). The bounded preference boost
+            # lifts durable user-context facts even when stored importance is mid.
             sort_now = time.time()
             def _ts_float(x):
                 raw = x.get("ts") or x.get("timestamp") or 0
@@ -2535,12 +2488,10 @@ class Memory(metaclass=_MemoryMeta):
                             })
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
-            # --- Knowledge Graph enrichment ---
-            # Skipped when keyword_only=True — the orchestrator runs its own
-            # kg_search() step and manages KG insertion into hybrid_merge()
-            # with dedicated priority ordering. Injecting here would add a KG
-            # hit in both the keyword bucket AND the kg bucket, causing the
-            # orchestrator's dedup (text[:240]) to silently drop one copy.
+            # Knowledge-graph enrichment. Skipped when keyword_only=True: the orchestrator runs its own
+            # kg_search() and manages KG insertion into hybrid_merge() with its own priority. Injecting here
+            # would put a KG hit in both the keyword and kg buckets, and the orchestrator's dedup
+            # (text[:240]) would silently drop one copy.
             if not keyword_only and getattr(self, "_is_canonical", True):
                 try:
                     from eli.memory.knowledge_graph import get_knowledge_graph
@@ -2565,12 +2516,10 @@ class Memory(metaclass=_MemoryMeta):
             if len(out) < 2 and _has_table(conn, "conversation_turns"):
                 try:
                     _q_low2 = q.lower()
-                    # Key on distinctive content nouns, not the whole question.
-                    # "what is my dog's name" must surface a turn saying "…my dog
-                    # Shadow" — a verbatim '%what is my dog's name%' LIKE never
-                    # matches it. Drop interrogatives/possessives/generic-memory
-                    # words so the query keys on "dog"; de-pluralise so
-                    # "dogs" also finds "dog".
+                    # Key on distinctive content nouns, not the whole question. "what is my dog's name" must
+                    # surface a turn saying "...my dog Shadow", and a verbatim '%what is my dog's name%' LIKE never
+                    # matches. Drop interrogatives, possessives and generic-memory words so it keys on "dog", and
+                    # de-pluralise so "dogs" finds "dog".
                     _fb_stop = {
                         "what", "whats", "which", "who", "whom", "when", "where",
                         "why", "how", "is", "are", "was", "were", "the", "an",
@@ -2713,12 +2662,10 @@ class Memory(metaclass=_MemoryMeta):
                     "session_id": row.get("session_id") or "",
                     "user_id": row.get("user_id") or "",
                 })
-        # ---- Lexical filter + dedup -----------------------------------------
-        # Drops vector hits with no token overlap to the query unless the
-        # query looks like an identity question, then dedups by (id, text[:500]).
-        # Also filters ALL sources when the query is a pure social greeting /
-        # generic phrase (no meaningful content terms) to prevent low-relevance
-        # hits from being injected and causing hallucinated memory claims.
+        # Lexical filter and dedup. Drops vector hits with no token overlap to the query unless it
+        # looks like an identity question, then dedups by (id, text[:500]). Also filters all sources
+        # when the query is a pure greeting or generic phrase, so low-relevance hits aren't injected and
+        # don't cause hallucinated memory claims.
         _q_lower = str(query or "").lower()
         _q_terms = set(re.findall(r"[a-z0-9]+", _q_lower))
 
@@ -2814,10 +2761,9 @@ class Memory(metaclass=_MemoryMeta):
     DECAY_HALF_LIFE_DAYS = 30.0
     DECAY_IMPORTANCE_STRETCH = 3.0
     DECAY_PIN_IMPORTANCE = 0.85
-    # Smallest weight change worth a write. `now` advances between calls, so every
-    # row's ideal weight drifts a hair on each run; without a floor the UPDATE
-    # rewrites the whole table every time and "rows updated" always equals "rows
-    # eligible", which hides whether decay is actually doing anything.
+    # Smallest weight change worth a write. `now` advances between calls, so every row's ideal
+    # weight drifts a hair each run; without a floor the UPDATE rewrites the whole table every time
+    # and "rows updated" always equals "rows eligible", hiding whether decay does anything.
     DECAY_MIN_DELTA = 0.005
 
     def apply_weight_decay(
@@ -3039,10 +2985,9 @@ class Memory(metaclass=_MemoryMeta):
         user_id = user_id or "default-user"
         now = time.time()
 
-        # Dedup flag: set to True by _write_to_conn when it finds the turn was
-        # already stored within the last 10 seconds. Gates ALL downstream writes
-        # (log_learning_event, record_event, profile_extractor) so that a second
-        # concurrent call for the same message produces zero extra rows anywhere.
+        # Dedup flag: set True by _write_to_conn when the turn was already stored within the last 10
+        # seconds. Gates all downstream writes (log_learning_event, record_event, profile_extractor)
+        # so a second concurrent call for the same message produces zero extra rows.
         _was_deduped = [False]
 
         # Helper to write to a single connection
@@ -3135,13 +3080,10 @@ class Memory(metaclass=_MemoryMeta):
                                           role=str(role or ""), text=content,
                                           tags=None)
 
-        # Promote facts stated in passing (e.g. "my dog Shadow") into durable
-        # memory so they're recallable later, not just buried in the raw turn
-        # log. User-authored turns only (identity-grade trust). Two complementary
-        # captures: (a) structured entity/relation triples into the knowledge
-        # graph, (b) salience-scored durable memory rows for anything ELI judges
-        # memorable — so genuinely important statements survive without the user
-        # ever saying "remember this".
+        # Promote facts stated in passing ("my dog Shadow") into durable memory so they're recallable,
+        # not buried in the raw turn log. User-authored turns only (identity-grade trust). Two captures:
+        # (a) entity/relation triples into the knowledge graph, (b) salience-scored durable memory rows
+        # for anything ELI judges memorable, so important statements survive without "remember this".
         if str(role or "").lower() == "user":
             _content_s = str(content or "")
             try:
@@ -3231,11 +3173,9 @@ class Memory(metaclass=_MemoryMeta):
             except Exception as e:
                 log.debug(f"[MEMORY] profile extraction failed: {e}")
         else:
-            # Notice when ELI has committed to a position, so it outlives the
-            # conversation that produced it. Without this a stance exists only in
-            # the scrollback: ELI could argue a line for an hour, be right, and
-            # take the opposite line tomorrow without ever knowing it had.
-            # Detection is narrow and regex-only — this is on every reply.
+            # Notice when ELI commits to a position so it outlives the conversation. Without this a stance
+            # exists only in the scrollback: ELI could argue a line for an hour and take the opposite
+            # tomorrow without knowing. Detection is narrow and regex-only because it runs on every reply.
             self._capture_stance(content, session_id, user_id)
 
         return rid
@@ -3258,10 +3198,9 @@ class Memory(metaclass=_MemoryMeta):
                 "SELECT content FROM conversation_turns "
                 " WHERE lower(COALESCE(role,'')) = 'user' "
                 + ("  AND session_id = ? " if session_id else "") +
-                # id, not timestamp: turns written in the same second tie on
-                # timestamp and the winner is then arbitrary, so a reply could be
-                # keyed to the wrong question. id is autoincrement and IS
-                # insertion order.
+                # Order by id, not timestamp: turns written in the same second tie on timestamp and
+                # the winner is arbitrary, so a reply could be keyed to the wrong question. id is
+                # autoincrement and is insertion order.
                 " ORDER BY id DESC LIMIT 1",
                 ((session_id,) if session_id else ()),
             ).fetchone()
@@ -3435,22 +3374,10 @@ class Memory(metaclass=_MemoryMeta):
                 "LOWER(COALESCE(content, '')) LIKE ?" for _ in keywords
             )
             params: list = [f"%{kw}%" for kw in keywords]
-            # Keyword recall must NOT return ELI's own prior statements by default.
-            # A single fabrication otherwise becomes permanent truth: ELI invented
-            # "I've been running stress tests on your sleep schedule and recalibrating
-            # the quantum model of your morning routine", that turn landed here, and
-            # recall served it back on later days as established history — twice, with
-            # two different fabrications, across three sessions. `memories` held ZERO
-            # rows for the text both times; this query was the whole mechanism.
-            #
-            # Labelling it in the prompt ("treat these as things you said, not verified
-            # facts") was tried in v2.1.74 and did NOT hold — an instruction to a model
-            # is not a filter. The sibling search at ~line 2324 already does
-            # `AND role = 'user'`; this one simply never got it.
-            #
-            # User turns stay: what the user said IS evidence. Assistant turns remain
-            # reachable via include_assistant=True and via get_recent_conversation /
-            # EXPLAIN_LAST_RESPONSE, which is where "what did you tell me?" belongs.
+            # Keyword recall doesn't return ELI's own past statements by default: one fabrication
+            # otherwise becomes permanent truth. Labelling it in the prompt didn't hold, an instruction
+            # isn't a filter. The sibling search already does `AND role = 'user'`. Assistant turns are
+            # reachable via include_assistant=True and get_recent_conversation.
             sql = (
                 f"SELECT timestamp, session_id, user_id, role, content, ts "
                 f"FROM conversation_turns "
@@ -3633,14 +3560,9 @@ class Memory(metaclass=_MemoryMeta):
                     "enabled": 1,
                 })
 
-            # NOTE: we deliberately do NOT create a `habit_rules` row here.
-            # `habit_rules` are *time-scheduled* routines fired by HabitScheduler;
-            # they must only be created by the habit-learning path (eli/planning/
-            # habits.py), which clusters real events by hour/minute. Auto-promoting
-            # every logged event to a rule produced rows with no hour/minute (→ 00:00),
-            # so HabitScheduler replayed the entire action vocabulary at midnight as
-            # raw chat tokens (fabricated weather/news, etc.). habit_events (the audit
-            # log) and habits (the frequency counter) above are the correct sinks.
+            # Deliberately no `habit_rules` row here. Rules are time-scheduled and only come from the
+            # habit-learning path (eli/planning/habits.py), which clusters real events by time. Promoting
+            # every event made rows with no hour/minute and replayed the vocabulary at midnight.
 
             conn.commit()
             return rid
@@ -3687,12 +3609,10 @@ class Memory(metaclass=_MemoryMeta):
 
     def add_habit_rule(self, name: str, command: str, hour: int, minute: int,
                        days: list = None, enabled: bool = True) -> int:
-        # enabled defaults True for explicit/manual adds; ELI's auto-detection
-        # passes enabled=False so a suggested habit never activates until the
-        # user approves it (enables it) in the Habits tab.
-        # A habit MUST have a concrete scheduled time — refuse None/blank so we
-        # never write the un-schedulable rows that legacy paths produced (those
-        # surfaced as bogus "active habits at 00:00").
+        # enabled defaults True for manual adds; auto-detection passes enabled=False so a suggested
+        # habit never activates until the user enables it in the Habits tab. A habit needs a concrete
+        # scheduled time: refuse None/blank so the un-schedulable rows legacy paths made (bogus
+        # "active habits at 00:00") never get written.
         if hour is None or minute is None or str(hour) == "" or str(minute) == "":
             raise ValueError("habit rule needs a scheduled hour and minute")
         now = time.time()
@@ -4367,11 +4287,10 @@ class Memory(metaclass=_MemoryMeta):
             conn.close()
 
 
-    # Transient / user-input / environment outcomes — NOT actionable code bugs.
-    # The failures table feeds self-improvement + the proactive "recurring errors"
-    # surface, which exist to find CODE to fix. Recording "you asked for a job/file/
-    # app that doesn't exist", "network is off", or STT garble made noise like
-    # "No background job #999999 (x21)" dominate that surface forever.
+    # Transient, user-input and environment outcomes aren't actionable code bugs. The failures
+    # table feeds self-improvement and the "recurring errors" surface, which exist to find code to
+    # fix. Recording "a job/file/app that doesn't exist", "network is off" or STT garble made noise
+    # like "No background job #999999 (x21)" dominate it.
     _NON_ACTIONABLE_FAILURE_PATTERNS = (
         "no background job #", "no media player", "no player could handle",
         "no players found", "network access is off", "can't search the web",
@@ -4690,9 +4609,8 @@ class Memory(metaclass=_MemoryMeta):
             out = []
             for r in rows:
                 role, content = r[3], r[4]
-                # Defense-in-depth: never feed internal error/sentinel assistant
-                # turns (e.g. "GGUF unavailable…", "[ELI] Model not ready…") into
-                # recent-conversation context — the model parrots them as replies.
+                # Defence in depth: never feed internal error/sentinel assistant turns ("GGUF unavailable...",
+                # "[ELI] Model not ready...") into recent-conversation context or the model parrots them.
                 # Mirrors the storage gate so stale pre-gate rows are excluded too.
                 if role == "assistant" and (
                     (callable(_eli_should_store_conversation_turn)
@@ -5094,11 +5012,9 @@ def _eli_sync_world_model_from_memory(mem_obj, *, kind: str, role: str = "", tex
         log.debug("suppressed exception", exc_info=True)
 
 
-# Explicit FAISS persistence helper.
-# vs.flush() should persist the FAISS index, but historically has been
-# unreliable. This helper does an explicit faiss.write_index() to the
-# canonical artifacts/vectors/ paths so post-rebuild state always survives
-# a restart.
+# Explicit FAISS persistence helper. vs.flush() should persist the index but has been unreliable, so
+# this writes faiss.write_index() to the canonical artifacts/vectors/ paths so post-rebuild state
+# survives a restart.
 def _eli_persist_loaded_vector_store(rows_for_meta=None):
     """Persist the live VectorStore index/meta to canonical FAISS artifacts.
 

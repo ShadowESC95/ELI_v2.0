@@ -87,10 +87,9 @@ def _candidates_from_patterns(patterns: Optional[List[Dict[str, Any]]]) -> List[
                 "tags": [AUTO_TAG, "self_repair"],
             })
         elif ptype == "frequent_behavior":
-            # A high-frequency behaviour the user repeats but that never became a
-            # time-scheduled rule (screenshots, media, news). Make ELI proactively OFFER
-            # to streamline it — so curiosity about the user's routine produces an actual
-            # proposal instead of dying as passive observation noise.
+            # A high-frequency behaviour the user repeats but that never became a time-scheduled
+            # rule (screenshots, media, news): make ELI offer to streamline it, so curiosity about
+            # the user's routine yields a proposal and not passive observation noise.
             beh = str(p.get("behavior") or "").strip()
             cnt = int(p.get("count", 0) or 0)
             if not beh or cnt < _FREQ_BEHAVIOR_MIN_COUNT:

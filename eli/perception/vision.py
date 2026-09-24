@@ -33,21 +33,11 @@ except Exception:  # pragma: no cover
     log = logging.getLogger("eli.vision")
 
 
-# ---------------------------------------------------------------------------
-# Model resolution — MODEL-AGNOSTIC. No model name or size is hardcoded on the
-# vision inference path. Paths resolve in priority order:
-#   1. env  (ELI_VISION_MODEL / _MMPROJ, ELI_VISION_FAST_MODEL / _MMPROJ)
-#   2. settings.json (vision_model_path / vision_mmproj_path / vision_fast_*)
-#   3. structural discovery: any GGUF in the models dir that has a paired
-#      projector (mmproj/clip) GGUF beside it is a VL model. Largest such pair
-#      = primary; smallest distinct pair = fast glance. Pairing is gated on real
-#      filename affinity, so a generically named projector is never mis-paired
-#      to an unrelated text model (it's left unresolved → honest "not configured"
-#      + install hint, never a wrong guess).
-# The required llama-cpp chat handler is resolved per-model too (config override
-# → filename auto-detect → generic Llava fallback), so ANY VL family llama-cpp
-# supports works — not just one.
-# ---------------------------------------------------------------------------
+# Vision model resolution, no model name or size hardcoded. Priority: env (ELI_VISION_MODEL/
+# _MMPROJ and the FAST pair), then settings.json, then discovery: any GGUF with a paired
+# mmproj/clip projector is a VL model, largest pair primary, smallest is the fast glance.
+# Pairing needs real filename affinity, so an unrelated projector is never paired; unresolved
+# means an honest "not configured" and an install hint. The chat handler is resolved per model.
 
 # Quant/format/role tokens that carry no model-identity signal — ignored when
 # matching a projector to its base model.
@@ -293,11 +283,10 @@ def vision_settings() -> Dict[str, Any]:
         # ~7GB freed is enough for a 7B Q4 VL + clip. Lower if you hit OOM.
         "n_gpu_layers": _as_int(_cfg("vision_n_gpu_layers", 99), 99),
         "n_batch": _as_int(_cfg("vision_n_batch", 256), 256),
-        # Downscale large screenshots before vision: a 4K/dual-monitor grab
-        # produces thousands of image tokens (e.g. 3840×1440 → ~4000 tokens),
-        # which overflows the context and can crash the clip encoder. The
-        # longest side is capped to this many pixels; exact text is still
-        # covered by the full-resolution OCR pass that runs alongside.
+        # Downscale large screenshots before vision: a 4K/dual-monitor grab is thousands of image
+        # tokens (3840x1440 is ~4000), which overflows the context and can crash the clip encoder. The
+        # longest side is capped to this many pixels; exact text is still covered by the full-resolution
+        # OCR pass alongside.
         "max_image_px": _as_int(_cfg("vision_max_image_px", 1280), 1280),
         "max_tokens": _as_int(_cfg("vision_max_tokens", 512), 512),
         "temperature": float(_cfg("vision_temperature", 0.2) or 0.2),
@@ -312,10 +301,9 @@ def vision_settings() -> Dict[str, Any]:
         "fast_chat_handler": fast_chat_handler,
         "fast_n_ctx": _as_int(_cfg("vision_fast_n_ctx", 2048), 2048),
         "fast_n_gpu_layers": _as_int(_cfg("vision_fast_n_gpu_layers", 99), 99),
-        # Co-resident mode: keep the text model loaded and run Moondream
-        # alongside it (no swap → no ~15s text-model reload per glance). OFF by
-        # default until VRAM fit is confirmed on this 8GB GPU; flip to true once
-        # tested. When false, fast glances hot-swap like the primary model.
+        # Co-resident mode: keep the text model loaded and run Moondream alongside it (no ~15s
+        # text-model reload per glance). Off by default until the VRAM fit is confirmed on this 8GB
+        # GPU; when false, fast glances hot-swap like the primary model.
         "fast_no_swap": bool(_cfg("vision_fast_no_swap", False)),
     }
 

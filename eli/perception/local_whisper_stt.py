@@ -119,26 +119,16 @@ def _resolve_model_dir(raw: str) -> str:
 
 
 def _model_settings():
-    # small.en (not base.en): base.en mis-transcribes too much on real speech
-    # ("hair with stings") — accuracy is driven by model size, so small.en stays
-    # the floor. To still claw back VRAM for the 7B's GPU layers we keep STT on
-    # GPU but in int8_float16 (below) rather than dropping to a smaller model.
-    # Override with ELI_WHISPER_MODEL=base.en/tiny.en (faster, less accurate) or
-    # medium.en (more accurate, larger footprint).
+    # small.en, not base.en: base.en mis-transcribes real speech ("hair with stings") and accuracy
+    # follows model size, so small.en is the floor. To still recover VRAM for the 7B's GPU layers,
+    # keep STT on GPU in int8_float16 rather than a smaller model. ELI_WHISPER_MODEL overrides
+    # (base.en/tiny.en faster, medium.en more accurate).
     model = _env("ELI_WHISPER_MODEL", "small.en")
     model_dir = _resolve_model_dir(_env("ELI_WHISPER_MODEL_DIR", "models/whisper"))
-    # Prefer GPU for speed (CPU int8 is too slow); get_model() falls back to CPU
-    # automatically if the CUDA load fails / OOMs. Force CPU with
-    # ELI_WHISPER_DEVICE=cpu. On GPU we use int8_float16 (int8 weights, float16
-    # compute): ~half the weight VRAM of plain float16 with WER essentially equal
-    # to float16, so the main-model VRAM budget (preloaded before the GGUF) is
-    # larger without costing transcription accuracy.
-    # VRAM-aware default: GPU whisper claims ~2GB that the larger, more important main
-    # GGUF model needs. On a small card it preloads first and starves the main model
-    # onto few-GPU-layers / CPU (the observed slowdown: free_vram=4083MB → gpu_layers=11).
-    # So default to GPU only when the card is big enough to hold whisper AND a typical
-    # main model; otherwise CPU (small.en int8 on CPU is ~1-2s for a short command).
-    # An explicit ELI_WHISPER_DEVICE always wins.
+    # Prefer GPU for speed, get_model() falls back to CPU if CUDA fails. ELI_WHISPER_DEVICE=cpu
+    # forces CPU. int8_float16 on GPU: about half the VRAM of float16 at equal WER.
+    # VRAM-aware default: GPU whisper takes ~2GB the main model needs and starved it on a small
+    # card, so default to GPU only when the card holds both. An explicit ELI_WHISPER_DEVICE wins.
     _explicit_device = (os.environ.get("ELI_WHISPER_DEVICE", "") or "").strip().lower()
     if _explicit_device:
         device = _explicit_device
@@ -148,10 +138,9 @@ def _model_settings():
         "ELI_WHISPER_COMPUTE_TYPE", "int8_float16" if device == "cuda" else "int8")
     local_only = _env("ELI_WHISPER_LOCAL_ONLY", "0").lower() in {"1", "true", "yes", "on"}
 
-    # Offline-by-default: when the Net toggle is off, force local-only so
-    # faster-whisper loads the CACHED model instead of validating against
-    # huggingface.co — which the network failsafe blocks (OfflineError on every
-    # transcription). The model lives in download_root; no network is needed.
+    # Offline by default: when Net is off, force local-only so faster-whisper loads the cached model
+    # instead of validating against huggingface.co, which the network failsafe blocks (OfflineError
+    # on every transcription). The model lives in download_root; no network is needed.
     if not local_only:
         try:
             from eli.core.netguard import should_block_network

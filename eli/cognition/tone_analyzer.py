@@ -187,11 +187,9 @@ def build_preference_strings(sig: Dict[str, Any]) -> Dict[str, str]:
     tech    = sig.get("tech_rate", 0)
     avg_wc  = sig.get("avg_word_count", 10)
 
-    # Emit a preference ONLY on positive evidence. Absence of a signal must NOT
-    # produce a confident negative directive — asserting "no humor → keep tone
-    # direct and neutral" or "rarely corrects ELI" from weak/sparse signal is
-    # both frequently wrong and harmful (it flattens ELI's voice and feeds false
-    # facts back into the persona). Silence is the correct output for no signal.
+    # Emit a preference only on positive evidence. No signal must not produce a confident negative
+    # ("no humor -> keep tone direct"); that flattens ELI's voice and feeds false facts back into
+    # the persona. Silence is the right output for no signal.
     if tech > 1.5 and casual < 0.3:
         out["style"] = "User communicates in a primarily technical, precise style with low casual language."
     elif casual > 0.5 and tech < 0.8:

@@ -46,10 +46,9 @@ class VoiceWorker:
         t.start()
 
     def _run(self, text: str):
-        # Read the flag once while holding the lock. If interrupt() fires
-        # after this point the long speak_if_enabled call will still run —
-        # that's the inherent trade-off of non-blocking TTS dispatch. The
-        # flag is reset to False when we finish so the next speak() is clean.
+        # Read the flag once while holding the lock. If interrupt() fires after this, the long
+        # speak_if_enabled call still runs; that's the inherent trade-off of non-blocking TTS
+        # dispatch. The flag is reset to False when we finish so the next speak() is clean.
         with self._lock:
             active = self._active
         if active:

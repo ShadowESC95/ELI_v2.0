@@ -238,14 +238,11 @@ def recovery_hint(adapters: Optional[List[BtAdapter]] = None) -> str:
     kind = platform_kind()
 
     if kind == "linux":
-        # If ANY adapter is already usable, Bluetooth is ready — say nothing.
-        # A machine can carry several controllers (built-in + USB dongle + a
-        # phantom): this box has hci0 down, hci2 a zero-MAC ghost, and hci1 UP,
-        # powered and registered with BlueZ. Reporting the first down adapter had
-        # ELI announce "Bluetooth radio is off — cannot scan" and demand a sudo
-        # reset while a perfectly good controller sat there working. Judge the
-        # capability ("can I scan?"), not one device — the same mistake as pinning
-        # a microphone by index instead of asking which one actually delivers.
+        # If any adapter is usable, Bluetooth is ready: say nothing. A machine can have several
+        # controllers (built-in, USB dongle, a phantom); this box has hci0 down, hci2 a zero-MAC ghost
+        # and hci1 up. Reporting the first down adapter had ELI say "Bluetooth radio is off" and ask for
+        # a sudo reset while a good controller worked. Judge the capability ("can I scan?"), not one
+        # device.
         if any(getattr(a, "powered", False) or getattr(a, "bluez", False)
                or a.state == "up" for a in adapters):
             return ""
@@ -357,10 +354,9 @@ def _linux_ensure_radio() -> Tuple[bool, str]:
         return re.findall(r"Controller\s+([0-9A-Fa-f:]{17})", listing or "")
 
     adapters = list_adapters()
-    # A usable controller anywhere means we can scan — an idle or phantom sibling
-    # adapter is irrelevant. Previously ANY down adapter aborted here, so a box with
-    # a working hci1 alongside a down hci0 and a zero-MAC hci2 was told "Bluetooth
-    # radio is off" and asked to run a sudo reset it did not need.
+    # A usable controller anywhere means we can scan; an idle or phantom sibling is irrelevant. Any
+    # down adapter used to abort here, telling a box with a working hci1 that "Bluetooth radio is
+    # off".
     if any(getattr(a, "powered", False) or getattr(a, "bluez", False)
            or a.state == "up" for a in adapters) or _controllers():
         return True, ""

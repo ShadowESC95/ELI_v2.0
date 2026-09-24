@@ -78,12 +78,9 @@ def topic_of(user_text: str) -> str:
                  if w not in STOPWORDS and len(w) > 3}
     if len(words) < MIN_TOPIC_WORDS:
         return ""
-    # The FULL content-word set, not a truncation. Taking the alphabetically
-    # first few made the key brittle: one extra word shifted it, so "you are
-    # alive the same amount, make your own decisions" and "you are alive the
-    # same amount as i am so you should be able to make your own decisions"
-    # produced different topics for the same argument. Matching is by overlap
-    # at lookup (see stance_store.get_stance), so the key can afford to be long.
+    # The full content-word set, not a truncation. Taking the first few alphabetically made the key
+    # brittle (one extra word gave a different topic for the same argument). Matching is by overlap
+    # at lookup (stance_store.get_stance), so a long key is fine.
     return " ".join(sorted(words)[:12])
 
 

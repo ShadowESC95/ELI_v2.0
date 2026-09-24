@@ -87,11 +87,10 @@ class ProactiveDaemon:
         # (but this should always refer to AGENT DB in Option B)
         self.db_path = Path(self.agent_mem.db_path)
 
-        # Cross-tick suggestion dedup: normalized-text → last-emitted epoch.
-        # analyze_user_patterns() re-derives the same stable signals every
-        # 10-minute cycle (user_goal, time_habit, topic_focus…); without this
-        # the proactive tab fills with identical repeats. Persisted so a
-        # restart doesn't replay the backlog either.
+        # Cross-tick suggestion dedup: normalised text -> last-emitted epoch. analyze_user_patterns()
+        # re-derives the same stable signals every 10-minute cycle (user_goal, time_habit, topic_focus),
+        # so without this the proactive tab fills with repeats. Persisted so a restart doesn't replay
+        # the backlog.
         self._emitted_suggestions: Dict[str, float] = {}
         self._emitted_path = Path(self.user_mem.db_path).parent.parent / "proactive" / "emitted_suggestions.json"
         try:
@@ -152,10 +151,7 @@ class ProactiveDaemon:
                 return [] if fetch_all else None
             raise
 
-    # ------------------------------
-    # Reads: USER DB
-    # Writes: AGENT DB
-    # ------------------------------
+    # Reads: USER DB. Writes: AGENT DB.
 
     # ─── stop-words for topic extraction ──────────────────────────────────────
     _STOPWORDS = frozenset({
@@ -220,11 +216,10 @@ class ProactiveDaemon:
         if not rows:
             return patterns
 
-        # ── Pattern 1: Peak activity hour (single result) ──────────────────
-        # Robust hour extraction. The old code did fromtimestamp(float(ts)).hour,
-        # which counted rows with ts=0/NULL/default (common in `memories`) as
-        # "hour 0" — producing a permanent fake "Peak activity at 00:00". Skip
-        # non-real timestamps; accept epoch seconds, epoch ms, and ISO strings.
+        # Pattern 1: peak activity hour (single result). Robust hour extraction: the old
+        # fromtimestamp(float(ts)).hour counted rows with ts=0/NULL/default (common in `memories`) as
+        # hour 0 and produced a permanent fake "Peak activity at 00:00". Skip non-real timestamps;
+        # accept epoch seconds, epoch ms and ISO strings.
         def _real_hour(_ts):
             # numeric epoch (seconds or ms)
             try:
@@ -246,10 +241,9 @@ class ProactiveDaemon:
                     continue
             return None
 
-        # Peak activity reflects WHEN THE USER ACTUALLY TALKS to ELI — only
-        # genuine user conversation turns, de-noised. Auto-generated memories,
-        # STT-echo fragments, [filtered]/repeated-char junk, and exact prompt
-        # replays (test sessions) must not skew the result.
+        # Peak activity reflects when the user actually talks to ELI: only genuine user conversation
+        # turns, de-noised. Auto-generated memories, STT-echo fragments, [filtered]/repeated-char
+        # junk and exact prompt replays (test sessions) must not skew it.
         hour_counts: Dict[float, float] = {}
         try:
             _pc = sqlite3.connect(str(user_db))
@@ -308,25 +302,17 @@ class ProactiveDaemon:
                     "suggestion": f"Activity spread across {_top}",
                 })
 
-        # ── Pattern 2: Meaningful topic focus (top 5 non-trivial words) ────
-        # Count words from GENUINE USER text only. ELI's own auto-generated
-        # insight/reflection/news memories carry meta vocabulary ("Conversation
-        # volume: 51 user messages", "Top topics: …", "Recent issues: …") which
-        # otherwise feeds straight back as the user's "focus areas" — a
-        # self-reinforcing loop (observed: volume/messages/topics/recent/
-        # conversation dominating ×100+). User conversation turns have empty
-        # tags, so skipping auto-tagged rows keeps real topics and drops the echo.
+        # Pattern 2: Meaningful topic focus (top 5 non-trivial words) from genuine user text only. ELI's own
+        # auto-generated insight/reflection/news memories carry meta vocabulary ("Conversation volume:
+        # 51 user messages", "Top topics: ...") that fed back as the user's "focus areas", a
+        # self-reinforcing loop. User turns have empty tags, so skipping auto-tagged rows keeps real
+        # topics and drops the echo.
         from eli.core.self_provenance import has_auto_tag as _has_auto_tag
-        # Topic extraction is SHARED with the reflection report. This loop used to
-        # apply `self._STOPWORDS`, a second ~180-word list that never received the
-        # fixes the reflection one did and had no notion of small talk at all. On a
-        # live overnight run it reported the operator's focus areas as
-        #
-        #   afternoon (x11), doing (x10), today (x10), memory (x9), world (x7)
-        #
-        # after the operator had said "afternoon, Eli" — four of those five are in
-        # the shared set, and the greeting that produced them is now skipped whole.
-        # Imported lazily, matching the existing part_of_day() import below.
+        # Topic extraction is shared with the reflection report. This loop had its own ~180-word
+        # `self._STOPWORDS` that never got the reflection list's fixes and had no notion of small talk,
+        # so "afternoon, Eli" made "afternoon (x11), doing, today, memory, world" the operator's focus
+        # areas. Four of those are in the shared set now and the greeting is skipped whole. Imported
+        # lazily, like the part_of_day() import below.
         try:
             from eli.runtime.reflection import topic_words as _topic_words
         except Exception:
@@ -375,10 +361,9 @@ class ProactiveDaemon:
         except Exception:
             _SWLOG.debug("suppressed exception", exc_info=True)
 
-        # ── Pattern 4: Recurring errors from agent DB ────────────────────────
-        # Filter out world-awareness metric strings (repair_pressure=X.XX,
-        # memory_confidence=X.XX, etc.) — these are state readings, not real
-        # errors, and should never surface as recurring failure patterns.
+        # Pattern 4: recurring errors from the agent DB. Filter out world-awareness metric strings
+        # (repair_pressure=X.XX, memory_confidence=X.XX): they're state readings, not errors, and
+        # must not surface as recurring failure patterns.
         _AWARENESS_METRIC_RE = re.compile(
             r"\b(?:repair_pressure|memory_confidence|evidence_confidence|"
             r"uncertainty|autonomy_pressure|reflection_depth|tool_activity|"
@@ -388,11 +373,9 @@ class ProactiveDaemon:
         try:
             con = sqlite3.connect(str(self.db_path))
             cur = con.cursor()
-            # Only surface CURRENT recurring errors. Without a recency window an
-            # old open failure (e.g. a one-off LIST_DIR misroute days ago) was
-            # replayed as "recurring" on every tick forever — polluting pattern
-            # detection and re-raising repair_pressure. Window to the last 48h
-            # using whichever timestamp the row carries.
+            # Only surface current recurring errors. Without a recency window an old open failure (a
+            # one-off LIST_DIR misroute days ago) replayed as "recurring" every tick and re-raised
+            # repair_pressure. Window to the last 48h using whichever timestamp the row carries.
             _recent_cutoff = time.time() - float(
                 os.environ.get("ELI_RECURRING_ERROR_WINDOW_S", str(48 * 3600))
             )
@@ -428,11 +411,10 @@ class ProactiveDaemon:
         try:
             con = sqlite3.connect(str(user_db))
             cur = con.cursor()
-            # Read ONLY the dynamic project signal (project.current, written from the LLM
-            # session summary's CURRENT WORK) and any genuinely dynamic project rows — NEVER
-            # the legacy hard-coded 'project.eli*' rows, which are the frozen "developing ELI"
-            # canned facts that must not resurface (they're no longer written; this also
-            # neutralises any that linger in an existing DB).
+            # Read only the dynamic project signal (project.current, from the LLM session summary's
+            # CURRENT WORK) and genuinely dynamic project rows, never the legacy hard-coded 'project.eli*'
+            # rows (frozen "developing ELI" canned facts). They're no longer written, and this also
+            # neutralises any left in an existing DB.
             cur.execute(
                 "SELECT pattern_data, COALESCE(timestamp, ts) FROM user_patterns "
                 "WHERE pattern_type LIKE 'project%' "
@@ -447,13 +429,10 @@ class ProactiveDaemon:
                 if proj:
                     import time as _time
                     age_hours = (_time.time() - proj_ts) / 3600 if proj_ts else None
-                    # Staleness ceiling: a project note is a CURRENT-WORK line from a past session
-                    # summary ("ELI is currently executing a full audit"). Once it ages out it is
-                    # NOT current — surfacing it as an "Active project" made ELI assert a 13h-old
-                    # event as present fact. Beyond the ceiling, drop it (genuinely-current work
-                    # re-derives from fresh activity); in the 4h–ceiling band, frame it as a prior,
-                    # possibly-stale note so neither the proactive context nor the persona restate
-                    # it as present-tense. Ceiling tunable via ELI_PROJECT_STALE_H (default 12).
+                    # Staleness ceiling for project notes. A note is a current-work line from a past session, and
+                    # once it ages out it isn't current (a 13h-old "executing a full audit" got asserted as fact).
+                    # Past the ceiling drop it; between 4h and the ceiling frame it as a possibly stale note.
+                    # ELI_PROJECT_STALE_H, default 12.
                     try:
                         _stale_h = float(os.environ.get("ELI_PROJECT_STALE_H", "12"))
                     except Exception:
@@ -490,11 +469,9 @@ class ProactiveDaemon:
         except Exception:
             _SWLOG.debug("suppressed exception", exc_info=True)
 
-        # ── Pattern 6: Frequent behaviours → proactive proposals ─────────────
-        # High-frequency behaviours that never become time-scheduled rules
-        # (screenshots, media, news) should still make ELI OFFER to streamline
-        # them. Feed them to goal autogenesis as 'frequent_behavior' signals so a
-        # genuine proposal forms instead of the behaviour dying as observation noise.
+        # Pattern 6: frequent behaviours -> proactive proposals. Things done a lot that never become
+        # time-scheduled rules (screenshots, media, news) should still make ELI offer to streamline
+        # them. Feed them to goal autogenesis as 'frequent_behavior' signals so a real proposal forms.
         try:
             _det = []
             if hasattr(self.user_mem, "get_detected_habits"):
@@ -540,13 +517,10 @@ class ProactiveDaemon:
                 if "topic_focus" in _obs_content:
                     try:
                         _obs_data = json.loads(_obs_content) if _obs_content.startswith("{") else {}
-                        # The payload written below nests the topics inside
-                        # `patterns[]`; reading a TOP-LEVEL "topics" key found
-                        # nothing, ever. _past_topics stayed empty, so every
-                        # topic looked new on every tick and the daemon reported
-                        # the same five words as "not seen in prior ticks" all
-                        # night — while trend_fading, which is gated on
-                        # _past_topics being non-empty, could never fire at all.
+                        # The payload written below nests topics inside `patterns[]`, so reading a top-level "topics"
+                        # key found nothing. _past_topics stayed empty, every topic looked new each tick (the same five
+                        # words "not seen in prior ticks" all night) and trend_fading, gated on _past_topics, could
+                        # never fire.
                         for _p in _obs_data.get("patterns", []) or []:
                             if str((_p or {}).get("type") or "") != "topic_focus":
                                 continue
@@ -696,11 +670,9 @@ class ProactiveDaemon:
         cmd = (rule.get("command") or "").strip()
         if not cmd:
             return {"ok": False, "error": "No command defined"}
-        # Kill-switch: habit commands run via the shell (they may use pipes/&&).
-        # That's fine for a user's own habits, but a redistributed/imported habit
-        # DB is untrusted — let deployments disable shell habits. Default on to
-        # preserve existing behavior; ELI_NO_HABIT_SHELL=1 or the
-        # habit_shell_enabled=false setting turns it off.
+        # Kill switch: habit commands run via the shell (pipes, &&). That's fine for a user's own
+        # habits, but a redistributed or imported habit DB is untrusted, so let deployments disable
+        # shell habits. Default on; ELI_NO_HABIT_SHELL=1 or habit_shell_enabled=false turns it off.
         _habit_shell_on = os.environ.get("ELI_NO_HABIT_SHELL", "0") != "1"
         if _habit_shell_on:
             try:
@@ -846,10 +818,10 @@ class ProactiveDaemon:
         news_meta = {}
         try:
             from eli.tools.news.news_synthesis import build_morning_digest
-            # Mark THIS call background so its LLM synthesis is token-capped, preemptible, and
-            # deferred while a foreground turn is live (the shared news module is also used by the
-            # user-facing NEWS_FETCH, so we flag the caller's thread, not the module). Save/restore
-            # so we don't clobber a thread already marked background by the daemon loop.
+            # Mark this call as background so its LLM synthesis is token-capped, preemptible and deferred
+            # while a foreground turn is live. The shared news module also serves the user-facing
+            # NEWS_FETCH, so flag the caller's thread, not the module. Save and restore so a thread the
+            # daemon loop already marked isn't clobbered.
             from eli.cognition.gguf_inference import (
                 set_background_inference as _setbg, is_background_inference as _isbg)
             _prev_bg = _isbg()
@@ -968,21 +940,14 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     time.sleep(5)
                     continue
 
-                # While a user's FOREGROUND request is (or was just) generating, defer ALL of the
-                # daemon's LLM-heavy work — insight synthesis, the 3h news synthesis, the autonomy
-                # tick, the morning report. On a slow/CPU-offloaded model these otherwise wedge
-                # multi-minute background generations BETWEEN the user's turns (a 643s news synth
-                # ran mid-conversation). The blocks below are time-gated, so they simply retry on
-                # the next 5s tick once the foreground goes idle — nothing is dropped.
+                # While the user's request is generating, hold back the daemon's LLM-heavy work (insights,
+                # news synthesis, autonomy tick, morning report). On a slow model they wedged multi-minute
+                # generations between turns. The blocks below are time-gated and retry on the next 5s tick.
 
-                # ── Autonomy / self-awareness tick (every 30 min) ─────────────────
-                # ELI's self-directed loop, finally wired to actually RUN (it was
-                # previously only fired by the Operator Console button): monitor own
-                # code changes, refresh the self-model overlays (self-awareness), and
-                # advance goals → proposals. All governed — approval_engine caps the
-                # controller to observe-only / memory-write, and goal/scheduler ticks
-                # produce PROPOSALS that still need user approval, so nothing
-                # destructive runs unattended. Kill switch: ELI_AUTONOMY_TICK=0.
+                # Autonomy / self-awareness tick (every 30 min). Watches its own code changes, refreshes the
+                # self-model and advances goals to proposals. approval_engine caps it to observe-only /
+                # memory-write and proposals still need approval, so nothing destructive runs unattended.
+                # Kill switch ELI_AUTONOMY_TICK=0.
                 if (not _foreground_busy()
                         and time.time() - last_autonomy > 1800
                         and os.environ.get("ELI_AUTONOMY_TICK", "1").strip().lower()
@@ -1046,11 +1011,9 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                         from eli.planning.habits import detect_habits
                         detect_habits(days=14, min_occurrences=3)
 
-                        # ── Proactively OFFER newly-detected habits ──────────
-                        # detect_habits creates suggestions DISABLED. Pitch one
-                        # per cycle (specific app at a specific hour) and let the
-                        # user say yes/no — never silently activate. One offer at a
-                        # time; don't re-pitch the same rule.
+                        # Proactively offer newly detected habits. detect_habits creates suggestions disabled; pitch
+                        # one per cycle (a specific app at a specific hour), let the user say yes/no, never silently
+                        # activate, and don't re-pitch the same rule.
                         try:
                             from eli.planning.habits import (
                                 get_pending_habit, set_pending_habit,
@@ -1069,11 +1032,9 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                     _rid = int(_r.get("id", -1))
                                     if _rid < 0 or was_offered(_rid):
                                         continue
-                                    # Skip legacy/corrupt suggestions: a real learned
-                                    # habit has a concrete time AND a command distinct
-                                    # from its bare name. NULL-time / command==name rows
-                                    # are legacy corruption that otherwise surfaced as a
-                                    # bogus "run it around 00:00" offer (user-reported).
+                                    # Skip legacy/corrupt suggestions: a real learned habit has a concrete time and a command
+                                    # distinct from its bare name. NULL-time or command==name rows are legacy corruption that
+                                    # surfaced as a bogus "run it around 00:00" offer.
                                     _hraw, _mraw = _r.get("hour"), _r.get("minute")
                                     _cmd = str(_r.get("command") or "").strip()
                                     _nm = str(_r.get("name") or "a recurring action").strip()
@@ -1163,10 +1124,9 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     except Exception:
                         _SWLOG.debug("suppressed exception", exc_info=True)
 
-                    # ── World → runtime feedback loop ────────────────────────
-                    # Read AwarenessState-driven suggestions from the world engine
-                    # and merge high-priority ones into the self-improvement memory
-                    # so they surface as proactive proposals in future ticks.
+                    # World -> runtime feedback loop: read AwarenessState-driven suggestions from
+                    # the world engine and merge high-priority ones into the self-improvement memory
+                    # so they surface as proactive proposals in later ticks.
                     try:
                         from eli.world.local_world_bridge import get_awareness_driven_suggestions as _gads
                         _world_suggs = _gads()
@@ -1174,10 +1134,9 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                             _ws_priority = float(_ws.get("priority", 0.0))
                             _ws_action = str(_ws.get("action") or "")
                             if _ws_priority >= 0.55:
-                                # Record as an observation (NOT a failure) so it
-                                # surfaces as a proposal without incrementing the
-                                # failure count — which would raise repair_pressure
-                                # and create an infinite feedback loop.
+                                # Record as an observation, not a failure, so it surfaces as a
+                                # proposal without incrementing the failure count, which would raise
+                                # repair_pressure and create a feedback loop.
                                 try:
                                     _obs_target = self.agent_mem or self.user_mem
                                     if _obs_target:
@@ -1227,13 +1186,9 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     except Exception as _world_loop_err:
                         log.debug(f"[PROACTIVE] World→runtime feedback failed: {_world_loop_err}")
 
-                    # ── Goal autogenesis: turn ELI's own signals into goals ──────
-                    # The autonomy/goal-tick stack was fully wired but the goal store
-                    # was always empty (create_goal was operator-only). Convert the
-                    # high-value world-suggestions + recurring-failure patterns this
-                    # tick produced into GOVERNED goals (proposal_only — they surface
-                    # for approval via governed_goal_tick, never silent execution).
-                    # Deduped + capped, so this is safe every tick.
+                    # Goal autogenesis: turn ELI's own signals into goals. The goal store was always empty because
+                    # create_goal was operator-only. High-value world suggestions and recurring failures become
+                    # proposal_only goals that need approval. Deduped and capped, so safe every tick.
                     try:
                         from eli.planning.goal_autogenesis import propose_goals_from_signals
                         _new_goals = propose_goals_from_signals(
@@ -1252,10 +1207,9 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
 
                     last_analysis = time.time()
 
-                    # ── 3-hour news fetch + synthesis cycle ───────────────
-                    # Every 3 hours: fetch new articles, compile a synthesis
-                    # of the window, store it as a news_reflection. The
-                    # morning report later compiles 8 such reflections per 24h.
+                    # 3-hour news cycle: every 3 hours fetch new articles, compile a synthesis of
+                    # the window and store it as a news_reflection. The morning report later
+                    # compiles 8 such reflections per 24h.
                     _news_net_ok = False
                     try:
                         from eli.core.config import network_allowed as _net_ok
@@ -1301,13 +1255,10 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                         except Exception as _ne:
                             log.debug(f"[PROACTIVE] News synthesis error: {_ne}")
 
-                    # ── Emotional check-in (proactive, not reactive) ──────────────
-                    # The engine records an emotional read every turn; here the daemon
-                    # acts on the TREND without waiting to be spoken to. Gated hard:
-                    # a sustained run (not a spike), confident reads, out of the user's
-                    # own baseline, and outside the cooldown — all enforced in assess().
-                    # The wording is synthesised by the model from the evidence; if no
-                    # model is resident we emit NOTHING rather than a canned line.
+                    # Emotional check-in, proactive rather than reactive. The engine records an emotional read
+                    # every turn and the daemon acts on the trend. Gated hard in assess(): a sustained run, confident
+                    # reads, outside the user's own baseline, outside the cooldown. The model writes the wording;
+                    # with no model resident it says nothing rather than a canned line.
                     try:
                         from eli.cognition import emotion_timeline as _et
                         _ea = _et.assess()

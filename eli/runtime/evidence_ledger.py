@@ -56,14 +56,10 @@ def _signature(parts: Iterable[Any]) -> str:
     return hashlib.sha256(raw.encode("utf-8", "ignore")).hexdigest()
 
 
-# ── Tamper-evident, HMAC-keyed hash chain ────────────────────────────────────
-# Each event's chain_sig = HMAC-SHA256(key, prev_chain_sig ⊕ this row's stored fields).
-# Every row commits to the one before it (off a fixed genesis), so an edit, deletion, or
-# reorder breaks the chain — which verify_chain() detects. Keying it with a secret stored
-# SEPARATELY from the DB means a local attacker who can write the SQLite file but cannot
-# read the key cannot forge a clean, self-consistent chain (without the key the chain is
-# only tamper-EVIDENT; with it, tampering is also unforgeable). The key lives at
-# config/.audit_hmac_key (0600) or $ELI_AUDIT_HMAC_KEY; keep it off the DB's media/backups.
+# Tamper-evident HMAC-keyed hash chain. Each row's chain_sig covers the previous one, so an
+# edit, deletion or reorder breaks it and verify_chain() catches that. The key lives apart from
+# the DB (config/.audit_hmac_key at 0600, or $ELI_AUDIT_HMAC_KEY), so someone who can write the
+# SQLite file but can't read the key can't forge a chain. Keep it off the DB's backups.
 _GENESIS = "ELI-AUDIT-GENESIS"
 _SEP = "\x1f"  # unit separator — can't appear in normalised text/JSON values
 
@@ -205,10 +201,9 @@ def record_event(
 ) -> int:
     now = float(timestamp or time.time())
     payload = dict(payload or {})
-    # user_id + session_id are part of the dedup signature so that two DIFFERENT users
-    # (or sessions) performing the same action are recorded SEPARATELY — the audit must
-    # attribute each actor — while a single actor's duplicate writes (same turn, racing
-    # threads) still collapse.
+    # user_id and session_id are part of the dedup signature so two different users or sessions
+    # doing the same thing are recorded separately (the audit must attribute each actor), while one
+    # actor's duplicate writes (same turn, racing threads) still collapse.
     sig = _signature([event_type, source, action, subject, content,
                       payload.get("error") or payload.get("path") or "", user_id, session_id])
     # Pre-normalise once; these exact stored values are what the chain commits to.

@@ -139,10 +139,9 @@ def _proactive_status() -> Dict[str, Any]:
             pid = int(pid_file.read_text(encoding="utf-8").strip() or 0)
         except Exception:
             pid = 0
-    # In-process first. The GUI runs the daemon as a thread in its own process, so
-    # there is no pid file to find — checking only the file reported "not running"
-    # for the normal desktop case, contradicting the startup log and the daemon's
-    # own visible output in the same session.
+    # In-process first. The GUI runs the daemon as a thread in its own process, so there's no pid
+    # file; checking only the file said "not running" for the normal desktop case, contradicting the
+    # startup log and the daemon's own output.
     mode = "pid_file"
     try:
         from eli.planning.proactive_daemon import is_running as _in_process

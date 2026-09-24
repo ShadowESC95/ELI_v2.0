@@ -251,11 +251,9 @@ def _tier2_pyflakes(path: Path, src: str) -> Optional[List[Finding]]:
         if not m:
             continue
         msg = m.group(2).strip()
-        # Drop star-import noise: a file using `from X import *` makes pyflakes flag
-        # EVERY name it can't resolve as "may be undefined, or defined from star
-        # imports" — hundreds of false positives (a GUI scan produced ~800). These are
-        # not real bugs (the file imports/runs clean); surfacing them as fixable findings
-        # is what made an examine return 853 mostly-bogus results.
+        # Drop star-import noise: a file using `from X import *` makes pyflakes flag every unresolved
+        # name as "may be undefined, or defined from star imports" (a GUI scan gave ~800). They aren't
+        # bugs, and surfacing them as fixable findings made an examine return 853 mostly bogus results.
         if ("may be undefined, or defined from star imports" in msg
                 or "unable to detect undefined names" in msg):
             continue
@@ -447,13 +445,11 @@ def examine(paths: List[Path], *, run_tier3: bool = True) -> List[Finding]:
     return findings
 
 
-# Only GENUINE BREAKAGE is auto-fixable: a syntax error, a failed import, or a truly-undefined
-# name (a real NameError at runtime). Cosmetic lint — unused imports/variables, f-string style,
-# redefinition warnings — is REPORT-ONLY. It doesn't break anything, and the local model botches
-# such "fixes" (it once turned `import tempfile` into `import tempfile as t`, breaking every use,
-# and rewrote working consensus logic). Those are never handed to the patch engine. (2026-06-09:
-# a vague "run full time audit" swept the whole tree and applied 19 such botched lint patches to
-# ELI's own core files.)
+# Only genuine breakage is auto-fixable: a syntax error, a failed import or a truly undefined
+# name (a real NameError). Cosmetic lint (unused imports/variables, f-string style,
+# redefinitions) is report-only: it breaks nothing, and the local model botches such fixes (it
+# turned `import tempfile` into `import tempfile as t` and broke every use). A vague "run full
+# time audit" once applied 19 botched lint patches to ELI's own core files.
 _REAL_BREAKAGE_KINDS = frozenset({"syntax", "import", "read-error"})
 
 
@@ -764,23 +760,18 @@ def get_pending_fix() -> Optional[Dict[str, Any]]:
 
 
 def clear_pending_fix() -> None:
-    # missing_ok: "clear" on a file that is already absent is the SUCCESS case,
-    # not an error. The except branch below caught it correctly but logged a full
-    # traceback with exc_info, so every EXAMINE_CODE that had no pending fix —
-    # i.e. the normal one — printed a FileNotFoundError stack to the console and
-    # looked like a crash.
+    # missing_ok: "clear" on an already-absent file is the success case. The except branch caught it
+    # but logged a full traceback, so every EXAMINE_CODE with no pending fix (the normal one)
+    # printed a FileNotFoundError stack and looked like a crash.
     try:
         _pending_file().unlink(missing_ok=True)
     except OSError:
         log.debug("could not clear the pending code fix", exc_info=True)
 
 
-# --------------------------------------------------------------------------- #
-# Last-audit persistence — findings survive across turns/restarts so a        #
-# follow-up like "list the errors you found" replays the real audit instead   #
-# of the model improvising (or admitting the data is gone). No TTL: recall    #
-# of the last audit is the whole point.                                       #
-# --------------------------------------------------------------------------- #
+# Last-audit persistence: findings survive across turns and restarts so a follow-up like "list the
+# errors you found" replays the real audit instead of the model improvising or saying the data is
+# gone. No TTL; recall of the last audit is the whole point.
 def _last_audit_file() -> Path:
     path = artifacts_dir() / "code_exam_last.json"
     path.parent.mkdir(parents=True, exist_ok=True)

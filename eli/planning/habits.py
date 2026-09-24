@@ -17,12 +17,9 @@ from eli.memory import get_memory
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
-# --------------------------------------------------------------------------- #
-# Proactive habit-offer state                                                 #
-# ELI proposes a detected habit (specific app at a specific hour) and asks the #
-# user before activating it. The offer awaiting yes/no lives in pending_habit; #
-# offered rule ids are remembered so the same suggestion isn't re-pitched.     #
-# --------------------------------------------------------------------------- #
+# Proactive habit-offer state: ELI proposes a detected habit (a specific app at a specific hour) and
+# asks before activating it. The offer awaiting yes/no lives in pending_habit; offered rule ids are
+# remembered so the same suggestion isn't pitched twice.
 def _artifacts_dir() -> Path:
     try:
         from eli.core.paths import get_paths
@@ -258,10 +255,9 @@ def detect_habits(days: int = 14, min_occurrences: int = 3, min_days: int = 3):
     existing_rules = mem.get_habit_rules(enabled_only=False)
 
     for (app, command, hour), minutes in clusters.items():
-        # Recurrence gate. Prefer distinct-day evidence (a genuine routine repeats
-        # across days); fall back to the raw count only when events are dateless
-        # (synthetic timestamps). This stops single-session bursts — "opened the app
-        # 3× this afternoon" — from being proposed as a daily habit.
+        # Recurrence gate: prefer distinct-day evidence (a real routine repeats across days); fall
+        # back to the raw count only when events are dateless (synthetic timestamps). Stops a
+        # single-session burst ("opened the app 3x this afternoon") being proposed as a daily habit.
         _days_seen = cluster_days.get((app, command, hour))
         if _days_seen:
             if len(_days_seen) < int(min_days):
@@ -294,10 +290,9 @@ def detect_habits(days: int = 14, min_occurrences: int = 3, min_days: int = 3):
                 break
 
         if not exists:
-            # Create DISABLED (suggested) — ELI proposes habits but never activates
-            # one without the user's say-so. The user approves by enabling it in the
-            # Habits tab (user-requested, 2026-06-06: "confirm with me before adding a habit").
-            # positional args[0..3] preserved; enabled is an explicit keyword.
+            # Create disabled (suggested): ELI proposes habits but never activates one without the
+            # user's say-so; approval is enabling it in the Habits tab. Positional args[0..3] are
+            # preserved; enabled is an explicit keyword.
             mem.add_habit_rule(name, command, hour, minute, None, enabled=False)
             log.debug(f"[HABIT] Suggested (disabled) rule created — awaiting approval: {name}")
 

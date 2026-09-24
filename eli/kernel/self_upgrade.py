@@ -405,10 +405,9 @@ class SelfUpgrader:
                 os.replace(tmp, target)
                 return True, (f"{have} → {want}. Replaced {target.name}; previous build kept as "
                               f"{backup.name}. Restart ELI to run it.")
-            # Versioned filename: place the new build alongside and leave the
-            # running one alone. Overwriting a file NAMED …2.1.46… with 2.1.47
-            # content would be a lie on disk, and an upgrade must not be able to
-            # cost the user their only working ELI.
+            # Versioned filename: place the new build alongside and leave the running one alone.
+            # Overwriting a file named ...2.1.46... with 2.1.47 content would be a lie on disk, and
+            # an upgrade must not cost the user their only working ELI.
             os.replace(tmp, target)
             return True, (f"{have} → {want}. Verified and saved {target}. Restart ELI from that "
                           f"file — your {have} build is untouched at {current.name}.")
@@ -442,10 +441,9 @@ class SelfUpgrader:
                  "--pattern", "eli_v2_0-*.whl", "--dir", str(work), "--clobber"],
                 timeout=180,
             )
-            # The release pipeline publishes installers (.AppImage/.exe/.dmg/.zip/
-            # .tar.gz), never a wheel — so this is a permanent structural absence,
-            # not a failure of this run. Report it as not-applicable so it stops
-            # showing up as a broken step on every upgrade.
+            # The release pipeline publishes installers (.AppImage/.exe/.dmg/.zip/.tar.gz), never a
+            # wheel, so this is a permanent structural absence, not a failure of this run. Report it
+            # as not-applicable so it stops showing as a broken step on every upgrade.
             if not dl["ok"]:
                 return None, f"release {tag} publishes no wheel — not applicable to this install."
             wheels = sorted(work.glob("eli_v2_0-*.whl"))

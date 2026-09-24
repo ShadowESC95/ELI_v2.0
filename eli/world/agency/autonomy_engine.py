@@ -11,10 +11,9 @@ from eli.world.avatar.persona_mapper import PersonaToAvatarMapper
 from eli.world.core.ontology import get_object_template
 from eli.world.core.schemas import EliWorldState, RoomType, WorldAction, WorldActionType, WorldEvent, WorldObject
 
-# ── Reasoning-stage room + object routing ────────────────────────────────────
-# Maps (mode, stage_name) → (RoomType value, object_template_id | None).
-# Used by propose_actions to move the avatar and materialise stage objects
-# during the multi-pass reasoning silence.
+# Reasoning-stage room and object routing: maps (mode, stage_name) -> (RoomType value,
+# object_template_id | None). Used by propose_actions to move the avatar and materialise stage
+# objects during the multi-pass reasoning silence.
 _REASONING_STAGE_ROOM_MAP: dict = {
     ("chain_of_thought",  "private_scratchpad_reasoning"): (RoomType.REFLECTION_CHAMBER.value, "cot_scratchpad"),
     ("chain_of_thought",  "final_synthesis"):               (RoomType.REFLECTION_CHAMBER.value, "cot_synthesis"),
@@ -62,10 +61,9 @@ class EliWorldAutonomyEngine:
         before = (list(state.habits or []), list(state.goals or []))
         state.habits = ensure_default_habits(state.habits)
         state.goals = decay_goals(state.goals)
-        # Reading the world used to REWRITE it unconditionally. The persona
-        # handoff, the proactive daemon and the world panel all read on a
-        # timer, so the state file was under near-constant concurrent rewrite
-        # for turns that changed nothing. Persist only a real change.
+        # Reading the world used to rewrite it unconditionally. The persona handoff, the proactive
+        # daemon and the world panel all read on a timer, so the state file was under near-constant
+        # concurrent rewrite for turns that changed nothing. Persist only a real change.
         if (state.habits, state.goals) != before:
             self.storage.save(state)
         return state
@@ -124,10 +122,9 @@ class EliWorldAutonomyEngine:
         if event.event_type in {"tool_activity", "code_work", "project_work"}:
             actions.append(self._create_object_action("project_workbench", RoomType.WORKSHOP.value, "Tool/project activity is active; workspace should be foregrounded."))
 
-        # ── Reasoning-stage routing ───────────────────────────────────────────
-        # Move the avatar to the semantically appropriate room and materialise
-        # the corresponding symbolic object so the World tab shows live activity
-        # during the multi-pass reasoning silence.
+        # Reasoning-stage routing: move the avatar to the semantically right room and materialise
+        # the matching symbolic object so the World tab shows live activity during the multi-pass
+        # reasoning silence.
         if event.event_type == "reasoning_stage":
             _r_mode  = event.payload.get("mode", "")
             _r_stage = int(event.payload.get("stage", 1))
@@ -193,17 +190,10 @@ class EliWorldAutonomyEngine:
         a = state.awareness
         et = event.event_type
 
-        # Time-based passive decay for PACING signals only (autonomy_pressure/
-        # reflection_depth/tool_activity — "how much has ELI been doing",
-        # which legitimately cools down when idle).
-        #
-        # uncertainty and repair_pressure are DELIBERATELY EXCLUDED: idle time
-        # proves nothing about whether an unresolved concern was actually
-        # fixed, only that nobody looked. They used to decay from waiting
-        # alone, silently suppressing get_awareness_driven_suggestions()'s
-        # real "evidence quality needs review" trigger. They still fall on
-        # their own explicit positive events below (memory_recall,
-        # task_completed, repair_completed) — the honest way down.
+        # Time-based decay for pacing signals only (autonomy_pressure, reflection_depth, tool_activity).
+        # uncertainty and repair_pressure are excluded: idle time proves nothing about whether a concern
+        # was fixed. They still drop on explicit events below (memory_recall, task_completed,
+        # repair_completed).
         _elapsed = max(0.0, time() - float(a.timestamp or 0.0))
         if _elapsed > 300:  # only decay after 5+ minutes of inactivity
             # Decay factor: 0 at 5 min, 1.0 at 60 min (linear, capped)
@@ -212,12 +202,9 @@ class EliWorldAutonomyEngine:
             a.reflection_depth = max(0.0, a.reflection_depth - 0.15 * _df)
             a.tool_activity = max(0.0, a.tool_activity - 0.20 * _df)
 
-        # ── Exponential approach helper ───────────────────────────────────────
-        # Replaces hard linear accumulation:  new = prev + inc
-        # With exponential approach:          new = prev + inc * (1 - prev)
-        # Effect: increments slow naturally as values approach 1.0, preventing
-        # hard saturation after a burst of events during an active session.
-        # Decrease paths remain linear (they benefit from hard floor at 0.0).
+        # Exponential approach helper. Replaces hard linear accumulation (new = prev + inc) with new
+        # = prev + inc * (1 - prev), so increments slow as values near 1.0 and don't saturate after
+        # a burst of events. Decrease paths stay linear (a hard floor at 0.0 suits them).
         def _ease_up(prev: float, inc: float) -> float:
             return min(1.0, prev + inc * max(0.0, 1.0 - prev))
 

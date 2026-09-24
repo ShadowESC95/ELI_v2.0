@@ -110,11 +110,9 @@ DEFAULTS: Dict[str, Any] = {
     # auto | gpu | cpu — operator choice from the startup dialog. CPU forces
     # zero GPU layers; GPU tries offload when a backend is present.
     "compute_mode": "auto",
-    # Which model the pinned n_gpu_layers was chosen for. A layer count is
-    # ABSOLUTE, so it means something different on every model -- 7 layers is
-    # a sensible slice of a 15.66GB 27B on 8GB of VRAM and a crippling one
-    # for a 4GB model whose 32 layers all fit. Empty means "provenance
-    # unknown", which is treated as not-pinned-for-this-model.
+    # Which model the pinned n_gpu_layers was chosen for. A layer count is absolute: 7 layers is a
+    # sensible slice of a 15.66GB model on 8GB and crippling for a 4GB model whose 32 layers all fit.
+    # Empty means unknown provenance, treated as not pinned for this model.
     "n_gpu_layers_model": "",
     "n_threads": max(1, os.cpu_count() or 8),
     "batch_size": 512,
@@ -124,18 +122,16 @@ DEFAULTS: Dict[str, Any] = {
     "fit_priority": "balanced",
     "use_mmap": True,
     "use_mlock": False,
-    # Multi-GPU split (optional; empty = single-GPU). tensor_split is a comma list of
-    # per-GPU weights (e.g. "0.5,0.5"); split_mode is none|layer|row; main_gpu is the
-    # primary device index. Sourced here or from config/gpu_profiles.json. Hardware-
-    # agnostic — only used when set AND more than one GPU is present.
+    # Multi-GPU split (optional; empty = single GPU). tensor_split is a comma list of per-GPU
+    # weights ("0.5,0.5"), split_mode is none|layer|row, main_gpu is the primary device index. From
+    # here or config/gpu_profiles.json; used only when set and more than one GPU is present.
     "tensor_split": "",
     "main_gpu": 0,
     "split_mode": "",
     "gpu_profiles_file": "",
-    # Deep thinking on the ANSWER call for models whose chat template enables a
-    # reasoning channel (detected from metadata — not brand names):
-    # ON = higher quality, slower; OFF = faster. Utility calls (routing/JSON/summary)
-    # never think regardless. No effect on non-reasoning models. GUI-toggleable.
+    # Deep thinking on the answer call for models whose chat template has a reasoning channel
+    # (detected from metadata, not names). On is higher quality and slower. Utility calls (routing,
+    # JSON, summary) never think. No effect on non-reasoning models. GUI-toggleable.
     "model_thinking": True,
     "cache_type_k": "",
     "cache_type_v": "",
@@ -157,19 +153,17 @@ DEFAULTS: Dict[str, Any] = {
     "first_run_complete": False,
     "theme": "dark",
     "searxng_url": "",
-    # --- Gaze dwell-click (accessibility): rest your gaze on a target and it clicks there —
-    # the hands-free AND voice-free path, for users who can operate neither a mouse nor voice.
-    # Off by default (an always-on auto-click is intrusive); turn it on when you need it, either
-    # here, from Settings, or by voice ("enable gaze clicking"). Needs gaze calibrated + running.
+    # Gaze dwell-click (accessibility): rest your gaze on a target and it clicks, a hands-free and
+    # voice-free path. Off by default (auto-click is intrusive); turn on in Settings or by voice
+    # ("enable gaze clicking"). Needs gaze calibrated and running.
     "gaze_dwell_click": False,
     "gaze_dwell_seconds": 1.0,      # hold your gaze this long before it clicks
     "gaze_dwell_radius": 60,        # px the gaze may wander and still count as "held"
     "gaze_dwell_min_confidence": 0.35,
-    # --- Local vision (model-agnostic, via llama-cpp; hot-swaps with the text
-    # model). Paths empty = auto-discover any projector-paired VL GGUF in the
-    # models dir. No model name is hardcoded; override per-install via these
-    # keys or ELI_VISION_MODEL / ELI_VISION_MMPROJ. The llama-cpp chat handler is
-    # auto-detected from the filename; set vision_chat_handler to force it. ---
+    # Local vision (model-agnostic, llama-cpp, hot-swaps with the text model). Empty paths
+    # auto-discover any projector-paired VL GGUF in the models dir. Override with these keys or
+    # ELI_VISION_MODEL / ELI_VISION_MMPROJ. The chat handler comes from the filename or
+    # vision_chat_handler.
     "vision_enabled": True,
     "vision_model_path": "",
     "vision_mmproj_path": "",
@@ -196,11 +190,9 @@ DEFAULTS: Dict[str, Any] = {
     # Co-resident (no model swap) — big latency win; enable once 8GB VRAM fit
     # is confirmed with both models loaded.
     "vision_fast_no_swap": False,
-    # Co-resident vision: load the fast (Moondream) model BEFORE the text model
-    # and keep it resident, so glances need no swap (~3.5s). The text model's
-    # ctx / gpu_layers / batch are then sized DYNAMICALLY to the VRAM left
-    # (smart loader — hardware_profile.smart_fit_config; reduces layers→batch→
-    # ctx). No static ctx cap. Default OFF — a bad fit degrades, never strands.
+    # Co-resident vision: load the fast (Moondream) model before the text model and keep it
+    # resident so glances need no swap (~3.5s). The text model is then sized to the VRAM left
+    # (smart_fit_config: layers -> batch -> ctx). Default off, a bad fit degrades, never strands.
     "vision_coresident": False,
     # Fuse OCR (exact text) + Moondream (visual gist) with the text model into an
     # accurate, grounded screen description — compensates for Moondream's
@@ -379,12 +371,9 @@ BOOL_KEYS = {"use_mmap", "use_mlock", "auto_speak", "mic_enabled",
 
 _MIGRATION_LOGGED = False
 _HEAL_LOGGED = False
-# True when the last load found settings_file present but unparsable, so the
-# returned settings silently fell back to DEFAULTS instead of my real saved
-# config. Separate from "no settings file yet" (a normal first run, not an
-# error). Anywhere I render settings should check
-# settings_file_was_corrupt_on_last_load() rather than presenting defaults as
-# if they were read from disk.
+# True when the last load found the settings file but couldn't parse it, so defaults were used
+# silently. Different from a first run with no file. Anything that shows settings should check
+# settings_file_was_corrupt_on_last_load() instead of presenting defaults as read from disk.
 _LAST_LOAD_SETTINGS_FILE_CORRUPT = False
 
 
@@ -1171,11 +1160,8 @@ def _eli_portability_load_settings(*args, **kwargs):
     return settings
 # --- ELI portability runtime path guard: END ---
 
-# ---------------------------------------------------------------------
-# FINAL portability wrapper.
-# This block intentionally lives at EOF so no earlier load_settings()
-# implementation or environment overlay can bypass it.
-# ---------------------------------------------------------------------
+# Final portability wrapper. It lives at EOF so no earlier load_settings() implementation or env
+# overlay can bypass it.
 try:
     _eli_load_settings_before_final_portability_wrapper = _eli_portability_load_settings
 except NameError:

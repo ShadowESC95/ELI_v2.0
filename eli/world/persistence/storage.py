@@ -56,11 +56,10 @@ _SAVE_LOCK = threading.RLock()
 def _ensure() -> None:
     WORLD_DIR.mkdir(parents=True, exist_ok=True)
 
-# The world fires an action on every autonomy tick and these files are appended
-# to forever. Nothing rotated them: actions.jsonl reached 41MB / 80,576 lines and
-# events.jsonl 6.2MB on a normal desktop, growing for as long as ELI runs, and
-# nothing ever reads them whole — the panel and the journal want the recent tail.
-# Corrupt state backups were already pruned here; the logs simply were not.
+# The world fires an action on every autonomy tick and these files are appended forever.
+# Nothing rotated them: actions.jsonl reached 41MB / 80,576 lines and events.jsonl 6.2MB on a
+# normal desktop, and nothing reads them whole (the panel and journal want the recent tail).
+# Corrupt state backups were already pruned here, the logs weren't.
 _JSONL_MAX_LINES = int(os.environ.get("ELI_WORLD_LOG_MAX_LINES", "20000"))
 _JSONL_CHECK_EVERY = 250          # stat() cost, not a rewrite, on most appends
 _jsonl_since_check: Dict[str, int] = {}

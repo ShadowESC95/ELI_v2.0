@@ -31,20 +31,9 @@ class DBPaths:
     def memory_db():
         return memory_db_path()
 
-# Canonical database path implementation:
-#   - get_db_paths() returns an _AttrDict (dict subclass with attribute
-#     access) so both p.user_db and p["user_db"] work.
-#   - Each path is resolved by eli.core.paths, which honors:
-#       * ELI_PROJECT_ROOT  (set by bin/elix)
-#       * ELI_DATA_DIR      (per-user XDG override)
-#       * ELI_DB_DIR        (db-only override)
-#       * ELI_USER_DB       (single-file override)
-#       * ELI_MEMORY_DB     (legacy single-file override)
-#       * ELI_AGENT_DB      (single-file override)
-#     ...then falls through to dev-mode (project_root/artifacts/db) or
-#     platformdirs (~/.local/share/eli/db on Linux, %LOCALAPPDATA%
-#     on Windows, ~/Library/Application Support on macOS) for installed
-#     non-dev users.
+# Canonical DB paths. get_db_paths() returns an _AttrDict (p.user_db and p["user_db"] both work),
+# each resolved by eli.core.paths: ELI_PROJECT_ROOT, ELI_DATA_DIR, ELI_DB_DIR, ELI_USER_DB,
+# ELI_MEMORY_DB (legacy), ELI_AGENT_DB, then dev mode or platformdirs for installed users.
 
 class _AttrDict(dict):
     """Dict subclass with attribute access, for `paths.user_db` syntax."""

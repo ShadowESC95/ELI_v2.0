@@ -61,10 +61,9 @@ def recency_score(ts: float, now: Optional[float] = None,
     return max(0.0, 1.0 - age_days / max(1e-6, window_days))
 
 
-# Canonical memory-ranking fusion weights. ONE source of truth so the recall
-# rerank (and any future ranker) share a single, tunable scheme instead of the
-# weights drifting across call sites. (The SQL `ORDER BY` in memory.py is a
-# deliberately coarse, index-friendly *pre-order* — the real fusion is here.)
+# Canonical memory-ranking fusion weights: one source of truth for the recall rerank and any future
+# ranker. The SQL ORDER BY in memory.py is only a coarse, index-friendly pre-order; the real fusion
+# is here.
 MEM_FUSION_W_IMPORTANCE = 0.5
 MEM_FUSION_W_WEIGHT = 0.3
 MEM_FUSION_W_RECENCY = 0.2

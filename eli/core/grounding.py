@@ -39,10 +39,9 @@ _GROUNDED_ACTIONS: frozenset = frozenset({
     "EXPLAIN_ALL_REASONING_MODES",
 })
 
-# Substring triggers — any of these present in lowercased user_input → grounded.
-# Merged superset of: agent_bus._query_is_grounded triggers +
-#                     engine._is_grounded_status_query triggers +
-#                     router _RE_GROUNDED_PIPELINE patterns.
+# Substring triggers: any of these in the lowercased input means grounded. A merged superset of
+# agent_bus._query_is_grounded, engine._is_grounded_status_query and the router's
+# _RE_GROUNDED_PIPELINE patterns.
 _TRIGGERS: tuple = (
     # Identity / user knowledge
     "who am i",

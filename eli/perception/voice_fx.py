@@ -29,27 +29,18 @@ log = logging.getLogger(__name__)
 
 CHAR_PREFIX = "char:"
 
-# Built-in character presets. `filters` is a raw ffmpeg -af chain; pitch is in
-# semitones (±), speed is a tempo multiplier. `base` is the ideal Piper voice;
-# `fallback` is an ORDERED list of stand-ins tried when `base` isn't installed.
-#
-# Why a chain rather than one id: the nicest matches for HAL/TARS/Rick
-# (lessac/joe/ryan) are licence-restricted (Blizzard-uncleared / CC-BY-NC-SA) or
-# not in the pack, so they can't be bundled — and which voices a given box
-# actually has varies (an install may be missing configs, or the user may have
-# pruned voices). Without a chain, a missing base fell through to whatever .onnx
-# sorted first — a Czech voice — garbling the character. Every candidate is
-# gender-matched so the character never flips sex; the effect chain carries most
-# of the personality regardless of base. A user who downloads the ideal base (for
-# personal use, via Settings ▸ Get more voices) gets it automatically.
+# Built-in character presets. `filters` is a raw ffmpeg -af chain (pitch in semitones, speed a
+# tempo multiplier). `base` is the ideal Piper voice, `fallback` is an ordered list of stand-ins.
+# The best matches for HAL/TARS/Rick are licence-restricted, so they can't be bundled. Every
+# candidate is gender-matched and the effect chain carries the personality. Download the ideal
+# base (Settings > Get more voices) and it's picked up automatically.
 _MALE_FALLBACKS = ["en_GB-northern_english_male-medium", "en_GB-alan-medium",
                    "en_US-hfc_male-medium", "en_US-joe-medium", "en_US-kusal-medium"]
 _FEMALE_FALLBACKS = ["en_US-amy-medium", "en_US-hfc_female-medium",
                      "en_GB-jenny_dioco-medium", "en_US-kathleen-low"]
-# Built-in voice STYLES — redistributable only. Each preset is Piper (MIT/CC-BY
-# bundled voices) + an ffmpeg effect chain. We do NOT ship impersonations of
-# copyrighted characters (HAL, JARVIS, Rick, TARS, …); users may clone locally
-# from their own reference clips via XTTS (opt-in extra).
+# Built-in voice styles, redistributable only: each preset is Piper (MIT/CC-BY bundled voices) plus
+# an ffmpeg effect chain. ELI ships no impersonations of copyrighted characters (HAL, JARVIS, Rick,
+# TARS); users may clone locally from their own reference clips via XTTS (opt-in extra).
 _BUILTIN: Dict[str, Dict[str, Any]] = {
     "calm": {
         "label": "Calm & measured",

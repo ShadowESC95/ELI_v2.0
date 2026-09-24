@@ -29,10 +29,8 @@ _LOCK = threading.Lock()
 _ENGINE = None  # lazy pyttsx3 engine
 _NO_BACKEND_CONFIRMED = False
 
-# === PHASE13B_V2_PACKAGED_TTS_PIPER_SEARCH ===
-# Packaged ELI builds place Piper assets under:
-#   <project_root>/tts_piper/piper
-# Keep this as a search location; do not duplicate or move assets.
+# Packaged builds place Piper assets under <project_root>/tts_piper/piper. Keep it as a search
+# location; don't duplicate or move assets. (PHASE13B_V2_PACKAGED_TTS_PIPER_SEARCH)
 _PROJECT_ROOT_TTS = Path(
     os.environ.get("ELI_PROJECT_ROOT")
     or Path(__file__).resolve().parents[2]
@@ -80,15 +78,11 @@ _VOICE_SEARCH_DIRS = [
 _DEFAULT_VOICE = "en_US-amy-medium"
 _SYSTEM_VOICE_PREFIX = "sys:"
 
-# Expressive Piper prosody. Piper at bare defaults sounds flat and clips full
-# stops (the "Amy misses ?/!/." complaint): the CLI default sentence silence is
-# ~0.2s, and the model's own noise/length defaults are conservative. These give a
-# clear pause after each sentence and slightly more pitch variation so questions
-# and exclamations land, without sounding wobbly. All overridable via env.
-#   length_scale    phoneme duration (pacing); >1 slower/more deliberate
-#   noise_scale     generator noise (expressiveness / pitch variation)
-#   noise_w         phoneme-width noise (natural timing variation)
-#   sentence_silence seconds of silence after each '.', '?' or '!'
+# Expressive Piper prosody. Bare defaults sound flat and clip full stops (CLI sentence silence
+# is ~0.2s, model noise/length defaults are conservative). These give a clear pause after each
+# sentence and a bit more pitch variation. All overridable via env: length_scale (pacing, >1
+# slower), noise_scale (expressiveness), noise_w (timing variation), sentence_silence (seconds
+# after '.', '?', '!').
 _PIPER_PROSODY_DEFAULTS = {
     "length_scale": 1.03,
     "noise_scale": 0.72,
@@ -303,12 +297,10 @@ def _list_system_voices(refresh: bool = False) -> list[str]:
 
     out: list[str] = []
     try:
-        # Probe the binding IN-PROCESS first. Importing pyttsx3 is safe (the
-        # espeak overflow is in init()/getProperty(), not import), and this keeps
-        # the child honest: if the caller has no real pyttsx3 — absent, or
-        # replaced by a stub in the mocked test lane — there are no system
-        # voices, and we must NOT shell out to a fresh interpreter that would
-        # bypass that substitution and report the host's real voices.
+        # Probe the binding in-process first. Importing pyttsx3 is safe (the espeak overflow is in
+        # init()/getProperty(), not import), and it keeps the child honest: if the caller has no real
+        # pyttsx3 (absent, or a stub in the mocked test lane) there are no system voices, and we must
+        # not shell out to a fresh interpreter that bypasses the stub and reports the host's voices.
         import pyttsx3 as _p3
         if type(_p3).__name__ == "MagicMock" or type(getattr(_p3, "init", None)).__name__ == "MagicMock":
             _SYSTEM_VOICES_CACHE = []
@@ -585,11 +577,10 @@ def _neural_engine_available() -> bool:
 def available_backends() -> dict:
     installed = list_voices()
     active = get_active_voice()
-    # `natural:`/`clone:`/`char:` voices are not Piper models. find_voice_model()
-    # cannot resolve them and returns whatever its fallback picks — alphabetically
-    # the first installed voice — so the panel showed "Active model file:
-    # cs_CZ-jirka-medium.onnx" for a natural: voice while synthesis actually used
-    # en_US-amy-medium. Report the model that will really be used.
+    # `natural:` / `clone:` / `char:` voices aren't Piper models. find_voice_model() can't resolve
+    # them and returns its fallback (alphabetically the first installed voice), so the panel showed
+    # "Active model file: cs_CZ-jirka-medium.onnx" while synthesis used en_US-amy-medium. Report the
+    # model that will really be used.
     _is_neural = str(active).startswith(("natural:", "clone:"))
     active_model = find_voice_model(_DEFAULT_VOICE if _is_neural else active)
     return {
@@ -607,12 +598,9 @@ def available_backends() -> dict:
     }
 
 
-# ── Piper-only TTS path ────────────────────────────────────────────────────
-# Final authoritative TTS path:
-# - respects GUI/config voice via get_active_voice()
-# - uses known-working Piper CLI WAV path
-# - does NOT use Piper Python API because this install lacks synthesize_stream_raw()
-# - does NOT fall back to pyttsx3/espeak robot voices
+# Piper-only TTS path, the final authoritative one: respects the GUI/config voice via
+# get_active_voice(); uses the known-working Piper CLI WAV path; doesn't use the Piper Python API
+# (this install lacks synthesize_stream_raw()); doesn't fall back to pyttsx3/espeak robot voices.
 
 def _tts_chunks(text, max_chars=None):
     import os as _os
@@ -685,22 +673,20 @@ def _find_piper_config(model_path):
             return c
     return None
 
-# ── Piper CLI synthesise + play, with speaking-lock for STT echo guard ────
-# Final authoritative TTS path: Piper CLI only, blocking playback via sounddevice
-# (lip-sync) with platform_compat.play_wav_blocking fallback, explicit rc logging,
-# and lock held through playback tail.
+# Piper CLI synthesise and play, with the speaking lock for the STT echo guard. The final
+# authoritative TTS path: Piper CLI only, blocking playback via sounddevice (lip-sync) with a
+# platform_compat.play_wav_blocking fallback, explicit rc logging, lock held through the
+# playback tail.
 
 # Set once if the piper binary can't use CUDA (build without GPU / CUDA
 # unavailable). Keeps the session on CPU after a single failed --cuda attempt.
 _PIPER_CUDA_FAILED = False
 
-# ── Neural-voice fallback state (observable, not silent) ─────────────────────
-# A `natural:`/`clone:` voice that cannot synthesise fell through to Piper with no
-# log line at all. Live consequence: Settings reported "Active voice: natural:sophia"
-# while every reply was spoken by en_US-amy-medium, and a user who dropped in a voice
-# clip had no way to learn that the clone was registered but never used — the only
-# hint appeared once, in the creation dialog. Record WHY, so the diagnostics panel and
-# the console agree with what is actually coming out of the speakers.
+# Neural-voice fallback state (observable, not silent). A `natural:` / `clone:` voice that
+# couldn't synthesise fell through to Piper with no log line, so Settings said "Active voice:
+# natural:sophia" while every reply was en_US-amy-medium, and a user who dropped in a clip
+# couldn't tell the clone was registered but unused. Record why so the panel and console match
+# the speakers.
 _NEURAL_FALLBACK: Dict[str, Any] = {"active": False, "requested": "", "reason": ""}
 
 
@@ -1210,11 +1196,10 @@ def synthesize_wav(text: str, voice_name: str | None = None) -> Optional[bytes]:
             from eli.perception import voice_fx
             spec = voice_fx.get_preset(active)
             if spec:
-                # Resolve to a base voice that is actually installed: the ideal
-                # `base`, else each gender-matched `fallback` in order, else the
-                # English default. Never let a missing base fall through to the
-                # generic resolver, which picks the first .onnx alphabetically (a
-                # foreign-language voice in the shipped pack) and garbles the text.
+                # Resolve to a base voice that's installed: the ideal `base`, else each gender-matched
+                # `fallback` in order, else the English default. Never let a missing base fall to the generic
+                # resolver, which picks the first .onnx alphabetically (a foreign-language voice in the shipped
+                # pack) and garbles the text.
                 base = voice_fx.resolve_base_voice(
                     spec, list_voices(), default=_DEFAULT_VOICE)
                 base_wav = synthesize_wav(text, voice_name=base)

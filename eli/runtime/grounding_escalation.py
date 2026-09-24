@@ -46,11 +46,9 @@ def _grounding_threshold() -> float:
         return 0.55
 
 
-# --------------------------------------------------------------------------- #
-# Stage 2: per-mode confidence targets + iterative deepening budget.           #
-# Quick stays fast (0 deepen iters); deeper modes try harder and escalate the  #
-# reasoning mode one tier per iteration to gather more before answering.       #
-# --------------------------------------------------------------------------- #
+# Stage 2: per-mode confidence targets and iterative-deepening budget. Quick stays fast (0 deepen
+# iterations); deeper modes try harder and escalate the reasoning mode one tier per iteration to
+# gather more before answering.
 _MODE_TARGET = {
     "quick": 0.45, "chain_of_thought": 0.55, "self_consistency": 0.65,
     "tree_of_thoughts": 0.75, "constitutional_ai": 0.80,
@@ -99,15 +97,11 @@ _OPINION_RE = re.compile(
     r"\b(do you (?:like|think|feel|prefer|reckon|believe)|what do you think"
     r"|your (?:opinion|favourite|favorite|take|thoughts)|how do you feel"
     r"|would you rather)\b", re.I)
-# Advice / how-to / recommendation questions. These are answerable from the
-# model's own general knowledge and must NEVER be treated as a checkable external
-# fact — a low-grounding turn here should get a normal CHAT answer, not the
-# "net's off, I can't verify that" refusal. Root of a user-reported bug: "what IS
-# the best way to eat breakfast" matched the who/what…is fact pattern (the
-# apostrophe form "what's…" accidentally didn't), got classed external, and was
-# refused offline — and, once online, surfaced a junk web snippet ("Best Buy
-# doesn't offer breakfast recommendations"). "how many / how old / who won" and
-# real facts stay external — those markers aren't advice.
+# Advice / how-to / recommendation questions are answerable from the model's own knowledge and
+# must never be treated as a checkable external fact: a low-grounding turn should get a normal
+# CHAT answer, not "net's off, I can't verify that". "what IS the best way to eat breakfast"
+# matched the who/what...is fact pattern, was refused offline and online surfaced a junk
+# snippet. "how many / how old / who won" and real facts stay external.
 _ADVICE_RE = re.compile(
     r"\b(?:best|better|good|easiest|fastest|quickest|right|proper|healthiest|"
     r"cheapest|safest|ideal|optimal)\s+way\s+to\b"
@@ -133,11 +127,10 @@ _LOCAL_RE = re.compile(
     r"|persona|capabilit|database|sqlite|faiss|memory stack"
     r"|are you|who are you|what are you|you running|about yourself|yourself)\b", re.I)
 _LOCAL_PATH_RE = re.compile(r"[~/]\w|\.\w{1,4}\b")
-# Self-referential / conversational META — questions about ELI's OWN current
-# activity, its just-made statements, or this conversation. These are answered
-# from persona + conversation context (normal CHAT); escalating them to the
-# web/memory grounding ladder is what produced robotic hedges and a degenerate
-# "-" answer (user-reported, 2026-06-05). Treated as NOT a checkable fact.
+# Self-referential/conversational meta: questions about ELI's own current activity, its
+# just-made statements or this conversation are answered from persona and conversation context
+# (normal CHAT). Escalating them to the web/memory ladder produced robotic hedges and a
+# degenerate "-". Not a checkable fact.
 _META_SELF_RE = re.compile(
     r"\bwhat\s+(?:are|were)\s+you\s+(?:doing|busy|working\s+on|up\s+to|fixing|"
     r"talking\s+about|saying|on\s+about|getting\s+at)\b"
@@ -146,25 +139,20 @@ _META_SELF_RE = re.compile(
     r"|\bwhat\s+do\s+you\s+mean\b"
     r"|\bwhy\s+(?:did|are|would|do)\s+you\s+(?:say|said|saying|do|doing|think)\b",
     re.I)
-# Relational / frustration venting directed at ELI or the situation — NOT a
-# checkable fact. "what's/what is going on (with you)?", "what is happening?",
-# "what's wrong/up with you?", "what is your problem?". Anchored so it does NOT
-# swallow a genuine current-events query ("what is going on in Ukraine"), which
-# routes elsewhere anyway. Reached here only on a low-grounding CHAT turn — the
-# right move is persona CHAT, never the web/hedge ladder. (user-reported, 2026-06-06:
-# frustrated "what the fuck is going on?!" was hedging instead of responding.)
+# Relational/frustration venting aimed at ELI or the situation ("what's going on (with
+# you)?", "what's wrong with you?", "what is your problem?") isn't a checkable fact. Anchored so
+# it doesn't swallow a real current-events query ("what is going on in Ukraine"). Only reached
+# on a low-grounding CHAT turn, where persona CHAT is right, never the web/hedge ladder.
 _RELATIONAL_VENT_RE = re.compile(
     r"\bwhat(?:'?s|\s+is|\s+are)?\s+(?:going\s+on|happening|the\s+matter)\b"
     r"(?!\s+(?:in|at|to|on|about|across|around|over)\b)"
     r"|\bwhat(?:'?s|\s+is)?\s+(?:wrong|up)\s+with\s+(?:you|u|this|it|that)\b"
     r"|\bwhat(?:'?s|\s+is)?\s+(?:your|the)\s+(?:problem|deal|issue)\b",
     re.I)
-# Conversational meta — questions ABOUT this conversation itself or the user's/ELI's own past
-# utterances in it ("when did I ask for that", "what did I say", "I never asked for that",
-# "did you mention X earlier"). These are answered from the dialogue transcript (normal CHAT),
-# NEVER web-searched or memory-graded: a low grounding score here means "look at what was said",
-# not "I can't verify a fact". (user-reported 2026-06-09: "when exactly did i ask for that" was
-# mis-routed to REFRESH_USER_INFO and deflected with "I can't check the history".)
+# Conversational meta: questions about this conversation or past utterances in it ("when did
+# I ask for that", "what did I say", "I never asked for that", "did you mention X earlier").
+# Answered from the transcript (CHAT), never web-searched or memory-graded: low grounding here
+# means "look at what was said", not "I can't verify a fact".
 _CONV_META_RE = re.compile(
     r"\b(?:when|where|what|how|why|did|do|have|has)\s+(?:exactly\s+)?(?:i|you|we)\s+"
     r"(?:ever\s+|even\s+|actually\s+)?"
@@ -236,11 +224,10 @@ _ENTERTAINMENT_LOOKUP_RE = re.compile(
     r"|worth watching|any good|who dies|who died|plot of)\b",
     re.I,
 )
-# ELI's OWN action / artifact / job STATE — "did you save/create/generate X", "is it
-# done", "check job N", "where did you save it", "what's the status/result of the job".
-# Asserting any of these without grounding is the worst confabulation (the transcript
-# invented "saved to ~/Documents/" and a fake "job complete"). Past-tense/completion
-# framing only — bare "do you …" capability questions are deliberately excluded.
+# ELI's own action/artifact/job state ("did you save/create/generate X", "is it done", "check
+# job N", "where did you save it"). Asserting any of these without grounding is the worst
+# confabulation (a fake "saved to ~/Documents/" or "job complete"). Past-tense/completion framing
+# only; bare "do you ..." capability questions are excluded.
 _SELF_ACTION_STATE_RE = re.compile(
     r"\b(?:did|have|has)\s+you\s+(?:ever\s+|actually\s+|not\s+|already\s+)*"
     r"(?:save[d]?|creat(?:e|ed)|writ(?:e|ten)|wrote|generat(?:e|ed)|made|stor(?:e|ed)|"
@@ -504,13 +491,11 @@ def escalate(
     target = _mode_target(reasoning_mode)
     very_low = grounding < _very_low_grounding_floor()
 
-    # ── Self-action / artifact-state confabulation floor ──────────────────────
-    # ELI asserting it performed an action or produced an artifact it has NO grounding
-    # for (saved a file, finished a job, generated a doc) is the worst confabulation.
-    # When such a self-state question reaches CHAT with grounding essentially absent,
-    # HEDGE in ANY mode (incl. quick) rather than let synthesis invent a status/path.
-    # Real job/file queries route to CHECK_JOB/SUMMARIZE_FILE (grounded actions, not
-    # CHAT) and never reach here; this only fires when CHAT is about to guess.
+    # Self-action / artifact-state confabulation floor. ELI claiming an action or artifact it has
+    # no grounding for (saved a file, finished a job) is the worst confabulation. When such a
+    # question reaches CHAT with essentially no grounding, HEDGE in any mode (quick too) instead of
+    # letting synthesis invent a status or path. Real job/file queries route to
+    # CHECK_JOB/SUMMARIZE_FILE and never reach here.
     if _SELF_ACTION_STATE_RE.search((user_input or "").lower()) and grounding < _self_claim_floor():
         try:
             from eli.core.config import network_allowed as _na
@@ -572,27 +557,20 @@ def escalate(
     except Exception:
         online = False
 
-    # Trust the bus grounding ONLY when it actually validates the question. For an
-    # OFFLINE EXTERNAL fact the local grounding score is a category error — memory/KG
-    # can score high off loose token matches while the actual fact is unverifiable and
-    # the web is unreachable — so such a turn MUST fall through to the hedge floor
-    # rather than be answered from the model's weights (the confabulation this module
-    # exists to prevent; the burkina-faso "third largest city's capital" case scored
-    # "grounded" and was guessed instead of hedged). Local facts and online externals
-    # still trust a sufficient grounding score.
-    # Very-low grounding on external/web-candidate turns always tries web (if online).
+    # Trust the bus grounding only when it validates the question. For an offline external fact the
+    # local score is a category error (loose token matches score high while the fact is unverifiable),
+    # so it must fall to the hedge floor, not be guessed from the weights. Very low grounding on
+    # external turns always tries web if online.
     if grounding >= target and not (domain == "external" and not online):
         if not (domain == "external" and web_candidate and very_low and online):
             return None
 
     # Per-mode iterative-deepening budget. Quick = 0 (stays fast).
     max_iters = _mode_max_iters(reasoning_mode)
-    # Quick mode skips SYNCHRONOUS *local* deepening — a low-grounding LOCAL fact
-    # is handed to the async background-deepening path instead, keeping the turn
-    # fast. But EXTERNAL facts still run the web/hedge tiers below in EVERY mode:
-    # the honest HEDGE floor must never be skipped just because the turn ran in
-    # quick mode, or the model silently confabulates (the bug this module exists
-    # to prevent). The local-deepen loop itself also no-ops at 0 iters.
+    # Quick mode skips synchronous local deepening (a low-grounding local fact goes to the async
+    # background path to stay fast), but external facts still run the web/hedge tiers in every mode.
+    # The honest hedge floor must never be skipped in quick mode or the model silently confabulates.
+    # The local-deepen loop also no-ops at 0 iterations.
     if domain == "local" and max_iters <= 0:
         return None
 
@@ -611,11 +589,9 @@ def escalate(
                 res = _execute("WEB_SEARCH", {"query": q})
                 web_searched = True
                 if isinstance(res, dict) and res.get("web_grounded") and res.get("results"):
-                    # Relevance gate: DuckDuckGo can return topically-unrelated pages
-                    # for an obscure/ambiguous query. Synthesising those produces a
-                    # confident non-answer ("Best Buy doesn't offer breakfast
-                    # recommendations"), so reject clearly off-topic evidence and hedge
-                    # honestly instead. Genuine results overlap the query far more.
+                    # Relevance gate: DuckDuckGo can return unrelated pages for an obscure query, and synthesising
+                    # them gives a confident non-answer ("Best Buy doesn't offer breakfast recommendations"). Reject
+                    # clearly off-topic evidence and hedge instead, real results overlap the query far more.
                     rel = web_evidence_relevance(q, res.get("results") or [])
                     if rel >= _web_relevance_floor():
                         evidence = str(res.get("content") or "")
@@ -635,11 +611,10 @@ def escalate(
                 continue
 
             if tier == "local_deepen":
-                # Iterative deepening: re-dispatch the bus broadly, escalating the
-                # reasoning mode one tier per iteration (so each pass gets a bigger
-                # agent time budget — Stage 1b), until grounding crosses this mode's
-                # target or the per-mode iteration budget is spent. Stop early on
-                # no improvement. Quick is already excluded (max_iters=0).
+                # Iterative deepening: re-dispatch the bus broadly, escalating the reasoning mode one tier per
+                # iteration (each pass gets a bigger agent time budget, Stage 1b) until grounding crosses this
+                # mode's target or the iteration budget is spent. Stop early on no improvement. Quick is
+                # excluded (max_iters=0).
                 best_deep = None
                 best_dg = grounding
                 cur_mode = _canon_mode(reasoning_mode)

@@ -286,13 +286,10 @@ def suggest_local_hosts() -> List[str]:
     return hosts
 
 
-# ── One-click setup ─────────────────────────────────────────────────────────
-# Connecting used to require the user to already know their broker's hostname
-# and type it into settings; with nothing configured, connect() returned
-# "no MQTT broker configured (set mqtt_host)" and that was the whole story.
-# suggest_local_hosts() existed but nothing ever called it, and there was no
-# mDNS at all even though zeroconf is already a dependency. The result is that
-# an average user had no route from "install ELI" to "my devices work".
+# One-click setup. Connecting used to need the broker's hostname, and with nothing configured
+# connect() returned "no MQTT broker configured (set mqtt_host)" and stopped. suggest_local_hosts()
+# existed but nothing called it and there was no mDNS though zeroconf is already a dependency,
+# so an average user had no route from "install ELI" to "my devices work".
 
 _MDNS_MQTT_SERVICES = ("_mqtt._tcp.local.", "_secure-mqtt._tcp.local.")
 

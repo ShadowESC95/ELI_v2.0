@@ -19,38 +19,30 @@ from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 
-# Volatile personal facts (projects, interests) are dropped from the live persona
-# once they go this long without being reaffirmed — they change over time, so the
-# persona should reflect CURRENT focus. Reaffirming a fact refreshes its recency
-# (see profile_extractor._insert_user_pattern). Stable facts are never aged out.
-# 7 days (not 30): a week away should not leave ELI stuck on last week's plans.
+# Volatile personal facts (projects, interests) drop out of the persona after this long without
+# reaffirmation, so it tracks current focus. Reaffirming refreshes recency
+# (profile_extractor._insert_user_pattern). Stable facts never age out. 7 days, not 30.
 _VOLATILE_STALE_DAYS: float = 7.0
 # One-off travel / schedule mentions age out even faster.
 _TRAVEL_STALE_DAYS: float = 3.0
 
-# Module-level debounce: skip update_persona_overlay() calls that occur within
-# 120 seconds of the previous run. The Lock prevents the race condition where
-# multiple threads (reflection, proactive daemon, self-improvement) all read
-# _LAST_RUN=0.0 simultaneously at startup and all get past the check.
+# Debounce: skip update_persona_overlay() within 120s of the last run. The lock stops several
+# threads (reflection, proactive daemon, self-improvement) from all reading _LAST_RUN=0.0 at startup
+# and passing the check together.
 _PERSONA_OVERLAY_LAST_RUN: float = 0.0
 _PERSONA_OVERLAY_MIN_INTERVAL: float = 120.0
 _PERSONA_OVERLAY_LOCK: threading.Lock = threading.Lock()
 
-# Same debounce for the user-profile overlay. refresh_all_overlays_nonfatal()
-# calls this on every autonomy tick / proactive refresh with memory=None — a
-# name-only rewrite that carries no new data — and update_persona_overlay()
-# also calls it once per (already-debounced) run. Without this guard the
-# name-only path re-fires constantly, producing the redundant
-# "user profile updated: ['name']" churn.
+# Same debounce for the user-profile overlay. refresh_all_overlays_nonfatal() calls it on every tick
+# with memory=None (a name-only rewrite with no new data), and update_persona_overlay() calls it
+# too; unguarded it re-fired constantly.
 _USER_PROFILE_LAST_RUN: float = 0.0
 _USER_PROFILE_MIN_INTERVAL: float = 120.0
 _USER_PROFILE_LOCK: threading.Lock = threading.Lock()
 
-# Content dirty-check: fingerprint of the last overlay+patterns we actually wrote.
-# The debounce above is TIME-based; this is CONTENT-based. When the inputs are
-# unchanged we skip the overlay write, KG sync, user-model refresh, and profile
-# rewrite entirely — killing the per-cycle "overlay updated / kg sync / profile
-# updated" churn when nothing has actually changed.
+# Content dirty-check: a fingerprint of the last overlay+patterns written. The debounce above is
+# time-based; this skips the overlay write, KG sync, user-model refresh and profile rewrite when the
+# inputs haven't changed.
 _LAST_OVERLAY_SIG: Optional[str] = None
 
 
@@ -82,10 +74,9 @@ def _top_lines(rows: Any, key: str, limit: int = 8) -> List[str]:
         r"let me|tell me|give me|show me|help me|could you|would you)",
         _re.I
     )
-    # Red-team / security probe logs MUST NOT enter the persona overlay.
-    # When the LLM sees them in context it confabulates responses mentioning
-    # "security_blocked", raw shell commands, file paths like /etc/passwd, etc.
-    # These are internal diagnostic signals, not signals about persona.
+    # Red-team / security probe logs must not enter the persona overlay: seeing them, the model
+    # confabulates about "security_blocked", shell commands and paths like /etc/passwd. They are
+    # diagnostics, not persona signals.
     _diagnostic_noise = _re.compile(
         r"(?:security[_\s]+blocked|"
         r"\bRUN_CMD\b|\bSHELL_EXEC\b|"
@@ -537,12 +528,9 @@ def _read_user_patterns(memory: Any) -> Dict[str, List[str]]:
                 continue
             seen.add(key)
             prefix = (ptype or "other").split(".")[0]
-            # Projects and interests are VOLATILE — they change over time. Drop
-            # ones not reaffirmed within the staleness window so the live persona
-            # reflects CURRENT focus, not everything ever mentioned. Stable facts
-            # (name, preferences, research framework, role) are not aged out.
-            # Travel/schedule snippets use a shorter window so last week's trip
-            # does not survive a week of silence.
+            # Projects and interests are volatile: drop ones not reaffirmed within the window. Stable facts
+            # (name, preferences, research framework, role) don't age out. Travel/schedule snippets use a
+            # shorter window.
             if prefix in ("project", "interest") and pts:
                 age_days = (now - float(pts)) / 86400.0
                 try:

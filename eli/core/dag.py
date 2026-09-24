@@ -223,25 +223,9 @@ def build_dag(dependencies: Dict[str, Iterable[str]]) -> DAG:
     return g
 
 
-# ════════════════════════════════════════════════════════════════════════════
-# Execution orchestrator — turns the scheduling DAG above into a runnable graph.
-#
-# Frontier features, all opt-in per task and behaviour-preserving by default:
-#   • parallel execution of independent nodes per topological layer (threads)
-#   • dependency result-passing (each node sees its upstream outputs + a shared bag)
-#   • conditional nodes (`when` predicate) — skip a branch dynamically
-#   • per-node retries with exponential backoff, and a fallback function
-#   • per-node total timeout (best-effort; threads can't be force-killed)
-#   • memoisation via a pluggable cache keyed by `cache_key`
-#   • priority scheduling within a ready layer
-#   • fail-fast and a global time budget; automatic skip of nodes whose upstream
-#     did not produce a result
-#   • a full, deterministic RunReport (per-node status/timing + critical path) for
-#     observability — this is what makes the orchestration explainable to ELI.
-#
-# Pure-Python, stdlib only; the orchestrator itself does no LLM/IO — the node
-# callables do. Deterministic report regardless of worker count.
-# ════════════════════════════════════════════════════════════════════════════
+# Turns the scheduling DAG above into something you can run. Opt-in per task, same behaviour
+# as before by default: layers run in parallel, nodes can retry, time out, cache and be skipped.
+# Pure stdlib, no LLM or IO in here, that's the node callables' job.
 import time as _time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FTimeout
 from dataclasses import dataclass as _dc, field as _fld
@@ -456,17 +440,9 @@ class Orchestrator:
                             continue
                         _emit(o)
                         had_failure = had_failure or (o.status in ("failed", "timeout") and task.critical)
-                # Leaving the `with` above runs shutdown(wait=True), which blocks
-                # until every submitted task has finished. So by the time execution
-                # reaches here the slow ones are DONE and their answers are already
-                # sitting in the futures -- writing them off as timeouts pays the
-                # full wall-clock cost and then throws the work away. Live on a
-                # CPU-offloaded 27B: a memory node needing 121.4s against a ~121s
-                # ceiling was recorded "timeout" while the bus still waited 121.5s
-                # for it, so the reply was built with memory_chars=0 and grounding
-                # fell to 0.30 (low) after two minutes of retrieval. Harvesting here
-                # adds NO waiting -- the wait already happened -- it just stops the
-                # result being discarded at the finish line.
+                # Leaving the `with` above runs shutdown(wait=True), so every task is already done and its
+                # answer is in the future. Recording slow ones as timeouts threw away finished work (a 121.4s
+                # memory node against a ~121s ceiling left the reply with no memory). Harvest instead.
                 for fut, task in _late.items():
                     try:
                         o = fut.result(timeout=0)

@@ -180,10 +180,10 @@ def get_memory_status(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
             if tbl in tables:
                 cur.execute(f"SELECT COUNT(*) FROM {tbl}")
                 out["conversation_turns"] = int(cur.fetchone()[0] or 0)
-                # distinct_sessions ALWAYS computed here (was gated on tbl=='conversations',
-                # which never ran because 'conversation_turns' matched first and broke the
-                # loop → a permanent false 0 the user saw). Sessions live on
-                # conversation_turns.session_id; take the MAX distinct across the candidates.
+                # distinct_sessions is always computed here. It was gated on tbl=='conversations', which never
+                # ran because 'conversation_turns' matched first and broke the loop, giving a permanent false
+                # 0. Sessions live on conversation_turns.session_id, so take the MAX distinct across the
+                # candidates.
                 _ds = 0
                 for _src in ("conversation_turns", tbl, "conversations"):
                     if _src not in tables:
@@ -231,21 +231,13 @@ def _eli_v2_0_agent_db_path():
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
-# Compatibility helpers for resolve_db_paths / get_memory / get_agent_memory
-# REMOVED. The previous shadows returned plain dicts (causing
-# `'dict' object has no attribute 'user_db'` on every callsite using
-# attribute access) and bypassed the canonical Memory(db_path=...)
-# arg contract. The canonical versions imported from eli.memory.memory
-# at the top of this file (line ~16) return proper DBPaths dataclasses
-# and accept an optional db_path. _eli_v2_0_user_db_path / _eli_v2_0_agent_db_path
-# above remain in place — they are independent helpers any caller can
-# use directly to resolve a single db path under env-var precedence.
+# The compat helpers for resolve_db_paths / get_memory / get_agent_memory are gone. They
+# returned plain dicts and broke every attribute access. The canonical versions imported from
+# eli.memory.memory return DBPaths and accept db_path. The _eli_v2_0_* helpers below still
+# resolve a single db path under env-var precedence.
 
-# ---------------------------------------------------------------------
-# Compatibility public API
-# ---------------------------------------------------------------------
-# Older runtime/executor code may import store_memory directly from
-# eli.memory. Keep this wrapper generic and user-neutral.
+# Compatibility public API: older runtime/executor code may import store_memory from eli.memory
+# directly. Keep this wrapper generic and user-neutral.
 
 def store_memory(*args, **kwargs):
     """

@@ -388,11 +388,9 @@ def _canonical_runtime_file_map() -> Dict[str, Path]:
     # Files live under eli/ subdir
     _eli = root / 'eli'
     root = _eli if _eli.exists() else root
-    # Canonical runtime file paths under the live `eli/` layout.
-    # phaseBW5 fix: replaced legacy `brain/cognition/...` and
-    # `tools/automation/...` candidates that no longer correspond
-    # to anything on disk and were producing hallucinated "FAIL"
-    # entries in RUNTIME_AUDIT output.
+    # Canonical runtime file paths under the live eli/ layout. The legacy brain/cognition/... and
+    # tools/automation/... candidates no longer exist and produced false "FAIL" entries in
+    # RUNTIME_AUDIT.
     rels = {
         'cognitive_engine': ['kernel/engine.py'],
         'gguf_inference':   ['cognition/gguf_inference.py'],
@@ -558,10 +556,9 @@ def _runtime_health_probes() -> List[Dict[str, Any]]:
         return True, f"{tot} enabled habit rule(s), all schedulable"
     _probe("habit_integrity", _habits)
 
-    # Recent LIVE failures — surface what the failure log recorded so the audit
-    # reflects live problems, not just static source state. Reads the same
-    # canonical store the Self-Improve panel uses; resolved entries are filtered
-    # out by get_recent_failures, so the audit and the panel agree.
+    # Recent live failures, so the audit reflects live problems and not just static source. Reads
+    # the store the Self-Improve panel uses (resolved entries are filtered by get_recent_failures),
+    # so the two agree.
     def _failures():
         from eli.runtime.self_improvement import get_self_improvement
         from eli.runtime.failure_taxonomy import classify, is_actionable
@@ -612,10 +609,9 @@ def _format_runtime_audit(report: Dict[str, Any]) -> str:
     return '\n'.join(lines) if lines else 'No runtime files audited.'
 
 def _gpu_status_report() -> Dict[str, Any]:
-    # get_live_gpu_telemetry() is THE single place every caller asks "what is
-    # my GPU doing right now" -- nvidia-smi/rocm-smi dispatch, cross-vendor
-    # identity fallback (broken driver, non-NVIDIA vendor) and honest
-    # None-for-unavailable fields all live there once, not reimplemented here.
+    # get_live_gpu_telemetry() is the one place that answers "what is my GPU doing now":
+    # nvidia-smi/rocm-smi dispatch, the cross-vendor identity fallback and honest None for
+    # unavailable fields all live there.
     runtime_snapshot: Dict[str, Any] = {}
     try:
         snap_path = get_paths().artifacts_dir / "runtime_snapshot.json"
@@ -625,11 +621,9 @@ def _gpu_status_report() -> Dict[str, Any]:
         runtime_snapshot = {}
 
     def _runtime_snapshot_lines() -> list:
-        # Independent of any GPU vendor tool entirely -- it comes from the
-        # loader's own record of what it actually loaded with. A live GPU
-        # query failing (any vendor) must never suppress it: it used to, and
-        # "what are your settings" got answered "not specified in the
-        # evidence" for a reason that had nothing to do with the question.
+        # Independent of any GPU vendor tool: it comes from the loader's own record of what it
+        # loaded with. A failing live GPU query must never suppress it (it did, and "what are your
+        # settings" was answered "not specified in the evidence").
         if not runtime_snapshot:
             return []
         return [
@@ -678,15 +672,9 @@ def _gpu_status_report() -> Dict[str, Any]:
 
     lines.extend(_runtime_snapshot_lines())
 
-    # Performance reading, derived from THIS load — not boilerplate.
-    #
-    # The previous three lines were fixed strings printed regardless of what was
-    # measured, and the middle one hedged about a fallback that had provably not
-    # happened ("If ELI booted with lower selected ctx/GPU-layer parameters than
-    # requested…") while the proof sat in the same payload: `requested` and
-    # `effective` are both in runtime_snapshot, and on that run they were
-    # identical. A report whose job is telling the user the truth about their
-    # runtime should not speculate about its own state.
+    # Performance reading derived from this load, not boilerplate. The old fixed strings hedged
+    # about a fallback that hadn't happened (requested and effective were identical). A runtime
+    # report shouldn't speculate about its own state.
     _reading = []
     try:
         from eli.cognition.context_synthesiser import runtime_load_gap as _gap_fn
@@ -715,17 +703,10 @@ def _gpu_status_report() -> Dict[str, Any]:
 
     if free is not None and total:
         _free_pct = (float(free) / float(total)) * 100.0
-        # "Free" from nvidia-smi is NOT spare. llama.cpp allocates its compute/graph
-        # buffer LAZILY, at the first decode — so the reserve the loader deliberately
-        # kept back still reads as free until a generation touches it. Reporting it as
-        # headroom told the operator to raise settings into memory that is already
-        # committed, which is precisely the over-commit that aborted the process
-        # mid-generation at 2.2.7 and 2.2.9 (ggml-cuda.cu:98: CUDA error).
-        #
-        # Live at 2.3.6: 1493 MiB read as free while the compute buffer (736 MB at
-        # ctx=12288 batch=128), CUDA overhead (350 MB) and the kept reserve (700 MB)
-        # already accounted for more than that. Subtract what generation will take
-        # and report what is genuinely spare.
+        # "Free" from nvidia-smi isn't spare: llama.cpp allocates its compute buffer lazily at first
+        # decode, so the reserve the loader held back still reads as free. Reporting it as headroom told
+        # the operator to raise settings into committed memory (the mid-generation CUDA aborts). Subtract
+        # what generation will take and report what's genuinely spare.
         _committed = 0.0
         try:
             from eli.core.hardware_profile import (_compute_graph_reserve_mb,
@@ -1080,10 +1061,9 @@ def _grounded_file_audit_report(path: Path) -> Dict[str, Any]:
 def _gui_runtime_audit_report(question: Optional[str] = None) -> Dict[str, Any]:
     canon = _canonical_runtime_file_map()
     gui_path = canon['gui']
-    # Dynamic target: if the user explicitly referenced a source file, audit
-    # THAT file (grounded, AST-derived) instead of the hardcoded GUI file. The
-    # old behaviour ignored the referenced path entirely and always reported on
-    # the GUI — so a request about api/server.py came back describing the GUI.
+    # Dynamic target: if the user named a source file, audit that file (grounded, AST-derived)
+    # instead of the fixed GUI file. A request about api/server.py used to come back describing the
+    # GUI.
     if question:
         try:
             from eli.runtime.code_examiner import _extract_named_paths as _enp
@@ -1361,12 +1341,9 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
     }
     identity_hits = _identity_hits_from_sqlite(_eli_path_get(paths, "memory_db"), paths.user_db)
 
-    # Enumerate ALL physical sqlite3 files actually on disk in the db directory —
-    # not just the logical roles. The role resolver aliases active_db/user_db/
-    # memory_db to the SAME user.sqlite3 and never sees siblings like
-    # coding_memory.sqlite3 or system_index.sqlite3, so the report claimed "2
-    # databases" when there are 4 on disk (user-reported, 2026-06-06: "you have at least
-    # 4 sqlite databases"). Ground the count in the filesystem.
+    # List every sqlite3 file actually in the db directory, not just the logical roles. The role
+    # resolver aliases active_db/user_db/memory_db to user.sqlite3 and never sees coding_memory or
+    # system_index, so the report said 2 databases when 4 exist. Count from the filesystem.
     db_files: List[Dict[str, Any]] = []
     try:
         _db_dir = Path(paths.user_db).parent
@@ -1385,11 +1362,9 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
-    # ── Live mechanism probes (#5/Option 4) ───────────────────────────────
-    # Re-derive every claim about ELI's own internals each call rather than
-    # hardcoding prose: ELI can add/remove its own modules and tables, so a
-    # static description would lie. Probe the filesystem for each mechanism
-    # module and the live schema for FTS5 mirrors + knowledge-graph counts.
+    # Live mechanism probes: re-derive every claim about ELI's internals each call instead of
+    # hardcoding prose, since ELI can add or remove its own modules and tables. Probe the filesystem
+    # for each mechanism module and the live schema for FTS5 mirrors and knowledge-graph counts.
     def _all_live_tables() -> set:
         names: set = set()
         for _f in db_files:
@@ -1585,10 +1560,8 @@ def _format_memory_runtime(report: Dict[str, Any]) -> str:
 
     if identity_hits:
         lines.append("- identity_evidence:")
-        # Phase 9 fix (2026-05-11): identity hits often repeat verbatim
-        # ("Capability inventory updated: ...") because the proactive daemon
-        # writes the same line at every tick. De-dupe so the user sees
-        # distinct evidence rather than the same line N times.
+        # Identity hits often repeat verbatim ("Capability inventory updated: ...", written by the
+        # daemon every tick). De-dupe so the user sees distinct evidence.
         _seen: set = set()
         _printed = 0
         for hit in identity_hits:
@@ -1653,10 +1626,9 @@ def _format_all_reasoning_modes(report: Dict[str, Any]) -> str:
     lines.append("")
     for key in report.get("modes", []):
         d = report["mode_data"][key]
-        # Show the PUBLIC mode name (quick/normal/advanced/research/expert), never the
-        # internal key (chain_of_thought/self_consistency/...). The internal keys were kept
-        # stable under the hood, but they must not surface to the user — the public scheme
-        # is quick/normal/advanced/research/expert.
+        # Show the public mode name (quick/normal/advanced/research/expert), never the internal key
+        # (chain_of_thought/self_consistency/...), which stays stable underneath but must not
+        # surface.
         _public = str(d['display']).lower()
         lines.append(f"## {d['display']} (key={_public})")
         lines.append(f"  private: {d['private']}")
@@ -1722,12 +1694,9 @@ def _format_cognition_runtime(report: Dict[str, Any], args: Optional[Dict[str, A
             return "\n\n".join(p for p in parts if p)
         except Exception:
             log.debug("[EXECUTOR] inference footprint report unavailable", exc_info=True)
-    # The live INFERENCE parameters go first. Asked "what is your current context
-    # window?", this report answered with module paths, grep line numbers and
-    # SQLite table counts — and the synthesis on top of it then said "the
-    # provided evidence does not specify the current context window size". It
-    # did not: n_ctx was 12192, written to runtime_snapshot.json at startup, and
-    # this report — named for the runtime — had no field for it.
+    # Live inference parameters go first. Asked for the current context window, this report gave
+    # module paths, grep line numbers and table counts, then the synthesis said the evidence didn't
+    # specify it, although n_ctx was in runtime_snapshot.json and the report had no field for it.
     try:
         from eli.runtime.deterministic_grounding_gate import _inference_runtime_lines
         lines.append(_inference_runtime_lines())
@@ -1777,11 +1746,9 @@ def _format_cognition_runtime(report: Dict[str, Any], args: Optional[Dict[str, A
             "- Mechanism modules re-probed",
             "- Main functions/classes:",
         )
-        # The prefix whitelist kept the count line ("physical_db_files: 4" / "Stores — 4
-        # physical …") but DROPPED the per-file enumeration under "Stores —" (those lines
-        # start with "- <name>.sqlite3" / "    tables: …", matching no prefix), so the report
-        # asserted 4 files yet listed only the 2-distinct-path logical roles. Keep the whole
-        # "Stores —" block so the claimed COUNT is substantiated by the ACTUAL files on disk.
+        # The prefix whitelist kept the "physical_db_files: 4" count line but dropped the per-file
+        # lines under "Stores —", so the report asserted 4 files and listed only 2. Keep the whole
+        # block so the count is backed by the actual files.
         memory_lines = []
         _in_stores = False
         for line in memory_text.splitlines():
@@ -1831,13 +1798,9 @@ def _runtime_status_report() -> Dict[str, Any]:
         report['settings_error'] = str(e)
     report['settings'] = settings
 
-    # Effective runtime resolution order (most → least authoritative):
-    #   1. runtime_snapshot.json on disk — written by the loader after the
-    #      llama.cpp load attempt that actually succeeded. This is the truth
-    #      even if the in-process gguf object is stale or absent.
-    #   2. gguf_inference live attributes — when llama is loaded in-process.
-    #   3. Empty dict (effective values become "unknown" in the formatter,
-    #      not silently substituted with settings).
+    # Effective runtime, most to least authoritative: (1) runtime_snapshot.json on disk, written
+    # after the load that succeeded; (2) gguf_inference live attributes if loaded in-process;
+    # (3) empty dict, so effective values read "unknown" instead of being filled from settings.
     runtime: Dict[str, Any] = {}
     try:
         snap_path = Path(report.get('paths', {}).get('artifacts_dir', 'artifacts')) / "runtime_snapshot.json"
@@ -1850,13 +1813,10 @@ def _runtime_status_report() -> Dict[str, Any]:
     except Exception as e:
         report['runtime_snapshot_error'] = str(e)
 
-    # The four core load params (n_ctx, n_gpu_layers, n_threads, n_batch) are
-    # ONLY trusted from the disk snapshot — that file is written by the loader
-    # AFTER a successful llama.cpp load, so it reflects the clamped truth.
-    # In-process gguf_inference may echo settings/defaults if the model isn't
-    # actually loaded yet; allowing it to overlay would mask boot-time fallbacks.
-    # We do let it contribute non-load metadata: provider, model_path, model_name,
-    # loaded flag.
+    # The four load params (n_ctx, n_gpu_layers, n_threads, n_batch) are trusted only from the disk
+    # snapshot, written after a successful load with the clamped truth. In-process gguf_inference
+    # may echo settings/defaults before anything loads and hide boot-time fallbacks. It can still
+    # supply provider, model_path, model_name and the loaded flag.
     try:
         from eli.cognition import gguf_inference as _gg
         if hasattr(_gg, 'get_runtime_snapshot'):
@@ -2107,13 +2067,9 @@ def _format_cognition_status(report: Dict[str, Any]) -> str:
 # ----------------------------
 
 
-# Work out the chat model at runtime — I never hardcode a model name anywhere.
-# Ollama is just a fallback the user can attach; the real path is GGUF via
-# llama-cpp-python. When someone picks an Ollama model in the GUI it lands in
-# runtime_settings as "ollama_model" and I read it back here.
-# Order I check: ELI_CHAT_MODEL env -> OLLAMA_MODEL env (legacy) ->
-# settings["ollama_model"] -> "" (empty, so the caller has to be explicit instead
-# of me guessing).
+# Work out the chat model at runtime; no model name is hardcoded. Ollama is only an attachable
+# fallback (the real path is GGUF via llama-cpp-python). Order: ELI_CHAT_MODEL env, OLLAMA_MODEL env
+# (legacy), settings["ollama_model"], then "" so the caller has to be explicit.
 def _resolve_default_chat_model() -> str:
     envv = os.environ.get("ELI_CHAT_MODEL") or os.environ.get("OLLAMA_MODEL")
     if envv:
@@ -3409,10 +3365,9 @@ def _ensure_spotify_running() -> bool:
     return spotify_launch_if_needed()
 
 
-# ── Now-playing state + mpv (YouTube) control ───────────────────────────────
-# "Play on YouTube" launches mpv with a visible video window by default (yt-dlp).
-# Set ELI_YOUTUBE_HEADLESS=1 for audio-only background playback. playerctl can't
-# see mpv (no MPRIS), so pause/stop/resume talk to the IPC socket directly.
+# Now-playing state and mpv (YouTube) control. "Play on YouTube" launches mpv with a visible window
+# (yt-dlp); ELI_YOUTUBE_HEADLESS=1 gives audio-only. playerctl can't see mpv (no MPRIS), so
+# pause/stop/resume talk to the IPC socket.
 _MEDIA_STATE: Dict[str, Any] = {
     "source": None, "title": None, "mpv_sock": None, "mpv_headless": False,
 }
@@ -3875,10 +3830,9 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
             "content": msg,
             "response": msg,
         }
-    # Direct in-app playback needs yt-dlp + mpv. Be HONEST that this is a fallback,
-    # not real playback (no-fake-actions) — and say what would actually unlock "play"
-    # for THIS user: an install hint is wrong when the tools are present and mpv died,
-    # so report the real reason in that case instead.
+    # Direct in-app playback needs yt-dlp and mpv. Be honest that this is a fallback, not playback
+    # (no-fake-actions), and say what would unlock "play" for this user; an install hint is wrong
+    # when the tools are present and mpv died, so report the real reason.
     _play_hint = (
         f" — direct playback failed ({_yt_direct_err})" if _yt_direct_err
         else "" if _yt_have_tools
@@ -4383,12 +4337,9 @@ def set_user_name(name: str) -> Dict[str, Any]:
         _state_set_user_name(n)
     except Exception as _sue:
         log.debug(f"[EXECUTOR] set_user_name profile write failed: {_sue}")
-    # Self-heal stale identity patterns: when the name is (re)set, purge any
-    # identity.name / identity.preferred_name / identity.nickname rows in
-    # user_patterns that do NOT match the new name. This is what stops a wrong
-    # earlier value (e.g. a mis-extracted "speak") from surfacing forever, for
-    # ANY user — without it, set_user_name updated the profile but left the bad
-    # pattern behind.
+    # Self-heal stale identity patterns: when the name is (re)set, purge identity.name /
+    # preferred_name / nickname rows in user_patterns that don't match the new name, so a wrong
+    # earlier value (a mis-extracted "speak") can't surface forever.
     try:
         _purge_conflicting_identity_patterns(n)
     except Exception as _pe:
@@ -5024,11 +4975,9 @@ def _spotify_ctl(command: str, auto_launch: bool = True):
     return {"ok": r.get("ok", False), "result": r, "player": player}
 
 
-# --- APP OPENING FUNCTIONS ---
-# Canonical alias table — see eli/execution/app_aliases.py. This copy held 11
-# names the router had never heard of (thunderbird, mozilla, browser...) while
-# the router held 30 this one lacked (vs code, calculator, files...), so which
-# aliases resolved depended entirely on which layer handled the phrase.
+# App opening. Canonical alias table lives in eli/execution/app_aliases.py; this copy and the
+# router's each lacked names the other had (thunderbird, mozilla, browser vs vs code, calculator,
+# files), so resolution depended on which layer handled the phrase.
 from eli.execution.app_aliases import APP_ALIASES as _APP_ALIASES
 
 def _normalize_app(spoken: str) -> str:
@@ -5666,10 +5615,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     a = re.sub(r"[\s\-]+", "_", a)
     a = a.upper()
 
-    # Action synonyms: the model sometimes emits an action name that means an
-    # existing handler but isn't its canonical key (NEWS_SEARCH, daily/weekly
-    # report, etc.). Normalise to the real action so these don't fall through to
-    # "Unsupported executor action: …".
+    # Action synonyms: the model sometimes emits a name that means an existing handler (NEWS_SEARCH,
+    # daily/weekly report). Normalise to the real action so it doesn't fall through to "Unsupported
+    # executor action".
     _ACTION_ALIASES = {
         "NEWS_SEARCH": "NEWS_FETCH",
         "FETCH_NEWS": "NEWS_FETCH",
@@ -5691,15 +5639,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     }
     a = _ACTION_ALIASES.get(a, a)
 
-    # ── Evidence-routing for generative tasks (the DAG/plan principle) ─────────
-    # Before ELI generates a document/script/project, INTUIT and gather the right
-    # evidence (real code analysis, web, memory, runtime — the same agents the bus
-    # uses) and attach it so the generator synthesises from real findings, not
-    # generic priors. One uniform mechanism for every generative action and every
-    # reasoning mode. Idempotent (gated on _evidence absent) so the GENERATE_*→
-    # CREATE_* recursion and bus/direct double-dispatch each gather only once; the
-    # gatherer's own WEB_SEARCH/RUNTIME_STATUS sub-calls aren't in this set, so
-    # there is no recursion. See eli/runtime/evidence_planner.py.
+    # Gather evidence before generating a document/script/project (code, web, memory, runtime) so
+    # the generator works from real findings. Idempotent: skipped when _evidence is already there, so
+    # the GENERATE_* -> CREATE_* recursion only gathers once. See eli/runtime/evidence_planner.py.
     if a in _GENERATIVE_EVIDENCE_ACTIONS and args.get("_evidence") is None:
         try:
             from eli.runtime.evidence_planner import plan_and_gather as _pag
@@ -6086,10 +6028,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # ---- OPEN_APP ----
     if a == "OPEN_APP":
         try:
-            # Accept the synonyms other producers use for the same slot — the
-            # LLM resolver names its own arg keys, and an OPEN_APP carrying
-            # {"app_name": ...} used to be rejected as "Missing app name"
-            # despite the request having been understood correctly.
+            # Accept the synonyms other producers use for the same slot: the LLM resolver names its
+            # own arg keys, and an OPEN_APP with {"app_name": ...} was rejected as "Missing app
+            # name".
             name = ""
             for _k in ("name", "app", "app_name", "application", "target", "program"):
                 _v = (args or {}).get(_k)
@@ -6285,12 +6226,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 _cmd_str = str(cmd)
             _cmd_low = _cmd_str.lower().strip()
 
-            # ── SECURITY GATE — centralised, protected denylist ──
-            # Destructive-pattern + dangerous-executable denylist lives in
-            # eli/execution/shell_gate.py (a protected file apply_code_patch refuses to
-            # auto-edit), so a self-improvement patch can't quietly strip it. Behaviour
-            # is identical to the former inline gate: returns a block result unless ELI
-            # Full Control is on, in which case the hard safety floor is lifted.
+            # Security gate: the destructive-pattern and dangerous-executable denylist lives in
+            # eli/execution/shell_gate.py, a protected file apply_code_patch won't auto-edit, so a
+            # self-improvement patch can't strip it. Blocks unless Full Control is on.
             from eli.execution.shell_gate import check_command as _shell_gate_check
             _gate = _shell_gate_check(cmd)
             if _gate is not None:
@@ -6386,10 +6324,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
     if a == "GET_PROPOSALS":
-        # Surface ELI's OWN self-generated agenda: the proposal-only goals that goal
-        # autogenesis forms from real signals (recurring errors, frequent behaviours,
-        # code-health) plus any pending capability proposals. This is what "do you have
-        # any proposals for me?" should answer — live, not canned.
+        # Surface ELI's own agenda: the proposal-only goals goal autogenesis forms from real signals
+        # (recurring errors, frequent behaviours, code health) plus pending capability proposals.
+        # This is what "do you have any proposals for me?" answers, live and not canned.
         try:
             lines: list[str] = []
             try:
@@ -6787,9 +6724,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             if q:
                 import urllib.parse as _up
                 # Safe search applies here too. The API path is filtered in
-                # eli/plugins/web/plugin.py, but this opens a real search page
-                # in the user's browser, which that filter never sees — kp=1
-                # is DuckDuckGo's strict setting.
+                # eli/plugins/web/plugin.py, but this opens a real search page the filter never
+                # sees; kp=1 is DuckDuckGo's strict setting.
                 try:
                     from eli.plugins.web.plugin import _safe_search_enabled as _sse
                     _kp = "&kp=1" if _sse() else ""
@@ -7043,10 +6979,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             _model = _gguf.load_model()
             if _model is not None:
                 content = ""
-                # Multi-stage grounded pipeline (plan/outline → grounded sections →
-                # review→revise → polish), grounded in the evidence the central hook
-                # gathered, with a deepen-retry that escalates agent tiers when the
-                # evidence is thin. Falls back to a single pass on any miss / kill switch.
+                # Multi-stage grounded pipeline (outline, grounded sections, review/revise, polish) on the
+                # evidence the central hook gathered, with a deepen-retry that escalates agent tiers when
+                # evidence is thin. Falls back to a single pass on any miss or kill switch.
                 try:
                     from eli.runtime import report_pipeline as _rp
                     if _rp.enabled():
@@ -7095,10 +7030,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         ext = ".md" if fmt == "md" else f".{fmt}"
                         fname = f"{safe_name}{ext}" if safe_name else f"document{ext}"
                         
-                        # Use the canonical artifacts root (honours ELI_ARTIFACTS_DIR;
-                        # monkeypatchable in tests). NB the env var alone is unreliable —
-                        # runtime_settings strips out-of-project ELI_ARTIFACTS_DIR on
-                        # load_settings(), so tests must patch _artifacts_dir, not setenv.
+                        # Use the canonical artifacts root (honours ELI_ARTIFACTS_DIR, monkeypatchable). The env var
+                        # alone is unreliable: load_settings() strips an out-of-project ELI_ARTIFACTS_DIR, so tests must
+                        # patch _artifacts_dir, not setenv.
                         doc_dir = _artifacts_dir() / "documents"
                         doc_dir.mkdir(parents=True, exist_ok=True)
                         doc_path = doc_dir / fname
@@ -7141,11 +7075,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "SELF_TEST":
         return self_test()
 
-    # ---- RUN_TESTS — run the pytest suite and return the results document ----
-    # ELI can run this and SUMMARISE it in chat. Defaults to a fast, high-signal
-    # subset (structural claims); pass args["target"] for more, or schedule the
-    # full suite + engine eval overnight (SCHEDULE_TASK kind=eval). The report is
-    # always at artifacts/test_report.md (auto-written by the pytest hook).
+    # RUN_TESTS: run pytest and return the results document for ELI to summarise. Defaults to a
+    # fast high-signal subset (structural claims); args["target"] for more, or schedule the full
+    # suite overnight (SCHEDULE_TASK kind=eval). Report is always artifacts/test_report.md.
     if a == "RUN_TESTS":
         try:
             import subprocess as _ts_sp, sys as _ts_sys
@@ -7163,10 +7095,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"RUN_TESTS failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
-    # ---- GENERATE_TESTS — ELI writes + sandbox-verifies behavioural tests ----
-    # Phase 4: per-function test generation (only passing candidates kept). Heavy
-    # (one model call per target); keep the chat limit small — schedule larger runs
-    # ("generate tests overnight" → SCHEDULE_TASK kind=testgen).
+    # GENERATE_TESTS: ELI writes and sandbox-verifies behavioural tests, per function, keeping only
+    # passing candidates. Heavy (one model call per target), so keep the chat limit small; schedule
+    # larger runs (SCHEDULE_TASK kind=testgen).
     if a == "GENERATE_TESTS":
         try:
             from eli.runtime.test_generator import run_testgen
@@ -7224,11 +7155,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"LORA_TRAIN failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
-    # ---- WAKE_TRAIN — train the local, self-supervised wake-word model ----
-    # ELI synthesises the wake phrase with its OWN Piper TTS across voices/speeds,
-    # mixes it with noise/music at random SNRs (robustness over music), and trains a
-    # small local classifier head. 100% local, no account, no third-party, no
-    # external pre-trained model. Falls back to transcription until a model exists.
+    # WAKE_TRAIN: train the local wake-word model. ELI synthesises the phrase with its own Piper
+    # TTS across voices and speeds, mixes in noise/music at random SNRs and trains a small
+    # classifier. Fully local, no account, no pre-trained model. Transcription until one exists.
     if a == "WAKE_TRAIN":
         try:
             from eli.perception import wakeword as _ww
@@ -7248,10 +7177,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"WAKE_TRAIN failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
-    # ---- WAKE_ENROLL — record the user's own voice + retrain (personalisation) ----
-    # Captures a few real-mic samples of the user saying the wake word through the
-    # running mic loop (no second device), then retrains so the model locks onto how
-    # the user actually says it — the biggest real-mic accuracy win.
+    # WAKE_ENROLL: record the user's own voice through the running mic loop and retrain, so the
+    # model locks onto how the user says the wake word (the biggest real-mic accuracy win).
     if a == "WAKE_ENROLL":
         try:
             from eli.perception.audio_stt import begin_wake_enrollment
@@ -7267,10 +7194,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"WAKE_ENROLL failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
-    # ---- WAKE_SET — let the user choose their OWN wake word, then train it ----
-    # "change the wake word to athena" / "set my wake word to atlas". Persists the
-    # phrase (used by both the acoustic model and the transcription matcher) and
-    # trains the detector on it in the background (Piper can synthesise any phrase).
+    # WAKE_SET: let the user choose their own wake word ("change the wake word to athena"). Persists
+    # the phrase (used by the acoustic model and the transcription matcher) and trains the detector
+    # in the background; Piper can synthesise any phrase.
     if a == "WAKE_SET":
         try:
             import re as _re_ws
@@ -7305,10 +7231,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"WAKE_SET failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
-    # ---- TRAIN_VOICE — learn the user's voice baseline (prosody/tone foundation) ----
-    # SEPARATE from the wake word: this captures natural speech to build a voice
-    # profile (pitch/energy/rate) that later powers tone detection (happy/angry/
-    # excited) and question-vs-statement. See eli/perception/voice_profile.py.
+    # TRAIN_VOICE: learn the user's voice baseline (pitch/energy/rate), separate from the wake word.
+    # It powers tone detection (happy/angry/excited) and question-vs-statement. See
+    # eli/perception/voice_profile.py.
     if a == "TRAIN_VOICE":
         try:
             from eli.perception.audio_stt import begin_voice_training
@@ -7351,12 +7276,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"ORCHESTRATION_STATUS failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
-    # ---- CODEBASE_GRAPH — ELI answers questions about its OWN architecture ----
-    # "how does the router connect to the executor?", "what does the engine depend on?",
-    # "show your codebase graph". Answered from the LIVE import graph of ELI's own code
-    # (eli/runtime/codebase_graph.py) — grounded in what the source actually imports, never
-    # a hand-drawn diagram. The user's phrasing is passed through so component names /
-    # relationship questions resolve against the real graph.
+    # CODEBASE_GRAPH: ELI answers questions about its own architecture ("how does the router
+    # connect to the executor?") from the live import graph in eli/runtime/codebase_graph.py, never
+    # a hand-drawn diagram. The user's phrasing is passed through so questions resolve on the graph.
     if a == "CODEBASE_GRAPH":
         try:
             from eli.runtime import codebase_graph as _cg
@@ -7370,10 +7292,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"CODEBASE_GRAPH failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
-    # ---- AUTOPILOT_DEBUG — a failure → a plan (root cause / rollback / patch / validation) ----
-    # "debug this: <traceback>", "what's causing this pytest failure <output>". Parses the
-    # error text, correlates the affected files with git history, runs the static examiner,
-    # and returns a grounded plan. run_tests=True (via args) actually runs pytest on targets.
+    # AUTOPILOT_DEBUG: turn a failure into a plan (root cause, rollback, patch, validation). Parses
+    # the error text, correlates affected files with git history, runs the static examiner and
+    # returns a grounded plan. args run_tests=True actually runs pytest on the targets.
     if a == "AUTOPILOT_DEBUG":
         try:
             from eli.runtime import autopilot_debugger as _dbg
@@ -7829,19 +7750,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- MOUSE_CONTROL ----
     if a == "MOUSE_CONTROL":
-        # Rewritten after a live session in which "click enter", "click enter
-        # button" and "move cursor right" moved nothing at all while the
-        # executor reported every one of them as a success. Four faults:
-        #   * an unrecognised action fell into an `else` that set
-        #     "Mouse action '<x>' performed" and returned ok=True having
-        #     touched nothing;
-        #   * both click branches required x AND y, so a click without
-        #     coordinates matched nothing and hit that same else;
-        #   * relative movement was never implemented, so a direction-only
-        #     request ("move cursor right") had no branch to land in;
-        #   * "enter" arrived in the *button* slot. A key is not a mouse
-        #     button and can never be clicked, so it could only ever fail.
-        # Nothing below reports success unless a backend actually acted.
+        # Rewritten because "click enter" and "move cursor right" moved nothing and still said success.
+        # An unknown action used to fall into an `else` returning ok=True. Now nothing reports success
+        # unless a backend actually did something.
         import subprocess as _sp
 
         _mc_action = str(args.get("action") or args.get("command") or "").strip().lower()
@@ -7938,10 +7849,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                             if wayland else
                             [tool, "mousemove", str(int(_mc_x)), str(int(_mc_y))])
                 if wayland:
-                    # ydotool click takes <flags|button>: 0x40 down, 0x80 up,
-                    # buttons left/right/middle = 0/1/2. The previous codes
-                    # (0x40001, 0x40002) sent a press with no release — a
-                    # stuck mouse button — and named the wrong buttons.
+                    # ydotool click takes <flags|button>: 0x40 down, 0x80 up; buttons
+                    # left/right/middle are 0/1/2. The old codes (0x40001, 0x40002) pressed with no
+                    # release (a stuck button) and named the wrong buttons.
                     code = {"left": "0xC0", "right": "0xC1", "middle": "0xC2"}[_mc_button]
                     cmd = [tool, "click", code]
                 else:
@@ -8086,11 +7996,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             if not p.exists():
                 return {"ok": False, "action": a, "error": f"Path not found: {p}", "content": f"Path not found: {p}", "response": f"Path not found: {p}"}
             if not p.is_dir():
-                # A FILE (not a dir) was handed to LIST_DIR — almost always a
-                # mis-route of "read/show <file>" (e.g. a conversation .json or a
-                # generated .docx). Redirect to READ_FILE rather than returning an
-                # error: erroring here surfaced a "Not a directory" failure that
-                # the proactive daemon then replayed as a recurring error forever.
+                # A file (not a dir) handed to LIST_DIR is almost always a mis-route of "read/show
+                # <file>". Redirect to READ_FILE; erroring here produced a "Not a directory" failure
+                # the proactive daemon replayed forever.
                 if p.is_file():
                     return _execute_impl("READ_FILE", {"path": str(p)})
                 return {"ok": False, "action": a, "error": f"Not a directory: {p}", "content": f"Not a directory: {p}", "response": f"Not a directory: {p}"}
@@ -8155,10 +8063,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         "content": json.dumps({"missing_arg": "plugin", "action": a}, ensure_ascii=False),
                         "response": json.dumps({"missing_arg": "plugin", "action": a}, ensure_ascii=False)}
 
-            # Community listings go through the marketplace path — checksum,
-            # signature, static check, eleven scanners, consent — not the old
-            # manager.install(), which downloaded over raw urllib and executed the
-            # result. A bundled built-in still uses the manager: it shipped with ELI.
+            # Community listings go through the marketplace path (checksum, signature, static check,
+            # eleven scanners, consent), not the old manager.install(), which downloaded over raw urllib and
+            # ran the result. A bundled built-in still uses the manager, it shipped with ELI.
             market = _eli_marketplace_install(query)
             if market is not None:
                 return {"ok": market["ok"], "action": a,
@@ -8195,10 +8102,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
 
-    # ---- MCP_STATUS / MCP_TOOLS / MCP_CALL — the runtime half ----
-    # What a live server exposes right now, as opposed to what is configured
-    # (MCP_LIST below). Kept distinct so "what did I install" and "what can it do"
-    # stay separate questions.
+    # MCP_STATUS / MCP_TOOLS / MCP_CALL: the runtime half. What a live server exposes right now, as
+    # opposed to what is configured (MCP_LIST), so "what did I install" and "what can it do" stay
+    # separate questions.
     if a in ("MCP_STATUS", "MCP_TOOLS", "MCP_CALL"):
         return {"MCP_STATUS": _h_mcp_status, "MCP_TOOLS": _h_mcp_tools,
                 "MCP_CALL": _h_mcp_call}[a](a, args or {})
@@ -8485,10 +8391,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             _window_days = int((args or {}).get("days") or DEFAULT_ANALYSIS_DAYS)
             failures = engine.analyze_failures(limit=10, days=_window_days,
                                                min_cluster_size=1)
-            # State the window. Without it "0 recent issues" reads as "nothing is
-            # wrong", while SELF_IMPROVE — which uses a different lookback — reports
-            # failures in the same breath. Live at 2.3.10 the two contradicted each
-            # other seconds apart; both were right, neither said what it had looked at.
+            # State the lookback window. Without it "0 recent issues" reads as "nothing is wrong"
+            # while SELF_IMPROVE, with a different window, reports failures in the same breath.
             lines = [f"Self-Analysis Report ({len(failures)} open issue(s) "
                      f"in the last {_window_days} day(s)):"]
 
@@ -8631,10 +8535,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     lines.append(f"\nSuggested improvements ({len(imps)}):")
                     for imp in imps[:5]:
                         lines.append(f"  - {imp.get('description', '')}")
-            # NOTE (2026-06-09): the live self-model block (awareness.context_block())
-            # is PRIVATE prompt context — it was leaking into this user-facing report as a
-            # raw "[Live self-model: …]" data dump (user called it out). Do not append it
-            # here; the report stays a clean human-readable list.
+            # The live self-model block (awareness.context_block()) is private prompt context; it
+            # leaked into this report as a raw "[Live self-model: ...]" dump. Don't append it here;
+            # the report stays a clean readable list.
 
             msg = "\n".join(lines)
             # Fire repair_completed so the world engine decreases repair_pressure.
@@ -8946,10 +8849,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 return {"ok": True, "action": a, "content": msg, "response": msg}
 
             elif alarm_time:
-                # Parse a natural-language time and compute seconds until it. Handles
-                # "7am", "7 am", "7:30pm", "07:00", "07:00 hours", "19:00", "noon",
-                # "midnight", "tomorrow at 7am", "7am tomorrow", bare "7" (was: int()
-                # on the raw string → "Bad time format" for everything but "HH:MM").
+                # Parse a natural-language time and give seconds until it: "7am", "7:30pm", "07:00 hours",
+                # "19:00", "noon", "midnight", "tomorrow at 7am", bare "7". It used to int() the raw string and
+                # fail on everything but HH:MM.
                 from datetime import datetime as _dt, timedelta as _td
                 import re as _re_alarm
                 now = _dt.now()
@@ -9254,11 +9156,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 return {"ok": True, "action": a, "content": msg, "response": msg,
                         "count": 0, "stored": 0, "errors": errors}
 
-            # ── Per-file mode ───────────────────────────────────────────────
-            # "summarise each file / put it in a document": summarise EVERY doc
-            # individually, assemble a structured document, and write a real
-            # .docx (md fallback). Returned inline too, so `check job N` surfaces
-            # the full per-file breakdown — not a single folder-level blurb.
+            # Per-file mode ("summarise each file / put it in a document"): summarise every doc on its own,
+            # assemble a structured document and write a real .docx (md fallback). Also returned inline so
+            # `check job N` shows the full per-file breakdown, not one folder-level blurb.
             if args.get("per_file") or args.get("each_file"):
                 from eli.cognition import gguf_inference as _gi
                 _model_ok = False
@@ -9591,10 +9491,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not desc:
             msg = "Missing description for GENERATE_SCRIPT"
             return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
-        # Ground the script in evidence gathered by the central evidence-routing
-        # hook (e.g. real ELI source for a "script to test ELI's memory", web docs
-        # for an external API). Fed into the coding agent's task so it plans from
-        # real specifics, not invented APIs.
+        # Ground the script in evidence from the central evidence-routing hook (real ELI source for
+        # a "script to test ELI's memory", web docs for an external API) and feed it into the coding
+        # agent's task, so it plans from real specifics and not invented APIs.
         _scr_evidence = str(args.get("_evidence") or "")
         if _scr_evidence:
             desc = (desc + "\n\n[Grounding evidence gathered by ELI's agents — build on "
@@ -9645,10 +9544,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     except SyntaxError as _se_gs:
                         log.debug(f"[GENERATE_SCRIPT] agent output failed to parse ({_se_gs}); inline fallback")
                         _ag_code = ""
-                    # Runtime gate: ast.parse passes for valid-but-crashing code
-                    # (e.g. `pi` used without import → NameError only at run time).
-                    # Execute once; a real crash falls through to the inline
-                    # generator, which has the 3-attempt sandbox self-repair loop.
+                    # Runtime gate: ast.parse passes valid-but-crashing code (`pi` used without
+                    # import raises only at run time). Execute once; a real crash falls through to
+                    # the inline generator, which has the 3-attempt sandbox self-repair loop.
                     if _ag_code.strip():
                         try:
                             from eli.coding.sandbox import run_code as _rc_gs
@@ -10389,10 +10287,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
         fixed_code = ""
         ff_reject_reason = None
-        # Python: route the fix through the VERIFIED CodeAgent first — syntax + static-lint
-        # (pyflakes) + execution + repo-context + self-critique (the A–E ladder) — so a fix
-        # can't ship broken code like `def main:`. Falls through to the legacy loop below for
-        # non-Python, or if the agent yields nothing usable.
+        # Python: route the fix through the verified CodeAgent first (syntax, pyflakes, execution,
+        # repo context, self-critique) so it can't ship broken code like `def main:`. Falls through
+        # to the legacy loop for non-Python or if the agent yields nothing usable.
         if pp.suffix.lower() == ".py":
             try:
                 from eli.coding import solve as _code_solve
@@ -10414,13 +10311,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     (f" Reported error: {extra_error}." if extra_error else "")
                     + f"\n\n--- FILE: {pp.name} ---\n{original[:24000]}"
                 )
-                # FULL verified pass — beam search + repair iterations + self-critique.
-                # Quality over latency by explicit choice: a thorough, correct fix is worth
-                # the wait. Do NOT cut beam/iterations to save time.
-                # use_dag=False: a single-file fix is ONE coherent rewrite, NOT a multi-
-                # component build. The DAG path decomposes into components that each
-                # regenerate the whole file and compose() concatenates them (deduping only
-                # imports), which DUPLICATED the file 6× on the live run. Single-solve only.
+                # Full verified pass: beam search, repair iterations, self-critique. Quality over latency by
+                # choice, don't cut beam or iterations to save time.
+                # use_dag=False: a single-file fix is one coherent rewrite. The DAG path regenerated the whole
+                # file per component and compose() only dedupes imports, which duplicated the file 6x.
                 _cr = _code_solve(_fix_task, language="python", use_tests=False,
                                   beam=2, max_iterations=3, use_dag=False)
                 _cand = str((_cr or {}).get("code") or "").strip()
@@ -10799,14 +10693,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- CLOSE_APP ----
     if a == "CLOSE_APP":
-        # This is the fallback path: portable_app_control.close_app runs first
-        # and only reaches here when it could not find a matching window. It
-        # used to end in a bare `pkill -f <name>` loop, which matches the full
-        # command line of every process as a regex — "close file" matched
-        # `dbus-daemon --session ... --nopidfile` and logged the user out of
-        # their desktop, while still reporting the close as a success.
-        # Every kill now goes through the verified guard, which dry-runs the
-        # pattern and refuses anything that would signal a protected process.
+        # Fallback: portable_app_control.close_app runs first and only reaches here without a matching
+        # window. It used to end in a bare `pkill -f <name>` loop that regex-matches every full command
+        # line ("close file" matched `dbus-daemon --session` and logged the user out) and still reported
+        # success. Every kill now goes through the verified guard, which dry-runs and refuses protected
+        # processes.
         from eli.system.process_guard import safe_pkill
 
         name = str(args.get("name") or args.get("app") or args.get("target") or "").strip()
@@ -11176,11 +11067,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         'evidence_source': 'code_examiner_no_targets'}
             findings = _ce.examine(paths)
             _ce.save_last_audit(paths, findings)
-            # Report-only policy (2026-06-09): a broad/sweep audit NEVER offers to patch, and
-            # cosmetic lint is never auto-fixed. Fixing is offered only when the user named
-            # specific files AND there's genuine breakage (syntax / failed import / undefined
-            # name). This stops a vague "run full audit" from applying botched 7B lint patches
-            # to ELI's own core files.
+            # Report-only policy: a broad audit never offers to patch, and cosmetic lint is never
+            # auto-fixed. Fixing is offered only for named files with real breakage (syntax, failed import,
+            # undefined name), so a vague "run full audit" can't apply botched 7B lint patches to the core.
             _named = _ce._extract_named_paths(request)
             # Anchor the conversational "current file" when the user named one,
             # so a later "prove you actually read it" audits that file.
@@ -11424,11 +11313,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 if _fetched == 0 and errs:
                     msg = f"News fetch failed. Errors: {'; '.join(errs[:3])[:300]}"
                     return {'ok': False, 'action': a, 'content': msg, 'response': msg}
-                # Conversational news read: ELI synthesises a bounded briefing
-                # (a sentence of context each, 1-2 follow-ups, no timestamps)
-                # rather than dumping raw headlines. General ask = 50/50 top
-                # stories + interest matches; a topic ask = that topic's stories.
-                # Falls back to the raw list if synthesis is empty (offline/none).
+                # Conversational news read: a bounded briefing (a sentence of context each, 1-2 follow-ups, no
+                # timestamps) instead of raw headlines. A general ask is 50/50 top stories and interest matches;
+                # a topic ask is that topic. Raw list if synthesis comes back empty (offline).
                 try:
                     from eli.tools.news.news_synthesis import synthesise_news_briefing
                     _read = synthesise_news_briefing(topic=topic, refresh=False)
@@ -11756,16 +11643,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
-    # ---- CREATE_VOICE ----
-    # Build a brand-new ELI voice from a dropped-in recording — a .wav/.mp3/.mp4/
-    # .m4a/etc. of the target voice (ffmpeg extracts the audio). Registers a
-    # clone:<name> voice offline; it speaks with XTTS-v2 once the neural extra is
-    # installed, and falls back to a normal voice until then.
-    # ---- DESIGN_VOICE — build your OWN named voice from a base + effects ----
-    # voice_fx.save_preset existed but nothing reached it, so users could only clone from a
-    # recording; they could not design a voice. The shipped styles are deliberately generic
-    # (calm/robotic/energetic/synthetic/refined) — this is how a user makes one that is
-    # theirs: pick a base voice, shift pitch/speed, name it, and it becomes char:<name>.
+    # CREATE_VOICE clones a voice from a dropped-in recording (ffmpeg pulls the audio) and saves it
+    # as clone:<name>. DESIGN_VOICE builds a named voice from a base plus pitch/speed effects
+    # (char:<name>), which nothing could reach before.
     if a == "DESIGN_VOICE":
         try:
             from eli.perception import voice_fx, tts_router
@@ -11811,14 +11691,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             src = (args.get("file") or args.get("path") or args.get("audio")
                    or args.get("source") or "").strip()
             if not src:
-                # The UI path here must match the real GUI. It previously read
-                # 'Settings > Voice > "Create a voice from an audio file…"', and neither
-                # part existed: the settings page is Audio (there is no Voice page), and
-                # the create-voice drop-zone lives on the RUNTIME page under the
-                # "VOICE / TTS" card (_build_settings_runtime_page). A user followed this
-                # instruction, found nothing, said so, and ELI repeated the same wrong
-                # path back — it was reciting a hard-coded string, not hallucinating.
-                # tests/test_create_voice_ui_path.py pins this against the GUI source.
+                # The UI path here must match the real GUI: the create-voice drop-zone is on the RUNTIME
+                # settings page under the "VOICE / TTS" card (_build_settings_runtime_page). The old text named
+                # a Settings > Voice page that doesn't exist. tests/test_create_voice_ui_path.py pins this.
                 msg = ("To make a voice, give me an audio file of it — a .wav, .mp3 or .mp4 "
                        "(a short, clean ~6–20s clip works best). You can also drop the clip "
                        "straight into the app: Settings ▸ Runtime ▸ \"VOICE / TTS\", where it "
@@ -11851,10 +11726,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
-    # ---- SET_TONE ----
-    # Pin the emotion/register ELI expresses (words + voice + face). Distinct from
-    # SET_VOICE (which voice) and SET_COMMUNICATION_STYLE (free-text persona): this
-    # picks a named tone from the emotion palette ("be comedic", "talk street").
+    # SET_TONE: pin the emotion/register ELI expresses (words, voice, face). Distinct from SET_VOICE
+    # (which voice) and SET_COMMUNICATION_STYLE (free-text persona); it picks a named tone from the
+    # emotion palette ("be comedic", "talk street").
     if a == "SET_TONE":
         try:
             q = (args.get("tone") or args.get("style") or args.get("query")
@@ -11882,10 +11756,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
-    # ---- SMART_HOME ----
-    # Routes through ELI's OWN MQTT device server (eli.runtime.device_server) — no
-    # Home Assistant. Resolves the spoken device/room name against ELI's registry and
-    # publishes on/off over MQTT. Devices are set up in the web app's Home tab.
+    # SMART_HOME: routes through ELI's own MQTT device server (eli.runtime.device_server), no Home
+    # Assistant. Resolves the spoken device/room against ELI's registry and publishes on/off over
+    # MQTT. Devices are set up in the web app's Home tab.
     if a == "SMART_HOME":
         try:
             from eli.runtime.device_server import get_server
@@ -11902,10 +11775,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     _ar = route_audio_by_name(device)
                     if _ar.get("ok"):
                         _label = _ar.get("display_name") or _ar.get("alias") or device
-                        # Only claim audio is *currently* playing through it when a
-                        # live stream was actually moved; otherwise it's the default
-                        # for future playback. Saying "now playing" with nothing
-                        # playing is the "said connected but no audio" complaint.
+                        # Only say audio is playing through it when a live stream was really moved, otherwise it's just
+                        # the default for future playback. "Now playing" with nothing playing is the "said connected but
+                        # no audio" complaint.
                         if _ar.get("streams_moved"):
                             _say = f"Audio is now playing through {_label}."
                         else:
@@ -12108,10 +11980,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # ── SET_AI_MODE ──────────────────────────────────────────────────────────
     if a == "SET_AI_MODE":
         try:
-            # Public mode names are Quick / Normal / Advanced / Research / Expert.
-            # canonical_mode() accepts those AND every legacy alias (cot/tot/…) and
-            # maps to the stable internal strategy key; mode_display() gives the public
-            # label so the user never sees the internal name.
+            # Public modes are Quick / Normal / Advanced / Research / Expert. canonical_mode()
+            # accepts those and every legacy alias (cot/tot/...) and maps to the stable internal
+            # key; mode_display() gives the public label so the user never sees the internal name.
             from eli.cognition.reasoning_modes import canonical_mode as _cm, mode_display as _md
             raw = str(args.get("mode") or args.get("reasoning_mode") or args.get("value") or "quick")
             canonical = _cm(raw)
@@ -12128,10 +11999,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as _sme:
             return {"ok": False, "action": a, "error": str(_sme), "content": str(_sme), "response": str(_sme)}
 
-    # Last stop before "unsupported": an installed plugin may own this action.
-    # Checked here rather than earlier so a plugin can never shadow a built-in —
-    # a marketplace listing that declared SHUTDOWN or SEND_EMAIL would otherwise
-    # take over that verb for the whole assistant.
+    # Last stop before "unsupported": an installed plugin may own this action. Checked late so a
+    # plugin can never shadow a built-in (a listing declaring SHUTDOWN or SEND_EMAIL would take over
+    # that verb for the whole assistant).
     try:
         from eli.plugins.manager import get_manager
         _plugin_result = get_manager().dispatch(a, args)
@@ -12251,10 +12121,9 @@ def _action_pre_dispatch(
     return None
 
 
-# Per-process failure tally for the "attempt N" anti-retry hint. Keyed by
-# action+args+error; reset every restart so a fresh session never inherits a
-# stale "attempt 4" from all-time DB history. (The DB still logs failures for
-# learning — this only governs the user-facing repeat hint.)
+# Per-process failure tally for the "attempt N" anti-retry hint, keyed by action+args+error and
+# reset each restart so a new session doesn't inherit a stale "attempt 4". The DB still logs
+# failures for learning; this only governs the user-facing repeat hint.
 _SESSION_FAILURE_COUNTS: "Dict[str, int]" = {}
 
 
@@ -12295,10 +12164,9 @@ def _action_post_dispatch(
         log.debug("suppressed exception", exc_info=True)
 
     repeat_hint = ""
-    # Phase 5: non-bugs that previously poisoned the SI failure feed. These
-    # are *expected* responses (user typed no query, plugin not configured,
-    # action genuinely outside this build's scope) — they should not enter
-    # the failure-cluster pipeline that the SelfImprovementEngine acts on.
+    # Non-bugs that poisoned the SI failure feed: expected responses (no query typed, plugin not
+    # configured, action outside this build). They must not enter the failure-cluster pipeline the
+    # SelfImprovementEngine acts on.
     _SI_NOISE_ERRORS = frozenset((
         "empty_query",
         "empty",
@@ -12344,10 +12212,9 @@ def _action_post_dispatch(
                 return result
 
             signature_input = f"{str(action or '').upper()} {_json.dumps(args or {}, sort_keys=True, default=str)}"
-            # Failures live in ONE canonical store — the agent/self-improvement DB
-            # (agent.sqlite3), alongside improvements + code_patches. Previously this
-            # dual-wrote to the user DB too, splitting the failure log across two
-            # databases (the Self-Improve panel reads only the agent store).
+            # Failures live in one store, the agent/self-improvement DB (agent.sqlite3) next to
+            # improvements and code_patches. Dual-writing to the user DB split the log; the
+            # Self-Improve panel reads only the agent store.
             try:
                 from eli.memory import get_agent_memory as _get_agent_memory
                 _get_agent_memory().log_failure(
@@ -12599,10 +12466,9 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
         rep = _runtime_status_report()
         runtime_eff = rep.get('runtime') or {}
         settings_req = rep.get('settings') or {}
-        # Active user's confirmed name belongs in identity evidence — without it
-        # "who are you / who am I" answers say "name not provided" and then
-        # confabulate a low-confidence story. This is the authoritative profile
-        # name (same source USER_IDENTITY_SUMMARY uses).
+        # The active user's confirmed name belongs in identity evidence; without it "who are you /
+        # who am I" answers say "name not provided" and then confabulate. It is the authoritative
+        # profile name (the source USER_IDENTITY_SUMMARY uses).
         try:
             from eli.kernel.state import get_user_name as _gun_sr
             _active_user = str(_gun_sr("") or "").strip()
@@ -12635,12 +12501,9 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
                 "batch_size": settings_req.get('batch_size', 'unknown'),
             },
         }
-        # Runtime HEALTH — surface recommended-vs-effective and an explicit
-        # utilization assessment. Without this the evidence only shows
-        # "requested == effective" (trivially consistent), so the model concludes
-        # "no discrepancy" even when the GPU is barely used or ctx is oversized.
-        # Giving it the recommendation + concerns lets it flag the problem instead
-        # of confidently declaring all-clear (it has no grounding to invent one).
+        # Runtime health: show recommended-vs-effective and an explicit utilisation assessment.
+        # "requested == effective" is trivially consistent, so the model said "no discrepancy" even when
+        # the GPU was barely used or ctx oversized. Give it the recommendation and concerns.
         try:
             _eff_layers = int(runtime_eff.get('n_gpu_layers') or 0)
             _eff_ctx = int(runtime_eff.get('n_ctx') or 0)
@@ -12909,10 +12772,9 @@ def proactive_status() -> Dict[str, Any]:
                     alive = True
                 except Exception:
                     alive = False
-    # In-process daemon: the GUI runs it as a THREAD (no separate PID), so the PID check
-    # above misses it and falsely reports STOPPED (observed: agent_bus daemon_running=False
-    # while '[PROACTIVE] Daemon started'). Also honour the live in-process signals — the
-    # module singleton's running flag and the named daemon thread.
+    # In-process daemon: the GUI runs it as a thread (no separate PID), so the PID check above
+    # falsely reports STOPPED. Also honour the in-process signals: the singleton's running flag and
+    # the named daemon thread.
     if not alive:
         try:
             import threading as _th
@@ -13618,14 +13480,10 @@ except NameError:
                 return _r
             return None
 
-        # Maximise was missing from this table while minimise was present,
-        # which is how the two halves of window control drifted apart. Only a
-        # *named* target is handled here; a bare "maximise" still means the
-        # active window and belongs to the executor branch.
-        # Only the existing capability name. Adding US/APP aliases here would
-        # register three new capabilities in the manifest and put every
-        # documented capability count out of date, which is not what a
-        # window-targeting fix should cost.
+        # Maximise was missing from this table while minimise was there, so they drifted. Only a named
+        # target is handled here; a bare "maximise" means the active window and belongs to the executor
+        # branch. Existing capability name only, aliases here would add capabilities and stale every
+        # documented count.
         if action_name == "MAXIMISE_WINDOW":
             from eli.system.portable_app_control import BARE_WINDOW_TARGETS as _BWT
             _mx_target = (data.get("name") or data.get("target") or data.get("app")
@@ -14084,11 +13942,9 @@ except Exception as _eli_gen_guard_err:
     log.debug(f"[EXECUTOR] generated-script guard install failed: {_eli_gen_guard_err}")
 # --- end ELI generated-script safety installer ---
 
-# =============================================================================
-# ELI IDENTITY-ONLY EXECUTOR CONTRACT
-# Keeps USER_IDENTITY_SUMMARY from leaking preferences / working-style / project
-# memory into name/identity questions. No hardcoded user names.
-# =============================================================================
+# Identity-only executor contract (ELI_IDENTITY_ONLY_EXECUTOR_CONTRACT): keeps USER_IDENTITY_SUMMARY
+# from leaking preferences, working style or project memory into name/identity questions. No
+# hardcoded user names.
 try:
     def _eli_identity_only_name():
         try:
@@ -14187,10 +14043,9 @@ except Exception as _eli_identity_only_err:
     log.debug(f"[EXECUTOR] identity-only helpers failed: {_eli_identity_only_err}")
 # =============================================================================
 
-# Makes PERSONAL_MEMORY_SUMMARY mode-aware: inventory_only = just the category counts
-# (no preference dump), preferences_detail = the actual preference/working-style stuff,
-# full_profile = the whole active-user snapshot. I also strip the identity/name chatter
-# out of EXPLAIN_MEMORY_RUNTIME here. No user names hardcoded anywhere in this.
+# Makes PERSONAL_MEMORY_SUMMARY mode-aware: inventory_only is just the category counts,
+# preferences_detail the preference/working-style content, full_profile the whole active-user
+# snapshot. Also strips identity/name chatter out of EXPLAIN_MEMORY_RUNTIME.
 try:
     def _eli_profile_scope_active_user_id():
         try:
@@ -14428,12 +14283,9 @@ except Exception as _eli_profile_scope_exec_err:
     log.debug(f"[EXECUTOR] profile memory scope contract failed: {_eli_profile_scope_exec_err}")
 # =============================================================================
 
-# =============================================================================
-# ELI MEMORY RUNTIME REPORT SANITIZER
-# EXPLAIN_MEMORY_RUNTIME is architecture/runtime evidence only.
-# It must not carry identity guesses, profile facts, preference facts, or noisy
-# "Session context" identity hits in report metadata.
-# =============================================================================
+# Memory runtime report sanitizer: EXPLAIN_MEMORY_RUNTIME is architecture/runtime evidence only, so
+# no identity guesses, profile or preference facts, or noisy "Session context" identity hits in its
+# metadata.
 try:
     def _eli_memory_runtime_count_distinct_sessions(report):
         try:
@@ -14567,10 +14419,8 @@ except Exception as _eli_memory_runtime_sanitizer_err:
     log.debug(f"[EXECUTOR] memory-runtime report sanitizer failed: {_eli_memory_runtime_sanitizer_err}")
 # =============================================================================
 
-# =============================================================================
-# ELI MEMORY COUNT COMPACT EVIDENCE PROVIDER
-# Provides structured evidence only. Non-quick final wording belongs to cognition.
-# =============================================================================
+# Memory count compact evidence provider: structured evidence only; non-quick final wording belongs
+# to cognition.
 try:
     def _eli_memory_count_is_requested(args):
         import re
@@ -14715,12 +14565,9 @@ try:
 except Exception as _err:
     log.debug(f"[EXECUTOR] memory-count compact evidence provider failed: {_err}")
 
-# =============================================================================
-# ELI RECENT MEMORY PROCESSING EVIDENCE PROVIDER
-# MEMORY_STATUS + memory_scope=recent_processing returns compact SQLite-backed
-# evidence. No invented "I was processing equations" unless the DB actually says
-# that.
-# =============================================================================
+# Recent memory processing evidence provider: MEMORY_STATUS with memory_scope=recent_processing
+# returns compact SQLite-backed evidence, and no invented "I was processing equations" unless the DB
+# says so.
 try:
     import json as _eli_recent_mem_json
     import re as _eli_recent_mem_re
@@ -15027,10 +14874,9 @@ try:
 except Exception as _eli_recent_memory_exec_err:
     log.debug(f"[EXECUTOR] recent-memory-processing provider install failed: {_eli_recent_memory_exec_err}")
 
-# Second pass at the recent-memory-processing cleanup. My first provider was way too
-# loose — it'd surface runtime echoes, the current prompt, model-not-ready messages,
-# even old hallucinated answers as "recent memory processing". This wrapper scrubs the
-# report before it ever reaches user-visible synthesis.
+# Second pass on the recent-memory-processing cleanup. The first provider was too loose and
+# surfaced runtime echoes, the current prompt, model-not-ready messages and old hallucinated
+# answers. This wrapper scrubs the report before user-visible synthesis.
 try:
     def _eli_recent_mem_v2_bad_runtime_text(text: object, question: object = "") -> bool:
         low = str(text or "").strip().lower()
@@ -15171,11 +15017,8 @@ try:
 except Exception as _eli_recent_mem_v2_exec_err:
     log.debug(f"[EXECUTOR] recent-memory-processing cleanup v2 install failed: {_eli_recent_mem_v2_exec_err}")
 
-# =============================================================================
-# ELI SELF-REPORT RECENT UPDATES EVIDENCE PROVIDER
-# Provides deterministic evidence for questions like:
-# "Tell me about yourself. What updates/checks have been performed lately?"
-# =============================================================================
+# Self-report recent updates evidence provider: deterministic evidence for "Tell me about yourself.
+# What updates/checks have been performed lately?".
 try:
     import json as _eli_self_json
     import subprocess as _eli_self_subprocess
@@ -15287,10 +15130,9 @@ try:
     def _eli_self_build_recent_updates_report(question=""):
         root = _eli_self_project_root()
 
-        # Packaged AppImage/portable runs anchor project_root at ~/.local/share/ELI_v2.
-        # That directory often contains an OLD extracted source tree with a stale .git
-        # checkout (observed: v2.3.89 AppImage reporting v2.3.62 commits). Never trust
-        # git there unless we are in a genuine dev checkout of the running version.
+        # Packaged AppImage/portable runs anchor project_root at ~/.local/share/ELI_v2, which often
+        # holds an old extracted source tree with a stale .git (a v2.3.89 AppImage reported v2.3.62
+        # commits). Never trust git there unless it's a genuine dev checkout of the running version.
         _installed_ver = _eli_self_installed_version()
         _trust_git = True
         try:
@@ -15491,11 +15333,9 @@ try:
         else:
             content = audit_content
 
-        # The grounding rule is an instruction TO THE MODEL and must never be part
-        # of the visible answer. It was appended to `content`, which is returned as
-        # `response` — so the user read "Grounding rule: if an update/check is not
-        # listed above, ELI must not claim it happened." as ELI's reply (2.1.81).
-        # It lives in the report payload, alongside the rest of the policy block.
+        # The grounding rule is an instruction to the model and must never be visible. It was appended
+        # to `content`, which is returned as `response`, so the user read it as ELI's reply. It lives
+        # in the report payload with the rest of the policy block.
         report["policy"]["grounding_rule"] = (
             "If an update/check is not listed in this report, ELI must not claim it happened."
         )
@@ -15517,11 +15357,9 @@ try:
 except Exception as _eli_self_report_recent_exec_error:
     log.debug(f"[EXECUTOR][WARN] self-report recent-updates provider failed: {_eli_self_report_recent_exec_error}")
 
-# =============================================================================
-# ELI_GUI_RUNTIME_AUDIT_VISIBLE_RESULT_CONTRACT
-# Normalizes GUI_RUNTIME_AUDIT executor output so GUI receives visible content.
-# This does not change routing, cognition, GGUF, or the audit evidence source.
-# =============================================================================
+# GUI runtime audit visible-result contract (ELI_GUI_RUNTIME_AUDIT_VISIBLE_RESULT_CONTRACT):
+# normalises GUI_RUNTIME_AUDIT executor output so the GUI gets visible content. Doesn't change
+# routing, cognition, GGUF or the audit evidence source.
 try:
     _ELI_GUI_RUNTIME_AUDIT_VISIBLE_PREV = _gui_runtime_audit_report
 
@@ -15616,12 +15454,9 @@ except Exception as _eli_gui_audit_visible_contract_err:
     log.debug(f"[EXECUTOR] GUI_RUNTIME_AUDIT visible result contract failed: {_eli_gui_audit_visible_contract_err}")
 # =============================================================================
 
-# =============================================================================
-# ELI_EXECUTOR_FINAL_EXECUTE_ACTION_ALIAS_SYNC_V1
-# Final safety sync: execute_action must expose the same final contract surface as
-# execute. Several historical wrappers reassigned execute without also rebinding
-# execute_action, leaving execute_action pinned to an older wrapper.
-# =============================================================================
+# Final execute_action alias sync (ELI_EXECUTOR_FINAL_EXECUTE_ACTION_ALIAS_SYNC_V1): execute_action
+# must expose the same final contract as execute. Several historical wrappers reassigned execute
+# without rebinding execute_action, leaving it pinned to an older wrapper.
 try:
     _ELI_EXECUTOR_FINAL_ALIAS_SYNC_PREV_EXECUTE_ACTION = globals().get("execute_action")
     if callable(globals().get("execute")):
@@ -15635,10 +15470,8 @@ except Exception as _eli_executor_final_alias_sync_err:
     log.debug(f"[EXECUTOR] final execute_action alias sync failed: {_eli_executor_final_alias_sync_err}")
 # =============================================================================
 
-# RUNTIME_STATUS evidence metadata normalization is now done inline by
-# the mw_runtime_status_metadata middleware in the canonical table below.
-# The legacy inert wrapper that lived here has been removed.
-# =============================================================================
+# RUNTIME_STATUS evidence metadata normalisation is done inline by the mw_runtime_status_metadata
+# middleware in the canonical table below; the old inert wrapper here was removed.
 
 
 # --- Phase 11: multi-PDF helpers (consumed by mw_multipdf middleware) ------
@@ -15713,11 +15546,9 @@ try:
 except Exception as _eli_phase11_multipdf_executor_err:
     log.debug(f"[EXECUTOR] Phase 11 multi-PDF helpers failed: {_eli_phase11_multipdf_executor_err}")
 
-# =============================================================================
-# ELI_EXECUTOR_CANONICAL_MIDDLEWARE_TABLE_V1
-# Consolidates stacked execute wrappers into one explicit middleware chain.
-# Legacy wrapper blocks above are retained as retired compatibility helpers.
-# =============================================================================
+# Canonical middleware table (ELI_EXECUTOR_CANONICAL_MIDDLEWARE_TABLE_V1): consolidates the stacked
+# execute wrappers into one explicit chain. The legacy wrapper blocks above are kept as retired
+# compatibility helpers.
 try:
     if not globals().get("_ELI_EXECUTOR_CANONICAL_MIDDLEWARE_TABLE_V1"):
         _ELI_EXECUTOR_CANONICAL_MIDDLEWARE_TABLE_V1 = True

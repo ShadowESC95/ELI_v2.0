@@ -85,44 +85,20 @@ def clear_pending_proposal() -> None:
 # command phrase (first concrete option) or "" if the text contains no offer.
 import re as _re
 
-# STRONG offer stems. NOT inherently a question, which is what this used to
-# assume: "want me to" also appears in a declarative ABOUT the user, and the
-# stem alone cannot tell the two apart —
-#
-#   "Want me to update the profile?"            <- an offer; "yes" should run it
-#   "You want me to keep a deeper persona."     <- a statement about the user
-#
-# The second form is what ELI produces when it reads a preference back, and it
-# armed the proposal 'keep a deeper' (the lazy capture stopping at the comma) for
-# 300 seconds, so the next "yes" would have routed that fragment as a command.
-# Interrogative form is therefore enforced by the caller, per sentence — see
-# extract_proposal. The captured phrase STOPS at the first clause/sentence
-# boundary so a declarative tail can never run into it (the old regex stopped
-# only at ? , or-end, so "I'll backup my state. You have to deal with …" was
-# swallowed whole and stored as a fake action).
+# Strong offer stems. "want me to" isn't always a question: "Want me to update the profile?" is
+# an offer but "You want me to keep a deeper persona." is a statement, and it armed a bogus
+# proposal for 300s. The caller enforces question form per sentence (see extract_proposal). The
+# captured phrase stops at the first clause boundary.
 _STRONG_OFFER_RE = _re.compile(
     r"\b(?:want me to|shall i|should i|would you like me to|do you want me to)\s+"
     r"(.+?)(?:[.?!]|,| or |$)",
     _re.I,
 )
 
-# WEAK declarative stems ("I can …", "I'll …") are only a real OFFER when the
-# clause is phrased as a question (ends with ?). Otherwise "I can appreciate the
-# absurdity of existence" / "I'll be waiting here" are narrative, not actions —
-# capturing them let a later "yes" trigger a bogus command (no-fake-actions
-# violation). Requiring the trailing ? keeps genuine "I can run that for you?"
-# offers while dropping declaratives.
-# The capture must stop at a clause boundary, and the "?" has to close THAT
-# clause. `(.+?)\?` ran across a comma to find a question mark belonging to a
-# different sentence half, so
-#
-#   "Now that we've established I can finish a sentence again,
-#    what do you actually want to work on?"
-#
-# armed the proposal 'finish a sentence again, what do you actually want to work
-# on' — an eleven-word fragment of narrative, ready for the next "yes" to
-# execute as a command. Requiring the "?" immediately after an unbroken clause
-# keeps "I can run that for you?" and drops that.
+# Weak declarative stems ("I can ...", "I'll ...") are an offer only when phrased as a question.
+# "I can appreciate the absurdity of existence" is narrative and let a later "yes" trigger a bogus
+# command. The "?" must close the same unbroken clause, so "I can run that for you?" works and a
+# "?" from another sentence doesn't.
 _WEAK_OFFER_RE = _re.compile(
     r"\b(?:i can|i could|i'?ll|i'd be happy to|happy to)\s+([^,;?!.]+)\?",
     _re.I,

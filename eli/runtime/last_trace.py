@@ -8,14 +8,10 @@ import time
 
 from eli.core.paths import get_paths
 
-# One process = one session. The trace file persists across restarts, so without
-# this a question about "your last response" was answered from whatever run last
-# wrote the file — observed live at 2.1.96: a turn saved at 15:46 was reported as
-# the last response at 17:32, 106 minutes and one restart later, from a session
-# the user had already closed.
-#
-# The PID is the check rather than a stored session id because it is what
-# actually distinguishes runs, and it cannot be forgotten to update.
+# One process = one session. The trace file persists across restarts, so "your last response"
+# was answered from whichever run last wrote it (a turn from 15:46 reported at 17:32, a restart
+# later, from a closed session). The PID is the check because it really distinguishes runs and
+# can't be forgotten to update.
 _SESSION_PID = os.getpid()
 
 

@@ -181,19 +181,9 @@ def get_model_path() -> Optional[Path]:
         if p.exists():
             return p
 
-    # Last resort: the model THIS PROCESS is already running. The GUI loads the
-    # GGUF itself and hands it over by assigning gguf_inference._llm and
-    # publishing a live runtime override — it never routes through the settings
-    # keys above, so on a GUI-loaded install every lookup here came back empty
-    # while a model was demonstrably loaded and answering. Vision then swapped
-    # the text model out, asked for its path to put it back, and could not find
-    # the model it had just been using ("No GGUF model path configured", 24
-    # failed load attempts, 27s, chat left unloaded — 2.1.83).
-    #
-    # Deliberately last: explicit configuration always wins over "whatever is
-    # currently loaded".
-    # globals().get, not a bare name: _live_runtime_params is only ever created by
-    # assignment into globals() when a load publishes, so it may not exist yet.
+    # Last resort: the model this process is already running. The GUI hands it over via
+    # gguf_inference._llm, not the settings keys, so lookups came back empty mid-answer. Explicit
+    # config still wins. globals().get because _live_runtime_params only exists after a load.
     for _src in (globals().get("_live_runtime_override"),
                  globals().get("_live_runtime_params")):
         try:
@@ -292,13 +282,9 @@ def _is_thinking_model(model_path: Optional[Path] = None) -> bool:
     return _think(metadata=md, path=_loaded_model_path_str())
 
 
-# Thread-local "force no-think" scope. Some large-budget calls (e.g. grounded-evidence
-# synthesis for EXPLAIN_* control actions) have all the facts already gathered and only
-# need to phrase them — letting the model open a <think> block there just burns the whole
-# budget and returns empty (observed: EXPLAIN_MEMORY/COGNITION_RUNTIME looping through
-# multiple ~530s empty generations). Callers wrap such a call in `with force_no_think():`
-# to force the closed-think prefill regardless of budget, without threading a kwarg through
-# every layer. Thread-local so a concurrent agent's call is unaffected.
+# Thread-local "force no-think" scope for calls that already have all the facts and only phrase them
+# (EXPLAIN_* synthesis); otherwise a <think> block burns the whole budget and returns empty. Use
+# `with force_no_think():`. Thread-local so a concurrent agent's call is unaffected.
 _NO_THINK_TLS = threading.local()
 
 
@@ -343,16 +329,9 @@ def _no_think_prefill(*, structured: bool, max_tokens) -> str:
         _small = 0 < int(max_tokens or 0) < 1024
     except Exception:
         _small = False
-    # UTILITY calls (structured/JSON, OR small-budget chat: routing, reflection, insight,
-    # news synthesis, summary, judge) NEVER think — they have no budget for it and need the
-    # short/structured output. This holds REGARDLESS of the Think toggle (the earlier bug:
-    # ELI_MODEL_THINK=1 made these think and empty). The toggle only governs the MAIN
-    # answer call (large budget): think unless explicitly OFF.
-    # Quick mode is the FAST tier — its contract is "Direct, single-pass. No staged
-    # reasoning." A thinking model otherwise burns the whole budget inside <think>
-    # even for a greeting (observed: phatic "hey eli" thought for 316s). Phatic turns
-    # are downgraded to quick upstream, so this also delivers the phatic fast-path.
-    # The deeper modes (chain_of_thought, tree_of_thoughts, …) still think.
+    # Utility calls (structured/JSON or small-budget: routing, reflection, summary, judge) never
+    # think, whatever the Think toggle says. The toggle only governs the main answer. Quick mode
+    # doesn't think either (a "hey" once thought for 316s). ELI_MODEL_THINK.
     _quick = os.environ.get("ELI_CURRENT_REASONING_MODE", "").strip().lower() == "quick"
     if structured or _small or _quick:
         disable = True
@@ -364,12 +343,9 @@ def _no_think_prefill(*, structured: bool, max_tokens) -> str:
     return _closed_think if disable else ""
 
 
-# ── Future-proof template detection: read the model's OWN embedded template ───
-# A GGUF carries its chat template in metadata (`tokenizer.chat_template`). Using
-# it means ANY model — current or future — routes to the right prompt format
-# regardless of its filename. We content-sniff the template for the major
-# families (chatml/llama3/mistral/gemma/phi); a genuinely novel template falls
-# back to the filename heuristics, then the generic format.
+# Detect the chat template from the model's own metadata (`tokenizer.chat_template`) so any model
+# routes to the right format regardless of filename. Content-sniff for the major families; a novel
+# template falls back to filename heuristics, then the generic format.
 _TEMPLATE_FAMILY_CACHE: dict = {}
 
 
@@ -483,10 +459,8 @@ def _clean_eli_output(text: str) -> str:
     t = t.replace("assistant\n", "")
     t = t.strip()
     t = re.sub(r"^\s*ELI:\s*", "", t)
-    # Weak/short-context models sometimes echo ELI's OWN prompt scaffolding — the persona
-    # brief, context/history markers, the "reply directly" instruction — instead of
-    # answering. Cut the reply at the first such marker so internal scaffolding is NEVER
-    # shown to the user. (Observed on TinyLlama with a truncated 2048-ctx prompt.)
+    # Weak or short-context models sometimes echo ELI's prompt scaffolding instead of answering. Cut
+    # the reply at the first such marker so it is never shown.
     _scaffold_markers = (
         "--- BRIEF ---", "--- END HISTORY", "END HISTORY ---", "--- END BRIEF",
         "--- CONVERSATION HISTORY", "--- CONVERSACTION HISTORY", "CONVERSACTION HISTORY",
@@ -657,27 +631,14 @@ try:
 except Exception:
     _LLM_CALL_LOCK = threading.RLock()
 
-# ── Foreground-priority preemption ────────────────────────────────────────────
-# All generation serialises on _LLM_CALL_LOCK. On a slow/CPU-offloaded model a
-# background daemon generation (news synthesis, insight, morning report) can hold
-# that lock for minutes — and a user's foreground turn then queues behind it (the
-# logs showed a memory agent stalled 381s behind a 447s background news synth).
-#
-# Fix: a foreground generation SETS _FG_PRIORITY before it blocks on the lock;
-# any in-flight BACKGROUND generation carries a llama.cpp stopping_criteria that
-# returns True the moment _FG_PRIORITY is set, so it yields the lock at the next
-# token and the foreground turn jumps the queue. Background work is marked per
-# THREAD (set_background_inference) — the proactive daemon marks its loop thread,
-# so every generation it triggers is abortable regardless of the call path.
-# Kill switch: ELI_FG_PREEMPT=0.
+# Foreground preemption. Generation serialises on _LLM_CALL_LOCK, so a slow background job
+# (news, insight, morning report) could stall the user's turn for minutes. A foreground call
+# sets _FG_PRIORITY and background calls yield at the next token. ELI_FG_PREEMPT=0 turns it off.
 _FG_PRIORITY = threading.Event()
 # Keep the ctypes abort callback alive for the process lifetime.
 _LLAMA_ABORT_CB = None
-# Set at shutdown to abort EVERY in-flight generation at the next token. A background
-# self-improvement/codegen call can sit in a single native llm() call for 10+ minutes;
-# the OS can't kill a thread mid-native-call, so shutdown's unload_model() (which needs
-# the shared lock) blocked for 20-30 min. This cooperative abort lets any in-flight call
-# yield at the next token so teardown proceeds immediately.
+# Set at shutdown to abort every in-flight generation at the next token. A native call can't be
+# killed mid-thread, so without this unload_model() waited 20-30 min for the lock.
 _SHUTDOWN = threading.Event()
 # Set when the user clicks Stop during chat generation. Cooperative abort at the
 # next token — same mechanism as shutdown, without tearing down the model.
@@ -787,11 +748,8 @@ def load_model(force_reload: bool = False):
     if _llm is not None and not force_reload:
         return _llm
 
-    # Resolve the path BEFORE dropping the handle. force_reload used to null _llm
-    # first and then raise if no path could be found, so a reload that could never
-    # have succeeded still destroyed a perfectly good loaded model — which is how
-    # one image analysis left chat with no model at all (2.1.83). Failing to
-    # reload must leave you no worse off than not trying.
+    # Resolve the path before dropping the handle: a reload that can't succeed must not destroy the
+    # model that is loaded.
     settings = _load_runtime_settings()
     model_path = get_model_path()
     if not model_path:
@@ -827,10 +785,9 @@ def load_model(force_reload: bool = False):
     if n_ctx is None:
         n_ctx = _as_int(_runtime_value(settings, "n_ctx", "context_size"), config.get_gguf_n_ctx())
 
-    # Co-resident vision: load the small fast model FIRST (reserving its VRAM).
-    # The text model is then sized DYNAMICALLY to the VRAM left (see smart-fit
-    # below) — no static ctx cap. Best-effort — if the fast model can't load,
-    # we fall through to full context (no harm to boot).
+    # Co-resident vision: load the small fast model first to reserve its VRAM, then size the text
+    # model to what is left (no static ctx cap). If the fast model can't load, fall through to full
+    # context.
     _co_resident_active = False
     if bool(_runtime_value(settings, "vision_coresident", default=False)):
         try:
@@ -844,10 +801,9 @@ def load_model(force_reload: bool = False):
 
     n_gpu_layers = _env_int("ELI_GGUF_N_GPU_LAYERS", None)
     if n_gpu_layers is None:
-        # A pinned layer count only counts for the model it was pinned FOR. The
-        # GUI tuner applies the same rule; this is the path the server/API and
-        # any headless loader take, and it needs the same answer or a stale pin
-        # from a previous model still strands this one on the CPU.
+        # A pinned layer count only counts for the model it was pinned for. The GUI tuner applies
+        # the same rule; headless and API loaders need it too or a stale pin strands the new model
+        # on CPU.
         _pinned = None
         try:
             from eli.core.runtime_settings import pinned_gpu_layers_for_model as _pin4
@@ -1056,13 +1012,9 @@ def load_model(force_reload: bool = False):
         + ")"
     )
 
-    # A failed load used to surface as "AttributeError: 'LlamaModel' object has
-    # no attribute 'sampler'" -- llama-cpp-python's destructor tripping over an
-    # attribute __init__ never reached -- while the one line that says WHY was
-    # thrown away, because Llama(verbose=False) silences llama.cpp entirely.
-    # Harden the destructor, capture llama.cpp's own log for the duration of the
-    # load, and translate whatever it reports into something actionable. None of
-    # this knows any model by name; it works for any GGUF.
+    # A failed load surfaced as "AttributeError: 'LlamaModel' has no attribute 'sampler'" (the
+    # destructor) while the real reason was silenced by verbose=False. Harden the destructor,
+    # capture llama.cpp's log during the load, and translate it. Nothing here knows a model by name.
     from eli.cognition.model_load_diagnostics import (
         ModelLoadError,
         harden_llama_destructor as _harden,
@@ -1116,13 +1068,9 @@ def load_model(force_reload: bool = False):
         else:
             raise
     except Exception as _load_err:
-        # A GPU pack that cannot READ this model must not end the attempt. The
-        # bundled runtime ships newer than any pack the wheel indexes publish,
-        # so when the failure is "this build does not understand the file" AND
-        # the pack is the thing in the way, drop the pack and load again on the
-        # bundle. The user gets the model instead of an instruction to set an
-        # environment variable by hand -- ELI ships to people who will never
-        # read that message.
+        # A GPU pack that can't read this model must not end the attempt. If the failure is "this
+        # build doesn't understand the file" and the pack is in the way, drop the pack and load on
+        # the bundled runtime; users won't set an env var by hand.
         from eli.cognition.model_load_diagnostics import (
             gpu_pack_is_too_old as _pack_old,
             deactivate_gpu_pack as _drop_pack,
@@ -1323,21 +1271,9 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
     - serialize calls via _LLM_CALL_LOCK
     - if requested tokens exceed context window, retry with smaller max_tokens
     """
-    # ── Fit the request to the window BEFORE calling, not after it throws ────
-    # Every generation in ELI passes through here, streaming or not, so this is
-    # the one place a budget cannot be bypassed. The callers each had their own
-    # partial version: the chat path clamps (line ~1294), the JSON path clamps,
-    # and the streaming path did neither — it passed max_tokens straight through.
-    #
-    # Live consequence at 2.1.98, after a smart-fit load fell back from ctx=10384
-    # to ctx=4096: a 3,893-token prompt was sent asking for 2,048 more in a 4,096
-    # window. The first reply was cut to "Yes. Here's why." and the next two
-    # raised "Requested tokens (5167) exceed context window of 4096", dropping the
-    # turn to the non-streaming broker at max_tokens=128.
-    #
-    # The retry below still exists for what a static estimate cannot predict, but
-    # it is now the exception rather than the mechanism: reacting to an overflow
-    # mid-stream means the user has already seen a truncated answer.
+    # Fit the request to the window before calling, not after it throws. Every generation passes
+    # here, so a budget can't be bypassed (streaming used to pass max_tokens straight through and
+    # overflowed a 4096 window). The retry below covers what an estimate can't predict.
     _fit_prompt, attempt_max = _fit_generation_budget(llm, full_prompt, max_tokens)
     if _fit_prompt is not full_prompt:
         full_prompt = _fit_prompt
@@ -1367,11 +1303,9 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                 _FG_PRIORITY.clear()
 
     def _safe_release():
-        # Release the call lock, tolerating "already released". A model reload / inference
-        # abort race (observed on Ctrl-C during a live stream, and on a mid-stream reload) can
-        # release the lock out from under this call; a second release() then raises
-        # "cannot release un-acquired lock" — which used to surface as "GGUF streaming failed"
-        # and kill the reply mid-stream. Swallow exactly that case; never crash cleanup on it.
+        # Release the call lock, tolerating "already released". A reload/abort race can release it
+        # out from under this call, and the second release() used to kill the reply mid-stream.
+        # Swallow exactly that case.
         try:
             _LLM_CALL_LOCK.release()
         except RuntimeError:
@@ -1427,13 +1361,9 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
             last_exc = e
             msg = str(e).lower()
             if "exceed context window" in msg or "requested tokens" in msg:
-                # Two distinct overflow shapes:
-                #   (a) max_tokens too large for the remaining window, or
-                #   (b) the PROMPT alone already exceeds the context window.
-                # Halving max_tokens only ever fixes (a). For (b) — which is what a
-                # model whose trained context is smaller than ELI's brief hits — we
-                # MUST shrink the prompt, or the retry loop runs to exhaustion and the
-                # raw exception bubbles up to the user. Truncate head+tail to fit, once.
+                # Two overflow shapes: (a) max_tokens too big for the remaining window, (b) the
+                # prompt alone exceeds it. Halving max_tokens only fixes (a); for (b) shrink the
+                # prompt (head+tail, once) or the retries run out.
                 _lim = _effective_ctx_limit(llm)
                 _ptok = _estimate_prompt_tokens(llm, full_prompt)
                 _gen_floor = max(64, min(256, _lim // 8))
@@ -1533,17 +1463,9 @@ def _effective_ctx_limit(llm) -> int:
             except Exception:
                 loaded = 0
     train = _model_train_ctx()
-    # Cross-check against load_model()'s own recorded effective ctx -- the
-    # authoritative record of what THIS llm was actually constructed with.
-    # Confirmed in the field: llm.n_ctx() returned a stale/larger figure for
-    # one streaming call (a smart-fit reload had landed on a smaller ctx a
-    # moment earlier) while every [GGUF][EFFECTIVE] log line for the same
-    # session correctly showed the smaller value, and the mismatch sized a
-    # prompt too large for the context the model actually enforced
-    # ("Requested tokens exceed context window of ..."). A smaller,
-    # more-conservative snapshot figure must never be overridden by a larger
-    # live read -- worst case here is a slightly tighter truncation, never a
-    # failed generate() call.
+    # Cross-check the ctx load_model() recorded, the authoritative record of what this llm was built
+    # with. llm.n_ctx() returned a stale larger figure after a smart-fit reload. A smaller snapshot
+    # value is never overridden by a larger live read.
     snap_eff = 0
     try:
         _rep = globals().get("_ELI_EFFECTIVE_RUNTIME_REPORT") or {}
@@ -1631,12 +1553,9 @@ def _generate_legacy(
 
     available_tokens = _ctx_max_tokens(llm, full_prompt)
     if available_tokens <= 0:
-        # The prompt ALONE exceeds the context window — common when a big model forced
-        # ctx very small (a 20 GB MoE crushed to ctx=6144 while ELI's persona+memory
-        # prompt runs ~7k tokens). TRUNCATE head+tail to fit and reserve a minimum
-        # generation budget, instead of failing the turn ("Requested tokens exceed
-        # context window"). Model-agnostic; head keeps the system/persona, tail keeps
-        # the most recent context + the actual user turn.
+        # The prompt alone exceeds the window (a big model crushed to a small ctx). Truncate
+        # head+tail to fit and reserve a minimum generation budget instead of failing the turn. Head
+        # keeps the system/persona, tail keeps the recent context and the user turn.
         _n_ctx = _effective_ctx_limit(llm)
         _min_gen = max(96, min(512, _n_ctx // 8))
         _budget = max(256, _n_ctx - _min_gen - 96)
@@ -2051,10 +1970,9 @@ def reload_model(*, await_completion: bool = True) -> Dict[str, Any]:
         "params": {},
     }
     try:
-        # Settings save writes model_path to disk, but get_model_path() prefers
-        # ELI_GGUF_MODEL_PATH. The GUI/startup load pins that env to the *previous*
-        # model, so a settings swap would "reload" the same GGUF forever unless
-        # we re-publish env from the just-saved settings before load_model().
+        # Settings save writes model_path, but get_model_path() prefers ELI_GGUF_MODEL_PATH, which
+        # the GUI pins to the previous model. Re-publish the env from the saved settings before
+        # load_model() or a swap reloads the same GGUF forever.
         try:
             from eli.core.runtime_settings import (
                 load_settings_from_disk as _rs_disk,
@@ -2473,12 +2391,8 @@ if callable(globals().get("generate")):
     globals()["generate"] = _wrap_generate(globals()["generate"])
 
 
-# =============================================================================
-# ELI ADAPTIVE GGUF COLD LOAD CONTRACT
-# Cold CognitiveEngine() loads must use the same machine-adaptive behavior as
-# the launcher path. A requested runtime is not "impossible"; it either succeeds
-# on the current machine or fails and degrades to a lower candidate.
-# =============================================================================
+# Adaptive cold load: a cold CognitiveEngine() load uses the same machine-adaptive behaviour as the
+# launcher. A requested runtime either succeeds here or degrades to a lower candidate.
 try:
     import inspect as _eli_adapt_inspect
     import os as _eli_adapt_os
@@ -2622,18 +2536,9 @@ try:
                 512,
             )
 
-            # hw_profile_n_gpu_layers is the VRAM-calibrated ceiling computed
-            # for THIS model on THIS machine's current free VRAM. Any resolved
-            # value ABOVE it will try to offload more layers than fit and OOM
-            # on the first load attempt. Clamp down to the calibrated value
-            # whenever the resolved value exceeds it.
-            #
-            # The old guard only caught the >=9000 sentinel, which let stale
-            # real-looking values slip through — e.g. a prior 7B session left
-            # canonical n_gpu_layers=25, then a 24B model (calibrated to 13)
-            # would request 25, OOM, and thrash through the fallback ladder.
-            # hw_profile=99 ("all layers fit") is never exceeded by a real
-            # layer count, so a smaller real request is correctly left alone.
+            # hw_profile_n_gpu_layers is the VRAM-calibrated ceiling for this model on this machine.
+            # Clamp any resolved value above it or the first load OOMs. 99 ("all layers fit") is
+            # never exceeded by a real count, so a smaller real request is left alone.
             if _hw_gpu > 0 and _raw_gpu > _hw_gpu:
                 _raw_gpu = _hw_gpu
             if _hw_ctx > 0 and _raw_ctx > _hw_ctx * 1.5:
@@ -2674,13 +2579,9 @@ try:
             req_gpu = max(0, int(requested.get("n_gpu_layers") or 0))
             req_batch = max(32, int(requested.get("n_batch") or 512))
 
-            # HARD CEILING: never request more context than the model was trained for.
-            # The requested ctx comes from config/env and can be stale-large (e.g. 32768
-            # for a 4096-train fine-tune). Loading past n_ctx_train yields "possible
-            # training context overflow" and garbled output. Read the real trained length
-            # from GGUF metadata and clamp EVERY candidate to it — model-agnostic, no
-            # hardcoded sizes. (The GUI smart-fit path already does this; this closes the
-            # same gap on the headless/fallback loader.)
+            # Hard ceiling: never request more context than the model was trained for (stale config
+            # can ask for 32768 on a 4096 model, which garbles output). Read the trained length from
+            # GGUF metadata and clamp every candidate to it, on the headless loader too.
             _train_ctx = _model_train_ctx()
             if _train_ctx > 0:
                 req_ctx = min(req_ctx, _train_ctx)
@@ -2689,12 +2590,9 @@ try:
             free = int(gpu.get("free_mib") or 0)
             basis = free if free > 0 else total
 
-            # VRAM-proportional ctx cap — replaces hardcoded tier values.
-            # Allocates 40% of free VRAM to the KV cache after a 512 MiB
-            # floor for CUDA context overhead.  KV at fp16 for a typical
-            # 7B-class model is ~160 KB/token (32 layers × 8 GQA heads ×
-            # 128 head_dim × 2 bytes × 2 for K+V with 25% headroom).
-            # Aligned to 2048-token granularity for llama.cpp.
+            # VRAM-proportional ctx cap: 40% of free VRAM goes to the KV cache after a 512 MiB
+            # CUDA-overhead floor. fp16 KV for a typical 7B is about 160 KB/token. Aligned to 2048
+            # tokens.
             _kv_bytes_per_token = 163840  # 160 KiB / token
             _kv_budget_mb = max(0, int(basis * 0.40) - 512) if basis > 0 else 0
             _vram_ctx = (
@@ -2704,15 +2602,9 @@ try:
 
             candidates = []
 
-            # Known-good first: if a previous successful load published its
-            # effective config (the GUI smart-fit, or any prior load), try THAT
-            # before the raw requested config. This is what makes a reload —
-            # notably the text-model restore after a vision hot-swap — return to
-            # the profile that already fit (e.g. ctx=22528/gpu=99) instead of
-            # starting from the raw oversized request (ctx=30720) and adaptively
-            # collapsing to a near-CPU config (gpu_layers=16) for the rest of the
-            # session. Only prepended when present + valid; the ladder below is
-            # the safety net if it no longer fits.
+            # Known-good first: if an earlier load published its effective config, try that before the raw
+            # request. It puts a reload (e.g. after a vision hot-swap) back on the profile that fit. The
+            # ladder below is the safety net.
             try:
                 _ov = globals().get("_live_runtime_override") or {}
                 _ov_ctx = int(_ov.get("n_ctx") or 0)
@@ -2899,21 +2791,15 @@ try:
             if kwargs.pop("_eli_disable_adaptive_cold_loader", False):
                 return _ELI_RAW_GGUF_LOAD_MODEL(*args, **kwargs)
 
-            # Fast-path: model already in memory, no force_reload requested.
-            # Skip VRAM probe + candidate loop entirely — just return the cached
-            # instance.  Avoids "[GGUF][ADAPTIVE] load attempt 1" noise on every
-            # inference call when the model is healthy.
+            # Fast path: model already loaded and no force_reload, so return it without the VRAM
+            # probe or candidate loop.
             _force = kwargs.get("force_reload", False) or (args and args[0])
             if _llm is not None and not _force:
                 return _llm
 
-            # A missing model path is not a VRAM-fitting problem, and no candidate
-            # in the list can fix it. Retrying all eight produced eight identical
-            # "No GGUF model path configured" failures — and each one calls
-            # _eli_try_unload_after_failed_load(), so the retries also tore down the
-            # model the caller was trying to keep. Live at 2.1.83: three rounds of
-            # this after one image analysis, 24 failed loads in 27.3 seconds.
-            # Fail once, immediately, without unloading anything.
+            # A missing model path isn't a VRAM problem and no candidate can fix it; retrying all of
+            # them tore the loaded model down each time. Fail once, immediately, without unloading
+            # anything.
             try:
                 if get_model_path() is None:
                     raise FileNotFoundError("No GGUF model path configured")
@@ -2997,10 +2883,9 @@ try:
                     _eli_try_unload_after_failed_load()
 
                     if not getattr(e, "retryable", True):
-                        # A missing tensor / unknown architecture / corrupt file
-                        # is a property of the model and this build. Every
-                        # remaining candidate would fail identically -- and each
-                        # one used to print its own phantom sampler traceback.
+                        # A missing tensor, unknown architecture or corrupt file is a property of
+                        # the model and this build; every remaining candidate would fail the same
+                        # way, so stop.
                         log.warning(
                             "[GGUF][ADAPTIVE] unrecoverable on attempt %d; "
                             "skipping the remaining %d candidate(s): %s",
@@ -3022,11 +2907,8 @@ try:
 except Exception as _eli_adaptive_loader_err:
     log.debug(f"[GGUF][ADAPTIVE] cold load fallback wrapper failed: {_eli_adaptive_loader_err}")
 
-# =============================================================================
-# ELI EFFECTIVE GGUF RUNTIME SNAPSHOT CONTRACT
-# Separates requested runtime config from effective loaded config.
-# This is machine-adaptive: no GPU/VRAM configuration is treated as impossible.
-# =============================================================================
+# Effective runtime snapshot: separates the requested config from the effective loaded one. No
+# GPU/VRAM config is treated as impossible.
 try:
     if "load_model" in globals() and not getattr(load_model, "_eli_effective_runtime_snapshot_contract", False):
         import json as _eli_eff_json
@@ -3161,13 +3043,9 @@ try:
             previous_requested = existing.get("requested") if isinstance(existing.get("requested"), dict) else {}
             adaptive_requested = adaptive.get("requested") if isinstance(adaptive.get("requested"), dict) else {}
 
-            # Important:
-            # The raw loader writes its resolved load parameters to runtime_snapshot.json
-            # before this effective wrapper rewrites the snapshot. Those raw top-level
-            # values are the best evidence of what was actually requested by the GGUF
-            # load path. Legacy aliases such as ELI_N_GPU_LAYERS can be stale and may
-            # not match the resolved llama.cpp load parameters, so they are last-resort
-            # fallbacks only.
+            # The raw loader writes its resolved parameters to runtime_snapshot.json before this wrapper
+            # rewrites it, so those values are the best evidence of what was requested. Legacy aliases like
+            # ELI_N_GPU_LAYERS can be stale, last resort only.
             raw_snapshot_requested = {
                 "n_ctx": existing.get("requested_n_ctx") or existing.get("n_ctx"),
                 "n_gpu_layers": existing.get("requested_n_gpu_layers") or existing.get("n_gpu_layers"),
@@ -3216,12 +3094,9 @@ try:
                 previous_value = previous_effective.get(key)
                 legacy_value = existing.get(key)
 
-                # The LIVE object outranks the selected candidate. `selected`
-                # is the plan the loader intended; `live` is what llama.cpp was
-                # actually constructed with. When smart-fit reduced 28 layers to
-                # 16 and loaded 16, this reported "effective gpu_layers=28"
-                # because the plan won -- a diagnostic contradicting llama.cpp's
-                # own "offloaded 16/66" in the same log. Effective means real.
+                # The live object outranks the selected candidate: `selected` is the plan, `live` is
+                # what llama.cpp was built with. Reporting the plan contradicted llama.cpp's own
+                # "offloaded 16/66". Effective means real.
                 effective[key] = _eli_eff_int(
                     live_value if live_value not in (None, "") else
                     selected_value if selected_value not in (None, "") else

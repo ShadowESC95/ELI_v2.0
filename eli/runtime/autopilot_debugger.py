@@ -141,17 +141,11 @@ def _config_checks(root: Path) -> List[str]:
     return issues
 
 
-# pytest colourises when FORCE_COLOR/PY_COLORS is set in the environment, even
-# through capture_output. The escape sequences end in a LETTER, which glues to the
-# text that follows and silently destroys word-boundary matching:
-#
-#     '\x1b[31m\x1b[1m1 failed\x1b[0m'   →  \b\d+\s+failed\b  does NOT match
-#      ...........^ 'm' and '1' are both word chars, so there is no \b before the digit
-#
-# The reproduction of a test that plainly failed was therefore reported as "did not
-# reproduce" — a false negative about a real failure, which is the one answer this
-# function must never give. Colour is turned off in the child and stripped from what
-# it returns, so the captured output is also readable when quoted in a report.
+# pytest colourises when FORCE_COLOR/PY_COLORS is set, even through capture_output. The escape
+# sequences end in a letter that glues to the next text and breaks word-boundary matching
+# ('\x1b[31m\x1b[1m1 failed\x1b[0m' doesn't match \b\d+\s+failed\b), so a plainly failing test
+# was reported "did not reproduce". Colour is turned off in the child and stripped from what it
+# returns, which also keeps reports readable.
 _ANSI_RE = re.compile(r"\x1b\[[0-9;?]*[ -/]*[@-~]")
 
 

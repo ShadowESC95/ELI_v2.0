@@ -76,13 +76,9 @@ def tier_scale(tier: Optional[str] = None) -> float:
     return float(_TIER_SCALE.get(tier or detect_tier(), 1.0))
 
 
-# ── Speed-aware tier ──────────────────────────────────────────────────────────
-# The capability tier scales the reasoning modes UP by model SIZE — correct for a fast big model,
-# but a big model that doesn't fit the GPU runs heavily CPU-offloaded and SLOW, so the extra passes
-# (4 self_consistency samples, 4 ToT branches) cost minutes each. We record live decode speed
-# (tokens/sec) from real generations and let speed_passes() cap the per-mode pass COUNT when the
-# model is slow — degrading a slow model's modes toward single-pass. It NEVER caps output length
-# (that would truncate an answer); it only reduces how many full generations a mode runs.
+# Speed-aware tier. Reasoning modes scale up with model size, but a big model that doesn't fit
+# the GPU runs offloaded and slow, so extra passes cost minutes each. Live decode speed is
+# recorded and speed_passes() caps the pass count when it's slow. Never caps output length.
 _speed_ema = 0.0          # tokens/sec; 0.0 = not yet measured
 _SPEED_ALPHA = 0.4        # EMA weight on the newest measurement
 

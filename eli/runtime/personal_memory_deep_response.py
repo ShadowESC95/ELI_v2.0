@@ -435,10 +435,8 @@ __all__ = [
     "build_routing_fault_explanation",
 ]
 
-# =============================================================================
-# FINAL CLEAN PERSONAL MEMORY RESPONSE OVERRIDE
-# Replaces older schema-dump/reflection-spam response surfaces.
-# =============================================================================
+# Final clean personal-memory response override: replaces the older schema-dump/reflection-spam
+# response surfaces.
 try:
     from eli.runtime.personal_memory_clean_response import build_clean_personal_memory_response as _eli_clean_personal_memory_response
 

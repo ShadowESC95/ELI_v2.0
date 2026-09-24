@@ -1,7 +1,4 @@
-# eli/runtime/auth.py
-# AuthManager was an incomplete multi-user auth skeleton (login() was `pass`,
-# missing import time, and ELI is a single-user assistant).
-# Removed. Authority and security are handled by:
-#   eli/runtime/authority_gate.py  — action allow/check gate
-#   eli/runtime/security.py        — SecurityManager (path/command sandboxing)
-#   eli/kernel/engine.py           — verify_persona_lock / repair_persona_lock
+# AuthManager was an unfinished multi-user auth skeleton (login() was `pass`) and ELI is
+# single-user, so it's gone. Authority and security live in authority_gate.py (action gate),
+# security.py (SecurityManager: path/command sandboxing) and kernel/engine.py
+# (verify_persona_lock / repair_persona_lock).

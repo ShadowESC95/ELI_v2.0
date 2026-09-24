@@ -144,12 +144,9 @@ TUNABLES: List[Tunable] = [
             "clamped to each limit's max). 0 = use the fixed limits.",
             1, 0, 1, 1, "Auto-scaling (model tier)"),
 
-    # ── Emotional awareness ─────────────────────────────────────────────────
-    # How readily ELI decides the user is in a sustained mood, and how forward it
-    # is about raising it. Every default here matches the shipped constant in
-    # `eli/cognition/emotion_timeline.py`, so behaviour is unchanged until touched.
-    # Deliberately conservative out of the box: a wrong "you seem upset" costs far
-    # more than a missed one.
+    # Emotional awareness: how readily ELI decides you're in a sustained mood and how forward it is
+    # about it. Defaults match cognition/emotion_timeline.py so nothing changes until touched.
+    # Conservative on purpose, a wrong "you seem upset" costs more than a missed one.
     Tunable("cog.emotion_enabled", "Emotional awareness on (0/1)",
             "Master switch. When off ELI still adapts its tone to the current turn, "
             "but keeps no emotional history and never raises your mood unprompted.",

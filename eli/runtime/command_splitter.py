@@ -26,25 +26,11 @@ from typing import List, Optional
 _CONJ_RX = re.compile(
     r"\s+(?:and then|and also|;|,\s*then\s+|\bthen\b|\band\b)\s+", re.I)
 
-# Imperative action verbs a real command starts with.
-#
-# This vocabulary IS the splitter's model of what ELI can be told to do, and it
-# had drifted badly from the capability manifest: of the 122 distinct verbs in
-# ELI's own action names, 99 were unknown here. Two live consequences:
-#
-#   "do a web search on QFT and open the browser"
-#       -> "do" was not a verb, so nothing split and the whole tail was
-#          swallowed into the search query as "on QFT and open the browser".
-#   "open firefox then maximise it"
-#       -> split fine, but "maximise" was not a verb so the split was rejected
-#          and the app name became "firefox then maximise it".
-#
-# Only genuine IMPERATIVES are added. Most manifest verbs are nouns lifted from
-# action names (AMBIENT_VISION, GPU_STATUS, CODEBASE_GRAPH); admitting those
-# would split ordinary phrases, because the guard below only holds while a
-# non-verb second segment can still fail the all() check. The companion test
-# locks both directions: the multi-tool cases must split, and the documented
-# false-split cases must not.
+# Imperative verbs a real command starts with: the splitter's model of what ELI can be told
+# to do. It had drifted from the capability manifest, so "do a web search and open the browser"
+# and "open firefox then maximise it" didn't split. Only real imperatives are added; most manifest
+# verbs are nouns from action names (GPU_STATUS) and would split ordinary phrases. The companion
+# test locks both directions.
 _IMP_START = re.compile(
     r"^\s*(open|launch|start|play|pause|stop|close|quit|kill|set|get|fetch|show"
     r"|check|run|remind|turn|mute|unmute|screenshot|take|send|search|find|read"

@@ -57,17 +57,13 @@ def _already_stored(mem, text: str) -> bool:
 
 
 
-# Canonical topic-noise vocabulary. Shared, because it was NOT: the proactive
-# daemon carried its own ~180-word list that never received the fixes this one
-# did, and on a live overnight run it reported the user's "Current focus areas"
-# as `afternoon (x11), doing (x10), today (x10), memory (x9), world (x7)` —
-# four of those five are in this set and would have been dropped.
+# Canonical topic-noise vocabulary, shared because it wasn't: the proactive daemon had its own
+# ~180-word list that never got these fixes and reported "Current focus areas" as `afternoon (x11),
+# doing (x10), today (x10), memory (x9), world (x7)`; four of those are in this set.
 TOPIC_STOPWORDS = frozenset({
-            # topic_words() strips apostrophes ("you're" -> "youre"), so the
-            # contraction forms must be listed WITHOUT them or they survive the
-            # filter and get counted as subjects. Live at 2.3.0 the Proactive tab
-            # reported "Current focus areas: open (x10), youre (x9), memory (x9),
-            # yourself (x7)" — "youre" was the second-strongest topic of the day.
+            # topic_words() strips apostrophes ("you're" -> "youre"), so contraction forms must be
+            # listed without them or they survive and get counted as subjects (the Proactive tab
+            # reported "youre (x9)" as the second-strongest topic of the day).
             "youre", "im", "wont", "isnt", "didnt", "theres", "ive", "youve",
             "hes", "shes", "doesnt", "couldnt", "wouldnt", "havent", "wasnt",
             "arent", "werent", "hasnt", "hadnt", "youll", "theyre", "weve",
@@ -95,23 +91,10 @@ TOPIC_STOPWORDS = frozenset({
             "again", "sure", "actually", "maybe", "think", "thought", "guess",
             "looks", "looking", "talking", "discussing", "anything", "everything",
             "something", "nothing", "another", "though", "each", "every",
-            # Expletives and intensifiers. NOT a content filter — ELI still hears
-            # these, still answers them, and still swears back if that is its voice.
-            # `tone_analyzer._FRUSTRATION` reads the raw text and matches
-            # "what the f[a-z]*" ON PURPOSE, which is how ELI knows the operator is
-            # annoyed; that path is untouched.
-            #
-            # The bug is narrower: topic_focus answers "what SUBJECTS does this
-            # person care about", and an intensifier is not a subject. Live at 2.3.9
-            # the Proactive tab reported "Current focus areas: fuck (x8), memory
-            # (x8), world (x7), self (x5), screen (x5)" — joint top, then fed into
-            # persona updates and proactive suggestions as an interest to help with.
-            # Same shape as "youre" at 2.3.0 and "afternoon" on the overnight run:
-            # a word that clears the 4-character bar and carries no subject matter.
-            # Auxiliary//past-tense verbs. "did" survived into an FTS5 query as a
-            # search term ("what did I say about fallout" -> "did" OR "fallout"),
-            # matching any memory containing "did". The list had "doing" and "does"
-            # but not "did", "had", "been" as query noise.
+            # Expletives and intensifiers. Not a content filter, ELI still hears and answers them, and
+            # tone_analyzer._FRUSTRATION reads the raw text on purpose. topic_focus is "what does this person
+            # care about", and an intensifier isn't one ("fuck (x8)" showed as a top interest).
+            # Auxiliary verbs too: "did" survived into an FTS5 query and matched any memory containing it.
             "did", "had", "has", "was", "were", "am", "are", "be", "being",
             "come", "came", "goes", "went", "gets", "getting", "put", "puts",
             "fuck", "fucking", "fucked", "fucks", "shit", "shite", "shitty",
@@ -196,10 +179,9 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
     """Generate a reflection summary from the last N hours."""
     mem = get_memory()
     insights: List[str] = []
-    # Each section below swallows its own exceptions so one bad source doesn't
-    # kill the whole reflection -- but "every section failed" and "every
-    # section found nothing" used to produce the identical confident
-    # conclusion. Track failures so the final message is honest about which.
+    # Each section below swallows its own exceptions so one bad source doesn't kill the whole
+    # reflection, but "every section failed" and "every section found nothing" gave the same
+    # confident conclusion. Track failures so the final message is honest about which.
     section_errors: List[str] = []
 
     # App usage patterns
@@ -330,13 +312,11 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
                 mem.store_memory(reflection_text, tags=["reflection", "auto"])
             except Exception:
                 log.debug("reflection: aggregate store failed", exc_info=True)
-        # Also store each individual insight so the reflection surfaces can cite
-        # it. These are TELEMETRY, not facts about anyone: recall filters them by
-        # source ('eli_reflection') so they cannot compete with real user memories
-        # — see the note on _noise_sources in memory.recall_memory. They were
-        # previously written under a kind/tag combination picked to dodge that
-        # filter, which is how 83% of everything ELI could recall came to be its
-        # own failure counts and keyword tallies.
+        # Also store each individual insight so reflection surfaces can cite it. These are telemetry,
+        # not facts about anyone: recall filters them by source ('eli_reflection') so they can't compete
+        # with real user memories (see _noise_sources in memory.recall_memory). They used to be written
+        # under a kind/tag combination picked to dodge that filter, which is how 83% of everything ELI
+        # could recall became its own failure counts and keyword tallies.
         for _ins in insights[:6]:
             _ins_text = str(_ins or "").strip()
             if not _ins_text or len(_ins_text) < 15:

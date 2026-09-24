@@ -6,13 +6,9 @@ def _eli_phase10_blocks_media_intent(text: str) -> bool:
     """
     s = str(text or "").lower().strip()
 
-    # This blocker exists to stop long academic prompts being heard as song
-    # requests, but try_route applies it as an early return for the WHOLE
-    # contract — app, window, browser and shell routes included. So a single
-    # word was enough to disable all of them: "open a browser on quantum field
-    # theory" was blocked by "theory" and fell through to a plain web search.
-    # An utterance that opens with an explicit app/window verb is not a play
-    # request, whatever subject follows it.
+    # This blocker stops long academic prompts being heard as song requests, but try_route used it
+    # as an early return for the whole contract, so one word ("theory") disabled app, window,
+    # browser and shell routes. An utterance opening with an app/window verb isn't a play request.
     import re as _re10
     if _re10.match(
         r"^(?:please\s+|pls\s+|kindly\s+)?"
@@ -126,10 +122,9 @@ _APP_TAIL_REJECT_TOKENS = frozenset({
     "please", "thanks", "thank", "to", "for", "about", "regarding", "if",
     "whether", "could", "would", "should", "can", "may", "might", "do",
     "does", "did", "is", "are", "was", "were", "the",
-    # Prepositions and search verbs: "open a browser on qft" was accepted
-    # whole as an app named "a browser on qft" and offered to install it,
-    # because none of its four tokens was on this list. "of" is deliberately
-    # absent — plenty of real applications are named "<x> of <y>".
+    # Prepositions and search verbs: "open a browser on qft" was taken whole as an app called "a
+    # browser on qft" and offered for install. "of" is deliberately absent: plenty of apps are named
+    # "<x> of <y>".
     "on", "in", "into", "onto", "with", "from", "via", "using",
     "search", "searching", "find", "google", "lookup",
     # Deictic / meta words — "run that command" is not an app named "that command".
@@ -137,10 +132,9 @@ _APP_TAIL_REJECT_TOKENS = frozenset({
 })
 
 
-# A generic browser request is a browser request, not an app called
-# "browser qft". OPEN_BROWSER already accepts a query and turns it into a
-# search page, so the capability existed — it was simply shadowed by this
-# contract matching first at confidence 0.995.
+# A generic browser request is a browser request, not an app called "browser qft". OPEN_BROWSER
+# already accepts a query and makes a search page; this contract matched first at 0.995 and shadowed
+# it.
 _BROWSER_HEAD_RE = re.compile(r"^(?:(?:a|an|the)\s+)?(?:(?:web|internet)\s+)?browsers?\b", re.I)
 _BROWSER_JOINER_RE = re.compile(r"^(?:on|for|about|to|at|with|and|then|showing)\s+", re.I)
 _BROWSER_VERB_RE = re.compile(r"^(?:search(?:\s+for)?|look\s*up|lookup|find|google|browse)\s+", re.I)
@@ -364,11 +358,8 @@ def try_route(text: str) -> Optional[dict]:
     if m_shell:
         parts = m_shell.group(1).strip().split()
         if parts and parts[0].lower() in _PORTABLE_SHELL_CMDS:
-            # Extract the command from the ORIGINAL text, not the lowercased
-            # norm — shell commands are case-sensitive (paths like
-            # /home/<user>/Desktop, flags like -R vs -r). norm is only used to
-            # detect that this IS a shell command; the cmd itself must keep
-            # the user's original case.
+            # Extract the command from the original text, not the lowercased norm: shell commands
+            # are case-sensitive (paths, -R vs -r). norm only detects that this is a shell command.
             _raw_collapsed = re.sub(r"\s+", " ", raw).strip()
             m_shell_raw = re.match(r"(?i)(?:run|execute)\s+(\S+(?:\s+.+)?)", _raw_collapsed)
             _cmd = (m_shell_raw.group(1).strip() if m_shell_raw
@@ -390,19 +381,16 @@ def try_route(text: str) -> Optional[dict]:
     ):
         return None
 
-    # "please open the browser and search for QFT" never reached this matcher
-    # because of the leading politeness marker, so it fell through to a plain
-    # web search and opened nothing — twice, while the user was shouting for a
-    # browser page. Stripped for this match only, to keep the blast radius small.
+    # "please open the browser and search for QFT" never reached this matcher because of the leading
+    # politeness marker, so nothing opened. Stripped for this match only, to keep the blast radius
+    # small.
     _norm_cmd = re.sub(r"^(?:please|pls|kindly|(?:could|can|would|will)\s+you(?:\s+please)?)\s+",
                        "", norm, flags=re.I).strip() or norm
     m = re.fullmatch(r"(?:open|opens|launch|start|run)\s+(.+)", _norm_cmd)
     if m:
         target = _clean_target(m.group(1))
-        # Deictic targets ("open it / that / this / here / there") mean "open
-        # what I'm looking at" — a gaze-cursor double-click, not an app launch.
-        # Let them fall through to the gaze router instead of opening an app
-        # literally named "it".
+        # Deictic targets ("open it / that / this / here / there") mean "open what I'm looking at",
+        # a gaze-cursor double-click, not an app launch. Let them fall through to the gaze router.
         if target.lower().strip() in {
             "it", "that", "this", "these", "those", "here", "there", "them",
         } or re.fullmatch(r"(?:that|this|the|it)\s+command", target.lower().strip()):
@@ -415,17 +403,13 @@ def try_route(text: str) -> Optional[dict]:
             }
             or re.search(r"\b(folder|directory)$", target.strip(), re.I)
             or target.strip().startswith(("/", "~"))
-            # Any well-known user folder ("downloads", "documents", "desktop",
-            # "pictures"…), resolved from the one cross-platform table. The
-            # literal list above only had "downloads", so "open documents"
-            # became an app launch and offered to INSTALL a program called
-            # "documents".
+            # Any well-known user folder (downloads, documents, desktop, pictures...), resolved from
+            # the one cross-platform table. The literal list only had "downloads", so "open
+            # documents" offered to install a program called "documents".
             or _known_user_dir(target)
         ):
-            # File-manager / "<x> folder" requests are NOT app launches — let them
-            # fall through to fs.open_home (OPEN_FILE_SYSTEM), so "open home folder"
-            # opens the file browser instead of trying to install an app called
-            # "home folder".
+            # File-manager and "<x> folder" requests are not app launches; let them fall through to
+            # fs.open_home (OPEN_FILE_SYSTEM) so "open home folder" opens the file browser.
             pass
         elif _looks_like_url_target(target):
             # "open github com" / "open github.com" is a web address, not an app —
@@ -539,11 +523,9 @@ def try_route(text: str) -> Optional[dict]:
 
     m = re.fullmatch(r"(.+?)\s+by\s+(.+)", norm)
     if m and len(norm.split()) >= 4:
-        # Guard against conversational sentences where "by" is a preposition,
-        # not a "song by artist" separator.  The title (before "by") must not
-        # contain common English function/pronoun/verb words that signal a
-        # sentence rather than a media title.  Also block if the text starts
-        # with a negation or conversational opener.
+        # Guard against conversational sentences where "by" is a preposition, not a "song by artist"
+        # separator: the title before "by" must not contain common function/pronoun/verb words, and
+        # text opening with a negation or conversational opener is blocked.
         _before_by = m.group(1).strip()
         _before_words = set(_before_by.lower().split())
         _sentence_signals = {
@@ -555,10 +537,8 @@ def try_route(text: str) -> Optional[dict]:
             "your", "our", "their", "its", "first", "now", "then", "also",
             "just", "not", "never", "always", "but", "and", "or", "so",
         }
-        # A genuine "song by artist" query is short and single-clause. Long
-        # utterances, or anything spanning multiple sentences/clauses (interior
-        # . ! ? punctuation), are conversation with a stray "by" preposition —
-        # e.g. "Still being held up by my shoulders! haha. Nah, ...".
+        # A genuine "song by artist" query is short and single-clause. Long utterances, or ones
+        # spanning several sentences (interior . ! ?), are conversation with a stray "by".
         _too_long = len(norm.split()) > 9
         _multi_sentence = bool(re.search(r"[.!?]", raw.strip().rstrip(".!? ")))
         if (_before_words & _sentence_signals) or _too_long or _multi_sentence:
@@ -576,11 +556,9 @@ def try_route(text: str) -> Optional[dict]:
 
     wants_generation = re.search(r"\b(?:generate|write|create|build|make)\b", norm)
     wants_code = re.search(r"\b(?:script|code|program|module|tool|app)\b", norm)
-    # A question is conversation, not an imperative generation command — e.g.
-    # "i did not ask you to write a code for that.. you feeling okay?" or
-    # "when did we discuss ... you do have the ability to write your own code?".
-    # Genuine "write a python script" commands are imperatives without a '?';
-    # any real request that slips through still reaches the LLM intent resolver.
+    # A question is conversation, not an imperative generation command ("you do have the ability to
+    # write your own code?"). Genuine "write a python script" commands are imperatives without a
+    # '?'; a real request that slips through still reaches the LLM intent resolver.
     _is_question = "?" in raw
     # Reject if a negation word precedes the generation verb anywhere in the
     # same clause — "not generate a python script", "i did NOT ask you to write

@@ -9,12 +9,10 @@ from eli.execution.operator_policy import load_policy
 from eli.runtime.operator_state import safe_proposal_summary, safe_goal_summary
 from eli.planning.attention_queue import append_attention, recent_attention, summarize_attention
 
-# Autonomous self-upgrade/LoRA triggering (see below): only ever fires in
-# "goal_driven" mode, the one existing policy mode that already carries
-# elevated-autonomy semantics elsewhere in this file (goal_tick attention
-# severity is bumped for it). Deliberately conservative intervals -- this
-# decides WHETHER to invoke the existing, already-gated upgrade/training
-# machinery, not how to run it.
+# Autonomous self-upgrade/LoRA triggering fires only in "goal_driven" mode, the one policy mode
+# that already carries elevated-autonomy semantics here (goal_tick attention severity is bumped
+# for it). Intervals are conservative: this decides whether to invoke the existing, already-gated
+# upgrade/training machinery, not how to run it.
 _SELF_UPGRADE_CHECK_INTERVAL_SEC = 3 * 24 * 3600
 _LORA_CHECK_INTERVAL_SEC = 7 * 24 * 3600
 
@@ -301,13 +299,9 @@ def scheduler_tick(limit: int = 3, now: float | None = None, cooldown_sec: int =
         )
         attention_added += 1
 
-    # Autonomous self-maintenance triggering -- the "decide to invoke it"
-    # layer for self_upgrade/lora that previously did not exist (both were
-    # pull-only: a human had to explicitly ask or pre-schedule every time,
-    # even with a newer release sitting on GitHub or enough reviewed
-    # training data accumulated). Only in goal_driven mode, the one policy
-    # mode that already carries elevated-autonomy semantics above; every
-    # other mode leaves this exactly as pull-only as before.
+    # Autonomous self-maintenance triggering: the "decide to invoke it" layer for self_upgrade/lora
+    # that didn't exist (both were pull-only, even with a newer release on GitHub or enough reviewed
+    # training data). goal_driven mode only; every other mode stays pull-only as before.
     if mode == "goal_driven":
         attention_added += _maybe_check_self_upgrade(state, now)
         attention_added += _maybe_check_lora_retrain(state, now)

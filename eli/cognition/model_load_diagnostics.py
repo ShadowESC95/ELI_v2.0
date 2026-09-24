@@ -43,17 +43,9 @@ log = get_logger(__name__)
 _HARDENED = False
 _hard_lock = threading.Lock()
 
-# ctypes callbacks passed to C MUST outlive the C side's use of them. llama.cpp
-# stores the raw function pointer; when the Python object backing it is garbage
-# collected, the next log line calls freed memory and the process dies with a
-# segfault that no Python handler can catch.
-#
-# This is not theoretical: a previous version of capture_llama_log() restored
-# the log sink with `llama_log_set(llama_log_callback(lambda *a: None), ...)`,
-# constructing the callback INLINE so it was freed the moment the statement
-# finished. The next llama.cpp log line -- the first inference after a model
-# load -- crashed the process. Both callbacks are therefore module-level and
-# permanent, never rebuilt per call.
+# ctypes callbacks must outlive the C side's use of them: llama.cpp keeps the raw function
+# pointer, and once Python frees it the next log line segfaults. Both callbacks are module-level
+# and permanent (building one inline crashed the first inference after a load).
 _LOG_SINK_LOCK = threading.Lock()
 _LOG_CAPTURE_CB = None          # our capturing callback (installed while capturing)
 _LOG_NULL_CB = None             # the no-op we restore to (never garbage collected)
@@ -304,10 +296,9 @@ def capture_llama_log():
             if proto is not None and setter is not None:
                 if _LOG_CAPTURE_CB is None:
                     def _cb(level, text, user_data):        # noqa: ARG001
-                        # Runs inside llama.cpp's C callback. Logging from here
-                        # could re-enter the callback being installed, so the
-                        # failure is recorded in the buffer itself rather than
-                        # through `log` -- observable, and safe from recursion.
+                        # Runs inside llama.cpp's C callback. Logging from here could re-enter the
+                        # callback being installed, so the failure goes into the buffer itself, not
+                        # through `log`.
                         try:
                             s = (text.decode("utf-8", "replace")
                                  if isinstance(text, bytes) else str(text))
@@ -364,12 +355,9 @@ def is_retryable_load_failure(log_lines) -> bool:
     return True
 
 
-# A model too new for the runtime is usually "upgrade llama-cpp-python". In a
-# frozen build it is more specific than that: the GPU pack shadows the bundled
-# runtime, and the pack comes from an index that stops at 0.3.19 while the
-# bundle is current. So the app can be carrying a runtime that WOULD read the
-# model while a newer-model-incapable one is active. Say that, because the
-# remedy is a switch rather than an install.
+# A model too new for the runtime usually means "upgrade llama-cpp-python". In a frozen build it's
+# more specific: the GPU pack shadows a newer bundled runtime that would read the model, so the
+# remedy is a switch, not an install. Say that.
 MIN_MODERN_ARCH_VERSION = (0, 3, 30)
 
 

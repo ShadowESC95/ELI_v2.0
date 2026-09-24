@@ -68,11 +68,9 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
         return "; ".join(fixed) if fixed else "all stores writable"
     _step("writability", _repair)
 
-    # 0c) Blank DB templates — schema-only SQLite files shipped in git (and in
-    #     frozen bundles under config/templates/db/). When artifacts/db/ is empty,
-    #     copy them before live schema init so source, portable, Windows, and
-    #     AppImage installs all follow the same path as install.sh. Personal
-    #     rows are never in templates (seed_template_dbs.py clears content tables).
+    # 0c) Blank DB templates: schema-only SQLite files shipped in git and frozen bundles
+    # (config/templates/db/). When artifacts/db/ is empty, copy them before live schema init so every
+    # install type follows install.sh's path. Never any personal rows (seed_template_dbs.py clears them).
     def _seed_templates():
         import shutil
         from pathlib import Path
@@ -127,14 +125,9 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
         return "kg_entities, kg_relations"
     _step("user.knowledge_graph", _kg)
 
-    # 4) system_index.sqlite3 — desktop apps / executables / recent files / dirs.
-    #    Unlike the personal stores, this one is POPULATED on a fresh install:
-    #    it indexes the machine's own software inventory (installed apps, $PATH
-    #    executables, standard user directories) so "open <app>" / path lookups
-    #    work out of the box — that is regenerable ENVIRONMENT data, not personal
-    #    memory/profile/history, so it's consistent with the blank-slate promise.
-    #    Scanned only when empty: idempotent, avoids re-scanning on every call,
-    #    and self-heals an existing install whose index was left schema-only.
+    # 4) system_index.sqlite3 (apps, executables, recent files, dirs) is filled on a fresh install
+    # so "open <app>" works out of the box. Regenerable environment data, not personal memory.
+    # Scanned only when empty, which also heals a schema-only index.
     def _sysindex():
         from eli.memory.system_index import SystemIndex
         idx = SystemIndex()  # ensures schema
@@ -165,10 +158,9 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
         return "agent_dispatches, agent_metrics"
     _step("agent", _agent)
 
-    # 7) user.sqlite3 — news cache schema (news_articles + FTS) and reflections.
-    #    Constructing NewsFetcher only ensures the schema; it does NOT fetch (no
-    #    network), so a fresh install carries the table up front instead of waiting
-    #    for the first news query to lazily create it.
+    # 7) user.sqlite3 news cache schema (news_articles + FTS) and reflections. Constructing
+    # NewsFetcher only ensures the schema and does no fetching, so a fresh install has the table up
+    # front.
     def _news():
         from eli.tools.news.news_fetcher import NewsFetcher
         NewsFetcher()  # __init__ → _ensure_db(): news_articles, news_fts, triggers

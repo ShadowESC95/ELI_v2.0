@@ -17,12 +17,11 @@ def _root() -> Path:
 
 
 def _user_db() -> Path:
-    # Canonical user store — the SAME file every other subsystem uses
-    # (eli.core.paths honours ELI_USER_DB/ELI_DB_DIR/ELI_DATA_DIR then platformdirs).
-    # Previously this hardcoded <repo>/artifacts/db/user.sqlite3, which on an installed
-    # package is a DIFFERENT file from paths.user_db_path() — so the User Model + patterns
-    # were WRITTEN here but READ from the canonical store (the brief never surfaced), and
-    # it wrote into the package/CWD dir. Delegate so writer and reader always agree.
+    # Canonical user store: the same file every other subsystem uses (eli.core.paths honours
+    # ELI_USER_DB/ELI_DB_DIR/ELI_DATA_DIR, then platformdirs). This used to hardcode
+    # <repo>/artifacts/db/user.sqlite3, a different file from paths.user_db_path() on an installed
+    # package, so the User Model and patterns were written here but read from the canonical store
+    # and the brief never surfaced. Delegate so writer and reader agree.
     try:
         from eli.core.paths import user_db_path
         return Path(user_db_path())
@@ -67,14 +66,11 @@ def ensure_profile_tables(db_path: Path | None = None) -> None:
         """
     )
 
-    # The semantic tier: durable user facts. Four readers already depend on it —
-    # recall injects these FIRST on identity questions with a +0.5 weight boost,
-    # and two status surfaces count them into memory_entries / processed_memories.
-    # Nothing ever wrote it: the only writer, MemorySystem.store_semantic(), had
-    # zero callers in the entire repo, so the table was never created and every
-    # read threw "no such table: semantic" (visible as a suppressed traceback on
-    # each grounded-evidence build). Created here, alongside the patterns table
-    # it is populated from, so the schema exists from first boot.
+    # The semantic tier: durable user facts. Four readers depend on it (recall injects these first
+    # on identity questions with a +0.5 boost, two status surfaces count them). Nothing wrote it:
+    # its only writer, MemorySystem.store_semantic(), had zero callers, so the table was never
+    # created and every read threw "no such table: semantic". Created here beside the patterns
+    # table it's populated from, so the schema exists from first boot.
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS semantic (
@@ -122,11 +118,10 @@ def ensure_profile_tables(db_path: Path | None = None) -> None:
         """
     )
 
-    # Continuous User Model — one synthesized row per user_id. The structured JSON
-    # columns + free-text dossier are the in-depth/semantic view; `brief` is a
-    # pre-rendered block for a fast per-turn direct read (single SELECT, no joins).
-    # User-scoped by user_id (never a flat file) so one user's model never bleeds
-    # into another's. Evidence stays in user_patterns/memories/KG; this is synthesis.
+    # Continuous User Model: one synthesised row per user_id. The structured JSON columns and
+    # free-text dossier are the in-depth view, `brief` is a pre-rendered block for a fast per-turn
+    # read (single SELECT, no joins). Scoped by user_id so one user's model never bleeds into
+    # another's. Evidence stays in user_patterns/memories/KG, this is synthesis.
     cur.execute(
         """
         CREATE TABLE IF NOT EXISTS user_model (
@@ -301,17 +296,10 @@ def backfill_semantic_from_patterns(cur: sqlite3.Cursor) -> int:
     return promoted
 
 
-# Profile keys that describe ONE thing about the user. A person has one role,
-# one preferred answer style, one primary goal — so a later answer about any of
-# them is a CORRECTION of the earlier one, not an additional fact.
-#
-# The dedupe below keys on (pattern_type, pattern_data), i.e. the value is part
-# of the key, which is right for the open-ended kinds (interests, projects: a
-# second interest is a second fact) and wrong for these. Correcting a single-
-# valued field wrote a SECOND row and both survived, so ELI held mutually
-# exclusive answers to the same question and which one surfaced depended on
-# retrieval order. Observed live: preference.style carried two competing values
-# at once, and identity.role disagreed with the role stated elsewhere.
+# Profile keys that describe one thing about the user (one role, one answer style, one primary
+# goal). A later answer is a correction, not another fact. The dedupe below keys on
+# (pattern_type, pattern_data), which is wrong here: a correction wrote a second row and both
+# survived, so ELI held contradictory answers.
 _SINGLE_VALUED_PATTERNS = frozenset({
     "identity.name",
     "identity.role",
@@ -369,14 +357,11 @@ def _supersede_single_valued(cur: sqlite3.Cursor, pattern_type: str,
             challenger = Belief(statement=pattern_data, corroboration=1,
                                 provenance=provenance, last_seen=now)
             verdict = assess_claim(standing, challenger, now)
-            # Refuse only on HOLD. A QUESTION means the evidence genuinely does
-            # not settle it, and on a SINGLE-VALUED key there is no third option
-            # — something has to be stored. Deferring to the newer statement when
-            # nothing distinguishes them is not caving: caving is yielding when
-            # you hold the better evidence, which is exactly what HOLD catches.
-            # Refusing here instead would resurrect the original defect this key
-            # exists to prevent, where a correction left two mutually exclusive
-            # values and retrieval order decided which one ELI believed.
+            # Refuse only on HOLD. A QUESTION means the evidence doesn't settle it, and on a single-valued
+            # key something has to be stored. Deferring to the newer statement when nothing distinguishes
+            # them isn't caving (caving is yielding when you hold the better evidence, which HOLD catches).
+            # Refusing here would bring back the original defect of a correction leaving two mutually
+            # exclusive values.
             if verdict.action == HOLD:
                 log.debug("profile_extractor: keeping %s=%r over %r (%s)",
                           pattern_type, row[0], pattern_data, verdict.action)
@@ -449,15 +434,9 @@ def _insert_user_pattern(
     ).fetchone()
 
     if exists:
-        # Reaffirmation: refresh recency so "last active" / staleness reflect the
-        # MOST RECENT mention, not the first. Projects and interests are dynamic —
-        # an active one stays fresh, an abandoned one ages out (see staleness
-        # filters in persona_updater + personal_memory_clean_response).
-        # Reaffirmation also CORROBORATES. Without this the belief layer has
-        # nothing to weigh with: a fact stated once and a fact stated twenty
-        # times looked identically supported, so a passing correction could
-        # overturn either. Provenance is upgraded but never downgraded — a
-        # passing mention must not weaken something said outright.
+        # Reaffirmation refreshes recency, so "last active" is the latest mention: an active project
+        # stays fresh and an abandoned one ages out. It also corroborates, so a fact said twenty times
+        # isn't treated like one said once. Provenance only goes up, never down.
         try:
             cur.execute(
                 """
@@ -484,14 +463,10 @@ def _insert_user_pattern(
                 log.debug("could not refresh %s", pattern_type, exc_info=True)
         try:
             from eli.cognition.belief import PROVENANCE_WEIGHT
-            # Compare the NEW provenance's weight against the EXISTING row's,
-            # in Python -- PROVENANCE_WEIGHT is a Python dict, not a SQL
-            # lookup table, so this can't be expressed as one UPDATE.
-            # (Was previously comparing the new weight against itself via a
-            # `(SELECT ?)` bound to the same parameter -- always False, so
-            # provenance was never actually upgraded through this path;
-            # belief.py's in-memory corroborate() had the correct new-vs-
-            # existing comparison this was meant to mirror.)
+            # Compare the new provenance weight against the existing row's, in Python: PROVENANCE_WEIGHT is
+            # a Python dict, not a SQL table, so it can't be one UPDATE. (It used to compare the new weight
+            # against itself via `(SELECT ?)`, always False, so provenance was never upgraded here.
+            # belief.py's corroborate() had the correct comparison and this mirrors it.)
             existing_row = cur.execute(
                 "SELECT provenance FROM user_patterns "
                 " WHERE lower(COALESCE(pattern_type,'')) = lower(?) "
@@ -537,10 +512,9 @@ def _insert_user_pattern(
     return True
 
 
-# Which pattern kinds are durable facts ABOUT THE USER rather than transient
-# session state. Only these are promoted: the semantic tier is injected ahead of
-# ordinary recall on identity questions, so filling it with per-session chatter
-# would push real facts down the list it exists to top.
+# Which pattern kinds are durable facts about the user and not transient session state. Only these
+# are promoted: the semantic tier is injected ahead of ordinary recall on identity questions, so
+# per-session chatter would push real facts down the list it exists to top.
 _SEMANTIC_PATTERN_PREFIXES = ("identity.", "preference.", "project.", "research.", "interest.")
 _SEMANTIC_PATTERN_EXCLUDE = ("preference.session",)
 
@@ -673,12 +647,11 @@ def extract_patterns_from_text(text: Any) -> list[tuple[str, str]]:
     _pref(out, raw, low, r"\bdrop[- ]?in python\b", "preference.commands",
           "User does not want vague drop-in Python snippets; prefers complete command workflows.")
 
-    # NOTE (2026-06-09 refactor): the hard-coded keyword→canned-phrase "project facts"
-    # were REMOVED. They emitted frozen sentences ("User is actively developing ELI…")
-    # every session, so the proactive 'active_project' signal never changed — the
-    # opposite of a self-aware, dynamic system. ELI's *current work* is now inferred
-    # live from the actual conversation (see _route_summary_to_profile, which writes a
-    # fresh 'project.current' user_pattern from each session's LLM hand-off summary).
+    # The hard-coded keyword -> canned-phrase "project facts" are gone. They emitted frozen
+    # sentences ("User is actively developing ELI...") every session, so the proactive
+    # 'active_project' signal never changed. ELI's current work is inferred live from the
+    # conversation (see _route_summary_to_profile, which writes a fresh 'project.current'
+    # user_pattern from each session's LLM hand-off summary).
 
     # Research / technical-science interest (generic — no user-specific frameworks).
     if re.search(r"\bphysics\b|\bchemistry\b|\bbiology\b|\bengineering\b|\bsimulation\b|\bresearch\b|\bexperiment\b", raw, re.IGNORECASE):
@@ -930,9 +903,8 @@ _SUMMARY_SECTION_RE = re.compile(
     re.I | re.M,
 )
 
-# A durable fact line -> the pattern type it becomes. Order matters: the first
-# match wins, so the more specific verbs are listed before the general ones.
-# Every prefix here is one _promote_to_semantic accepts, so a fact captured
+# A durable fact line -> the pattern type it becomes. First match wins, so specific verbs come
+# before general ones. Every prefix here is one _promote_to_semantic accepts, so a fact captured
 # tonight is in the semantic tier and the knowledge graph by morning.
 _FACT_ROUTES: tuple[tuple[str, str], ...] = (
     (r"\b(?:is called|goes by|name is|prefers to be called)\b", "identity.name"),
@@ -1422,11 +1394,9 @@ def backfill_facts_from_sessions(
             """
         ).fetchall()
 
-        # An explicit log, not an inference. The obvious marker — "does the stored
-        # summary contain a USER FACTS section" — does not work:
-        # write_llm_session_summary persists a PROCESSED summary, not the raw
-        # sectioned model output, so that test never matches and every run
-        # re-summarised the whole history from scratch.
+        # An explicit log, not an inference. "Does the stored summary contain a USER FACTS section"
+        # doesn't work: write_llm_session_summary persists a processed summary, not the raw
+        # sectioned output, so the test never matched and every run re-summarised the whole history.
         cur.execute("""
             CREATE TABLE IF NOT EXISTS fact_backfill_log (
                 session_id TEXT PRIMARY KEY,

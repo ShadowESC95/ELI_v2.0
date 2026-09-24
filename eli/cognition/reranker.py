@@ -17,10 +17,9 @@ def _as_float(v: Any, default: float = 0.0) -> float:
     except Exception:
         return float(default)
 
-# Reciprocal Rank Fusion constant. 60 is the value from the original Cormack et al.
-# paper and the de-facto default in production hybrid search (Elasticsearch, Vespa,
-# Weaviate) — large enough that the top few ranks are not winner-take-all, small
-# enough that deep ranks stop mattering.
+# Reciprocal Rank Fusion constant. 60 is the value from the original paper and the usual default in
+# hybrid search: large enough that the top ranks aren't winner-take-all, small enough that deep
+# ranks stop mattering.
 RRF_K = 60
 
 
@@ -65,10 +64,9 @@ def fuse_ranked_lists(lists: "dict[str, list]", *, k: int = RRF_K,
             slot["rrf"] += 1.0 / (k + rank + 1)
             slot["channels"].append(channel)
             slot["ranks"][channel] = rank
-            # Union the metadata when the same memory arrives from both channels.
-            # A vector hit typically lacks the id/tags/kind the SQL row carries, and
-            # comparing text length missed that entirely when both texts matched —
-            # the field-poor record simply won on arrival order.
+            # Union the metadata when a memory arrives from both channels. A vector hit lacks the
+            # id/tags/kind the SQL row has, and comparing text length missed that when both texts
+            # matched, so the field-poor record won on arrival order.
             for field, value in cand.items():
                 if value in (None, "", []):
                     continue
@@ -135,11 +133,9 @@ def rerank_candidates(query: str, candidates: Iterable[Dict[str, Any]], limit: i
             + source_bonus
         )
 
-        # Retrieval agreement. When the candidate came through fuse_ranked_lists,
-        # rrf_score already encodes "how highly did each retriever rank this, and
-        # did more than one find it at all". Content signals above still decide
-        # ordering; this tips ties toward documents both channels agreed on, which
-        # is the signal a single retriever cannot produce.
+        # Retrieval agreement: rrf_score already says how highly each retriever ranked this and
+        # whether more than one found it. Content signals above still decide ordering; this tips
+        # ties toward documents both channels agreed on.
         rrf = _as_float(c.get("rrf_score", 0.0), 0.0)
         if rrf:
             score += min(rrf, 0.05) * 2.0          # bounded: never dominates overlap

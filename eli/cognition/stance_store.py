@@ -87,18 +87,13 @@ def _norm(topic: str) -> str:
     return re.sub(r"\s+", " ", str(topic or "").strip().lower())[:200]
 
 
-# How much of the smaller topic must be shared before two turns count as the
-# same subject. Exact string equality does not survive natural rewording — the
-# same argument phrased twice yields overlapping but unequal word sets — and
-# a stance nobody can find again is a stance that does not exist.
+# How much of the smaller topic must be shared for two turns to count as the same subject. Exact
+# equality doesn't survive rewording, and a stance nobody can find again doesn't exist.
 TOPIC_MATCH = 0.6
 
-# Positions are longer and more specific than topics, so the bar is higher — but
-# it cannot be equality. ELI restates a position in its own words each time it is
-# challenged, so exact matching meant reinforcement essentially never fired and
-# every rephrasing looked like a NEW position on a topic already held, which
-# record_stance then declined. The result was corroboration stuck at 1 no matter
-# how long a line was defended — and corroboration is what the weighing runs on.
+# Positions are longer and more specific than topics, so the bar is higher, but it can't be
+# equality: ELI restates a position in new words each time, so exact matching meant reinforcement
+# never fired and corroboration stayed at 1 however long a line was defended.
 POSITION_MATCH = 0.75
 
 

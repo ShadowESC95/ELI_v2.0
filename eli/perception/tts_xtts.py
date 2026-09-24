@@ -30,11 +30,10 @@ NATURAL_PREFIX = "natural:"
 _XTTS_MODEL = "tts_models/multilingual/multi-dataset/xtts_v2"
 _TTS = None  # lazy singleton
 
-# Curated natural voices using XTTS-v2's BUILT-IN studio speakers — human-like
-# neural TTS with NO clone/reference required. Friendly id → the speaker name we
-# ask XTTS for; resolution is tolerant (see _resolve_builtin_speaker) so exact
-# upstream name drift falls back to a real speaker instead of failing. This is the
-# "indistinguishable from a human" path the startup picker can select.
+# Curated natural voices using XTTS-v2's built-in studio speakers: human-like neural TTS with
+# no clone or reference needed. Friendly id -> the speaker name asked of XTTS. Resolution is
+# tolerant (_resolve_builtin_speaker), so upstream name drift falls back to a real speaker
+# instead of failing. The startup picker can select this path.
 _NATURAL_VOICES = {
     "sophia": {"speaker": "Claribel Dervla", "gender": "female",
                "desc": "Sophia — warm, natural female"},
@@ -172,13 +171,9 @@ def xtts_available() -> bool:
     try:
         import TTS  # noqa: F401
     except Exception as exc:
-        # Log the REASON. This returned a bare False for the whole life of the
-        # feature, so a bundle where the engine could not import was
-        # indistinguishable from one where it was never installed — the packaged
-        # app reported "no natural voices" and nothing, anywhere, said why. Three
-        # releases shipped an unusable engine partly because this line threw the
-        # diagnosis away. Debug level: on a build without the optional extra this
-        # is expected and must stay quiet.
+        # Log the reason. This returned a bare False, so a bundle where the engine couldn't import
+        # looked the same as one where it was never installed ("no natural voices" with no
+        # explanation). Debug level: on a build without the optional extra this is expected and quiet.
         global _XTTS_IMPORT_ERROR
         _XTTS_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
         log.debug("tts_xtts: neural backend unavailable — %s", _XTTS_IMPORT_ERROR)
@@ -191,12 +186,10 @@ def xtts_available() -> bool:
 
 _XTTS_IMPORT_ERROR = ""
 
-# Python does not cache a FAILED import, so every call re-walked sys.path and
-# re-logged the same line. The shipped AppImage deliberately omits coqui-tts
-# (see the build-linux notes in release.yml — Piper is the bundled engine), so on
-# every launch six callers each paid a full failed-import walk and printed
-# "neural backend unavailable" six times, which reads as a crash rather than as
-# the designed fallback. The answer does not change within a process.
+# Python doesn't cache a failed import, so every call re-walked sys.path and re-logged the same
+# line. The shipped AppImage omits coqui-tts on purpose (Piper is the bundled engine, see
+# release.yml), so each launch six callers paid a failed-import walk and printed "neural backend
+# unavailable" six times, which read as a crash. The answer can't change within a process.
 _XTTS_AVAILABLE: "bool | None" = None
 
 
@@ -253,14 +246,9 @@ def _get_model():
     if _TTS is not None:
         return _TTS
     _patch_transformers_compat()
-    # coqui-tts gates the first XTTS-v2 download behind an interactive y/n TOS
-    # prompt (agree to the non-commercial CPML, or confirm a paid Coqui licence —
-    # see TTS.utils.manage.ModelManager.ask_tos/tos_agreed). ELI's GUI has no TTY
-    # for that prompt to read from, so it would otherwise hang/EOF-error on every
-    # user's first clone. Using XTTS-v2 here is always the non-commercial path (a
-    # local, personal voice — never redistributed, same policy as the rest of the
-    # voice library), so this pre-accepts exactly that: COQUI_TOS_AGREED=1 makes
-    # tos_agreed() short-circuit True, same effect as answering "y" at the prompt.
+    # coqui-tts gates the first XTTS-v2 download behind an interactive y/n TOS prompt. The GUI has
+    # no TTY so it would hang on every first clone. XTTS-v2 here is always the personal
+    # non-commercial path, so pre-accept it: COQUI_TOS_AGREED=1.
     os.environ.setdefault("COQUI_TOS_AGREED", "1")
     from TTS.api import TTS as _TTSApi
     device = _select_device()
@@ -277,11 +265,9 @@ def _select_device() -> str:
     if forced == "cpu":
         return "cpu"
     if forced == "cuda":
-        # Verify torch can actually DO cuda before honouring the force. The startup
-        # picker sets this from "the machine has a GPU", which is a different question
-        # from "this torch build has CUDA" — a CPU-only wheel then raises
-        # "Torch not compiled with CUDA enabled" deep inside .to(device), after the
-        # 1.8GB model has already loaded.
+        # Verify torch can do CUDA before honouring the force. The startup picker sets it from "the
+        # machine has a GPU", not "this torch build has CUDA"; a CPU-only wheel raises "Torch not
+        # compiled with CUDA enabled" inside .to(device) after the 1.8GB model has loaded.
         try:
             import torch
             if torch.cuda.is_available():

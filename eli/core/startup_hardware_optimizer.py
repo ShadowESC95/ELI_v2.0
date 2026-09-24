@@ -517,10 +517,9 @@ def resize_budgets_to_effective_ctx(effective_ctx: int) -> Dict[str, Any]:
 
 
 def mode_presets(n_ctx: int, max_tokens: int) -> Dict[str, Dict[str, Any]]:
-    # MODEL-AGNOSTIC capability scaling: a bigger/smarter model gets MORE samples, wider and
-    # deeper search, and larger per-stage budgets instead of staying throttled at the small-
-    # model defaults. tier_scale() is 1.0 for the current small model (fully behaviour-
-    # preserving) and rises (medium 1.5 / large 2.5 / frontier 4.0) as a larger GGUF is loaded.
+    # Model-agnostic capability scaling: a bigger model gets more samples, wider and deeper search
+    # and larger stage budgets. tier_scale() is 1.0 for the current small model and rises (medium
+    # 1.5, large 2.5, frontier 4.0) as a larger GGUF loads.
     try:
         from eli.core.model_tier import tier_scale as _ts
         _scale = float(_ts())
@@ -539,16 +538,10 @@ def mode_presets(n_ctx: int, max_tokens: int) -> Dict[str, Dict[str, Any]]:
 
     return {
         "quick": {
-            # No output ceiling. A mode is "quick" because it does ONE pass with
-            # minimal retrieval — that is what costs time. Truncating the answer
-            # does not make it quick, it makes it incomplete: max_tokens is a
-            # ceiling, not a target, so a short answer is short regardless and
-            # the cap only ever bites when the model had more to say.
-            #
-            # These were a flat 1024 / 3072 while every other preset scaled, so a
-            # 30B model got a 7B budget. The real limit — prompt + generation <=
-            # n_ctx — is applied per call in gguf_inference._fit_generation_budget
-            # from the actual prompt, which is the only place that can know it.
+            # No output ceiling. "quick" means one pass with minimal retrieval, not a cut-short answer, and
+            # max_tokens is a ceiling anyway. These were a flat 1024/3072 while every other preset scaled,
+            # so a 30B model got a 7B budget. The real limit is applied per call in
+            # gguf_inference._fit_generation_budget.
             "max_tokens": max_tokens,
             "passes": 1,
             "memory_depth": "minimal",
@@ -615,23 +608,16 @@ def allocate(
     forced_batch  = os.environ.get("ELI_FORCE_BATCH",      "").strip()
     forced_layers = os.environ.get("ELI_FORCE_GPU_LAYERS", "").strip()
 
-    # ---- User-pinned preferences (2nd priority) ----
-    # Use ONLY the dedicated user_preferred_* keys, never the auto-tuned
-    # n_ctx / batch_size / n_gpu_layers keys that apply_profile() writes.
-    # Those are optimizer outputs and must not feed back in as inputs.
-    # To pin a value manually, add "user_preferred_ctx": N to settings.json.
+    # User-pinned preferences (2nd priority). Use only the user_preferred_* keys, never the
+    # auto-tuned n_ctx/batch_size/n_gpu_layers that apply_profile() writes: optimizer outputs must
+    # not feed back in as inputs. To pin a value, add "user_preferred_ctx": N to settings.json.
     user_ctx    = str(settings.get("user_preferred_ctx")        or "").strip()
     user_batch  = str(settings.get("user_preferred_batch")      or "").strip()
     user_layers = str(settings.get("user_preferred_gpu_layers") or "").strip()
 
-    # ---- Dialog / env fallbacks (3rd priority) ----
-    # ELI_CTX_FRACTION and ELI_TARGET_BATCH are set by the startup dialog
-    # spinboxes and propagated as env vars — this is the normal user path.
-    # Fallback derived from THIS machine, not a constant. This said 512 while the
-    # startup dialog said 256 and its Whisper-cap path said 256 again — three
-    # defaults for one knob, and whichever ran last won. Same shape as the VRAM
-    # reserve, where a low default in the dialog silently overrode the loader's.
-    # An explicit ELI_TARGET_BATCH (the dialog's own export) still takes priority.
+    # Dialog / env fallbacks (3rd priority). The startup dialog exports ELI_CTX_FRACTION and
+    # ELI_TARGET_BATCH, the normal path. The fallback is derived from this machine, not a constant
+    # (it said 512, 256 and 256 in three places and the last to run won). ELI_TARGET_BATCH wins.
     _tb_env = (os.environ.get("ELI_TARGET_BATCH") or "").strip()
     if _tb_env.isdigit() and int(_tb_env) > 0:
         target_batch = int(_tb_env)
@@ -642,10 +628,9 @@ def allocate(
         except Exception:
             target_batch = 0
         if target_batch <= 0:
-            # Hardware unreadable — fall back to the user's PINNED batch only.
-            # Deliberately not n_batch / batch_size: those are optimizer OUTPUTS
-            # (see the note above), so feeding them back in would make this run's
-            # reduction next run's "preference" — a one-way ratchet downward.
+            # Hardware unreadable: fall back to the user's pinned batch only, not n_batch/batch_size
+            # (optimizer outputs). Feeding those back would turn this run's reduction into next
+            # run's preference, a one-way ratchet downward.
             try:
                 target_batch = int((settings or {}).get("user_preferred_batch") or 0)
             except Exception:
@@ -708,11 +693,9 @@ def allocate(
     hard_cap_frac    = float(os.environ.get("ELI_VRAM_HARD_CAP_FRAC", "0.85"))
     usable_vram      = min(max(0, vram_basis - runtime_reserve), int(gpu.total_mb * hard_cap_frac))
 
-    # ---- Batch compute-buffer reserve ----
-    # Sized by model footprint × batch, NOT by n_ctx.
-    # llama.cpp SDPA/Flash-Attention compute buffers are ctx-independent;
-    # the old batch×ctx formula was only valid for non-flash attention paths.
-    # ELI_BATCH_RES_FACTOR (default 0.35): multiply model_gb × batch to get MB.
+    # Batch compute-buffer reserve: model footprint x batch, not n_ctx. SDPA/flash-attention
+    # buffers don't depend on ctx (the old batch x ctx formula only held without flash attention).
+    # ELI_BATCH_RES_FACTOR (default 0.35) multiplies model_gb x batch to get MB.
     _brf = float(os.environ.get("ELI_BATCH_RES_FACTOR", "0.35"))
 
     def _batch_reserve(b: int) -> int:
@@ -758,11 +741,9 @@ def allocate(
         n_ctx = round_ctx(min(_default_target, max_ctx_vram))
         ctx_source = f"auto {int(_DEFAULT_CTX)} (VRAM-capped, kv_budget={kv_budget:.0f}MB)"
     else:
-        # Partial offload → KV for CPU-resident layers lives in RAM. Keep the default
-        # target when the model + its ACTUAL KV cache fit available RAM (q4 KV for
-        # 16384 is ~1GB — the legacy ram_ctx_cap's "1GB ≈ 1024 tokens" heuristic
-        # over-estimates ~16× and would needlessly truncate). Only fall back to the
-        # conservative cap when RAM is genuinely tight.
+        # Partial offload: KV for CPU-resident layers lives in RAM. Keep the default target when the
+        # model plus its real KV cache fit available RAM (q4 KV for 16384 is ~1GB; the old "1GB = 1024
+        # tokens" rule overestimated ~16x). Use the conservative cap only when RAM is really tight.
         _kv_default_mb = kv_cache_mb(_default_target, layers_total)
         _ram_avail_mb = ram_gb * 1024.0
         if (model_gb * 1024.0) + _kv_default_mb + 2048 <= _ram_avail_mb:

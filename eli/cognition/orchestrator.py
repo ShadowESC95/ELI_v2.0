@@ -1,8 +1,6 @@
-# NOTE:
-# AgentOrchestrator currently depends on the CognitiveEngine public contract surface
-# (parse_intent / assemble_precise_context / generate_from_assembled_prompt /
-# generate_stream_from_assembled_prompt). Do not remove those GUI methods
-# until PATH2 is migrated onto CognitiveEngine-native equivalents.
+# AgentOrchestrator depends on CognitiveEngine's public contract (parse_intent,
+# assemble_precise_context, generate_from_assembled_prompt, generate_stream_from_assembled_prompt).
+# Keep those GUI methods until PATH2 moves onto engine-native equivalents.
 
 from __future__ import annotations
 
@@ -563,10 +561,9 @@ class AgentOrchestrator:
         if not isinstance(user_input, str):
             user_input = str(user_input or "")
 
-        # ---- Grounded remediation pre-intercept -----------------------------
-        # YES/NO confirmations must consume pending repair state BEFORE the
-        # router or LLM see them. try_handle_query() handles open/launch/check
-        # phrasing that should bypass full pipeline planning.
+        # Grounded remediation pre-intercept: YES/NO confirmations consume pending repair state
+        # before the router or LLM see them; try_handle_query() handles open/launch/check phrasing
+        # without full pipeline planning.
         if user_input:
             try:
                 from eli.runtime import grounded_remediation as _gr
@@ -646,10 +643,8 @@ class AgentOrchestrator:
             log.debug(f"[ORCHESTRATOR] Stage 1: reusing engine-resolved intent → {intent.get('action')}")
         else:
             intent = self.engine.parse_intent(user_input, stm.recent_turns)
-        # Honour the engine's Phase-13 META_DIAGNOSTIC→CHAT veto: a status/diagnostic action
-        # the user didn't explicitly ask for was already downgraded to CHAT in process(); the
-        # orchestrator re-resolves intent fresh, so without this it would run the original
-        # status action anyway (observed: AWARENESS_STATUS ran after the veto).
+        # Honour the engine's META_DIAGNOSTIC->CHAT veto. The orchestrator re-resolves intent, so
+        # without this it ran the original status action after the veto had downgraded it.
         if getattr(self.engine, "_eli_phase13_chat_override", False):
             try:
                 self.engine._eli_phase13_chat_override = False
@@ -701,10 +696,9 @@ class AgentOrchestrator:
                     reasoning_mode=reasoning_mode,
                 )
                 wm.bus_result = bus_result
-                # Mirror the CHAT path's rotation. Non-CHAT turns
-                # (RUNTIME_STATUS, MEMORY_STATUS, etc.) must also feed the
-                # next turn's persona handoff, otherwise the LAST_TURN_TRACE
-                # block will be stale when the user follows up.
+                # Mirror the CHAT path's rotation: non-CHAT turns (RUNTIME_STATUS, MEMORY_STATUS...)
+                # also feed the next turn's persona handoff, or LAST_TURN_TRACE goes stale on a
+                # follow-up.
                 try:
                     self.engine._prev_bus_result = getattr(
                         self.engine, "_last_bus_result", None)
@@ -1014,13 +1008,9 @@ class AgentOrchestrator:
         except Exception as _ph_err:
             log.debug(f"[ORCHESTRATOR] Stage 10.5: Persona Handoff unavailable: {_ph_err}")
 
-        # ELI_PRIVATE_REASONING_DISPATCH_V1
-        # For private reasoning modes (chain_of_thought, self_consistency,
-        # tree_of_thoughts, constitutional_ai) the orchestrator MUST hand off
-        # to _run_chat_reasoning_loop so the mode-specific algorithm runs.
-        # Otherwise the call below collapses to a single GGUF call and the
-        # generate->critique->revise (or propose->develop, or N-sample->select)
-        # pipeline never executes. Quick mode is untouched.
+        # Private reasoning modes (chain_of_thought, self_consistency, tree_of_thoughts,
+        # constitutional_ai) must hand off to _run_chat_reasoning_loop, or the call below collapses
+        # to a single GGUF call and the mode's algorithm never runs. Quick mode is untouched.
         try:
             from eli.cognition.reasoning_modes import is_private_reasoning_mode as _rm_private_chat
             _chat_is_private = _rm_private_chat(reasoning_mode)

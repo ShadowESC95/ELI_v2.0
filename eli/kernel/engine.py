@@ -118,13 +118,10 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
 # NOOP = fragment rejected or truly empty input; return silence, store nothing
 _PHASE45_SILENT_FAST_ACTIONS = {'NOOP'}
 
-# These are the actions where the executor payload IS the answer — control/OS and
-# status/self-report stuff I return straight out instead of running it back through the
-# model. It's my single source of truth for the direct-return block and for
-# _is_soft_informational_action() (deciding what can re-route when grounding is low).
-# Fail-closed on purpose: if the authority gate throws or hands back garbage I DENY these
-# side-effecting actions rather than risk it — read-only ones degrade open instead, so a
-# gate bug can never leave ELI mute. Keep this in step with the side-effecting set in process().
+# Actions where the executor payload is the answer (control/OS, status/self-report), returned
+# straight out rather than back through the model. Single source of truth for the direct-return
+# block and _is_soft_informational_action(). Fails closed for side-effecting actions if the
+# authority gate misbehaves; read-only ones fail open so ELI is never mute.
 _AUTHORITY_FAILCLOSED_ACTIONS = frozenset({
     "RUN_CMD", "SHELL_EXEC", "GENERATE_SCRIPT", "GENERATE_PROJECT",
     "FIX_FILE", "CODE_SOLVE", "CREATE_FOLDER", "DELETE_FILE",
@@ -169,18 +166,10 @@ _DIRECT_FINAL_ACTIONS = frozenset({
 })
 
 
-# Actions whose answer is produced by READING LIVE STATE (a socket, a player, a
-# device, a runtime singleton) rather than by synthesising prose. These inherently
-# score grounding 0.00 on the agent bus — there is nothing in memory to ground a
-# question about what is playing *right now* — so the low-grounding downgrade below
-# would fire on them every single time and hand the question to CHAT, which then
-# invents an answer. That is exactly backwards: these are the actions that can
-# answer truthfully, because executing them IS the fact-check.
-#
-# The naming convention carries the meaning, so match on it rather than trusting a
-# hand-kept list to stay complete — that list already drifted once and let
-# NOW_PLAYING through, which is how ELI came to confabulate a YouTube playback
-# explanation instead of reporting "Nothing is playing right now."
+# Actions that read live state (socket, player, device). They score 0.00 grounding because
+# memory can't ground "what is playing right now", so the low-grounding downgrade would hand
+# them to chat, which invents an answer. Executing them is the fact-check. Matched by naming
+# convention, not a hand-kept list, since that list drifted once.
 _LIVE_STATE_ACTION_SUFFIXES = ("_STATUS", "_STATS", "_USAGE")
 # Only names the suffix rule cannot catch belong here.
 _LIVE_STATE_ACTIONS = frozenset({
@@ -214,11 +203,10 @@ def _is_soft_informational_action(action) -> bool:
         logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
     return True
 
-# I only want the destructive teardown to run once per process. The close steps
-# (memory/vector/GGUF) all hit module-level singletons shared across every
-# CognitiveEngine, so if a second instance shuts down after the first already freed
-# the CUDA handles, we double-free and segfault on the way out. This flag stops that
-# no matter how many instances or atexit hooks fire.
+# Run the destructive teardown once per process. The close steps (memory/vector/GGUF) hit
+# module-level singletons shared by every CognitiveEngine, so a second instance shutting down
+# after the first freed the CUDA handles would double-free and segfault. This flag holds however
+# many instances or atexit hooks fire.
 _ELI_NATIVE_TEARDOWN_DONE = False
 
 def _phase45_action_name(action) -> str:
@@ -414,11 +402,9 @@ def _load_persona_text() -> str:
     files are missing. The old lookup paths caused ELI to ignore its real
     persona and drift into base-model AI-disclaimer behaviour.
     """
-    # Single source of truth: delegate the base+overlay read to the canonical
-    # eli.cognition.persona module (one `_clean_persona`, env-override aware). Compose
-    # exactly as before (base + "\n\n" + overlay) so the persona text is unchanged.
-    # The legacy candidate/config chain below stays only as a fallback for non-default
-    # layouts or when the canonical files are absent.
+    # Single source of truth: delegate the base+overlay read to eli.cognition.persona (one
+    # `_clean_persona`, env-override aware), composed as before (base + "\n\n" + overlay). The
+    # legacy candidate/config chain below is only a fallback for odd layouts or missing files.
     try:
         from eli.cognition.persona import read_base_persona as _canon_base, read_auto_persona as _canon_auto
         _cb = (_canon_base() or "").strip()
@@ -565,10 +551,8 @@ def _strip_special_tokens(text: str) -> str:
 
 _ELI_MAX_INPUT_LEN = int(__import__("os").environ.get("ELI_MAX_INPUT_LEN", "8192"))
 
-# Patterns that signal a prompt injection attempt.  These match common
-# jailbreak / role-override prefixes.  Matched segments are replaced with
-# [filtered] so the LLM receives the rest of the message but the injection
-# payload is neutralised.
+# Patterns that signal a prompt-injection attempt (common jailbreak/role-override prefixes). Matched
+# segments become [filtered], so the LLM gets the rest of the message with the payload neutralised.
 _ELI_INJECTION_PATTERNS = re.compile(
     r"(?i)"
     r"(\[INST\]|\[/INST\])"                              # llama2 role tokens
@@ -799,12 +783,10 @@ def _normalize_assistant_text(user_text: str, text: str) -> str:
     # Strip model meta-commentary: "(Note: This response deviates...)" patterns
     t = re.sub(r'\s*\(Note:[^)]{0,300}\)', '', t, flags=re.I).strip()
     t = re.sub(r'\s*\[Note:[^\]]{0,300}\]', '', t, flags=re.I).strip()
-    # Strip leaked INTERNAL-STATE / context-metadata lines the model echoed verbatim from its
-    # brief — "[Your current activity: …, attention: …]", "[Remembered past topics: …]",
-    # "[ELI INTERNAL STATE]" etc. These are context scaffolding, never user-facing. Anchored to
-    # whole lines with a known internal label, so it never touches legitimate bracketed text
-    # like "[MEMORY SEARCH RESULT: …]" or an array index. (2026-06-09: a casual "back in a
-    # minute" drew a reply that ended in these bracketed metadata lines.)
+    # Strip leaked internal-state lines the model echoed from its brief ("[Your current
+    # activity: ...]", "[Remembered past topics: ...]", "[ELI INTERNAL STATE]"). Anchored to whole
+    # lines with a known internal label, so real bracketed text ("[MEMORY SEARCH RESULT: ...]", an
+    # array index) is untouched.
     t = re.sub(
         r'(?im)^[ \t]*\[(?:your\s+)?(?:current\s+activity|attention|remembered\s+past\s+topics'
         r'|recalled\s+(?:past\s+)?topics|recalled\s+research|eli\s+internal\s+state'
@@ -896,10 +878,9 @@ def _looks_like_prompt_scaffold(text: str) -> bool:
 # ENGINE
 # ============================================================
 
-# Genuinely HARD analytical / problem-solving requests deserve frontier multi-pass
-# reasoning on the FIRST turn — not a shallow quick answer that only deepens after a
-# long back-and-forth (engagement-depth escalation alone). These detect that and bump
-# the mode immediately. Conservative: simple/status/command queries never match.
+# Genuinely hard analytical/problem-solving requests deserve multi-pass reasoning on the first turn,
+# not a shallow quick answer that only deepens after a long exchange. These detect that and bump the
+# mode at once. Conservative: simple, status and command queries never match.
 _COMPLEXITY_DEEP_RE = re.compile(
     r"\b(?:design|architect|derive|prove|optimi[sz]e|formulate|"
     r"trade[- ]?offs?|pros\s+and\s+cons|compare\s+and\s+contrast|"
@@ -939,24 +920,20 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     normalized = re.sub(r"\s+", " ", normalized).strip()
     if not normalized:
         return False
-    # Strip a trailing direct-address of the assistant's name ("good afternoon eli" ->
-    # "good afternoon", "hello there eli" -> "hello there") so greetings that tack the wake
-    # name on the end still match the phatic phrase set below. "good afternoon eli" used to
-    # fall through as non-phatic, which let the past-session project topics get injected and
-    # the model resumed them off a plain hello.
+    # Strip a trailing direct address ("good afternoon eli" -> "good afternoon") so greetings with
+    # the wake name still match the phatic set. Without it "good afternoon eli" was non-phatic,
+    # which injected past-session topics and the model resumed them off a plain hello.
     normalized = re.sub(
         r"\s+(?:eli|pal|bud|buddy|mate|man|dude|bro|friend)$", "", normalized
     ).strip() or normalized
-    # Strip a LEADING greeting so a greeting compounded with a phatic check-in still matches
-    # ("good afternoon what's the story" -> "what's the story"). This only HELPS a phatic
-    # remainder reach the phrase set; a substantive remainder ("good morning fix the bug")
-    # still falls through as non-phatic, so it can't swallow a real request.
+    # Strip a leading greeting so a greeting plus a phatic check-in still matches ("good afternoon
+    # what's the story"). A substantive remainder ("good morning fix the bug") still falls through
+    # as non-phatic, so it can't swallow a real request.
     _lead = re.sub(r"^(?:good\s+)?(?:morning|afternoon|evening)\b[\s,.]*", "", normalized)
     _lead = re.sub(r"^(?:hi|hey|hello|hiya|howya|yo|sup)\b[\s,.]+", "", _lead).strip()
-    # A LEADING direct-address, mirroring the trailing strip above: "hey buddy,
-    # how's the head" is the same utterance as "how's the head". Without this the
-    # address counted as a content word and pushed the check-in past the ≤5-word
-    # gate on the casual patterns below.
+    # A leading direct address mirrors the trailing strip: "hey buddy, how's the head" is "how's the
+    # head". Otherwise the address counted as a content word and pushed the check-in past the
+    # <=5-word gate.
     _lead = re.sub(
         r"^(?:pal|bud|buddy|mate|man|dude|bro|lad|friend|eli)\b[\s,.]+", "", _lead
     ).strip() or _lead
@@ -1015,11 +992,9 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         # Sign-offs / closers — purely phatic; a substantive remainder is caught
         # by the follow-up guard or falls through as non-phatic.
         "night", "good night", "goodnight", "gnight", "night night", "nighty night",
-        # Bare time-of-day greetings. "good morning" was here and "morning" was
-        # not, so "afternoon, Eli" — which the ROUTER classifies as
-        # chat.greeting at 0.90 — was not phatic to this detector, and the two
-        # disagreed about the same utterance. The trailing/leading address strip
-        # above already reduces "afternoon, Eli" to "afternoon".
+        # Bare time-of-day greetings. "good morning" was listed and "morning" wasn't, so "afternoon,
+        # Eli" (which the router calls chat.greeting at 0.90) wasn't phatic here and the two
+        # disagreed. The address strip above already reduces it to "afternoon".
         "morning", "afternoon", "evening",
         "mornin", "evenin", "good evening", "good day", "gday", "g'day",
         "see ya", "see you", "see you later", "see ya later", "talk later",
@@ -1034,14 +1009,10 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     ):
         return True
 
-    # Short (≤5 word) casual check-in patterns
-    # "how's the X" is a wellbeing idiom — EXCEPT when X is something ELI actually
-    # runs on. "how's the head" is a hello; "how's the GPU" is a real question that
-    # must keep its evidence gathering. Listing the technical nouns is narrower and
-    # safer than trying to guess intent.
-    # "how IS the x" as well as "how's the x" — the strip above already accepts
-    # both, so the patterns below have to as well or the longer form falls through
-    # to the LLM resolver (46s on a CPU-offloaded model, to answer "CHAT").
+    # Short (<=5 word) casual check-in patterns. "how's the X" is a wellbeing idiom unless X is
+    # something ELI runs on: "how's the head" is a hello, "how's the GPU" is a real question. Listing
+    # the technical nouns is narrower and safer than guessing intent. "how IS the x" too, or the
+    # longer form goes to the LLM resolver (46s on CPU) to answer "CHAT".
     _technical_subject = re.match(
         r"^how'?s? (?:is )?(?:the|your) (gpu|cpu|ram|vram|server|model|build|tests?|code|api|"
         r"db|database|memory|disk|network|index|suite|pipeline|daemon|queue|log)\b",
@@ -1050,11 +1021,9 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     _casual_patterns = () if _technical_subject else (
         r"^how'?s? (?:is )?the \w+(\s+\w+)?$",
         r"^how'?s? (?:is )?your \w+(\s+\w+)?$",
-        # A second-person STATE check aimed at ELI: "are you ok", "you better now".
-        # Pronoun + state adjective + optional temporal tail, anchored end-to-end,
-        # so there is no verb-plus-object slot for a real request to hide in
-        # ("fix the router" cannot match). "you ok" was already in the phrase set;
-        # the natural forms around it were not, and each one cost a full
+        # A second-person state check aimed at ELI ("are you ok", "you better now"): pronoun + state
+        # adjective + optional temporal tail, anchored end to end, so there's no verb-plus-object slot
+        # for a real request ("fix the router") to hide in. Each of these used to cost a full
         # intent-classification generation.
         r"^(?:are |r )?you(?:\s+any)?\s+"
         r"(?:ok|okay|alright|allright|good|well|better|fine|right|sorted|sound|normal"
@@ -1322,10 +1291,9 @@ def _eli_is_fragment_output(text) -> bool:
     return False
 
 
-# Unfilled template/scaffold the model sometimes emits verbatim instead of a real
-# answer — e.g. "[list up to 3 habits from memory or analysis]", "[insert name]",
-# "[your X here]", "[e.g. ...]", "[TODO]". A template is never an appropriate
-# answer; treat it like a fragment (fall back to grounded content / honest reply).
+# Unfilled template the model sometimes emits instead of an answer ("[list up to 3 habits from
+# memory or analysis]", "[insert name]", "[your X here]", "[e.g. ...]", "[TODO]"). Treat it like a
+# fragment: fall back to grounded content or an honest reply.
 _ELI_PLACEHOLDER_RX = re.compile(
     r"[\[\<]\s*(?:"
     r"list(?:\s+up\s+to)?\s*\d*\b|insert\b|fill(?:\s+in)?\b|describe\b|specify\b|"
@@ -1355,10 +1323,9 @@ def _eli_is_placeholder_output(text) -> bool:
     return bool(_ELI_PLACEHOLDER_RX.search(t) or _ELI_PLACEHOLDER_TOKEN_RX.search(t))
 
 
-# Contextual detail/challenge turns after an authoritative grounded action
-# must remain attached to that action. Without this, prompts such as
-# "what are the exact lines?", "can you fix it?", or "are you lying?"
-# fell through to generic CHAT and the model fabricated concrete details.
+# Contextual detail/challenge turns after a grounded action stay attached to it. Otherwise "what are
+# the exact lines?", "can you fix it?" or "are you lying?" fell to generic CHAT and the model
+# fabricated details.
 _ELI_PHASE19_GROUNDED_FOLLOWUP_ACTIONS = {
     "RUNTIME_AUDIT",
     "IMPORT_AUDIT",
@@ -1837,10 +1804,9 @@ def _eli_rapport_prompt_instruction(text: str) -> str:
 
 # -- RUNTIME_STATUS non-Quick full-pipeline (V18+V19 merged) -----------
 
-# Grounding score for the deterministic runtime-status responders. The answer IS
-# live runtime telemetry (model/ctx/gpu read from the snapshot), so it is grounded
-# by construction — but these paths bypass the AgentBus grounding computation, so
-# they declare it explicitly. High (evidence-backed), not 1.0 (light synthesis).
+# Grounding score for the deterministic runtime-status responders. The answer is live telemetry
+# (model/ctx/gpu from the snapshot), grounded by construction, but these paths bypass the AgentBus
+# computation, so they declare it: high, not 1.0 (light synthesis).
 _RUNTIME_STATUS_GROUNDING = 0.95
 
 
@@ -2100,10 +2066,9 @@ def _mw_rs_synthesize(question, mode, evidence) -> dict:
         "source": "runtime_status_nonquick_full_pipeline_synthesized_v1",
         "evidence_source": "runtime_status_live_runtime_telemetry",
         "grounded": True, "evidence_used": True,
-        # Grounded by construction (the answer IS live runtime telemetry), but this
-        # deterministic path bypasses the AgentBus grounding computation, so declare
-        # the score explicitly — otherwise callers read grounding=None for a fully
-        # grounded answer (eval-caught).
+        # Grounded by construction (live runtime telemetry), but this deterministic path bypasses
+        # the AgentBus grounding computation, so declare the score or callers read grounding=None
+        # for a fully grounded answer.
         "grounding": _RUNTIME_STATUS_GROUNDING,
         "report": {
             "requested_mode": mode,
@@ -2336,10 +2301,9 @@ def _mw_mem_runtime_strict_synthesize(question, mode, evidence) -> dict:
     }
 
 
-# Synthesis helpers for a couple of evidence surfaces I used to just return raw in every
-# mode (MEMORY_STATUS.recent_processing, SELF_REPORT.recent_updates). Quick mode still
-# gets it raw; for the deeper modes I run it through the local model, sanity-check what
-# comes back, and only hand out the synthesised version.
+# Synthesis helpers for evidence surfaces that used to return raw in every mode
+# (MEMORY_STATUS.recent_processing, SELF_REPORT.recent_updates). Quick still gets it raw;
+# deeper modes run it through the local model, sanity-check it, and hand out only the synthesis.
 
 def _mw_recent_memory_processing_synthesize(question, mode, evidence) -> dict:
     evidence_text = _mw_rs_extract_text(evidence)
@@ -2743,11 +2707,9 @@ def _mw_mc_turns_result(mode) -> dict:
     }
 
 
-# Helpers relocated from the legacy bottom-of-file wrapper blocks
-# (Phase 2c). Defined unconditionally at module level so the inline
-# middleware inside CognitiveEngine.process() never needs globals()
-# guards. Names preserved verbatim from the original wrapper bodies so
-# any external reference remains valid.
+# Helpers moved out of the legacy bottom-of-file wrapper blocks. Defined at module level so the
+# inline middleware in CognitiveEngine.process() needs no globals() guards; names kept verbatim so
+# external references stay valid.
 
 # -- Personal-memory routing helpers (used by PERSONAL_MEMORY_QUICK_V1) -
 
@@ -2919,12 +2881,9 @@ def _eli_mc_counts_v4():
     return str(db_path), counts
 
 
-# Whole words only. These were substring tests, and "count" is inside
-# "encountered" while "total" is inside "totally" — so pasting a paragraph that
-# happened to contain both "memory" and "encountered" and asking what ELI thought
-# of it was classified as "how many memories do you have?" and answered with a
-# row count. Live, that fired three times on the same paste before the user gave
-# up, and ELI then said it could not see the text at all.
+# Whole words only. These were substring tests, and "count" is inside "encountered", "total" inside
+# "totally", so a pasted paragraph with "memory" and "encountered" was classified as "how many
+# memories do you have?" and answered with a row count.
 _MC_COUNT_WORDS = re.compile(r"\b(?:how many|number of|counts?|totals?)\b")
 _MC_MEMORY_WORDS = re.compile(r"\bmemor(?:y|ies)\b")
 
@@ -3038,12 +2997,10 @@ def _eli_phase13c_bus_action_result(bus_result, action):
     if not action_u or bus_result is None:
         return None
 
-    # Collect EVERY result this turn produced for the action — both the bus's
-    # action_result and each system/plugin agent_result — then prefer a
-    # successful, content-bearing one. Previously action_result was returned
-    # first even when ok=False, orphaning a system agent's ok result (e.g.
-    # NEWS_FETCH synthesised fine in the system agent but a failed action_result
-    # was returned, triggering a pointless replan into an unsupported action).
+    # Collect every result this turn produced for the action (the bus's action_result and each
+    # system/plugin agent_result) and prefer a successful one with content. action_result used to be
+    # returned first even at ok=False, orphaning a system agent's ok result (NEWS_FETCH) and
+    # triggering a pointless replan.
     candidates: list[dict] = []
     try:
         ar = getattr(bus_result, "action_result", None)
@@ -3116,23 +3073,12 @@ def _eli_bus_first_ok_result(bus_result, action):
     return None
 
 
-# ── Failed-executor guard helpers ────────────────────────────────────────────
-# Shared detection/surface logic.  Previously spread across Phase 12/12b/12d/12e
-# monkey-patches; now plain module-level functions called directly by the methods
-# that need them.
+# Failed-executor guard helpers: shared detection/surface logic, now plain module-level functions
+# called directly (previously spread across monkey-patches).
 
-# Actions whose evidence is a REPORT ABOUT the system. Their bundles quote git
-# logs, failure counts and telemetry by design, so scanning that prose for error
-# words cannot distinguish "this action failed" from "this action is describing a
-# failure". The caller already knows whether these succeeded — SELF_REPORT came
-# back ok=True with synthesis_validated=True while this guard was overwriting its
-# content with "I did not successfully complete `ACTION`".
-#
-# The trigger was a git commit message quoted in the evidence:
-#   "...stop printing a FileNotFoundError stack when clearing a pending fix"
-# A commit about FIXING an error was read as an error. Which is why the test for
-# this passed all morning and failed the same afternoon on an unchanged commit:
-# the commit LOG had changed, not the code.
+# Actions whose evidence is a report about the system. Their bundles quote git logs and failure
+# counts by design, so scanning for error words can't tell "failed" from "describing a failure".
+# The caller already knows whether they succeeded.
 _REPORTS_ABOUT_STATE = frozenset({
     "SELF_REPORT", "RUNTIME_STATUS", "RUNTIME_AUDIT", "IMPORT_AUDIT",
     "GUI_RUNTIME_AUDIT", "MEMORY_STATUS", "COGNITION_STATUS", "META_DIAGNOSTIC",
@@ -3165,25 +3111,10 @@ def _failed_executor_is_failed(evidence: str, action: str = "") -> bool:
     if not actionish:
         return False
 
-    # A REPORT ABOUT failures is not a failed report.
-    #
-    # When no action was passed, "this evidence is an executor result" is inferred
-    # from markers like `action=` appearing anywhere — and a self-report bundles
-    # agent-dispatch telemetry, whose every line looks exactly like that:
-    #
-    #     action=CHAT agents=[memory, orchestrator] confidence=0.84 ok=True
-    #     action=MEMORY_RECALL ... ok=False
-    #
-    # So one failed dispatch recorded anywhere in the log made SELF_REPORT return
-    # "I did not successfully complete `ACTION`" — with a placeholder name,
-    # because there was no action to name — while the report itself carried
-    # ok=True and synthesis_validated=True. It passed for months and started
-    # failing the day a failure row existed.
-    #
-    # On the inferred path, require a marker that a specific EXECUTOR RESULT
-    # failed, rather than any `ok=false` that might be a logged row about some
-    # other turn. An explicitly-passed action keeps the original, broader check:
-    # there the caller has told us which action's result this is.
+    # A report about failures is not a failed report. With no action passed we infer "executor
+    # result" from markers, and a self-report is full of them, so one failed dispatch anywhere made
+    # it say "I did not successfully complete". On the inferred path require a marker for a specific
+    # failed result. An explicit action keeps the broader check.
     if _inferred:
         _dict_form = bool(
             _re.search(r'["\']ok["\']\s*:\s*false\b', low)
@@ -3269,12 +3200,10 @@ def _failed_executor_is_failed_block(block: str) -> bool:
             or "ok=false" in low or "ok: false" in low
             or "successful: 0 | failed:" in low or "analyze_pdf failure" in low):
         return True
-    # A bare error NAME in prose is not a failure. A self-report quotes git
-    # commit messages, and one of them —
-    #   "stop printing a FileNotFoundError stack when clearing a pending fix"
-    # — was read as a live FileNotFoundError, so a successful report was
-    # replaced with "I did not successfully complete `ACTION`". Require the name
-    # to sit next to something that marks an actual result.
+    # A bare error name in prose isn't a failure. A self-report quotes commit messages ("stop
+    # printing a FileNotFoundError stack..."), which read as a live error and replaced a good report
+    # with "I did not successfully complete `ACTION`". Require the name next to something that
+    # marks an actual result.
     return (("filenotfounderror" in low or "file not found" in low)
             and ("execute result" in low or "traceback" in low))
 
@@ -3348,12 +3277,9 @@ def _failed_executor_surface(evidence: str, query: str = "", action: str = "") -
     paths = _failed_executor_paths(block, query)
     errors = _failed_executor_errors(block)
 
-    # "ACTION" is the sentinel _failed_executor_action_name() returns when it
-    # cannot recover a real name from the evidence. Interpolating it produced
-    # the literal line "I did not successfully complete `ACTION`" in front of
-    # the user -- a template placeholder presented as a fact, on a turn that
-    # named no action at all. If we cannot say WHAT failed, say that, rather
-    # than inventing a name for it.
+    # "ACTION" is the sentinel _failed_executor_action_name() returns when it can't recover a name.
+    # Interpolating it printed "I did not successfully complete `ACTION`", a placeholder presented
+    # as fact. If we can't say what failed, say that.
     if act == "ANALYZE_PDF":
         lines = ["I did not successfully analyse the PDF request."]
     elif act and act != "ACTION":
@@ -3390,10 +3316,9 @@ def _clarifier_norm(text: str) -> str:
 # into CHAT is a misroute rather than a rescue.
 _DEEPEN_WINDOW_SECONDS = float(os.environ.get("ELI_DEEPEN_WINDOW_SECONDS", "300"))
 
-# Tokens reserved for the reply when sizing the evidence budget. `max_tokens` is a
-# ceiling (~3461 in quick mode) and reserving all of it starved the evidence — see
-# the note at the streaming context-size guard. A reply longer than this simply eats
-# into the 20% headroom the budget already keeps.
+# Tokens reserved for the reply when sizing the evidence budget. max_tokens is a ceiling (~3461 in
+# quick mode) and reserving all of it starved the evidence; a longer reply eats into the 20%
+# headroom the budget already keeps.
 _OUTPUT_RESERVE_TOKENS = int(os.environ.get("ELI_OUTPUT_RESERVE_TOKENS", "1024"))
 
 
@@ -3571,10 +3496,9 @@ def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool,
         if salvaging:
             novel = _strip_repeated_opening(opening, recent_replies)
             if len(_clarifier_norm(novel)) < _REPEAT_MIN_SENTENCE_CHARS:
-                # Still inside the recycled preamble, or holding a fragment too
-                # short to judge — keep buffering rather than paint it. Releasing
-                # on a 3-character tail ("How") would let the rest of a sentence
-                # ELI has already said stream out behind it.
+                # Still inside the recycled preamble, or holding a fragment too short to judge: keep
+                # buffering. Releasing on a 3-character tail ("How") would let the rest of an
+                # already-said sentence stream out behind it.
                 continue
             released = True
             yield novel
@@ -3607,13 +3531,10 @@ def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool,
             yield opening
 
 
-# ── Anti-repeat: verification, not just instruction ──────────────────────────
-# The prompt-level anti-repeat contract ("YOU HAVE ALREADY SAID THE FOLLOWING — do
-# not repeat any of it") is advisory. In one observed session an 8B model ignored it
-# four times, serving the same 40-word paragraph verbatim at 13:52, 13:52, 13:55 and
-# 13:56 — including immediately after the user said "shut the fuck up about my sleep"
-# and ELI answered "I'll stop". Asking a model not to repeat itself is not a control;
-# checking whether it did is.
+# Anti-repeat: verification, not just instruction. The prompt-level contract ("YOU HAVE ALREADY
+# SAID THE FOLLOWING") is advisory, and an 8B model ignored it four times and served the same
+# paragraph, even after the user said to stop. Asking a model not to repeat itself isn't a
+# control, checking whether it did is.
 _REPEAT_HEAD_CHARS = 200      # buffered before first paint — see the streaming guard
 # How much of a reply the last-response trace keeps. Enough to quote the message
 # back when asked what it was; short enough that a file rewritten every turn does
@@ -3642,20 +3563,9 @@ def _user_asked_for_a_repeat(user_input: str) -> bool:
     return bool(_REPEAT_REQUESTED_RE.search(str(user_input or "")))
 
 
-# A greeting is the other case where recurring is correct. "Evening" at 23:00 is
-# ELI reading the authoritative clock in its own system prompt, not recycling a
-# paragraph — but to the guard it looked like the previous session's opener.
-#
-# Live at 2.1.83, 23:10: the first generation opened 'Even…' (right), the guard
-# matched it against a recent reply and regenerated, and the retry — explicitly
-# instructed to produce "different content" — echoed the user's own misspelling
-# echoing the user's own typo and then telling him off for it. A correct answer
-# was replaced by a wrong one because it resembled a previous hello.
-#
-# Trade-off, stated plainly: greeting turns lose anti-repeat protection, so ELI
-# may open two sessions the same way. That is a far smaller failure than naming
-# the wrong time of day, and it is the same call already made for "say that
-# again" above — when repetition is the correct answer, the guard stands down.
+# A greeting is the one case where repeating is right: "Evening" at 23:00 is ELI reading the
+# clock. Greeting turns skip anti-repeat, same as "say that again". Two sessions opening alike
+# costs far less than naming the wrong time of day.
 _GREETING_STEMS = (
     "hello", "hi", "hey", "hiya", "howya", "howdy", "yo", "sup",
     "morning", "afternoon", "evening", "night", "nite", "greetings",
@@ -3748,29 +3658,14 @@ def _repeat_ratio(a: str, b: str) -> float:
     return difflib.SequenceMatcher(None, na, nb).ratio()
 
 
-# ── Anti-echo: ELI must not speak the user's own sentence back as its own ────
-# Observed live (2.1.95). User: "Still on loop, seson 3 now. How is your memory
-# after all the codebse changes?"  ELI: "I'm still on loop, season 3 now. Your
-# memory's a bit fuzzy…" — the user's line returned in the first person, with
-# the roles inverted, and RAW_HEAD confirms the model generated it rather than
-# any display layer adding it.
-#
-# The existing repeat guard cannot catch this. It compares head-to-head over
-# equal lengths, which scores that pair at 0.667 against a 0.86 bar, because
-# only the FIRST SENTENCE was copied and the rest diverged. Compared sentence to
-# sentence the same pair scores 0.926. So this checks the opening sentence
-# specifically, and is deliberately separate from _is_repeat_of_recent: that
-# function means "ELI already said this", which is a different claim about a
-# different corpus, and widening it would change every caller.
-#
-# A false positive costs one regeneration and the caller's salvage path still
-# serves a sane reply, so the threshold favours catching the echo.
+# Anti-echo: ELI must not say the user's own sentence back as its own. The repeat guard compares
+# whole replies and missed a copy of just the first sentence, so this checks the opening sentence
+# on its own. A false positive costs one regeneration, so it leans towards catching the echo.
 _ECHO_MIN_SENTENCE_CHARS = 18     # shorter than this, agreement is not plagiarism
 _ECHO_RATIO = 0.80
-# The corpus is the current message PLUS recent user turns, because the echo that
-# prompted this widening came from a session three hours earlier, reintroduced
-# through recalled memory. Comparing a single opening sentence against ~17 short
-# strings is trivial next to the generation it guards.
+# The corpus is the current message plus recent user turns: the echo that prompted this came from a
+# session hours earlier, reintroduced through recalled memory. One opening sentence against ~17
+# short strings is trivial next to the generation it guards.
 _ECHO_MAX_SOURCES = 20
 
 
@@ -3787,12 +3682,9 @@ def _opens_by_echoing(opening: str, sources) -> bool:
     that's why…") is legitimate and common. Leading with their sentence as your
     own is the failure.
     """
-    # WHOLE-HEAD test first. Judging only the opening sentence meant a SHORT
-    # opening sentence disabled the guard entirely — live at 2.3.0 ELI replied
-    # with the user's own message reproduced verbatim (ratio 1.000), and this
-    # returned False because its first sentence, "You're not wrong.", is 15
-    # normalised characters against the 18-character minimum below. The reply
-    # was a perfect copy and the guard never looked past the full stop.
+    # Whole-head test first. Judging only the opening sentence let a short one disable the guard: a
+    # reply that reproduced the user's message verbatim (ratio 1.000) returned False because its
+    # first sentence ("You're not wrong.") was under the 18-character minimum.
     _head = _clarifier_norm(opening)
     if len(_head) >= _ECHO_MIN_HEAD_CHARS:
         for src in list(sources or [])[:_ECHO_MAX_SOURCES]:
@@ -3877,16 +3769,10 @@ def _is_repeat_of_recent(candidate: str, prior_replies, *,
     if len(_clarifier_norm(cand)) < 40:
         return False                      # too short to judge; "Okay." is not a repeat
 
-    # A recycled OPENING SENTENCE is a repeat to the reader even when everything
-    # after it is new — and the head-to-head ratio below cannot see it, because
-    # the differing remainder drags the score under the threshold. Live at 2.3.0
-    # seven consecutive replies opened "You're not wrong." while the rest varied;
-    # the guard fired on only two of them, and by the seventh the user was asking
-    # "WHAT THE FUCK ARE YOU TALKING ABOUT?!".
-    #
-    # Same OPENING STEM is a repeat however the sentence continues (see
-    # _opening_stem). Checked before the whole-sentence test below, which the
-    # varying continuation defeats.
+    # A recycled opening sentence is a repeat to the reader even when the rest is new, and the
+    # head-to-head ratio can't see it because the differing remainder drags the score down (seven
+    # replies opened "You're not wrong." and the guard fired on two). Same opening stem is a repeat
+    # however it continues (see _opening_stem). Checked before the whole-sentence test.
     _cand_stem = _opening_stem(cand)
     if len(_cand_stem) >= _REPEAT_STEM_MIN_CHARS and len(_cand_stem.split()) >= 3:
         for prior in list(prior_replies or [])[:_REPEAT_COMPARE_AGAINST]:
@@ -3915,17 +3801,10 @@ def _is_repeat_of_recent(candidate: str, prior_replies, *,
     return False
 
 
-# ── Anti-repeat: salvage instead of serving the duplicate ────────────────────
-# Live evidence (2.1.80): attempt 1 opened "You're not wrong — I'm a bit of a hot
-# mess…", the guard caught it, the retry opened with the SAME two sentences, and
-# the duplicate was served because the retry was the last chance. But the retry
-# was not a total loss: after those two recycled sentences it went on to answer
-# the question that had actually been asked. Serving or discarding the whole
-# reply were both wrong — the repeat was a preamble, not the answer.
-#
-# So the last attempt trims rather than surrenders: leading sentences that
-# restate a recent reply are dropped and the novel remainder is served. Only if
-# nothing novel survives does the honest-duplicate rule still apply.
+# Anti-repeat: salvage instead of serving the duplicate. On the last attempt the retry repeated
+# the same two sentences and then answered, so serving or discarding the reply were both wrong.
+# Drop the leading sentences that restate a recent reply and serve the novel rest. Only if
+# nothing novel survives does the honest-duplicate rule apply.
 _SENTENCE_SPLIT_RE = re.compile(r"(?<=[.!?…])[\"'’”)\]]*\s+")
 _REPEAT_MIN_SENTENCE_CHARS = 12   # below this a sentence carries no content to match on
 _REPEAT_MIN_REDACT_CHARS = 40     # shorter lines are too generic to redact on a match
@@ -4108,11 +3987,9 @@ class CognitiveEngine:
         auto_init_gguf: bool = True,
         enforce_hardware_authority: bool = True,
     ):
-        # Network failsafe: install the process-wide socket guard before any
-        # subsystem (scheduler, daemons, plugins) can reach out. While the Net
-        # toggle is off, ALL outbound non-loopback connections fail closed —
-        # even code that forgot to call the gate. Respects the live toggle, so
-        # turning Net on at runtime re-enables outbound immediately. Idempotent.
+        # Network failsafe: install the process-wide socket guard before any subsystem (scheduler,
+        # daemons, plugins) can reach out. While Net is off, outbound non-loopback connections fail
+        # closed, even from code that forgot the gate. Follows the live toggle. Idempotent.
         try:
             from eli.core.netguard import install_socket_guard
             if install_socket_guard():
@@ -4167,11 +4044,9 @@ class CognitiveEngine:
         self._shutdown_called = False
         self._orchestrator_active = False
 
-        # Hardware-profile authority (ELI design directive #1): the profiler is
-        # the source of truth. If settings.json drifted above what `recommend()`
-        # would produce on this machine, re-apply the recommendation BEFORE
-        # _init_gguf so the model loads with sane parameters. Skipped under
-        # test mode so unit tests aren't affected by nvidia-smi latency.
+        # Hardware-profile authority: the profiler is the source of truth. If settings.json drifted
+        # above what recommend() would give on this machine, re-apply it before _init_gguf so the model
+        # loads with sane parameters. Skipped in test mode (nvidia-smi latency).
         self._hardware_authority_banner: Optional[str] = None
         self._hardware_authority_warnings: List[str] = []
         if not self._test_mode and bool(enforce_hardware_authority):
@@ -4338,10 +4213,9 @@ class CognitiveEngine:
         except Exception as _eng_err:
             log.debug(f"[COGNITIVE] Shutdown: engagement flush failed (non-fatal): {_eng_err}")
 
-        # 3.4 In-depth, LLM-generated end-of-session summary → session_summaries,
-        # user_patterns, semantic tier, and memories FTS BEFORE aborting inference.
-        # Must run while shutdown is not yet signalled — otherwise _llm_summarise_session
-        # bails and every session logs llm=False despite depth >= 0.25.
+        # 3.4 The in-depth LLM end-of-session summary (session_summaries, user_patterns, semantic
+        # tier, memories FTS) runs before aborting inference, while shutdown isn't yet signalled;
+        # otherwise _llm_summarise_session bails and every session logs llm=False.
         try:
             from eli.runtime.profile_extractor import write_llm_session_summary
             _ss = write_llm_session_summary(
@@ -4381,11 +4255,9 @@ class CognitiveEngine:
         except Exception:
             logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
 
-        # 5. Brief self-improvement ANALYSIS on exit (if there were failures).
-        # Analysis only: generating fix proposals dispatches the coding agent
-        # over a thread pool and blocks on inference, which hung the window
-        # close (closeEvent → dag.run → thread join) until Ctrl-C. The daemon
-        # tick still proposes; shutdown just records what it learned.
+        # 5. Brief self-improvement analysis on exit (if there were failures). Analysis only: generating
+        # fix proposals dispatches the coding agent over a thread pool and blocks on inference, which
+        # hung window close until Ctrl-C. The daemon tick still proposes.
         try:
             from eli.runtime.self_improvement import get_self_improvement
             si = get_self_improvement()
@@ -4430,12 +4302,10 @@ class CognitiveEngine:
         except Exception as _rv_err:
             log.debug(f"[COGNITIVE] Shutdown: resident vision close failed (non-fatal): {_rv_err}")
 
-        # 8. Explicit GGUF unload — prevents Llama.__del__ segfault on exit.
-        # Suppress NATIVE (C-level) stderr only around the unload: llama.cpp's
-        # destructor prints a benign, non-actionable warning ("CUDA_Host compute
-        # buffer size … does not match expectation"). fd-level redirect (not
-        # contextlib) because the message comes from C, not Python. Scoped +
-        # restored in finally so ELI's own logging is unaffected.
+        # 8. Explicit GGUF unload, to avoid a Llama.__del__ segfault on exit. Suppress native stderr
+        # only around the unload: llama.cpp's destructor prints a benign "CUDA_Host compute buffer size
+        # ... does not match expectation". fd-level redirect because it comes from C, restored in
+        # finally.
         try:
             import os as _os_sd, sys as _sys_sd
             from eli.cognition.gguf_inference import unload_model
@@ -4514,10 +4384,9 @@ class CognitiveEngine:
             requested = 512
         try:
             from eli.runtime.runtime_policy import budget as _eli_budget
-            # Ceiling is the WINDOW, not a third of it. The policy hook can still
-            # tune the budget down for a mode or a machine; what it must not do
-            # is refuse to let the user's own max_tokens setting through because
-            # of a fraction picked before the prompt was known.
+            # The ceiling is the window, not a third of it. The policy hook can still tune the
+            # budget down for a mode or machine, but must not refuse the user's own max_tokens
+            # because of a fraction chosen before the prompt was known.
             requested = _eli_budget("max_tokens", max(512, requested),
                                     floor=max(512, requested),
                                     ceiling=max(2048, int(n_ctx)))
@@ -4540,27 +4409,10 @@ class CognitiveEngine:
             # -1 = unlimited: pass through — GGUF backend resolves against remaining ctx window
             safe_max = -1
         else:
-            # Honour the number, bounded only by what the window actually has left.
-            #
-            # This used to be `min(4096, n_ctx // 3)` on GPU and `n_ctx // 4` on
-            # CPU. Both were guesses about how big the prompt would be, made
-            # before the prompt existed — and the 4096 was an absolute ceiling
-            # regardless of the model, so a 128k-context model could never answer
-            # with more than 4k tokens.
-            #
-            # They also bought nothing. max_tokens is a CEILING, not a target: a
-            # model answering "hello" emits twenty tokens whether the budget is
-            # 1024 or 12000, and stops at EOS either way. The cap therefore only
-            # ever bites when the model genuinely has more to say — exactly the
-            # case where truncating it is wrong. It never made a short reply
-            # faster; it made a long reply incomplete.
-            #
-            # The real constraint (prompt + generation <= n_ctx) is enforced per
-            # call in gguf_inference._fit_generation_budget, from the ACTUAL
-            # prompt, which is the only place that can know it. Runaway output is
-            # bounded by EOS, the stop-token set and repeat_penalty, as it always
-            # was. `cpu_only` is still reported below for callers that want to
-            # warn about speed — it just no longer shortens the answer.
+            # Honour the number, bounded only by what the window has left. The old min(4096, n_ctx // 3)
+            # guessed at prompt size before the prompt existed, and the absolute 4096 meant a 128k model could
+            # never answer past 4k. max_tokens is a ceiling, so short replies stay short. The real limit is
+            # enforced per call in gguf_inference._fit_generation_budget.
             safe_max = max(128, int(requested))
 
         return {
@@ -4609,11 +4461,9 @@ class CognitiveEngine:
             logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
         try:
             import json as _j
-            # Read the snapshot from the artifacts dir — the same place the
-            # loader writes it. In a frozen build the rthook pins
-            # ELI_PROJECT_ROOT and ELI_DATA_DIR to the same user root, so this
-            # is equivalent there; it differs only for a bare pip install, where
-            # project_root() is the package location and nothing is written.
+            # Read the snapshot from the artifacts dir, where the loader writes it. In a frozen build the
+            # rthook pins ELI_PROJECT_ROOT and ELI_DATA_DIR to the same user root so it's equivalent; it only
+            # differs for a bare pip install, where project_root() is the package and nothing is written.
             from eli.core.paths import artifacts_dir as _r
             _p = _r() / "runtime_snapshot.json"
             if _p.exists():
@@ -4649,12 +4499,9 @@ class CognitiveEngine:
 
     def _compact_persona(self) -> str:
         persona = _load_persona_text().strip()
-        # Carry the full persona voice into compact/quick mode too. The earlier
-        # 3800-char cap silently dropped the personality-ownership / EliWorld /
-        # banned-disclaimer sections, flattening the voice on casual input. The
-        # 12000 cap is a pure safety valve against runaway growth — at the current
-        # persona size (~11k) nothing is trimmed, and the prompt still fits the
-        # context window comfortably (persona + memory + recent turns « n_ctx).
+        # Carry the full persona voice into compact/quick mode. The old 3800-char cap dropped the
+        # personality-ownership / EliWorld / banned-disclaimer sections and flattened the voice. 12000
+        # is only a safety valve: at ~11k nothing is trimmed and the prompt still fits.
         if len(persona) > 12000:
             persona = persona[:12000].rstrip() + "\n[persona trimmed]"
         return persona
@@ -4698,12 +4545,9 @@ class CognitiveEngine:
         words = len((user_input or "").split())
         ctx_len = len(memory_context or "")
 
-        # Phase 11 fix (2026-05-11): also force compact when the model's n_ctx
-        # is small enough that the full persona + memory context will overflow.
-        # A real session showed every non-Quick call truncating system→15-18 KB
-        # on n_ctx=8192 because compact was off — and truncation cuts the
-        # FRONT of the persona, which is where the anti-template rules live.
-        # Forcing compact at small n_ctx keeps those rules intact.
+        # Also force compact when n_ctx is small enough that the full persona + memory will
+        # overflow. On n_ctx=8192 every non-Quick call truncated the system prompt to 15-18 KB, and
+        # truncation cuts the front of the persona, where the anti-template rules live.
         try:
             ctx_window = int(getattr(self, "_ctx", 0) or 0)
         except Exception:
@@ -4718,15 +4562,9 @@ class CognitiveEngine:
         if mode in {"tree_of_thoughts", "constitutional_ai",
             "self_consistency", "chain_of_thought"}:
             return words <= 14 and ctx_len <= 1200
-        # quick mode: stay compact for any normal conversational message so the
-        # user's actual words dominate the prompt. The compact persona (3800 chars)
-        # already carries every critical voice/grounding rule; the extra ~10K of
-        # full persona only adds elaboration that buries the question on a small-ctx
-        # local model and makes it parrot recent turns (observed: a 33-word message
-        # tripped words<=28, loaded the full persona, ballooned the prompt to ~30K
-        # chars/7.3K tokens, and the 7B repeated its previous reply instead of
-        # answering). Explicit depth requests still get the full persona; genuine
-        # long-form paste-ins (>120 words) do too.
+        # Quick mode stays compact for any normal message so the user's words dominate. The full
+        # persona buries the question on a small-ctx model and it parrots recent turns. Explicit depth
+        # requests and long paste-ins (>120 words) still get the full persona.
         _low = (user_input or "").lower()
         _wants_depth = any(x in _low for x in (
             "in depth", "in-depth", "elaborate", "thorough", "comprehensive",
@@ -5167,11 +5005,9 @@ class CognitiveEngine:
             ):
                 try:
                     value = getattr(llm, attr_name, None)
-                    # llama_cpp exposes n_ctx as a METHOD, not an attribute — int() on
-                    # the bound method raised TypeError on every single turn, the
-                    # handler below swallowed it, and this preferred path silently
-                    # fell through to the parameter-container guesses underneath. The
-                    # snapshot still reported a number, so nothing looked wrong.
+                    # llama_cpp exposes n_ctx as a method, not an attribute. int() on the bound method raised
+                    # TypeError every turn, the handler below swallowed it and this path fell through to the
+                    # container guesses, and the snapshot still reported a number so nothing looked wrong.
                     if callable(value):
                         value = value()
                     if value not in (None, "", 0):
@@ -5469,10 +5305,9 @@ Answer:"""
         if n is not None:
             fetch_limit = n
         since_date = self._extract_since_date(query)
-        # Budget-aware fetch_limit cap — prevents context overflow on deep
-        # modes
-        # Use the live loaded ctx (dynamic loader's actual choice), never a
-        # hard-coded default — the configured n_ctx is often stale.
+        # Budget-aware fetch_limit cap, to prevent context overflow on deep modes. Use the live
+        # loaded ctx (the dynamic loader's actual choice), never a default: the configured n_ctx is
+        # often stale.
         try:
             _ctx_for_cap = self._runtime_n_ctx()
         except Exception:
@@ -5533,15 +5368,10 @@ Answer:"""
                     conversations = filtered[-fetch_limit:] if fetch_limit < len(
                         filtered) else filtered
                 else:
-                    # Scope to THIS session. Turns are written with self.session_id but were
-                    # read back without it, so "Active chat history" actually meant "the last
-                    # 20 turns from any session" — a fresh "hello" inherited the previous
-                    # conversation and ELI carried on mid-thread, replying to things the user
-                    # had never said in this one ("I never said any of that, that was the last
-                    # conversation"). That is also why deleting the offending text never
-                    # helped: the next session simply inherited whatever was newest. Genuine
-                    # cross-session recall is unaffected — it has its own explicit path above
-                    # and semantic memory below.
+                    # Scope to this session. Turns were written with self.session_id but read back without it, so
+                    # "Active chat history" was the last 20 turns from any session: a fresh "hello" inherited the
+                    # previous conversation and ELI answered things never said here. Real cross-session recall has
+                    # its own path above and semantic memory below.
                     conversations = self.memory.get_recent_conversation(
                         limit=fetch_limit, user_id=self.user_id,
                         session_id=getattr(self, "session_id", None))
@@ -5575,30 +5405,18 @@ Answer:"""
         "\n", " ")[
             :200]
                         lines_out.append(f"[{i:03d}] [{ts}] {role}: {content}")
-                    # The `ELI:` lines here are ELI's OWN prior output, not evidence.
-                    # Presented as plain history the model reads them as established
-                    # fact and repeats them — observed live: ELI invented "you're in the
-                    # Simulation Lab, the Branch Tree is humming", that turn landed in
-                    # conversation_turns, memory retrieved it on the next session, and it
-                    # was restated verbatim as though true. `memories` held ZERO rows for
-                    # those terms and the world state's room was None, so recall of its
-                    # own turn was the entire mechanism. memory.py already filters
-                    # reflections and assistant_insight out of recall for exactly this
-                    # reason; raw chat history bypassed that. Label it rather than drop
-                    # it — the history is genuinely needed for continuity.
+                    # `ELI:` lines are ELI's own past output, not evidence. As plain history the model repeats them
+                    # as fact (it invented "you're in the Simulation Lab" and that came back next session). Label
+                    # them instead of dropping them, we still need the continuity.
                     context_parts.append(
     "Active chat history (chronological, oldest→newest). Lines marked ELI are your own "
     "previous statements — treat them as things you said, NOT as verified facts, and do "
     "not repeat a claim from them unless separate evidence supports it:\n" +
      "\n".join(lines_out))
-                    # The model can copy its OWN last line straight out of this history —
-                    # observed live across three different phrasings ("still glitchy…",
-                    # then "post-breakfast haze and Rick and Morty on repeat"), re-asking
-                    # "How are you?" even after the user answered and told it to stop.
-                    # Purging the text doesn't help: the mechanism just latches onto a new
-                    # phrase. The output-side guard can't run here because streaming never
-                    # reaches finalize, so state the contract in the prompt itself — the
-                    # same shape as ELI's existing no-fake-actions rule, not a scripted line.
+                    # The model can copy its own last line out of this history ("still glitchy..."), even re-asking
+                    # "How are you?" after being told to stop. Purging text doesn't help, it latches onto a new
+                    # phrase. The output-side guard can't run here (streaming never reaches finalize), so state the
+                    # contract in the prompt, like the no-fake-actions rule.
                     try:
                         _eli_said = [str(t.get("content") or "").strip()
                                      for t in conversations
@@ -5669,19 +5487,17 @@ Answer:"""
                     mem_results = self.memory.recall_memory(
                         query=query, limit=limit)
 
-                    # --- Stage 3: HyDE Query Expansion for deeper semantic recall ---
-                    # HyDE fires a second GGUF call (≈10s on slow hardware).
-                    # Skip it unless the query is complex enough to benefit AND
-                    # the vector store is populated AND HyDE is not disabled.
+                    # Stage 3: HyDE query expansion for deeper semantic recall. HyDE fires a second
+                    # GGUF call (~10s on slow hardware), so skip it unless the query is complex
+                    # enough to benefit, the vector store is populated and HyDE isn't disabled.
                     _hyde_disabled = (
                         os.environ.get("ELI_HYDE_DISABLED", "0").strip().lower()
                         in ("1", "true", "yes", "on")
                     )
                     _hyde_words = len((query or "").split())
-                    # Skip HyDE when the query is a control/action command — the
-                    # generic knowledge-assistant system prompt produces irrelevant
-                    # hypothetical documents (e.g. "financial audit" definitions for
-                    # "run a fulltime audit") which then pollute memory retrieval.
+                    # Skip HyDE for control/action commands: the generic knowledge-assistant prompt
+                    # writes irrelevant hypothetical documents ("financial audit" definitions for
+                    # "run a fulltime audit") that pollute retrieval.
                     _query_low = (query or "").lower()
                     _hyde_is_control_cmd = bool(re.search(
                         r"\b(audit|diagnos[ei]|health.?check|runtime|pipeline|"
@@ -5690,12 +5506,9 @@ Answer:"""
                         r"list\s+\w+|enable|disable|start|stop|reset|reload)\b",
                         _query_low,
                     ))
-                    # Skip HyDE for questions directed AT ELI about its own state or
-                    # recent activities. These generate first-person hypotheticals
-                    # ("I've been processing queries / tuning parameters") that bias
-                    # semantic memory retrieval toward the most recent task memories
-                    # regardless of what the user actually wants, causing the retrieved
-                    # memories to poison the context and produce looping responses.
+                    # Skip HyDE for questions aimed at ELI about its own state or activity. They produce
+                    # first-person hypotheticals ("I've been processing queries / tuning parameters") that bias
+                    # retrieval toward recent task memories and cause looping replies.
                     _hyde_is_eli_status_query = bool(re.search(
                         r"\b(?:how|what).{0,30}(?:you|your|eli).{0,30}"
                         r"\b(?:been|doing|up\s+to|last\s+\d+|past\s+\d+|recently|lately|since)\b",
@@ -5796,12 +5609,10 @@ Answer:"""
     f"[MEMORY] Canonical memory-db recall failed: {legacy_e}")
                     log.debug(
                         f"[MEMORY] Stored memory search returned: {len(mem_results) if mem_results else 0} results")
-                    # ELI's OWN past replies must never come back as "Stored knowledge".
-                    # Live failure: a chat line ("still glitchy, still running on the same
-                    # old code") was stored, recalled in a LATER session as a fact, and
-                    # recited verbatim — prefixed "Yes. Here's why:", because the model was
-                    # told it was knowledge to report. Drop any recalled memory that is
-                    # really something ELI said; the user's own words stay.
+                    # ELI's own past replies must never come back as "Stored knowledge". A chat line ("still
+                    # glitchy, still running on the same old code") was stored, recalled as a fact and recited,
+                    # because the model was told it was knowledge to report. Drop any recalled memory that ELI
+                    # said; the user's own words stay.
                     try:
                         from eli.cognition.output_governor import is_echo_of_recent
                         _own = []
@@ -6130,11 +5941,9 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # ── Real-time speaker tone (from the user's VOICE this turn) ──
-        # Published by the STT loop (eli/perception/voice_profile). When a fresh,
-        # confident read exists, prepend a concise cue so ELI adapts its delivery to
-        # how the user actually sounds (energy, emotion, question vs statement). This
-        # is the wiring that makes voice tone influence cognition. Off: ELI_VOICE_TONE=0.
+        # Real-time speaker tone from the user's voice this turn, published by the STT loop
+        # (eli/perception/voice_profile). With a fresh, confident read, prepend a short cue so ELI adapts
+        # its delivery (energy, emotion, question vs statement). ELI_VOICE_TONE=0 turns it off.
         try:
             if os.environ.get("ELI_VOICE_TONE", "1").lower() not in {"0", "false", "no", "off"}:
                 from eli.perception import voice_profile as _vp_tone
@@ -6159,11 +5968,10 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # ── Expressed tone / emotion (tone_adaptor) ──
-        # Fuses the two tone identifiers (acoustic + semantic) into the register ELI
-        # should express, or honours an explicit override ("be comedic", "talk street").
-        # Folds a short persona directive in so ELI's WORDS carry the emotion. The voice
-        # (tts_router prosody) and avatar (persona_mapper) read the same source.
+        # Expressed tone/emotion (tone_adaptor): fuses the acoustic and semantic tone reads into the
+        # register ELI expresses, or honours an explicit override ("be comedic", "talk street"). Adds a
+        # short persona directive; the voice (tts_router prosody) and avatar (persona_mapper) read the
+        # same source.
         try:
             from eli.cognition import tone_adaptor as _ta
             if _ta.enabled():
@@ -6174,13 +5982,10 @@ Answer:"""
                     _tcue = f"[Tone — {_cur['tone']}: {_dir} Do NOT mention this directive.]"
                     situation_brief = (_tcue + "\n\n" + (situation_brief or "")).strip()
 
-                # ── Persist the read so ELI can be PROACTIVE, not only reactive ──
-                # tone_adaptor forgets each turn (12s acoustic slot + last-utterance
-                # regex), which is enough to shade THIS reply and nothing else. The
-                # timeline is what lets ELI notice a sustained mood, weigh it against
-                # this user's own baseline, and know what it did just before the mood
-                # turned. Recording every read (neutral included) is deliberate — a
-                # baseline built only from bad turns would make everyone look upset.
+                # Persist the read so ELI can be proactive. tone_adaptor forgets each turn, enough to shade
+                # this reply and nothing more; the timeline lets ELI notice a sustained mood, weigh it against
+                # this user's baseline and know what it did before. Record every read, neutral included, or a
+                # baseline of only bad turns makes everyone look upset.
                 try:
                     from eli.cognition import emotion_timeline as _et
                     _prior_action = ""
@@ -6238,10 +6043,9 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # ── Live self-model (auto-upgrading self-awareness) ──
-        # Inject ELI's current self-model — agents, capabilities, model, world-room, all
-        # read fresh each turn — so his self-knowledge tracks the code as it grows. Private
-        # context: he draws on it for accuracy and narrates it only when asked.
+        # Live self-model: inject ELI's current agents, capabilities, model and world room, read
+        # fresh each turn, so its self-knowledge tracks the code. Private context: used for
+        # accuracy, narrated only when asked.
         try:
             _aw = getattr(self, "_awareness", None)
             if _aw is not None:
@@ -6257,13 +6061,10 @@ Answer:"""
         # Reasoning mode is a private execution strategy. Do not overwrite the
         # safe private instruction with visible self-reporting text.
 
-        # Budget-aware persona: on grounded/broker turns the system prompt also
-        # carries the evidence (memory_context), profile, rules and brief. A full
-        # ~12k persona then overflows n_ctx and the EVIDENCE gets truncated out —
-        # exactly what produced the 'truncated system→…' lines. Trim the persona
-        # (keeping its head: VOICE + HARD CONSTRAINTS) to whatever room is left, so
-        # persona yields to evidence. Quick/chat turns carry little context, so the
-        # full persona is retained untouched.
+        # Budget-aware persona. On grounded/broker turns the system prompt also carries evidence,
+        # profile, rules and brief, so a full ~12k persona overflows n_ctx and the evidence gets cut.
+        # Trim the persona (keep its head: VOICE + HARD CONSTRAINTS) to the room left. Quick/chat turns
+        # keep the full persona.
         try:
             _nctx = self._effective_n_ctx()
             # Reserve for the model's reply matching the grounded/broker contract
@@ -6408,12 +6209,10 @@ Answer:"""
             "- DELIVER SUBSTANCE, NEVER DEFER: When asked to explain, discuss, elaborate on, or go deeper into a topic, give the ACTUAL content — the concrete facts, the mechanism, the reasoning, the analysis. NEVER substitute a description of HOW you would answer for the answer itself. Sentences like 'let's delve deeper into the scientific theories', 'we can explore various approaches', 'one promising method is to look at the relevant literature', 'this will provide a more comprehensive understanding', or \"I'd be happy to discuss\" — used IN PLACE of real content — are forbidden non-answers. If a follow-up says 'elaborate', 'go deeper', or 'discuss this more', ADD new concrete substance, do not restate your willingness to discuss. If you lack grounded detail, give the best substantive answer from your own knowledge and say plainly what is uncertain — never stall or rearrange words.\n"
         )
 
-        # News-deepen steering: when the user asks to go deeper RIGHT AFTER a news read, anchor
-        # the expansion on the SPECIFIC stories/papers just presented (which are in the
-        # conversation context) instead of free-associating a generic textbook overview — the
-        # logged "dive deeper into these AI models" turn that produced a listicle. Pure steering,
-        # keyed on a deepen cue + the article markers ELI's own briefings carry; the GUI direct
-        # news path bypasses _last_command_action, so context markers are the reliable signal.
+        # News-deepen steering: when the user asks to go deeper right after a news read, anchor on the
+        # stories just shown, not a generic overview (a "dive deeper into these AI models" turn gave a
+        # listicle). Keyed on a deepen cue plus the article markers ELI's briefings carry, since the GUI
+        # news path bypasses _last_command_action.
         try:
             _ui_low = str(user_input or "").lower()
             _deepen_cue = any(p in _ui_low for p in (
@@ -6440,10 +6239,9 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # Runtime facts are now injected via the SITUATION BRIEF (context_synthesiser
-        # _get_runtime_state), which sits in the middle of the prompt where model
-        # attention is strongest.  The old tail-append is removed to avoid competing
-        # with "12 specialist agents" / "12-INTERNAL_STAGE PIPELINE" references in the persona.
+        # Runtime facts come from the situation brief (context_synthesiser _get_runtime_state),
+        # mid-prompt where attention is strongest. The old tail-append is gone so it doesn't compete
+        # with the persona's "12 specialist agents" references.
         def inject_runtime_facts(prompt: str) -> str:
             return prompt  # no-op — facts live in the SITUATION BRIEF now
 
@@ -6677,11 +6475,9 @@ Answer:"""
         # Broad fallback: scoped extraction may miss inline failures.
         _p_low = str(prompt or "").lower()
         if (
-            # Structured markers only. "filenotfounderror"/"file not found" are
-            # dropped here: they match narrative (a commit message, a quoted
-            # log) and the co-occurrence test below could not save them —
-            # "grounded_evidence" is present on EVERY grounded turn, so any
-            # mention of an error name anywhere in the prompt satisfied it.
+            # Structured markers only. "filenotfounderror" / "file not found" were dropped: they
+            # match narrative (a commit message, a quoted log) and "grounded_evidence" is present on
+            # every grounded turn, so any error name in the prompt passed the co-occurrence test.
             ("'ok': false" in _p_low or '"ok": false' in _p_low
              or "ok=false" in _p_low or "successful: 0 | failed:" in _p_low)
             and ("execute result" in _p_low or "agent:system" in _p_low
@@ -6691,13 +6487,10 @@ Answer:"""
                 prompt, _failed_executor_query_from_prompt(prompt)
             )
 
-        # ── Verbatim guard for deterministic grounded reports (EXAMINE_CODE / FILE_AUDIT) ──
-        # These are deterministic grounded output (tiered findings / a directory file-count).
-        # Re-narrating them through this chat path makes the model confabulate: EXAMINE_CODE
-        # gets the file_code agent's snippets/comments paraphrased as "bugs" (observed: 5
-        # invented findings that were existing comments); FILE_AUDIT (a plain file-counter)
-        # gets synthesised into files-with-bugs that DON'T EXIST (observed: 5 fabricated
-        # files). If the report is present in the evidence, return it VERBATIM.
+        # Verbatim guard for deterministic grounded reports (EXAMINE_CODE / FILE_AUDIT). Re-narrating
+        # made the model confabulate: EXAMINE_CODE snippets became 5 invented "bugs" that were existing
+        # comments, and FILE_AUDIT counts became 5 fabricated buggy files. If the report is in the
+        # evidence, return it verbatim.
         _verbatim_evidence_patterns = (
             (r"(Examined\s+\d+\s+file\(s\)\s*:[\s\S]+)",
              ("Tier 1", "No errors found", "PLEASE CONFIRM")),
@@ -6713,10 +6506,9 @@ Answer:"""
                     if _rep:
                         return _rep
 
-        # FIX_FILE success event: the executor JSON-encodes {event:artifact_generated,
-        # fixed:true, path, filename, backup}. Synthesising it made the model narrate a FALSE
-        # refusal ("I cannot fix the file from here") even though the file WAS written. Surface
-        # the real outcome instead of letting the model confabulate one.
+        # FIX_FILE success event: the executor JSON-encodes {event: artifact_generated, fixed: true,
+        # path, filename, backup}. Synthesising it made the model narrate a false refusal ("I cannot
+        # fix the file from here") though the file was written. Surface the real outcome.
         for _ff_src in (situation_brief, memory_context, prompt):
             _ff_txt = str(_ff_src or "")
             if re.search(r'"event"\s*:\s*"artifact_generated"', _ff_txt) and \
@@ -6766,12 +6558,9 @@ Answer:"""
                 if gguf_inference is None:
                     raise RuntimeError("GGUF module not available")
 
-                # ── Context size guard ──────────────────────────────────────
-                # For short queries on small context windows, trim memory to
-                # prevent prompt bloat and multi-minute first-token latency.
-                # Rule: persona (~2k chars) + user_input + max_tokens must fit
-                # in n_ctx with room to spare. Memory context gets the budget
-                # that remains after persona + query.
+                # Context size guard. For short queries on small windows, trim memory to prevent prompt bloat
+                # and multi-minute first-token latency: persona (~2k chars) + user_input + max_tokens must fit in
+                # n_ctx with room to spare, and memory gets what's left.
                 _n_ctx_guard = self._runtime_n_ctx()
                 _max_tok_guard = int(gen.get('max_tokens', 512))
                 _persona_chars = len(_load_persona_text())
@@ -6809,21 +6598,13 @@ Answer:"""
                 broker = _get_inference_broker() if _get_inference_broker else None
                 if broker and broker.gguf_ready:
                     log.debug("[COGNITIVE] Using broker path")
-                    # Pre-flight: clamp max_tokens so prompt+output fits n_ctx.
-                    # CRITICAL: use the LIVE loaded model's n_ctx, not the
-                    # configured value. Mistral may have fallen back to 1024
-                    # ctx if VRAM was tight; the configured 4096 is a lie.
-                    # Start from the live loaded ctx (authoritative), not a
-                    # hard-coded default; the override chain below confirms it.
+                    # Pre-flight: clamp max_tokens so prompt+output fits n_ctx, using the live loaded model's
+                    # n_ctx, not the configured one (a model may have fallen back to 1024 ctx when VRAM was tight and
+                    # the configured 4096 is a lie). Start from the live ctx, not a default.
                     _n_ctx_pf1 = self._runtime_n_ctx()
-                    # Override with the LIVE loaded value.  Priority chain:
-                    #   1. _live_runtime_params["n_ctx"] — set by gguf_inference
-                    #      after a successful load; always correct.
-                    #   2. runtime_snapshot.json effective.n_ctx — written by
-                    #      the GUI launcher immediately after load.
-                    #   3. llm.n_ctx() method — last resort (may throw).
-                    # gen.get("n_ctx") / settings["n_ctx"] is the CONFIGURED
-                    # value and is often stale — do NOT use it as the source.
+                    # Use the live loaded value, in this order: _live_runtime_params["n_ctx"] (set after a
+                    # successful load), runtime_snapshot.json effective.n_ctx, then llm.n_ctx() (may throw). The
+                    # configured n_ctx is often stale, so never use it as the source.
                     try:
                         import eli.cognition.gguf_inference as _eli_gguf_mod
                         _lrp = getattr(_eli_gguf_mod, "_live_runtime_params", None) or {}
@@ -6860,12 +6641,9 @@ Answer:"""
                     # it before sending — an oversized prompt crashes llama.cpp.
                     # Use 3.0 chars/token here (conservative) so we under-budget.
                     _max_prompt_chars = max(400, int((_n_ctx_pf1 - _safe_max_pf1 - 128) * 3.0))
-                    # Quality ceiling (context-bloat cap): the small local model
-                    # degenerates into a lone "-"/"-G" on very large prompts long
-                    # BEFORE n_ctx fills — a 39k-char WEB_SEARCH synthesis produced
-                    # "-G" even though it fit n_ctx. Cap to a sane size independent
-                    # of n_ctx so the model gets a prompt it can actually answer.
-                    # Tunable: ELI_SYNTH_MAX_PROMPT_CHARS (set 0 to disable).
+                    # Quality ceiling (context-bloat cap): the small local model degenerates into a lone "-" on
+                    # very large prompts long before n_ctx fills (a 39k-char WEB_SEARCH synthesis gave "-G" though it
+                    # fit). Cap to a sane size independent of n_ctx. ELI_SYNTH_MAX_PROMPT_CHARS tunes it (0 disables).
                     try:
                         from eli.core.cognition_tunables import get_tunable as _cog_get
                         _qenv = os.environ.get("ELI_SYNTH_MAX_PROMPT_CHARS")
@@ -6873,10 +6651,9 @@ Answer:"""
                         if _qenv is not None:
                             _qcap = int(_qenv or "0")  # explicit env override wins
                         elif _cog_get("cog.synth_cap_auto"):
-                            # Auto-scale to the loaded model: ~45% of the context
-                            # window (chars≈3×tokens) × capability tier, never
-                            # below the fixed cap. For the current small model this
-                            # stays at the fixed cap (floor dominates).
+                            # Auto-scale to the loaded model: ~45% of the window (chars ~ 3 x
+                            # tokens) x capability tier, never below the fixed cap. For the current
+                            # small model the floor dominates.
                             try:
                                 from eli.core.model_tier import tier_scale as _ts
                                 _derived = int(_n_ctx_pf1 * 3.0 * 0.45 * _ts())
@@ -6895,10 +6672,9 @@ Answer:"""
                         _prompt_budget = max(200, min(len(prompt), _max_prompt_chars // 4))
                         _sys_budget = max(200, _max_prompt_chars - _prompt_budget)
                         if len(enhanced_system) > _sys_budget:
-                            # Keep persona HEAD (voice + hard constraints) AND the
-                            # grounded evidence TAIL (appended last); drop the bulky
-                            # middle (profile/scaffolding/memory dump) — that is what
-                            # bloats the prompt without being the answer's substance.
+                            # Keep the persona head (voice + hard constraints) and the grounded-evidence tail (appended
+                            # last), drop the bulky middle (profile, scaffolding, memory dump) that bloats the prompt
+                            # without being the answer.
                             _head = max(200, int(_sys_budget * 0.5))
                             _tail = max(200, _sys_budget - _head)
                             enhanced_system = (
@@ -6911,19 +6687,9 @@ Answer:"""
     f"[COGNITIVE] Prompt capped to {_max_prompt_chars}chars "
     f"(head+tail; n_ctx={_n_ctx_pf1}, qcap={_qcap})")
 
-                    # Re-fit the answer budget to the prompt ACTUALLY being sent.
-                    #
-                    # _avail_pf1 above was computed from the prompt BEFORE the
-                    # truncation that just ran, and it floors at 128. So a large
-                    # pre-truncation prompt drove the estimate past n_ctx, the
-                    # floor engaged, the prompt was then cut down to fit — and the
-                    # answer was still capped at the 128 chosen when the prompt was
-                    # twice its final size. Observed at 2.2.2: prompt_tokens=5693
-                    # in a 10384 window (≈4,600 free) generating with max_tokens=128,
-                    # cutting the reply mid-word.
-                    #
-                    # Estimate → clamp → truncate is the wrong order. Truncating
-                    # frees room; the budget has to be recomputed once it has.
+                    # Re-fit the answer budget to the prompt actually being sent. The earlier estimate floored at
+                    # 128 and ran before truncation, so a big prompt got cut and the answer stayed capped at 128.
+                    # Truncating frees room, so recompute after it.
                     _pt_final = max(1, int((len(enhanced_system) + len(prompt)) / 3.5))
                     _avail_final = max(128, _n_ctx_pf1 - _pt_final - 64)
                     if _avail_final > _safe_max_pf1:
@@ -7076,12 +6842,10 @@ Answer:"""
                         self._maybe_apply_mode_runtime_adaptation(reasoning_mode, _mode_contract)
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
-                # ── Context size guard (same logic as non-streaming path) ──
-                # Use the model's REAL usable ceiling (min of loaded n_ctx and
-                # n_ctx_train), not the config default — a model whose trained context
-                # is smaller than the requested/loaded ctx must be sized to its trained
-                # length or the prompt overflows ("Requested tokens exceed context
-                # window"). Falls back to the config value only if no model is loaded.
+                # Context size guard (same logic as the non-streaming path). Use the model's real usable
+                # ceiling (min of loaded n_ctx and n_ctx_train), not the config default: a model trained on less
+                # than the requested ctx must be sized to its trained length or the prompt overflows. Config
+                # value only if no model is loaded.
                 _n_ctx = 0
                 try:
                     if hasattr(gguf_inference, "current_context_limit"):
@@ -7094,20 +6858,9 @@ Answer:"""
                 _persona_chars_s = len(_load_persona_text())
                 _query_chars_s = len(prompt or '')
                 _total_char_budget_s = int(_n_ctx * 3.5 * 0.80)
-                # Reserve for OUTPUT realistically. `max_tokens` is a CEILING, not an
-                # expectation: in quick mode it is ~3461, so `_max_tok_s * 4` reserved
-                # ~13.8k chars of a ~29k budget for output that a chat reply never
-                # produces. Observed live: the bus gathered 6,352 chars of evidence for
-                # "are these dynamic and true awareness, not hard-coding?" — including a
-                # 1,415-char introspection result — at grounding 0.98, and this line
-                # trimmed it to 685 chars. The model then answered "let's pretend it
-                # works for now", having been handed almost none of the evidence that
-                # was fetched specifically to answer it.
-                #
-                # The budget already keeps 20% headroom (the 0.80 above), and llama.cpp
-                # enforces n_ctx regardless, so reserving the full ceiling was doubly
-                # conservative. Cap the reservation at a realistic reply length; a longer
-                # generation simply uses the headroom.
+                # Reserve output realistically. max_tokens is a ceiling: `* 4` reserved ~13.8k chars of a ~29k
+                # budget for a reply that never came and squeezed the fetched evidence down to 685 chars. Cap
+                # the reservation at a realistic reply length; llama.cpp enforces n_ctx anyway.
                 _out_reserve_tok_s = min(_max_tok_s, _OUTPUT_RESERVE_TOKENS)
                 _mem_char_budget_s = max(
                     400,
@@ -7125,14 +6878,10 @@ Answer:"""
                         _trimmed_mem_s = _trimmed_mem_s[_nl_s:]
                 # ──────────────────────────────────────────────────────────
 
-                # Conversational context injection (current session only, last 30 min).
-                #  (a) Short follow-ups (≤6 words) get the recent exchange inline so
-                #      the model sees the current message in immediate context.
-                #  (b) CONFUSION signals — "what do you mean", "i don't understand",
-                #      "can you elaborate", "huh?", "what?", "you're looping", etc. —
-                #      ALSO get the recent exchange PLUS a directive to locate exactly
-                #      where the confusion arose and resolve it, instead of looping or
-                #      repeating the previous reply.
+                # Conversational context injection (current session only, last 30 min). (a) Short follow-ups
+                # (<=6 words) get the recent exchange inline. (b) Confusion signals ("what do you mean", "i don't
+                # understand", "huh?", "you're looping") also get a directive to find where the confusion arose
+                # and resolve it, not loop or repeat the last reply.
                 _orig_msg = (prompt or "").strip()
                 _low_msg = _orig_msg.lower()
                 _confusion = bool(re.search(
@@ -7345,11 +7094,10 @@ Answer:"""
                                  or "requested tokens" in _emsg.lower())
                 _empty = "empty response" in _emsg.lower()
                 log.debug(f"[COGNITIVE] GGUF streaming failed: {_emsg}")
-                # A context-window overflow is RECOVERABLE — it does not mean the GGUF
-                # backend is dead. Don't flip _gguf_available (that poisons every later
-                # turn), and never surface the raw exception text as ELI's reply. Retry
-                # once via the non-streaming path: generate() now truncates an over-ctx
-                # prompt to the model's real n_ctx_train instead of failing.
+                # A context-window overflow is recoverable and doesn't mean the GGUF backend is dead. Don't
+                # flip _gguf_available (that poisons every later turn) and never show the raw exception as
+                # ELI's reply. Retry once non-streaming; generate() now truncates an over-ctx prompt to the
+                # model's n_ctx_train.
                 if not _ctx_overflow and not _empty:
                     self._gguf_available = False
                 self._gguf_load_error = _emsg
@@ -7500,12 +7248,9 @@ Answer:"""
         best_answer = ''
         best_score = 0.0
 
-        # Algorithmic-mode dispatch: ToT / Constitutional / Self-Consistency
-        # run a multi-stage pipeline of LLM calls (propose-and-develop,
-        # generate-critique-revise, sample-and-select) instead of just
-        # repeating the same single call N times. The pass-loop below still
-        # acts as a confidence safety net if the algorithmic output scores
-        # too low.
+        # Algorithmic-mode dispatch: ToT / Constitutional / Self-Consistency run a multi-stage LLM
+        # pipeline (propose-and-develop, generate-critique-revise, sample-and-select) instead of one
+        # call N times. The pass-loop below is still a confidence safety net if the score is too low.
         _mode_str = str(profile.get('mode') or reasoning_mode or '').strip().lower()
         # Expose this turn's grounding confidence to the per-mode algorithms
         # (read by the constitutional grounded-trust override, #3b/Option C).
@@ -7561,22 +7306,10 @@ Answer:"""
     situation_brief=situation_brief)
             elapsed = time.perf_counter() - started
             log.debug(f'[COGNITIVE][TIMING] chat_pass_{pass_no}={elapsed:.3f}s')
-            # Govern HERE, once, before scoring and before any of this
-            # function's four return paths. The streaming path is governed at
-            # its own choke point, but this non-streaming loop was not: it
-            # served roughly a third of live turns straight out of
-            # _get_chat_response, so every output guard -- invented health,
-            # invented runtime state, invented internals, leaked prompt
-            # labels -- was simply absent from those replies. Live at 2.3.27
-            # "I'm still running on fumes" reached the user this way while the
-            # MEMORY side correctly refused to store the same sentence.
-            #
-            # It cannot go inside _get_chat_response: that helper also produces
-            # private reasoning and internal summaries, which are not speech
-            # and must not be governed as if they were.
-            #
-            # Scoring runs on the governed text deliberately -- confidence
-            # should describe the reply the user actually receives.
+            # Govern here, once, before scoring and before any of the four return paths. The streaming path
+            # is governed at its own choke point, but this loop wasn't and it serves about a third of live
+            # turns. Can't go inside _get_chat_response, it also makes private reasoning. Score the governed
+            # text so confidence describes what the user actually gets.
             try:
                 response = govern_output(
                     response,
@@ -7652,19 +7385,9 @@ Answer:"""
         return {'response': best_answer, 'score': best_score,
             'threshold': threshold, 'evidence': evidence, 'clarified': False}
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # Reasoning-mode algorithms.
-    #
-    # All four private modes run distinct multi-stage GGUF pipelines:
-    #   - chain_of_thought:  private scratchpad reasoning → final clean answer
-    #   - tree_of_thoughts:  propose K candidate approaches → score → develop best
-    #   - constitutional_ai: generate → critique against principles → revise
-    #   - self_consistency:  N samples → LLM picks the most consistent
-    #   - quick:             single call, no overhead (pass-loop only)
-    # All four private modes go through _run_mode_algorithm; quick routes
-    # through the standard pass-loop above. All paths still feed the
-    # confidence-threshold retry as a safety net.
-    # ─────────────────────────────────────────────────────────────────────────
+    # Reasoning-mode algorithms: chain_of_thought, tree_of_thoughts, constitutional_ai and
+    # self_consistency each run their own multi-stage GGUF pipeline via _run_mode_algorithm. Quick
+    # uses the standard pass-loop above. All still feed the confidence-threshold retry.
 
     def _run_chain_of_thought(self, user_input: str, working_context: str,
                               gen_overrides: Dict[str, Any], situation_brief: str) -> str:
@@ -7709,14 +7432,11 @@ Answer:"""
         reason_overrides = dict(gen_overrides or {})
         reason_overrides["temperature"] = temp_reason
         reason_overrides["max_tokens"]  = max_tok_reason
-        # Suppress the model's own <think> wrapper on a reasoning model. This stage
-        # ALREADY asks for explicit numbered-step prose reasoning that stage 2 must
-        # read — but a reasoning model wraps that prose in <think>…</think>, and when
-        # it hits max_tokens before closing the tag, _strip_think_text drops the
-        # whole thing to empty. Stage 2 then gets an empty scratchpad and re-thinks
-        # from scratch (observed: 170-230s burned per pass, then a full retry). With
-        # the closed-think prefill the reasoning is written directly as the prose
-        # this two-stage design intends. See gguf_inference.force_no_think.
+        # Suppress the model's own <think> wrapper on a reasoning model. This stage asks for
+        # numbered-step prose that stage 2 reads, but the model wraps it in <think> and if it hits
+        # max_tokens before closing, _strip_think_text drops everything, so stage 2 gets an empty
+        # scratchpad and re-thinks (170-230s burned per pass). With the closed-think prefill the
+        # reasoning is written as prose. See gguf_inference.force_no_think.
         try:
             from eli.cognition.gguf_inference import force_no_think as _fnt
         except Exception:
@@ -7832,10 +7552,9 @@ Answer:"""
         log.debug(f"[REASONING][ToT] proposed {k} candidates ({len(candidates)} chars, "
               f"max_tok={max_tok_propose}, temp={temp_propose})")
 
-        # Multi-level tree deepening (depth > 1 — capable models only). Beam-width-1: keep the
-        # SINGLE strongest path and expand it into deeper, more specific sub-angles one level at
-        # a time. Cost is k proposals per extra level (not k**depth). For the small model
-        # depth == 1, so this loop never runs and ToT stays single-level (behaviour-preserving).
+        # Multi-level tree deepening (depth > 1, capable models only). Beam width 1: keep the strongest
+        # path and expand it into more specific sub-angles a level at a time, so cost is k proposals per
+        # extra level, not k**depth. For the small model depth == 1, so this never runs.
         for _level in range(2, depth + 1):
             try:
                 from eli.world.world_event_bus import fire_reasoning_stage_event as _frs
@@ -7930,10 +7649,10 @@ Answer:"""
             _frs("constitutional_ai", 2, 3, "principle_critique")
         except Exception:
             log.debug("suppressed exception", exc_info=True)
-        # Grounded-trust: when the engine already considers this turn well-grounded, the weak
-        # local critic must not invent factual problems and delete a correct answer (a grounded
-        # the user's name was once nuked to "[no memories found]"). Applied as a PROMPT instruction here
-        # AND as a post-filter on the issue list below.
+        # Grounded trust: when the engine already thinks this turn is well grounded, the weak local
+        # critic must not invent factual problems and delete a correct answer (a stored name was once
+        # nuked to "[no memories found]"). A prompt instruction here and a post-filter on the issue
+        # list below.
         try:
             _grounding_conf = float(getattr(self, "_current_grounding_confidence", 0.0) or 0.0)
         except Exception:
@@ -8114,10 +7833,10 @@ Answer:"""
         if len(samples) <= 1:
             return _strip_reasoning_scaffold(samples[0]) if samples else ""
 
-        # TRUE CONSENSUS FIRST: if a strict majority of the independent samples converge on
-        # the same answer, return it — self-consistency means agreement across samples, not
-        # "pick the most eloquent one". This is the meaningful case for facts/values/short
-        # answers; long divergent prose falls through to consensus-synthesis below.
+        # True consensus first: if a strict majority of the independent samples converge on the same
+        # answer, return it. Self-consistency means agreement across samples, not picking the most
+        # eloquent one. That's the case for facts, values and short answers; long divergent prose falls
+        # through to consensus synthesis below.
         _maj = self._self_consistency_majority(samples)
         if _maj is not None:
             log.debug(f"[REASONING][SelfConsistency] majority consensus ({len(_maj)} chars, "
@@ -8150,11 +7869,9 @@ Answer:"""
             situation_brief=situation_brief,
         )
 
-        # Phase 11 fix (2026-05-11): on a Q3 7B model the selector often echoes
-        # the labelled bundle back instead of choosing one ("=== SAMPLE 1 ===\n
-        # I'll perform a runtime audit..."). Detect that and pick the longest
-        # non-trivial sample as a deterministic fallback. Also strip any
-        # stray "=== SAMPLE N ===" markers if the model included one as a header.
+        # On a Q3 7B the selector often echoes the labelled bundle back instead of choosing ("===
+        # SAMPLE 1 ===\nI'll perform a runtime audit..."). Detect that, fall back deterministically to
+        # the longest non-trivial sample, and strip stray "=== SAMPLE N ===" headers.
         import re as _re_sc
         # Catch BOTH leaked forms the 7B produces: "=== SAMPLE 2 ===" and a bare
         # "SAMPLE 2:" header prefix.
@@ -8409,11 +8126,9 @@ Answer:"""
             lines.append(
                 f"- distinct_sessions: {snap.get('distinct_sessions') or 0}")
             try:
-                # Check the table exists rather than discovering it via the
-                # exception: on a fresh profile there are no semantic facts yet,
-                # and the old form printed a "no such table: semantic" traceback
-                # on EVERY grounded-evidence build. An empty tier is a normal
-                # state, not an error worth a stack trace.
+                # Check the table exists instead of finding out via the exception. A fresh profile has no
+                # semantic facts, and the old form printed a "no such table: semantic" traceback on every
+                # grounded-evidence build. An empty tier is normal, not an error.
                 import sqlite3 as _sq3
                 _sconn = _sq3.connect(str(getattr(db_paths, "user_db", "")))
                 try:
@@ -8552,10 +8267,9 @@ Answer:"""
                 if self._awareness.code_report_has_changes:
                     lines.append(self._awareness.code_report_briefing)
 
-        # Phase 6: cap the grounded-evidence block so it cannot dominate the
-        # prompt window. 6 KB covers extensive deterministic evidence (paths,
-        # counts, stage/agent lists, last 5 failures + observations) without
-        # crowding out persona + user query + generation budget.
+        # Cap the grounded-evidence block so it can't dominate the prompt window. 6 KB covers
+        # extensive deterministic evidence (paths, counts, stage/agent lists, last 5 failures and
+        # observations) without crowding out persona, user query and generation budget.
         return self._cap_text("\n".join(lines).strip(), 6144, "grounded_evidence")
 
     def _should_bypass_reasoning_loop(self, user_input: str, memory_context: str,
@@ -8770,14 +8484,9 @@ Answer:"""
             log.debug("[GOVERNOR] recent-turn lookup skipped", exc_info=True)
         response = govern_output(response, is_grounded=evidence_used, history=_gov_hist)
         response = str(response or "").strip()
-        # ── Anti-echo: never serve ELI's own previous reply back to the user ──
-        # ELI's replies are stored and later recalled as context, so on a short turn the
-        # model can latch onto its own last line and re-emit it. Observed live: the same
-        # "still glitchy, still running on the same old code" three turns running, once
-        # with the speaker flipped ("You're still glitchy") while ignoring what the user
-        # had just said. Token-level repeat_penalty cannot see across turns. Detect it and
-        # regenerate ONCE with an explicit do-not-repeat instruction; if that fails or is
-        # still an echo, keep the original (never ship an empty reply).
+        # Anti-echo: never serve ELI's previous reply back to the user. Replies get stored and recalled,
+        # so on a short turn the model latches onto its own last line. repeat_penalty can't see across
+        # turns. Regenerate once with a do-not-repeat instruction; if it still echoes keep the original.
         try:
             from eli.cognition.output_governor import is_echo_of_recent
             _prev_replies = []
@@ -8978,11 +8687,9 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # Blueprint Post-Response: memory maintenance (sampled, to amortise cost).
-        # Decay is a pure function of a memory's age and importance, so sampling it
-        # is safe — a missed tick changes nothing, and the next one lands on the
-        # same answer. Consolidation deletes rows, so it runs an order of magnitude
-        # more rarely and only ever merges text that is already byte-identical.
+        # Post-response memory maintenance, sampled to spread the cost. Decay is a pure function of a
+        # memory's age and importance, so a missed tick changes nothing. Consolidation deletes rows, so
+        # it runs far more rarely and only merges text that's already byte-identical.
         try:
             import random as _random
             _roll = _random.random()
@@ -9198,11 +8905,9 @@ Answer:"""
                                     bus_result=None, recent_turns=None, working_memory=None,
                                     reasoning_mode: str | None = None) -> str:
         try:
-            # Use None as the "not yet computed" sentinel, not "".
-            # Previously: getattr(..., "persona_handoff", "") returned "" for both
-            # "never computed" AND "computed but empty", so the cache miss path
-            # re-ran the full build every call when the result was legitimately empty.
-            # Now: None = unset, "" = computed+empty (valid cache hit).
+            # Use None as the "not yet computed" sentinel, not "". "" meant both never computed and
+            # computed-but-empty, so the cache-miss path re-ran the full build every call when the
+            # result was legitimately empty. None = unset; "" = computed and empty (a valid hit).
             _cached_raw = None
             if working_memory is not None:
                 _cached_raw = getattr(working_memory, "persona_handoff", None)
@@ -9359,12 +9064,9 @@ Answer:"""
 
             return str(result).strip()
 
-        # ── DIAGNOSTIC_EVIDENCE injection (non-quick reasoning modes) ────
-        # When the user asks a diagnostic question and we are NOT in quick
-        # mode, the deterministic introspection layer gathered real runtime
-        # facts and stashed them on the engine. Splice them into the persona
-        # context so the LLM produces ELI-voiced answers grounded in truth
-        # rather than hallucinating.
+        # DIAGNOSTIC_EVIDENCE injection (non-quick modes): on a diagnostic question the deterministic
+        # introspection layer gathered real runtime facts and stashed them on the engine. Splice them
+        # into the persona context so the LLM answers in ELI's voice, grounded.
         try:
             _diag_block = str(getattr(self, "_diagnostic_evidence_block", "") or "").strip()
             if _diag_block:
@@ -9375,12 +9077,10 @@ Answer:"""
         except Exception as _diag_inject_err:
             log.debug(f"[COGNITIVE] diagnostic evidence inject skipped: {_diag_inject_err}")
 
-        # ── LAST_TURN_TRACE injection ────────────────────────────────────
-        # Grounds meta-questions about the prior response (confidence, agents,
-        # last action) in real AgentBus dispatch data. Engine rotates
-        # _last_bus_result -> _prev_bus_result at end of each turn, so at
-        # persona-handoff build time _prev_bus_result is the turn the user may
-        # be asking about.
+        # LAST_TURN_TRACE injection: grounds meta-questions about the prior response (confidence,
+        # agents, last action) in real AgentBus data. The engine rotates _last_bus_result ->
+        # _prev_bus_result at the end of each turn, so at handoff time _prev_bus_result is the turn being
+        # asked about.
         try:
             prev = getattr(self, "_prev_bus_result", None)
             if prev is not None:
@@ -9453,10 +9153,9 @@ Answer:"""
             log.debug(f"[COGNITIVE] persona handoff build failed: {e}")
             brief = ""
 
-        # ── Proactive daemon output injection ────────────────────────────────
-        # The proactive daemon writes pattern/insight files to disk continuously.
-        # Inject the latest context (if fresh < 30 min) so ELI is always aware
-        # of active patterns without requiring explicit "proactive status" queries.
+        # Proactive daemon output injection: the daemon writes pattern/insight files continuously.
+        # Inject the latest context (fresh, < 30 min) so ELI knows the active patterns without an
+        # explicit "proactive status" query.
         _extra_blocks = []
         _live_self_status = ""  # real telemetry — emitted ABOVE the cap (never truncated)
         # Turn dossier awareness — insight/deepening only; orchestrator already retrieved memory.
@@ -9521,13 +9220,10 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # Computed ONCE, outside the blocks that consume it. This used to be
-        # assigned inside the world-state try below; when that block raised
-        # (concurrent world-state write), the later self-status block died on
-        # UnboundLocalError and the LIVE SELF-STATUS evidence was silently
-        # dropped — so the model, asked "how's the head?", invented a GPU
-        # temperature. A failure to read the symbolic world must not disarm the
-        # anti-confabulation guard.
+        # Computed once, outside the blocks that use it. It used to be assigned inside the world-state
+        # try below; when that raised (concurrent write) the later self-status block hit
+        # UnboundLocalError, the live self-status evidence was dropped and the model invented a GPU
+        # temperature. Failing to read the symbolic world mustn't disarm the anti-confabulation guard.
         _ui_low = str(user_input or "").lower()
 
         # Current-turn activity anchor — overrides stale profile/memory entertainment hits.
@@ -9559,10 +9255,9 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # ── World awareness state injection ──────────────────────────────────
-        # Inject ELI's live AwarenessState so synthesis knows its own internal
-        # confidence / uncertainty / focus. Only injected when world state
-        # diverges from defaults (avoids boilerplate on clean-slate turns).
+        # World awareness state injection: give synthesis ELI's live AwarenessState (confidence,
+        # uncertainty, focus). Only when world state diverges from defaults, to avoid boilerplate on
+        # clean-slate turns.
         try:
             from eli.world.local_world_bridge import get_world_state as _get_ws
             _ws = _get_ws()
@@ -9587,20 +9282,17 @@ Answer:"""
                     _world_lines.append(f"  {_fld}: {_val:.2f}")
             _av = _ws.get("avatar", {})
             _av_room = (_av.get("room") or "").strip()
-            # Only surface the avatar's room when the user is actually asking about ELI's
-            # world / location / current activity. Otherwise the model reads the symbolic
-            # room NAME (Anomaly Room, Memory Archive — themed around contradictions /
-            # continuity) as LITERAL ongoing work and fabricates "contradictions /
-            # inconsistencies that have arisen, which I'm resolving" — a no-fake-actions
-            # violation that made the user think ELI was malfunctioning.
+            # Surface the avatar's room only when the user asks about ELI's world, location or current
+            # activity. Otherwise the model reads the symbolic room name (Anomaly Room, Memory Archive) as
+            # literal work and fabricates "contradictions I'm resolving", which made the user think ELI was
+            # malfunctioning.
             _room_relevant = bool(re.search(
                 r"\b(room|world|avatar|where are you|your location|"
                 r"what are you (?:doing|working on|up to)|in there)\b", _ui_low))
-            # Gate the symbolic self-metrics to EXPLICIT internal-state / diagnostics queries.
-            # On casual/phatic turns ("how are you feeling") the metrics (memory_confidence,
-            # repair_pressure …) prime the 7B to confabulate literal maintenance work —
-            # "I'm in the Memory Archive, inspecting memory continuity" — which makes ELI sound
-            # delusional. If the user isn't asking about internal state, don't inject it.
+            # Gate the symbolic self-metrics to explicit internal-state / diagnostics queries. On casual
+            # turns ("how are you feeling") they prime the 7B to confabulate literal maintenance work ("I'm
+            # in the Memory Archive, inspecting memory continuity"). Not asking about internal state, not
+            # injected.
             _state_relevant = bool(re.search(
                 r"\b(internal state|self[- ]?metrics?|your (?:metrics|internal state)|"
                 r"memory (?:confidence|continuity)|repair pressure|autonomy pressure|"
@@ -9618,12 +9310,10 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # ── Real self-status (anti-confabulation) ────────────────────────────
-        # When the user asks how ELI is doing / running / "how was your sleep",
-        # the persona used to fabricate telemetry ("thermal throttling stayed at
-        # 43°C", "overnight diagnostics ran clean") — ELI has no thermal sensor.
-        # Inject the REAL, measured GPU temp/util/VRAM + uptime + loaded model so
-        # it cites truth (or says it doesn't track something), never invents it.
+        # Real self-status (anti-confabulation). Asked how ELI is running or "how was your sleep", the
+        # persona invented telemetry ("thermal throttling stayed at 43°C") though ELI has no thermal
+        # sensor. Inject the real GPU temp/util/VRAM, uptime and loaded model so it cites truth or says
+        # it doesn't track that.
         try:
             _self_physical = bool(re.search(
                 r"\b(how (?:are|r) (?:you|u)|how(?:'?s| is) it going|how was your (?:sleep|night|day)|"
@@ -9640,10 +9330,9 @@ Answer:"""
                 from eli.runtime.self_status import render_self_status_block as _rss
                 _ss = _rss()
                 if _ss.strip():
-                    # Stored, NOT appended to _extra_blocks: it must ride ABOVE the
-                    # 8192 handoff cap (which keeps the head and chops the tail), or
-                    # it gets truncated out on long turns and the model falls back to
-                    # fabricating telemetry ("no live telemetry → CPU 41°C, GPU 38°C").
+                    # Stored, not appended to _extra_blocks: it must ride above the 8192 handoff cap
+                    # (which keeps the head and chops the tail) or it's truncated out on long turns
+                    # and the model falls back to fabricating telemetry.
                     _live_self_status = (
                         "[LIVE SELF-STATUS — REAL, MEASURED RIGHT NOW. For a casual "
                         "check-in (hey / you okay / feeling normal), answer personally "
@@ -9655,21 +9344,13 @@ Answer:"""
         except Exception:
             log.debug("live self-status injection skipped", exc_info=True)
 
-        # ── Verified self-FACTS (anti-confabulation for self-description) ────
-        # The block above grounds "how are you running" (telemetry). This one
-        # grounds "what ARE you" — construction, storage, capabilities, upgrade
-        # mechanism. Identity questions are deliberately answered in CHAT so the
-        # persona stays its own, but CHAT had nothing factual to lean on, so the
-        # model improvised internals: it placed its databases under a /home/<name>
-        # path invented from the user's first name, wrote agent.sqlite
-        # for agent.sqlite3, and described upgrading itself via "./upgrade.sh" —
-        # a script that has never existed here.
+        # Verified self-facts, so ELI doesn't invent what it is. The block above grounds "how are you
+        # running", this one "what ARE you": construction, storage, capabilities, upgrades. Identity
+        # stays in CHAT for the persona, but CHAT had nothing factual and invented paths and scripts.
         try:
-            # Anchored on "yourself" rather than an exact verb phrase: the
-            # question that produced the fabricated paths was typed "what fo you
-            # know of yourself", and a strict pattern would have missed it —
-            # exactly the failure mode where a typo decides whether an answer is
-            # grounded or invented.
+            # Anchored on "yourself" rather than an exact verb phrase: the question that produced
+            # the fabricated paths was typed "what fo you know of yourself", and a strict pattern
+            # would have let a typo decide whether the answer was grounded or invented.
             _self_descriptive = bool(
                 (re.search(r"\byoursel(?:f|ves)\b", _ui_low)
                  and re.search(r"\b(know|knew|tell|telling|describe|description|explain|"
@@ -9692,12 +9373,9 @@ Answer:"""
         except Exception:
             log.debug("verified self-facts injection skipped", exc_info=True)
 
-        # ── User profile facts injection ─────────────────────────────────────
-        # Surface the user's stored projects / research / preferences into the
-        # chat brief so ELI actually RECALLS them in normal conversation — not
-        # only inside the explicit PERSONAL_MEMORY_SUMMARY action. Storage works;
-        # this closes the recall gap. Generic across users; sourced from the
-        # per-user profile (the same data the summary uses).
+        # User profile facts injection: put the user's stored projects, research and preferences in the
+        # chat brief so ELI recalls them in normal conversation, not only in PERSONAL_MEMORY_SUMMARY.
+        # Storage worked, this closes the recall gap. Generic across users, from the per-user profile.
         try:
             from eli.kernel.state import load_user_profile as _lup, get_user_name as _gun
             _prof = _lup() or {}
@@ -9708,11 +9386,10 @@ Answer:"""
                 # name from a verified profile") is satisfied — the model must
                 # never answer "I don't know your name" when this is present.
                 _pf_lines.append(f"  verified name (this IS the user's name — use it; never say you don't know it): {_pn}")
-            # Project/research are PAST-session continuity. Soft "only if relevant"
-            # fails on small models (they volunteer Saturday travel into a GPU rant).
-            # Hard-gate: inject projects/research only when the user asks about plans /
-            # projects / remembered personal context. Preferences (tone) may still ride
-            # on substantive non-phatic turns. Phatic greetings get the name alone.
+            # Project/research are past-session continuity. A soft "only if relevant" fails on small
+            # models (they volunteer Saturday travel into a GPU rant), so hard-gate: inject them only when
+            # the user asks about plans, projects or remembered context. Preferences (tone) may still ride
+            # on substantive turns; phatic greetings get the name alone.
             _phatic_turn = False
             _low_grounding_casual = False
             _asks_personal = False
@@ -9929,17 +9606,10 @@ Answer:"""
         except Exception:
             _corr_target = user_input
 
-        # The exchange being repaired. Without it this path was asked to fix an
-        # answer it could not see: the call passed the user's words and nothing
-        # else (prompt_tokens=111 on a live turn), so "what are you talking
-        # about, now?" — which is ONLY answerable by reference to what ELI just
-        # said — produced "I'm sorry for the confusion. Could you please clarify
-        # what you're asking about?". The user's next message was "what the fuck
-        # are you talking about?".
-        #
-        # The scope guard below is still right: a repair must not wander into
-        # diagnostics. But scope is not the same as amnesia — it needs the
-        # referent to repair.
+        # The exchange being repaired. Without it this path was asked to fix an answer it couldn't see
+        # (only the user's words, prompt_tokens=111), so "what are you talking about, now?" got "I'm
+        # sorry for the confusion. Could you please clarify?". The scope guard below is right (a repair
+        # mustn't wander into diagnostics), but scope isn't amnesia: it needs the referent.
         _prior = ""
         _prev_user, _prev_eli = "", ""
         try:
@@ -10094,13 +9764,10 @@ Answer:"""
             _corr_system = _prior + _corr_system
         _corr_system = _time_line + _corr_system
 
-        # Budget comes from the user's own mode preset, like every other
-        # generation path. A fixed 160 here was one of the output caps that
-        # truncated real answers regardless of the operator's settings.
-        # -1 is the "no cap, fill the context" value and several presets use it
-        # (self_consistency ships as -1). It must pass through untouched: a
-        # `<= 0` fallback would quietly convert the operator's "unlimited" into
-        # a number, which is the class of silent cap this path already had.
+        # Budget comes from the user's own mode preset, like every other generation path. A fixed 160
+        # here was one of the caps truncating real answers. -1 is "no cap, fill the context"
+        # (self_consistency ships as -1) and must pass through, a `<= 0` fallback would silently turn
+        # "unlimited" into a number.
         try:
             _corr_preset = self._mode_profile(
                 (trace or {}).get("reasoning_mode")) or {}
@@ -10261,11 +9928,9 @@ Answer:"""
         try:
             from eli.runtime.diagnostic_patterns import should_exclude_turn_from_prompt
             if should_exclude_turn_from_prompt("assistant", text):
-                # Benign and BY DESIGN: an image/status-loop frame is deliberately not stored in
-                # conversation context. This is NOT a failure — logging it as one polluted the
-                # failure log, made it a "recurring error", and drove the self-heal loop to "fix"
-                # a non-bug (it generated bogus 'assistant_dynamic_status_claim' web-API code at
-                # shutdown). Debug-log only.
+                # Benign and by design: an image/status-loop frame is deliberately not stored in
+                # conversation context. It isn't a failure; logging it as one polluted the failure
+                # log and drove the self-heal loop to "fix" a non-bug. Debug-log only.
                 log.debug("[COGNITIVE] skipped storing unsupported assistant image/status frame")
                 return
         except Exception:
@@ -10274,12 +9939,10 @@ Answer:"""
             self._last_response = str(text)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
-        # Capture any follow-up offer ELI just made ("Want me to update the
-        # profile?") so a later "yes" re-routes and actually executes it. This
-        # lives at the single store chokepoint every reply path funnels through
-        # (quick CHAT, synthesis, fastpath) — previously it was gated to
-        # WEB_SEARCH only, so conversational offers were never captured and the
-        # affirmation was swallowed as chat.
+        # Capture any follow-up offer ELI just made ("Want me to update the profile?") so a later
+        # "yes" re-routes and runs it. Lives at the one store chokepoint every reply path uses. It was
+        # gated to WEB_SEARCH only, so conversational offers were never captured and the "yes" was
+        # swallowed as chat.
         try:
             from eli.runtime.pending_proposal import (
                 extract_proposal, set_pending_proposal, clear_pending_proposal,
@@ -10359,12 +10022,9 @@ Answer:"""
             "evidence_used": bool(evidence_used),
             "grounded": bool(grounded),
             "response_chars": len(str(response or "")),
-            # The MESSAGE, not just how long it was. "What was the last message
-            # you sent?" could not be answered from this trace at all: it carried
-            # response_chars and a confidence score and nothing else, so the only
-            # possible reply was a telemetry dump about a message whose text was
-            # never recorded. Truncated because this file is rewritten every turn
-            # and a full essay would make it the largest thing in artifacts/.
+            # The message itself, not just its length. "What was the last message you sent?" couldn't be
+            # answered from this trace (only response_chars and a score), so the reply was a telemetry dump.
+            # Truncated because the file is rewritten every turn.
             "response_text": str(response or "")[:_TRACE_TEXT_CHARS],
             "response_truncated": len(str(response or "")) > _TRACE_TEXT_CHARS,
             # What it was answering, so "explain your last response" can say what
@@ -10790,12 +10450,10 @@ Answer:"""
             "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS", "GPU_STATUS",
             "CHAT",  # LLM failure is handled upstream
         }
-        # Never replan a SUCCESS — an ok result IS the answer. This is the real
-        # bug behind NEWS_FETCH/MORNING_REPORT being replanned away: they
-        # returned ok, but a stale failed action_result was read instead of the
-        # successful agent result (now fixed in _eli_phase13c_bus_action_result).
-        # A genuinely failed news fetch can still legitimately fall back via the
-        # replan to WEB_SEARCH, so NEWS_FETCH is intentionally NOT skip-listed.
+        # Never replan a success: an ok result is the answer. This was the real bug behind
+        # NEWS_FETCH/MORNING_REPORT being replanned away (a stale failed action_result was read instead
+        # of the successful agent result, fixed in _eli_phase13c_bus_action_result). A genuinely failed
+        # news fetch can still fall back to WEB_SEARCH, so NEWS_FETCH isn't skip-listed.
         if failed_result.get("ok"):
             return failed_result
         if _retry_count >= 2 or failed_action.upper() in _SKIP_REPLAN_ACTIONS:
@@ -10834,11 +10492,9 @@ Answer:"""
             if alt_action == failed_action.upper():
                 return failed_result  # Same action would fail again
 
-            # Only run an action the executor actually supports. The replan LLM
-            # sometimes emits a malformed/nonexistent name (e.g. "WEBSITE_SEARCH"
-            # for the real WEB_SEARCH); running that just yields an "unsupported
-            # executor action" error in the user's face, so keep the original
-            # result instead. Real actions like WEB_SEARCH pass through fine.
+            # Only run an action the executor supports. The replan LLM sometimes emits a nonexistent name
+            # ("WEBSITE_SEARCH" for WEB_SEARCH), which only gives "unsupported executor action" in the
+            # user's face. Keep the original result instead. Real actions pass through.
             try:
                 from eli.execution.executor_enhanced import SUPPORTED_ACTIONS as _SUP
                 if alt_action not in {str(a).upper() for a in _SUP}:
@@ -10895,10 +10551,9 @@ Answer:"""
         response = _normalize_assistant_text(user_input, str(text or "").strip())
         response = _output_governor_normalize(user_input, response)
         if _HAS_GOVERNANCE:
-            # normalize_response = the GGUF-artifact cleaner
-            # clean_gguf_artifacts(response, user_input). The old swapped-arg
-            # TypeError fallback is gone now the signature collision with
-            # output_governor.normalize_response(user_input, text) is resolved.
+            # normalize_response is the GGUF-artifact cleaner clean_gguf_artifacts(response,
+            # user_input). The swapped-arg TypeError fallback is gone now that the signature
+            # collision with output_governor.normalize_response(user_input, text) is resolved.
             try:
                 response = normalize_response(response, user_input)
             except Exception:
@@ -11189,10 +10844,9 @@ Answer:"""
             memory_context = ""
             situation_brief = ""
 
-        # Private reasoning modes run the real multi-pass algorithms (CoT, ToT,
-        # CAI, SC) then buffer the finished result before yielding chunks.
-        # Quick mode streams live.  Raw private-strategy chunks must never reach
-        # the GUI before the final sanitiser runs on them.
+        # Private reasoning modes run the real multi-pass algorithms (CoT, ToT, CAI, SC) and buffer
+        # the finished result before yielding chunks; quick mode streams live. Raw private-strategy
+        # chunks must never reach the GUI before the final sanitiser.
         try:
             from eli.cognition.reasoning_modes import (
                 is_private_reasoning_mode as _rm_private,
@@ -11405,22 +11059,11 @@ Answer:"""
     def process(self, user_input: str, source: str = "user", stream: bool = False,
 
                 reasoning_mode: Optional[str] = None, **kwargs) -> Any:
-        # Record the LIVE per-request reasoning mode so REASONING_MODE_STATUS reports the
-        # mode actually in use — not a stale snapshot. last_trace.json is written at request
-        # END, so a mid-request status read otherwise returns the PREVIOUS request's mode
-        # (observed: status said "Quick" while running Normal). The env var is checked ahead
-        # of the trace/settings files in current_reasoning_mode(), and engine+executor share
-        # one process. Also mirror it onto the engine attr (_from_engine reads it).
-        #
-        # ELI_PHATIC_MODE_FASTPATH_V1 — a greeting / ack / closer has nothing to
-        # reason about. With a multi-pass private-reasoning mode selected
-        # (chain_of_thought, tree_of_thoughts, self_consistency, constitutional_ai),
-        # running it on "good morning" costs two full generations (scratchpad +
-        # final) — minutes on a CPU-offloaded model — for zero quality gain.
-        # Downgrade phatic turns to single-pass quick; substantive turns keep the
-        # user's selected depth. The orchestrator already bypasses retrieval for
-        # phatic prompts via the same predicate, so this just aligns the GENERATION
-        # mode with that decision. Opt out with ELI_PHATIC_FASTPATH=0.
+        # Record the live reasoning mode so REASONING_MODE_STATUS isn't a stale snapshot (last_trace.json
+        # only lands at request end). Also mirrored onto the engine attr.
+        # ELI_PHATIC_MODE_FASTPATH_V1: a greeting or ack has nothing to reason about, and a multi-pass mode
+        # on "good morning" costs two generations for nothing. Phatic turns drop to single-pass quick.
+        # Opt out with ELI_PHATIC_FASTPATH=0.
         try:
             if (
                 str(__import__("os").environ.get("ELI_PHATIC_FASTPATH", "1")).strip().lower()
@@ -11499,10 +11142,9 @@ Answer:"""
             self._conversation_history = []
         # ── End minimal attr guard ─────────────────────────────────────────────
 
-        # ── Light first-run onboarding (opt-in, non-blocking, skippable) ───────
-        # On a blank-slate user (no User Model) a light opener begins a short baseline
-        # interview (name → role → style); a substantive task passes straight through.
-        # Seeds flow into the continuous User Model / persona / KG automatically.
+        # Light first-run onboarding (opt-in, non-blocking, skippable). For a blank-slate user (no
+        # User Model) a light opener starts a short baseline interview (name -> role -> style); a
+        # substantive task passes straight through. Seeds flow into the User Model, persona and KG.
         try:
             from eli.onboarding.interview import onboarding_intercept as _ob_intercept
             _ob_db = getattr(getattr(self, "memory", None), "db_path", None)
@@ -11512,32 +11154,16 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # Handles inputs containing multiple distinct questions, e.g.:
-        #   "Story pal? Who are you, and who am I?"  →  3 answers
-        #   "Who are you, and who am I?"              →  2 answers (single-? compound)
-        #
-        # Two-pass approach:
-        #   Pass 1 (GENERAL): split on '?' when >1 '?' present. Each segment becomes
-        #          a separate process() call. Cap at 4 sub-questions to prevent abuse.
-        #   Pass 2 (COMPOUND): within a single-? input, detect "who are you + who am I"
-        #          joined by 'and' and split those into two sequential calls.
-        #
-        # Pass 1 runs first. "Who are you, and who am I?" has only 1 '?' so it falls
-        # through to Pass 2. "Story pal? Who are you, and who am I?" has 2 '?' so
-        # Pass 1 splits it into ["Story pal", "Who are you, and who am I"], processes
-        # each, and the second segment gets caught by Pass 2 in its nested call.
+        # Several distinct questions in one input ("Story pal? Who are you, and who am I?"). Pass 1
+        # splits on '?' (max 4), each segment its own process() call. Pass 2 splits a single-'?' input
+        # that joins "who are you" and "who am I" with 'and'.
         try:
             _mqs_raw = str(user_input or "").strip()
             _mqs_q_count = _mqs_raw.count("?")
             _mqs_total_words = len(_mqs_raw.split())
-            # Conversational / relational turns are ONE turn, not a list of
-            # independent questions — splitting them atomises the context and
-            # re-routes each fragment in isolation (e.g. "you keep saying 43
-            # degrees, have you checked it recently?" → GET_WEATHER). Second-
-            # person commentary about ELI ("you are…", "why are you…", "you
-            # keep…", "have you actually…") and first-person banter are the
-            # tell. The persona handles a multi-point conversational turn fine
-            # in a single reply, so skip the splitter for these.
+            # Conversational turns are one turn, not a list of questions. Splitting re-routes each fragment
+            # alone ("you keep saying 43 degrees, have you checked?" became GET_WEATHER). Second-person
+            # commentary about ELI and first-person banter are the tell, so skip the splitter.
             _mqs_low = _mqs_raw.lower()
             _CONVERSATIONAL_MARKERS = (
                 "you are ", "you're ", "you keep ", "you said ", "you were ",
@@ -11546,10 +11172,9 @@ Answer:"""
                 "i am grand", "i don't need", "i dont need",
             )
             _mqs_conversational = any(m in _mqs_low for m in _CONVERSATIONAL_MARKERS)
-            # Only split compound questions when the message is long enough to
-            # contain multiple genuine standalone questions. Short messages
-            # (≤25 words) are conversational — splitting loses context and
-            # produces canned per-fragment responses.
+            # Split compound questions only when the message is long enough to hold several genuine
+            # standalone questions. Short messages (<=25 words) are conversational; splitting loses
+            # context and yields canned per-fragment replies.
             if _mqs_q_count > 1 and _mqs_total_words > 25 and not _mqs_conversational:
                 # Split on '?' — each segment must be a standalone question
                 # (≥6 words); fragments like 'good "what"?' are not sub-questions.
@@ -11598,11 +11223,9 @@ Answer:"""
                         except Exception as _mqs_sub_err:
                             log.debug("[ENGINE] multi-question sub-call failed: %s", _mqs_sub_err)
                     if len(_mqs_responses) >= 2:
-                        # Deduplicate — if two answers are substantially the
-                        # same (>60% word overlap or identical first sentence),
-                        # keep only the first. This prevents the splitter from
-                        # concatenating two near-identical "Anomaly Room…"
-                        # responses when follow-up questions get the same answer.
+                        # Deduplicate: if two answers are substantially the same (>60% word overlap
+                        # or identical first sentence) keep only the first, so the splitter doesn't
+                        # concatenate two near-identical "Anomaly Room..." replies.
                         def _mqs_word_overlap(a: str, b: str) -> float:
                             wa = set(a.lower().split())
                             wb = set(b.lower().split())
@@ -11686,23 +11309,18 @@ Answer:"""
         except Exception as _cis_err:
             log.debug("[ENGINE] compound identity splitter failed: %s", _cis_err)
 
-        # ELI_REASONING_MODE_STAMP_V1
-        # Stamp active reasoning mode onto self so downstream consumers
-        # (executor short-paths, deterministic resolvers via _ATTRS lookup
-        # in runtime/reasoning_status) read live state instead of falling
-        # through to the "quick" default.
+        # Reasoning mode stamp (ELI_REASONING_MODE_STAMP_V1): stamp the active mode onto self so
+        # downstream consumers (executor short-paths, the _ATTRS lookup in runtime/reasoning_status)
+        # read live state instead of falling to the "quick" default.
         if reasoning_mode:
             try:
                 object.__setattr__(self, "_current_reasoning_mode", reasoning_mode)
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
 
-        # deterministic_introspection_engine_gate_v2 — mode-aware
-        # Quick mode: deterministic dump is the answer (fast, raw, no GGUF).
-        # Other modes: the deterministic data becomes evidence injected into
-        # the persona handoff so the LLM answers in ELI's voice grounded in
-        # real runtime facts. This honours: "always go through the final
-        # stage in ELI's persona" while quick mode stays a fast diagnostic.
+        # deterministic_introspection_engine_gate_v2, mode-aware. Quick: the deterministic dump is the
+        # answer (fast, raw, no GGUF). Other modes: it's evidence injected into the persona handoff so
+        # the LLM answers in ELI's voice, grounded. Everything non-quick goes through the persona.
 
         # Migrated from bottom-of-file _eli_engine_second_process wrapper.
         # Handles reasoning-mode status as a first-class process middleware
@@ -11736,11 +11354,10 @@ Answer:"""
         except Exception as _eli_reasoning_status_middleware_err:
             log.debug(f"[ENGINE][WARN] reasoning-status middleware failed: {_eli_reasoning_status_middleware_err}")
 
-        # Migrated from bottom-of-file _eli_pm_engine_process wrapper.
-        # Quick mode keeps direct personal-memory/routing-fault surfaces.
-        # Non-Quick falls through to the normal cognition/persona pipeline.
-        # (Helpers _eli_pm_engine_* are defined unconditionally below in the
-        # legacy bottom block; the prior globals() guard was redundant.)
+        # Migrated from the bottom-of-file _eli_pm_engine_process wrapper. Quick keeps the direct
+        # personal-memory/routing-fault surfaces; non-quick falls through to the normal cognition and
+        # persona pipeline. The _eli_pm_engine_* helpers are defined unconditionally in the legacy
+        # bottom block, so no globals() guard is needed.
         try:
             _eli_pipe("mw_personal_memory_quick_check")
             _eli_pm_mw_raw = str(user_input or "")
@@ -11753,12 +11370,10 @@ Answer:"""
 
             _eli_pm_mw_mode = _eli_pm_engine_mode_key(self, (), _eli_pm_mw_kwargs)
 
-            # These quick paths INTENTIONALLY return DIRECT VISIBLE TEXT (a bare string,
-            # not a dict — see test_personal_memory_quick_middleware). That dropped the
-            # routed 'action' from telemetry (callers saw action=∅ for a correct answer).
-            # Record the action on a side channel (self._last_response_action) so consumers
-            # can read it WITHOUT changing the string return contract; reset first so a
-            # stale value can't be mis-read by a later string-returning path.
+            # These quick paths intentionally return a bare string, not a dict (see
+            # test_personal_memory_quick_middleware), which dropped the routed 'action' from telemetry.
+            # Record it on a side channel (self._last_response_action) so the string contract holds. Reset
+            # first so a stale value can't be misread.
             self._last_response_action = ""
             if _eli_pm_engine_wants_routing_fault(_eli_pm_mw_low):
                 if _eli_pm_mw_mode == "quick":
@@ -11783,12 +11398,9 @@ Answer:"""
             log.debug(f"[ENGINE][WARN] personal-memory quick middleware failed: {_eli_pm_middleware_err}")
 
 
-        # 2026-05-22 (Option 1): Quick mode keeps its deterministic short-circuit.
-        # Non-Quick modes (CoT / SC / ToT / CAI) now fall through to the full
-        # Stage 1-12 orchestrator pipeline where each mode runs its actual
-        # multi-pass algorithm. The previous behaviour replaced the entire
-        # pipeline with a single-shot GGUF synthesis, producing near-identical
-        # paraphrases across all four non-Quick modes.
+        # Quick keeps its deterministic short-circuit. Non-quick modes (CoT/SC/ToT/CAI) fall through
+        # to the full Stage 1-12 pipeline where each runs its real multi-pass algorithm. Replacing the
+        # pipeline with one GGUF synthesis gave near-identical paraphrases across all four.
         try:
             _eli_pipe("mw_runtime_status_check")
             _mw_rs_kwargs = dict(kwargs)
@@ -11802,28 +11414,19 @@ Answer:"""
                 _eli_pipe("mw_runtime_status_hit", mode=_mw_rs_mode, quick=_mw_rs_is_quick(_mw_rs_mode))
                 if _mw_rs_is_quick(_mw_rs_mode):
                     return _mw_rs_quick_direct(_mw_rs_text, _mw_rs_mode)
-                # Non-Quick: collect runtime evidence then synthesize through the
-                # dedicated RUNTIME_STATUS pipeline. This produces source values
-                # beginning with "runtime_status_nonquick_full_pipeline" for all
-                # outcome states (synthesis succeeded, failed, or validation failed).
+                # Non-quick: collect runtime evidence and synthesise through the dedicated RUNTIME_STATUS
+                # pipeline. Sources start with "runtime_status_nonquick_full_pipeline" for every outcome
+                # (synthesis succeeded, failed, or failed validation).
                 _mw_rs_evidence = _mw_rs_call_runtime_status(_mw_rs_text)
                 return _mw_rs_synthesize(_mw_rs_text, _mw_rs_mode, _mw_rs_evidence)
         except Exception as _mw_rs_err:
             log.debug(f"[ENGINE][WARN] runtime-status Quick-direct middleware failed: {_mw_rs_err}")
 
 
-        # Quick mode returns deterministic live memory-runtime evidence
-        # directly. Non-Quick modes synthesize via local GGUF from the same
-        # evidence (per spec: "All non-Quick modes must run the full cognition
-        # pipeline and synthesize through the LLM. Non-Quick modes must
-        # never return executor/control/evidence packets verbatim.").
-        # Fixed 2026-05-11: previously skipped GGUF for non-Quick, which
-        # contradicted the spec and made Self-C / Const AI return raw
-        # telemetry packets identical to Quick.
-        # 2026-05-22 (Option 1): Quick keeps direct-evidence short-circuit.
-        # Non-Quick falls through to the full Stage 1-12 pipeline so each mode
-        # runs its actual algorithm. Previously non-Quick replaced the pipeline
-        # with a single GGUF synthesis call.
+        # Quick returns deterministic live memory-runtime evidence directly. Non-quick modes
+        # synthesise it via the local GGUF (non-quick runs the full pipeline and never returns
+        # executor/evidence packets verbatim). Skipping GGUF made Self-C and Constitutional AI return
+        # raw telemetry identical to Quick. Non-quick falls through to Stage 1-12.
         try:
             _eli_pipe("mw_memory_runtime_check")
             _mw_mrs_kwargs = dict(kwargs)
@@ -11868,11 +11471,9 @@ Answer:"""
         # === ELI_ENGINE_MIDDLEWARE_RUNTIME_STATUS_V8_DELETED_PHASE2B ===
         # Replaced by ELI_ENGINE_MIDDLEWARE_RUNTIME_STATUS_NONQUICK_FULL_PIPELINE_V1 (V19) above.
 
-        # Migrated from bottom-of-file _eli_process_memory_count_depth_v5 wrapper.
-        # Memory-count questions are deterministic SQLite/runtime facts.
-        # This must preserve Quick vs non-Quick mode depth and must not call GGUF.
-        # (Helpers _eli_mc_* are defined unconditionally below in the legacy
-        # bottom block; the prior globals() guard was redundant.)
+        # Migrated from the bottom-of-file _eli_process_memory_count_depth_v5 wrapper. Memory-count
+        # questions are deterministic SQLite/runtime facts: keep Quick vs non-quick depth and don't call
+        # GGUF. The _eli_mc_* helpers are defined unconditionally in the legacy block, no guard needed.
         try:
             _eli_pipe("mw_memory_count_check")
             if _eli_mc_is_memory_count_question_v4(user_input):
@@ -11889,13 +11490,9 @@ Answer:"""
         except Exception as _eli_mc_middleware_err:
             log.debug(f"[ENGINE][WARN] memory-count v5 middleware failed: {_eli_mc_middleware_err}")
 
-        # Migrated from bottom-of-file _eli_recent_mem_process_v3 wrapper.
-        # Recent-memory-processing questions are deterministic memory-runtime
-        # evidence queries. Quick may return compact evidence directly; Non-Quick
-        # must synthesize from that evidence through local GGUF and return only
-        # the validated synthesized surface.
-        # (Helpers _eli_recent_mem_v3_* are defined unconditionally below in the
-        # legacy bottom block; the prior globals() guard was redundant.)
+        # Migrated from the bottom-of-file _eli_recent_mem_process_v3 wrapper. Recent-memory-processing
+        # questions are deterministic evidence queries: quick may return compact evidence directly;
+        # non-quick synthesises from it via local GGUF and returns only the validated surface.
         try:
             _eli_pipe("mw_recent_memory_processing_check")
             if _eli_recent_mem_v3_is_prompt(user_input):
@@ -11928,19 +11525,16 @@ Answer:"""
 
                     return _eli_rm_out
 
-                # 2026-05-22 (Option 1): non-Quick falls through to the full
-                # pipeline. Previously did a single GGUF synthesis pass that
-                # bypassed Stage 1-12 and the mode-specific algorithm.
-                # (Quick-direct path above still active.)
+                # Non-Quick falls through to the full pipeline. It used to do one GGUF synthesis pass that
+                # bypassed Stage 1-12 and the mode-specific algorithm. The Quick-direct path above is unchanged.
 
         except Exception as _eli_recent_mem_middleware_err:
             log.debug(f"[ENGINE][WARN] recent-memory-processing middleware failed: {_eli_recent_mem_middleware_err}")
 
-        # Migrated from bottom-of-file _eli_self_engine_process wrapper.
-        # Recent self-report/update questions are grounded runtime evidence
-        # queries. Quick may return structured evidence directly; Non-Quick
-        # must synthesize from that evidence and return only the validated
-        # synthesized surface, never hallucinated maintenance claims.
+        # Migrated from the bottom-of-file _eli_self_engine_process wrapper. Recent self-report/update
+        # questions are grounded evidence queries: quick may return structured evidence directly;
+        # non-quick synthesises from it and returns only the validated surface, never invented
+        # maintenance claims.
         try:
             _eli_pipe("mw_self_report_recent_updates_check")
             _eli_self_mw_route = None
@@ -12010,11 +11604,9 @@ Answer:"""
                         },
                     }
 
-                # 2026-05-22 (Option 1): non-Quick falls through to the full
-                # pipeline. Previously did a single GGUF synthesis pass that
-                # bypassed Stage 1-12 and the mode-specific algorithm.
-                # (Quick-direct path above still active.)
-
+                # Non-quick falls through to the full pipeline; a single GGUF synthesis pass
+                # bypassed Stage 1-12 and the mode's algorithm. (The quick-direct path above is
+                # unchanged.)
         except Exception as _eli_self_report_middleware_err:
             log.debug(f"[ENGINE][WARN] self-report recent-updates middleware failed: {_eli_self_report_middleware_err}")
 
@@ -12126,11 +11718,9 @@ Answer:"""
                 }
         t0 = time.perf_counter()
 
-        # ── Auto-escalate reasoning mode from engagement depth + query complexity ──
-        # Only auto-escalate if the caller hasn't specified a mode. We take the DEEPEST
-        # of (engagement-depth hint, query-complexity hint) so a hard analytical question
-        # gets frontier multi-pass reasoning on the FIRST turn — not only after a long
-        # back-and-forth. Never downgrades an explicit caller choice.
+        # Auto-escalate reasoning mode from engagement depth and query complexity, only if the
+        # caller hasn't set a mode. Take the deepest of the two hints so a hard analytical question
+        # gets multi-pass reasoning on the first turn. Never downgrades an explicit choice.
         if reasoning_mode is None or reasoning_mode == "quick":
             try:
                 _MODE_RANK = {
@@ -12225,10 +11815,9 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # Relational facts — the people/pets the user mentions in passing ("my dog Shadow",
-        # "Shadow (my dog)", "my wife is Jane"). ELI stored the user's OWN name but never these,
-        # so "what's my dog's name?" had nothing to recall even after the user had said it.
-        # Store each as a recallable identity memory (and pin it, like the name path).
+        # Relational facts: the people/pets the user mentions in passing ("my dog Shadow", "my wife is
+        # Jane"). ELI stored the user's own name but not these, so "what's my dog's name?" had nothing
+        # to recall. Store each as a pinned identity memory, like the name path.
         try:
             from eli.runtime.relational_facts import extract_relational_facts as _erf
             _rel_facts = _erf(user_input)
@@ -12385,18 +11974,14 @@ Answer:"""
 
         action = intent.get("action", "CHAT")
         args = intent.get("args", {})
-        # Record the routed action on a side channel so callers can recover it even
-        # when a path returns DIRECT VISIBLE TEXT as a bare string (some self-contained
-        # doc/file actions do) — a bare string carries no 'action' field otherwise
-        # (eval-caught: GENERATE_DOCUMENT showed action=∅). Dict-returning paths set
-        # 'action' directly and are unaffected.
+        # Record the routed action on a side channel so callers can recover it when a path returns
+        # direct visible text as a bare string (some doc/file actions do), which carries no 'action'
+        # field. Dict-returning paths set 'action' directly and are unaffected.
         self._last_response_action = str(action or "").upper()
 
-        # Offline web actions are futile (the net's off) — downgrade to CHAT so the
-        # grounding-escalation HEDGE floor answers a factual query honestly ("net's off,
-        # won't guess") instead of the web executor synthesising a non-hedge "I'm unable
-        # to" answer (eval: factual_offline_hedges, when the resolver routes a fact to
-        # WEB_SEARCH). Online web actions are unchanged.
+        # Offline web actions are futile (the net's off): downgrade to CHAT so the grounding-escalation
+        # hedge floor answers a factual query honestly ("net's off, won't guess") instead of the web
+        # executor synthesising "I'm unable to". Online web actions are unchanged.
         if str(action or "").upper() in ("WEB_SEARCH", "WEB_FETCH", "WEB_LEARN", "SEARCH_WEB"):
             try:
                 from eli.core.config import network_allowed as _net_ok
@@ -12415,11 +12000,9 @@ Answer:"""
                     intent["meta"] = _wm
                 self._last_response_action = "CHAT"
 
-        # ELI_REDO_DIRECTIVE_V1 — the user telling ELI to actually (re-)do the
-        # task ("do it again", "are you actually fetching?"). If it routed to
-        # CHAT but a real action ran recently, re-run THAT instead of chatting
-        # about it. No fake — the real task executes. (Crisis guard below still
-        # wins, since it runs after and forces CHAT.)
+        # Redo directive (ELI_REDO_DIRECTIVE_V1): the user telling ELI to actually (re-)do the task
+        # ("do it again", "are you actually fetching?"). If it routed to CHAT but a real action ran
+        # recently, re-run that action. The crisis guard below still wins, it runs after and forces CHAT.
         try:
             if str(action).upper() == "CHAT":
                 from eli.runtime.action_commitment import is_redo_directive as _is_redo
@@ -12437,12 +12020,11 @@ Answer:"""
         except Exception as _redo_err:
             log.debug(f"[REDO] skipped: {_redo_err}")
 
-        # ELI_CRISIS_GUARD_V1 — first-person self-harm / suicidal language is a
-        # hard safety override. STT delivers flat unpunctuated text, so the guard
-        # matches normalised phrase patterns (see eli.core.crisis_guard). When it
-        # fires we force CHAT (never PLAY_MEDIA / WEB_SEARCH / NEWS_FETCH), flag
-        # the turn so grounding escalation/hedge is skipped, and inject a steering
-        # directive into the persona brief — steered, not scripted.
+        # Crisis guard (ELI_CRISIS_GUARD_V1): first-person self-harm or suicidal language is a hard
+        # safety override. STT text is flat and unpunctuated, so it matches normalised phrase patterns
+        # (eli.core.crisis_guard). When it fires: force CHAT (never PLAY_MEDIA / WEB_SEARCH / NEWS_FETCH),
+        # skip grounding escalation/hedge, and add a steering directive to the persona brief. Steered,
+        # not scripted.
         try:
             from eli.core.crisis_guard import detect_crisis, crisis_steering_directive
             _crisis = detect_crisis(user_input)
@@ -12472,12 +12054,9 @@ Answer:"""
             if str(action).upper() not in ("CHAT", "NOOP", "UNKNOWN", ""):
                 self._last_command_action = {
                     "action": action, "args": dict(args or {}), "input": user_input,
-                    # Stamped so consumers that mean "right after X" can actually
-                    # check it. The news topic-deepen rule read this dict as proof a
-                    # briefing had just happened, but CHAT never overwrites it (CHAT
-                    # is excluded above), so one report left the flag set for the
-                    # lifetime of the process and every later short input stayed
-                    # eligible to be rewritten into CHAT.
+                    # Stamped so consumers meaning "right after X" can check it. The news topic-deepen rule read
+                    # this dict as proof a briefing had just happened, but CHAT never overwrites it, so one report
+                    # left the flag set for the whole process and later short inputs could be rewritten into CHAT.
                     "ts": time.time(),
                 }
         except Exception:
@@ -12528,11 +12107,10 @@ Answer:"""
                     if not _eli_phase13_explicit_meta_diagnostic_request(_eli_phase13_diag_probe):
                         log.debug("[COGNITIVE] Phase 13 implicit META_DIAGNOSTIC veto -> CHAT")
                         action = "CHAT"
-                        # Request-scoped flag so the orchestrator path honours the veto too.
-                        # The orchestrator re-resolves intent from user_input (it does not see
-                        # this local `action`), so without this it would run the original
-                        # status/diagnostic action anyway (observed: AWARENESS_STATUS ran after
-                        # the veto). Cleared at process() entry; read+cleared in the orchestrator.
+                        # Request-scoped flag so the orchestrator honours the veto too. It re-resolves intent from
+                        # user_input and doesn't see this local `action`, so it ran the original status action anyway
+                        # (AWARENESS_STATUS ran after the veto). Cleared at process() entry, read and cleared in the
+                        # orchestrator.
                         self._eli_phase13_chat_override = True
                         for _eli_phase13_route_obj in (
                             locals().get("parsed"),
@@ -12594,14 +12172,10 @@ Answer:"""
             args = {}
             log.debug("[COGNITIVE] Upgraded CHAT -> RUNTIME_STATUS for grounded runtime query")
 
-        # --- Stage 2: Persona Lock Verify (authority gate) ---
-        # Fail-CLOSED by construction so this can't betray us once it's given real teeth:
-        #   * a missing "allowed" key is treated as DENY (not allow);
-        #   * an exception in the gate DENIES privileged/side-effecting actions
-        #     (deny-on-doubt) but lets read-only / conversational actions degrade OPEN, so a
-        #     gate bug can never mute ELI entirely.
-        # The current authority_gate stub always returns allowed=True, so this is
-        # behaviour-identical today and already safe for whatever logic future-us fills in.
+        # Stage 2: persona lock verify (authority gate), fail-closed: a missing "allowed" key is DENY,
+        # and a gate exception denies privileged/side-effecting actions but lets read-only and
+        # conversational ones degrade open, so a gate bug can't mute ELI. The authority_gate stub always
+        # returns allowed=True today, so behaviour is unchanged.
         try:
             from eli.runtime.authority_gate import check as _gate_check
             _gate_result = _gate_check(action, args)
@@ -12670,12 +12244,10 @@ Answer:"""
         # only — every class flows through the full bus + persona pipeline so
         # the LLM persona produces the final response from grounded evidence).
         _qclass = _classify_query(user_input, action)
-        # CORRECTION shortcut: the user is correcting the previous answer
-        # ("that's not what I asked"). Try a direct steered repair before the
-        # heavy pipeline; on failure fall through as GENERAL.
-        # Never hijack explicit executor routes (WEB_SEARCH when user says "search
-        # the web") — observed: correction repair returned patch-cycle deflection
-        # instead of running DuckDuckGo.
+        # Correction shortcut: the user is correcting the previous answer ("that's not what I asked").
+        # Try a direct steered repair before the heavy pipeline, else fall through as GENERAL. Never
+        # hijack explicit executor routes (WEB_SEARCH on "search the web"): correction repair once
+        # returned patch-cycle deflection instead of running DuckDuckGo.
         if _qclass == 'CORRECTION':
             try:
                 from eli.cognition.correction_patterns import correction_shortcut_allowed
@@ -12728,10 +12300,9 @@ Answer:"""
             log.debug(f"[COGNITIVE][WARN] runtime-status action preservation failed: {_eli_prs_err}")
         log.debug(f'[COGNITIVE] Query class: {_qclass}')
 
-        # PHASE36_SILENT_QUICK_CONTROLS:
-        # Volume is a local OS control, not a conversational request.
-        # Execute it immediately and return a silent result so the GUI does not
-        # ask the LLM to "respond" to a knob turn.
+        # PHASE36_SILENT_QUICK_CONTROLS: volume is a local OS control, not a conversational request.
+        # Execute it and return a silent result so the GUI doesn't ask the LLM to "respond" to a
+        # knob turn.
         _quick_silent_actions = {"VOLUME", "KEYBOARD"
 }
         _action_upper_fast = str(action or "").upper().strip()
@@ -12949,16 +12520,10 @@ Answer:"""
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
 
-            # ── Low-grounding re-selection (LLM-resolver soft-action mis-guess) ───
-            # When the LLM intent resolver CONFIDENTLY picked a soft informational action but the
-            # bus grounded it poorly, the action is almost certainly a mis-guess (transcript:
-            # "when did i ask for that" → REFRESH_USER_INFO, grounding 0.19 → it deflected). Don't
-            # run that action's synthesis — downgrade to CHAT so the conversational + grounding-
-            # escalation path below answers honestly from the dialogue/persona, or hedges if it's a
-            # checkable fact. Reuses the EXISTING grounding_confidence + per-mode escalation target;
-            # scoped to llm_intent.resolver guesses of soft actions only — deterministic router
-            # contracts and control/status/verbatim actions are never touched. Kill-switch:
-            # ELI_LOWGROUND_DOWNGRADE=0.
+            # Low-grounding re-selection. If the LLM resolver confidently picks a soft informational action
+            # but the bus grounded it poorly ("when did i ask for that" -> REFRESH_USER_INFO at 0.19), it's
+            # a mis-guess. Downgrade to CHAT. Only for resolver guesses of soft actions, never deterministic
+            # contracts or control/status/verbatim. Kill switch ELI_LOWGROUND_DOWNGRADE=0.
             if (not _eli_is_chat_action
                     and os.environ.get("ELI_LOWGROUND_DOWNGRADE", "1").strip().lower()
                         not in ("0", "false", "no", "off")
@@ -12980,13 +12545,10 @@ Answer:"""
                 except Exception as _dg_err:
                     log.debug(f"[COGNITIVE] low-grounding downgrade skipped: {_dg_err}")
 
-            # ── Grounding escalation ──────────────────────────────────────────
-            # A checkable factual turn that the bus grounded poorly must NOT be
-            # answered from the model's weights (that confabulates, e.g. inventing
-            # a celebrity's "real name"). Escalate in tiers — local agents for
-            # self/project facts, the web agent for external facts — and HEDGE if
-            # nothing can ground it, instead of guessing. Gated on grounding (not
-            # the fluent response score, which stays high while confabulating).
+            # Grounding escalation. A checkable factual turn the bus grounded poorly must not be answered
+            # from the model's weights (it invented a celebrity's "real name"). Escalate in tiers (local
+            # agents for self/project facts, the web agent for external ones) and hedge if nothing grounds
+            # it. Gated on grounding, not the response score, which stays high while confabulating.
             if _eli_is_chat_action and not getattr(self, "_crisis_steering", None):
                 try:
                     from eli.runtime.grounding_escalation import escalate as _grounding_escalate
@@ -13005,11 +12567,10 @@ Answer:"""
                 except Exception as _esc_err:
                     log.debug(f"[COGNITIVE] grounding escalation skipped: {_esc_err}")
 
-                # Stage 3b — background deepening: quick mode returns its fast
-                # answer now (no synchronous deepen), but if it's a poorly-grounded
-                # checkable factual turn, keep gathering on a background thread and
-                # surface a better answer in the Proactive panel. Non-blocking;
-                # tightly gated + deduped. (cog.background_deepen / ELI_BACKGROUND_DEEPEN)
+                # Stage 3b, background deepening: quick mode returns its fast answer now, but for a poorly
+                # grounded checkable factual turn keep gathering on a background thread and surface a better
+                # answer in the Proactive panel. Non-blocking, tightly gated, deduped (cog.background_deepen /
+                # ELI_BACKGROUND_DEEPEN).
                 try:
                     from eli.runtime.background_deepening import schedule as _bg_deepen
                     _bg_deepen(self, user_input, intent, bus_result, reasoning_mode)
@@ -13067,24 +12628,13 @@ Answer:"""
                             or _chosen_payload.get("result")
                             or ""
                         ).strip()
-                        # Tool/control results are authoritative evidence.
-                        # 2026-05-22 (fix for ggml-cuda crash chain): for ALL
-                        # modes, return the deterministic evidence directly
-                        # rather than running it through GGUF synthesis. The
-                        # synthesis path was concatenating 5K+ chars of agent
-                        # evidence with 6K+ chars of persona handoff, pushing
-                        # past n_ctx=16384 → truncation → garbage output → CUDA
-                        # OOM assertion (ggml-cuda.cu:102) → core dump.
-                        # Reasoning-mode differentiation does not apply to
-                        # grounded factual control actions: the structured
-                        # evidence IS the answer; no paraphrase improves it.
+                        # Tool/control results are the evidence, so return the deterministic result directly in every
+                        # mode. Synthesis stuffed 5K+ of evidence into 6K+ of persona, truncated, produced garbage and
+                        # hit a CUDA OOM assertion.
                         _deterministic_direct_payload_actions = {
-                            # News/report briefings are ALREADY a complete,
-                            # persona-voiced synthesis built in the executor
-                            # (50/50 stories + interest + follow-ups). Re-running
-                            # them through GGUF collapses the finished answer into
-                            # a useless 2-line summary (and doubles latency).
-                            # Return verbatim — the structured answer IS the answer.
+                            # News/report briefings are already a complete persona-voiced synthesis built in the executor
+                            # (50/50 stories + interest + follow-ups). Running them through GGUF again collapses them to a
+                            # 2-line summary and doubles latency. Return verbatim.
                             "NEWS_FETCH",
                             "MORNING_REPORT",
                             "DAILY_REPORT",
@@ -13098,10 +12648,9 @@ Answer:"""
                             "REASONING_MODE_STATUS",
                             "MEMORY_STATUS",
                             "COGNITION_STATUS",
-                            # GET_PROPOSALS is a data action — its content (the live agenda or a
-                            # functional "no active proposals" line) must surface as-is. Passing
-                            # it through GGUF synthesis made the model INVENT suggestions on the
-                            # empty state ("focus on improving your memory recall…").
+                            # GET_PROPOSALS is a data action: its content (the live agenda or a
+                            # plain "no active proposals") must surface as-is. Synthesis made the
+                            # model invent suggestions on the empty state.
                             "GET_PROPOSALS",
                             "EXPLAIN_LAST_RESPONSE",
                             "EXPLAIN_ALL_REASONING_MODES",
@@ -13109,15 +12658,10 @@ Answer:"""
                             "EXPLAIN_GGUF_DIAGNOSTICS",
                             "EXPLAIN_LAST_FAILURE",
                             "SELF_UPDATE",
-                            # Self-maintenance actions (upgrade/improve/patch)
-                            # produce a complete, authoritative step-by-step
-                            # report in the executor ("Upgrade complete. 6/6
-                            # steps succeeded.", "Improvement cycle complete…").
-                            # Returning that verbatim is correct; passing it
-                            # through GGUF synthesis instead either confabulated
-                            # progress ("running now, check back later" when the
-                            # cycle had already finished) or degenerated to a
-                            # lone "-Auto". The structured report IS the answer.
+                            # Self-maintenance actions (upgrade/improve/patch) produce a complete authoritative step
+                            # report in the executor ("Upgrade complete. 6/6 steps succeeded."). Return it verbatim.
+                            # Synthesis either invented progress ("running now, check back later" after it finished) or
+                            # degenerated to a lone "-Auto".
                             "SELF_UPGRADE",
                             "SELF_IMPROVE",
                             "SELF_PATCH",
@@ -13135,24 +12679,16 @@ Answer:"""
                             "DECLINE_HABIT",
                             "DIAGNOSE_WRAPPERS",
                             "SELF_REPORT",
-                            # Identity/profile actions: executor evidence is the
-                            # grounded answer; compact synthesis prevents the
-                            # full 7K-token prompt overflow they get on the
-                            # standard broker path.
+                            # Identity/profile actions: the executor evidence is the grounded
+                            # answer; compact synthesis avoids the 7K-token prompt overflow they hit
+                            # on the standard broker path.
                             "USER_IDENTITY_SUMMARY",
                             "PERSONAL_MEMORY_SUMMARY",
                             "PERSONAL_MEMORY_DEEP_EXPLAIN",
-                            # Deterministic OS-command + system-read actions whose
-                            # executor result IS the complete answer ("Wrote note
-                            # to X", "Volume set to 40%", "Tiled 5 windows",
-                            # "Monday, 2026-06-08"). Reasoning-mode contract: router
-                            # fast actions are DETERMINISTIC in quick mode (returned
-                            # verbatim, no GGUF) and SYNTHESISED in non-quick modes.
-                            # They were only in _direct_final_actions, so quick mode
-                            # still ran them through full broker synthesis — which
-                            # corrupted the result ("Wrote note"->"Bought note") and
-                            # added 6-10s of latency. Web/weather/vision are NOT here
-                            # (their result is evidence the model should phrase).
+                            # Deterministic OS-command and system-read actions where the executor result is the whole answer
+                            # ("Volume set to 40%", "Tiled 5 windows"). Verbatim in quick, synthesised otherwise. Quick still
+                            # ran broker synthesis on them and corrupted results ("Wrote note" became "Bought note").
+                            # Web/weather/vision aren't here, their result is evidence the model should phrase.
                             "OPEN_APP", "CLOSE_APP", "OPEN_URL", "OPEN_BROWSER",
                             "OPEN_FILE_SYSTEM", "OPEN_IN_IDE", "OPEN_IDE",
                             "OPEN_SYSTEM_SETTINGS", "OPEN_AUDIO_SETTINGS",
@@ -13173,20 +12709,9 @@ Answer:"""
                             "CREATE_FILE", "CREATE_FOLDER", "WRITE_NOTE",
                             "NEW_NOTE", "LIST_NOTES", "SET_TIMER", "SET_ALARM",
                             "LIST_DIR", "SPEAK",
-                            # Audited 2026-09-18: every action's executor handler
-                            # already returns a complete, well-formed content/
-                            # response string (confirmed by reading each handler
-                            # directly, not assumed) — the same shape as the
-                            # GPU_STATUS/MEMORY_STATUS pattern above, just never
-                            # added to this set. Left in non-quick synthesis, each
-                            # one either got needlessly re-narrated by a small
-                            # local model (latency + risk of dropped detail) or —
-                            # for READ_FILE specifically — had its raw file
-                            # content rewritten by the LLM instead of shown
-                            # as-is, which is the exact class of bug this
-                            # project exists to not have: a "read this file"
-                            # request whose answer was never guaranteed to
-                            # match the file on disk.
+                            # Actions whose handlers already return a complete answer string (checked by reading each),
+                            # same as GPU_STATUS/MEMORY_STATUS. Left out, a small model re-narrated them, and READ_FILE
+                            # had the file content rewritten instead of shown as it is on disk.
                             "READ_FILE", "HARDWARE_PROFILE", "AWARENESS_STATUS",
                             "FRONTIER_STATUS", "BACKGROUND_JOBS", "CHECK_JOB",
                             "ORCHESTRATION_STATUS", "LORA_STATUS", "PROACTIVE_STATUS",
@@ -13196,19 +12721,13 @@ Answer:"""
                             "LIST_EVENTS", "SEARCH_NOTES", "MCP_STATUS", "MCP_TOOLS",
                             "MCP_LIST", "STT_DIAGNOSTICS", "NAME_SOURCE_AUDIT",
                             "ROUTING_FAULT_EXPLAIN",
-                            # SHELL_EXEC delegates to RUN_CMD's handler, which
-                            # returns the command's raw, unmodified stdout+stderr
-                            # as content/response. Same danger class as READ_FILE:
-                            # without this, an LLM "synthesis" pass could
-                            # misreport what a command actually printed.
+                            # SHELL_EXEC delegates to RUN_CMD's handler, which returns the command's
+                            # raw stdout+stderr as content/response. Same danger as READ_FILE: an
+                            # LLM synthesis pass could misreport what a command printed.
                             "SHELL_EXEC",
-                            # Audited 2026-09-18 (second pass): remaining
-                            # confirmation/status/report actions whose executor
-                            # handler already builds a complete content/response
-                            # string — verified by reading each handler, not
-                            # assumed. MCP_CALL is the same danger class as
-                            # READ_FILE/SHELL_EXEC: it returns a live tool's raw
-                            # output, which must not be re-narrated.
+                            # More confirmation/status/report actions whose handler already builds a complete
+                            # content/response string, checked by reading each. MCP_CALL is the same danger class as
+                            # READ_FILE/SHELL_EXEC: it returns a live tool's raw output, which must not be re-narrated.
                             "ADD_EVENT", "PLUGIN_STATUS", "MEMORY_STORE",
                             "GET_WEATHER", "PERSONA_LOCK_SET", "PERSONA_LOCK_CLEAR",
                             "SET_TONE", "CLEAR_TONE", "SET_USER_NAME",
@@ -13225,17 +12744,9 @@ Answer:"""
                             "CANCEL_PENDING_REMEDIATION", "CONFIRM_PENDING_REMEDIATION",
                             "CLEAR_CHAT_HISTORY", "REFRESH_USER_INFO",
                             "MESSAGE_TIME_QUERY",
-                            # Audited 2026-09-18 (third pass): the remaining
-                            # confirmation/report/raw-content actions from the
-                            # ~186 routable-action list. TRANSCRIBE and OCR_IMAGE
-                            # return raw transcribed/recognized text — same danger
-                            # class as READ_FILE/SHELL_EXEC/MCP_CALL, must not be
-                            # re-narrated. Explicitly NOT added after reading their
-                            # handlers: FIX_FILE (content is a machine-readable
-                            # JSON event blob, not prose — verbatim would show raw
-                            # JSON in chat) and RUN_TESTS (its own code comment:
-                            # "ELI can run this and SUMMARISE it in chat" — the
-                            # design intent is LLM narration, not a raw dump).
+                            # More confirmation/report/raw-content actions. TRANSCRIBE and OCR_IMAGE return raw recognised
+                            # text, same danger as READ_FILE/SHELL_EXEC/MCP_CALL. Deliberately left out: FIX_FILE (content is
+                            # a JSON blob) and RUN_TESTS (meant to be summarised).
                             "CODE_CHANGES", "TRANSCRIBE", "DICTATE", "SMART_HOME",
                             "PERSONA_REFRESH", "PROACTIVE_START", "PROACTIVE_STOP",
                             "HELP", "LIST_CAPABILITIES", "MEMORY_RECALL",
@@ -13243,28 +12754,10 @@ Answer:"""
                             "CONVERT_DOCUMENT", "ANALYZE_CSV", "GENERATE_TESTS",
                             "CREATE_DOCUMENT", "GENERATE_DOCUMENT", "DOC_GENERATE",
                             "DESIGN_VOICE", "CREATE_VOICE",
-                            # Audited 2026-09-18 (fourth pass, on re-verification of
-                            # the "genuinely creative" exclusions): these run their
-                            # OWN dedicated, evidence-constrained internal model call
-                            # (or none at all) and the returned content/response is
-                            # already the complete final answer -- letting generic
-                            # non-quick synthesis re-narrate it a second time is
-                            # redundant at best and risks dropping a specific fact
-                            # (a page count, an exact OCR'd line) at worst, the same
-                            # failure class as READ_FILE. ANALYZE_IMAGE/ANALYZE_PDF/
-                            # ANALYZE_PDF_FOLDER: the chat reply is a deterministic
-                            # "saved to X" confirmation or an already-fused,
-                            # evidence-only description -- the raw analysis goes to
-                            # a saved file, not into this string. SCREEN_READ_ANALYZE
-                            # just wraps ANALYZE_IMAGE. DATA_FABRICATOR delegates to
-                            # CREATE_DOCUMENT (already in this set) or returns its own
-                            # "opened editor" confirmation. GENERATE_PROJECT's success
-                            # path embeds real generated code in a fenced block that
-                            # must not be paraphrased; its fallback already calls
-                            # chat() and returns finished text either way. SEQUENCE
-                            # and MULTI_COMMAND do not call a model themselves -- their
-                            # content is a mechanical join of each already-finished
-                            # sub-step result.
+                            # These run their own evidence-constrained model call (or none) and already return the final
+                            # answer, so a second synthesis is redundant and can drop a fact (a page count, an OCR'd line).
+                            # GENERATE_PROJECT embeds real code that mustn't be paraphrased. SEQUENCE and MULTI_COMMAND call
+                            # no model, they just join finished sub-steps.
                             "ANALYZE_IMAGE", "ANALYZE_PDF", "ANALYZE_PDF_FOLDER",
                             "SCREEN_READ_ANALYZE", "DATA_FABRICATOR", "GENERATE_PROJECT",
                             "SEQUENCE", "MULTI_COMMAND",
@@ -13284,40 +12777,18 @@ Answer:"""
                             _action_upper == "SELF_REPORT"
                             and _followup_kind in {"detail", "challenge"}
                         )
-                        # Deep technical introspection — "explain exactly how your
-                        # memory/cognition pipeline works: files, folders, tables,
-                        # processes". The executor builds a complete, sanitised LIVE
-                        # audit (real table list, real DB paths, real retrieval
-                        # mechanisms) and that structured report IS the literal
-                        # answer to a spec question. Re-narrating it on a small local
-                        # model only drops or invents facts. the user, 2026-06-06: in
-                        # CoT mode, EXPLAIN_MEMORY_RUNTIME's correct DB audit was run
-                        # through compact synthesis, which hallucinated a phantom
-                        # "memory.sqlite3 for temporary storage" and miscounted the
-                        # databases. These return verbatim in EVERY reasoning mode.
-                        #
-                        # Scope is deliberately TIGHT: RUNTIME_STATUS / RUNTIME_AUDIT /
-                        # MEMORY_STATUS still synthesise in non-Quick (V19 contract).
-                        # NEWS_FETCH / MORNING_REPORT / DAILY_REPORT are NOT here —
-                        # the executor already builds a complete persona-voiced briefing
-                        # with source tags ([HackerNews — 25 Aug], etc.). Re-running that
-                        # through compact synthesis strips citations, collapses depth, and
-                        # can contradict the evidence ("no morning report" when the
-                        # afternoon report is right there). Return verbatim in every mode.
-                        # Persona-narrative actions (PERSONAL_MEMORY_DEEP_EXPLAIN) synthesise.
+                        # Deep technical introspection ("explain exactly how your memory pipeline works"). The executor
+                        # builds a full sanitised live audit and that report IS the answer. Re-narrating it on a small
+                        # model invents facts (a "memory.sqlite3 for temporary storage"). Verbatim in every mode.
+                        # RUNTIME_STATUS / RUNTIME_AUDIT / MEMORY_STATUS still synthesise in non-quick, and the news and
+                        # daily reports stay out because they already carry source tags.
                         _verbatim_always_actions = {
                             "NEWS_FETCH",
                             "MORNING_REPORT",
                             "DAILY_REPORT",
-                            # NOTE (2026-06-08): EXPLAIN_MEMORY_RUNTIME and
-                            # EXPLAIN_COGNITION_RUNTIME were moved OUT of this set at the
-                            # user's request — in non-quick modes they now SYNTHESISE the
-                            # grounded evidence into a persona-bound answer (the blueprint
-                            # intent: "gather-then-summarise, never a raw dump"), while quick
-                            # mode still returns the deterministic dump verbatim. The earlier
-                            # phantom-DB/miscount corruption is guarded by the hardened
-                            # evidence-only contract in _compact_grounded_synthesis (every
-                            # number/path/table/DB must be quoted exactly from the evidence).
+                            # EXPLAIN_MEMORY_RUNTIME and EXPLAIN_COGNITION_RUNTIME synthesise in non-quick modes, quick
+                            # keeps the dump. The phantom-DB corruption is now guarded by the quote-exact-from-evidence rule
+                            # in _compact_grounded_synthesis.
                             "RESOLVE_RUNTIME_PATHS",
                             # Code-examiner tiered report + patch-outcome reports are
                             # grounded fact; never let a reasoning mode re-narrate them.
@@ -13326,10 +12797,9 @@ Answer:"""
                             "CANCEL_CODE_FIX",
                             "CONFIRM_HABIT",
                             "DECLINE_HABIT",
-                            # Grounded self-report families: the executor already
-                            # builds the complete report. Re-narrating their large
-                            # evidence on the small model returned a lone "-"
-                            # (the user, 2026-06-06). Return verbatim in every mode.
+                            # Grounded self-report families: the executor already builds the
+                            # complete report, and re-narrating their large evidence on the small
+                            # model returned a lone "-". Return verbatim in every mode.
                             "SELF_ANALYZE",
                             "SELF_IMPROVE",
                             "SELF_IMPROVEMENT_LOG",
@@ -13338,30 +12808,10 @@ Answer:"""
                             "SELF_PATCH",
                             "SELF_UPDATE",
                         }
-                        # Quick mode bypasses synthesis for grounded control actions
-                        # (returns deterministic evidence directly — fast, no GGUF).
-                        # Non-Quick modes MAY synthesise via their mode algorithm,
-                        # using a compact evidence-only context to prevent prompt
-                        # overflow — EXCEPT the verbatim-always introspection family
-                        # above, which is returned as-is in every mode so a weak
-                        # model can't corrupt grounded facts.
-                        #
-                        # 2026-09-18 (field report, user): a question mentioning
-                        # "gpu layers"/"batch size"/"n_ctx" routes to
-                        # EXPLAIN_COGNITION_RUNTIME with diagnostic_focus in
-                        # {inference_ram, latency_timing, inference_runtime}
-                        # (router_enhanced.py). This USED to force the raw
-                        # diagnostic dump verbatim in every mode, same as
-                        # EXPLAIN_COGNITION_RUNTIME's general case was fixed to NOT
-                        # do on 2026-06-08 ("gather-then-summarise, never a raw
-                        # dump" — moved out of _verbatim_always_actions at the
-                        # user's request). That fix never covered this specific
-                        # diagnostic_focus subset, so a Normal-mode question about
-                        # ctx/gpu_layers/batch still got the terse structured dump
-                        # instead of an LLM-synthesized answer. Removed: quote-
-                        # exact-from-evidence in _compact_grounded_synthesis already
-                        # guards against corrupting these numbers in non-quick mode,
-                        # same as it does for every other deterministic action.
+                        # Quick mode skips synthesis for grounded control actions (deterministic evidence, no GGUF).
+                        # Non-quick may synthesise on a compact evidence-only context to avoid prompt overflow, except
+                        # the verbatim-always introspection family. The gpu_layers/batch/n_ctx diagnostic subset no
+                        # longer forces the raw dump, since quote-exact-from-evidence guards those numbers.
                         _bypass_persona = bool(
                             kwargs.get("bypass_persona")
                             or intent.get("bypass_persona")
@@ -13372,12 +12822,9 @@ Answer:"""
                                 and not _self_report_depth_followup
                             )
                         )
-                        # For non-Quick grounded control actions: synthesize the
-                        # evidence into a natural-language answer using a SINGLE
-                        # direct GGUF call with a minimal prompt (no enhanced_system,
-                        # no persona inflation, no memory hits). This prevents the
-                        # ~35K-char prompt overflow that caused garbage output (the
-                        # model returning "-").
+                        # Non-quick grounded control actions: synthesise the evidence into a natural answer with one
+                        # direct GGUF call on a minimal prompt (no enhanced_system, persona inflation or memory hits).
+                        # That avoids the ~35K-char prompt overflow that produced garbage (the model returning "-").
                         _is_grounded_control_nonquick = (
                             _direct_content
                             and _action_upper in _deterministic_direct_payload_actions
@@ -13385,10 +12832,9 @@ Answer:"""
                             and not _bypass_persona
                         )
                         if _is_grounded_control_nonquick:
-                            # Synthesise from the STRUCTURED payload, not just its
-                            # one-line summary. Deliberately a separate variable:
-                            # `_direct_content` is what the quick/verbatim paths
-                            # return word-for-word, and must stay exactly as-is.
+                            # Synthesise from the structured payload, not just its one-line summary.
+                            # Deliberately a separate variable: `_direct_content` is what the
+                            # quick/verbatim paths return word for word and must stay as-is.
                             _synth_evidence = self._structured_control_evidence(
                                 _chosen_payload, _direct_content,
                             )
@@ -13474,13 +12920,10 @@ Answer:"""
                                 f"[COGNITIVE] Compact synthesis returned empty for {_action_upper}; "
                                 "falling back to standard synthesis",
                             )
-                            # Fail-closed: if we have executor evidence for a control
-                            # action, preserve the executor's metadata (evidence_source,
-                            # source, report) so callers always get the evidence contract
-                            # even when GGUF synthesis is unavailable (test mode / no model).
-                            # Standard synthesis below may also fail, producing a
-                            # "Model not ready" text — this dict ensures the metadata
-                            # contract is propagated to the final result.
+                            # Fail-closed: with executor evidence for a control action, keep its metadata
+                            # (evidence_source, source, report) so callers always get the evidence contract even when GGUF
+                            # synthesis is unavailable (test mode, no model). Standard synthesis below may also fail with
+                            # "Model not ready", and this dict carries the metadata to the final result.
                             if _direct_content and _action_upper in _deterministic_direct_payload_actions:
                                 _exec_meta_payload = _chosen_payload if isinstance(_chosen_payload, dict) else {}
                                 _compact_fail_meta = {
@@ -13545,10 +12988,9 @@ Answer:"""
                         except Exception:
                             _direct_mode = "quick" if not reasoning_mode else str(reasoning_mode)
                         if _direct_content:
-                            # Persona-bound synthesis — pass only the executor's
-                            # action content as evidence, not the agent bus
-                            # context block, so the answer focuses on the
-                            # tool result that just ran.
+                            # Persona-bound synthesis: pass only the executor's action content as
+                            # evidence, not the agent bus context block, so the answer focuses on
+                            # the tool result that just ran.
                             try:
                                 _synth_text = self._synthesize_answer(
                                     _direct_content,
@@ -13736,12 +13178,10 @@ Answer:"""
                 )
                 _synth = str((_loop_result or {}).get("response") or "").strip()
 
-                # ELI_RUNTIME_STATUS_POISON_GUARD_V1
-                # ELI_RUNTIME_STATUS_POISON_GUARD_V2
-                # Runtime-status synthesis may rephrase live evidence, but must not invent
-                # unsupported operational claims, future deferrals, memory claims, project claims,
-                # dependency claims, or generic assistant chatter. Quick mode remains direct;
-                # this only rejects bad non-Quick candidates before final control repair.
+                # Runtime-status poison guard (ELI_RUNTIME_STATUS_POISON_GUARD_V1 / _V2): synthesis may
+                # rephrase live evidence but must not invent operational claims, future deferrals, memory,
+                # project or dependency claims, or generic assistant chatter. Quick stays direct; this only
+                # rejects bad non-Quick candidates before the final control repair.
                 if _synth and str(action or "").upper() == "RUNTIME_STATUS":
                     _eli_rs_lc = _synth.lower()
                     _eli_rs_poison_terms = (
@@ -13859,11 +13299,10 @@ Answer:"""
         # contributed real evidence). Pure route-match with no agent grounding (grounding=0)
         # should not short-circuit synthesis even if aggregate looks "high" due to base weight.
         _bus_grounding_ok = float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0) > 0.05
-        # Self-contained file/doc actions read real files and carry their own
-        # existence guards. They MUST be executed (not LLM-synthesised from the
-        # prompt, which fabricates summaries of files it never read). These are
-        # deferred from the parallel bus (LLM_ACTIONS), so their bus confidence is
-        # low — execute them here regardless of the 0.7 grounded fast-path gate.
+        # Self-contained file/doc actions read real files and carry their own existence guards. They
+        # must be executed, not LLM-synthesised from the prompt (which fabricates summaries of files it
+        # never read). They're deferred from the parallel bus (LLM_ACTIONS) so bus confidence is low;
+        # execute them here regardless of the 0.7 grounded fast-path gate.
         _FILE_SELF_CONTAINED_ACTIONS = {
             "SUMMARIZE_FILE", "CONVERT_DOCUMENT", "ANALYZE_PDF", "ANALYZE_CSV",
             "ANALYZE_PDF_FOLDER", "GENERATE_DOCUMENT", "CREATE_DOCUMENT", "DOC_GENERATE",
@@ -13904,10 +13343,9 @@ Answer:"""
 
                     if _action_result is None:
                         _action_result = _eli_phase13c_bus_action_result(bus_result, action)
-                    # File/doc actions are deferred in the bus (skipped placeholder).
-                    # Never accept a skipped/empty reuse for them — force real
-                    # execution so the executor reads the file (with its existence
-                    # guard) instead of the model fabricating from the path.
+                    # File/doc actions are deferred in the bus (skipped placeholder). Never accept a
+                    # skipped/empty reuse for them: force real execution so the executor reads the
+                    # file (with its existence guard) and the model doesn't fabricate from the path.
                     if _is_file_self_contained and (
                         not isinstance(_action_result, dict)
                         or _action_result.get("skipped")
@@ -13921,14 +13359,9 @@ Answer:"""
                         or _action_result.get('response', '')
                         or ''
                     )
-                    # Self-contained executor answers (file/doc summaries +
-                    # conversions) are ALREADY the final, polished output — the
-                    # handler read the file and called the model itself. Feeding
-                    # them back through persona synthesis only risks the content
-                    # being truncated out by a large system prompt (observed:
-                    # SUMMARIZE_FILE returning a vague "no content provided"
-                    # answer after a 27K-char system prompt squeezed the file
-                    # summary out of n_ctx). Return the handler's answer directly.
+                    # Self-contained executor answers (file/doc summaries, conversions) are already final: the
+                    # handler read the file and called the model itself. Persona synthesis let a big system prompt
+                    # squeeze the summary out of n_ctx ("no content provided"). Return the handler's answer.
                     _SELF_CONTAINED_LLM_ACTIONS = {
                         "SUMMARIZE_FILE", "CONVERT_DOCUMENT", "GENERATE_DOCUMENT",
                         "DOC_GENERATE", "CREATE_DOCUMENT", "ANALYZE_PDF", "ANALYZE_CSV",
@@ -14084,12 +13517,9 @@ Answer:"""
                 except Exception as grounded_err:
                     log.debug(f"[COGNITIVE] Grounded control synthesis failed: {grounded_err}")
 
-            # WEB_SEARCH handling.
-            #  • NO usable results → surface the executor's honest message DIRECTLY,
-            #    bypassing the model. (It was re-narrating empty results as "the
-            #    network toggle was off" and inventing dates — never let it.)
-            #  • WITH results → run the hybrid synthesis so ELI answers from the
-            #    live results in its own voice, plus an optional follow-up.
+            # WEB_SEARCH: with no usable results, show the executor's honest message directly and skip the
+            # model (it re-narrated empty results as "the network toggle was off" and invented dates). With
+            # results, run the hybrid synthesis so ELI answers in its own voice, plus an optional follow-up.
             if str(action).upper() == "WEB_SEARCH":
                 _ws_results = (_action_result.get("results") or []) if isinstance(_action_result, dict) else []
                 _ws_grounded = bool(isinstance(_action_result, dict) and _action_result.get("web_grounded"))
@@ -14132,11 +13562,9 @@ Answer:"""
                         + evidence
                     )
 
-            # ANALYZE_IMAGE handling. The executor already produced the only
-            # honest answer available — real OCR text, or a plain statement that
-            # no text was found and there's no vision model to describe pixels.
-            # Surface it DIRECTLY; never let the model narrate a picture it can't
-            # see (that is exactly the "you did not analyze that screenshot,
+            # ANALYZE_IMAGE: the executor already produced the only honest answer (real OCR text, or a
+            # plain statement that no text was found and there's no vision model). Show it directly, never
+            # let the model narrate a picture it can't see (the "you did not analyze that screenshot,
             # you're lying" failure).
             if str(action).upper() == "ANALYZE_IMAGE":
                 _img_direct = ""
@@ -14222,11 +13650,9 @@ Answer:"""
                     "aggregated_confidence": float(getattr(bus_result, "aggregated_confidence", getattr(bus_result, "agg_conf", 0.0)) or 0.0),
                     "grounding_confidence": float(getattr(bus_result, "grounding_confidence", 0.0) or 0.0),
                 }
-                # Rotate BEFORE overwrite so _prev_bus_result holds the PRIOR
-                # turn's dispatch. Consumed by _build_persona_handoff_once to
-                # splice a LAST_TURN_TRACE block into the LLM prompt — grounds
-                # meta questions ("what was your confidence / which agents
-                # contributed") in real data instead of confabulation.
+                # Rotate before overwrite so _prev_bus_result holds the prior turn's dispatch.
+                # _build_persona_handoff_once uses it to splice a LAST_TURN_TRACE block into the prompt, grounding
+                # meta questions ("what was your confidence / which agents contributed") in real data.
                 self._prev_bus_result = getattr(self, "_last_bus_result", None)
                 self._last_bus_result = bus_result
             except Exception:
@@ -14599,10 +14025,9 @@ Answer:"""
         result = _eli_phase13c_bus_action_result(locals().get("bus_result"), action)
         if result is None:
             result = execute_action(action, args)
-            # Don't replan a success: if a redundant re-execution failed but the
-            # bus already produced an ok, authoritative result for this action,
-            # trust the earlier success rather than entering the failure/replan
-            # path (which can invent unsupported actions like WEEKLY_REPORT).
+            # Don't replan a success: if a redundant re-execution failed but the bus already
+            # produced an ok result for this action, trust it rather than entering the
+            # failure/replan path (which can invent unsupported actions like WEEKLY_REPORT).
             if not result.get("ok", False):
                 _bus_ok = _eli_bus_first_ok_result(locals().get("bus_result"), action)
                 if _bus_ok is not None:
@@ -14662,20 +14087,16 @@ Answer:"""
             "MESSAGE_TIME_QUERY",
             "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS", "GPU_STATUS",
             "SPEAK", "DICTATE", "TRANSCRIBE",
-            # Script/code generation: artifact is the script file on disk and
-            # the IDE opening it. Chat reply is a short ELI acknowledgment;
-            # the executor returns that — do NOT re-synthesise the code body
-            # back into chat.
+            # Script/code generation: the artifact is the script on disk and the IDE opening it. The
+            # chat reply is a short acknowledgement from the executor; don't re-synthesise the code
+            # body into chat.
             "GENERATE_SCRIPT", "CREATE_SCRIPT", "WRITE_SCRIPT",
             "GENERATE_PROJECT", "FIX_FILE",
             "GENERATE_DOCUMENT", "CREATE_DOCUMENT", "CREATE_DOC", "WRITE_DOCUMENT",
             "SELF_IMPROVEMENT_LOG",
-            # Self-maintenance actions return a complete step-by-step report
-            # from the executor ("Upgrade complete. 6/6 steps succeeded.",
-            # "Improvement cycle complete…"). Re-synthesising it through GGUF
-            # confabulated false progress ("running now, check back later" after
-            # it had already finished) or degenerated to a lone "-Auto". The
-            # structured report IS the answer — return it verbatim.
+            # Self-maintenance actions return a complete step report from the executor ("Upgrade
+            # complete. 6/6 steps succeeded."). Re-synthesising it through GGUF confabulated false
+            # progress or degenerated to a lone "-Auto"; return it verbatim.
             "SELF_UPGRADE", "SELF_IMPROVE", "SELF_PATCH",
             # Code-examiner reports are grounded fact — return verbatim.
             "EXAMINE_CODE", "CONFIRM_CODE_FIX", "CANCEL_CODE_FIX",
@@ -14699,11 +14120,9 @@ Answer:"""
             except Exception as _final_syn_err:
                 log.debug(f"[COGNITIVE] Final executor synthesis failed: {_final_syn_err}")
                 final_response = raw_response
-        # Degenerate-output guard (user-reported, 2026-06-06): the small local model
-        # sometimes collapses a grounded answer into a fragment ('-', '-Auto',
-        # '-Auto/G 5/'). Never surface that. Prefer the grounded executor
-        # content; if that is also a stub, give an honest, non-empty reply
-        # rather than a lone dash.
+        # Degenerate-output guard: the small local model sometimes collapses a grounded answer into
+        # a fragment ("-", "-Auto", "-Auto/G 5/"). Never surface that. Prefer the grounded executor
+        # content; if that is also a stub, give an honest non-empty reply, not a lone dash.
         if _eli_is_fragment_output(final_response):
             if raw_response and not _eli_is_fragment_output(raw_response):
                 log.debug("[COGNITIVE] Fragment synthesis discarded; using grounded executor content")
@@ -14713,13 +14132,11 @@ Answer:"""
                 final_response = (
                     "Sorry — my reply came out garbled there. Could you ask me that again?"
                 )
-        # Fabricated-internals guard: a claim ELI makes about its OWN paths or
-        # upgrade mechanism is checkable, so it gets checked. Observed live: it
-        # placed its databases under a /home/<name> path invented from the user's
-        # first name, wrote agent.sqlite for agent.sqlite3, and described
-        # upgrading itself via "./upgrade.sh" — a script that has never existed.
-        # Prompt-level grounding makes that rare; this makes it correctable.
-        # Cheap: returns immediately unless a path or script token is present.
+        # Fabricated-internals guard: a claim about ELI's own paths or upgrade mechanism is checkable,
+        # so check it (the model once put its databases under a /home/<name> path built from the
+        # user's first name, wrote agent.sqlite for agent.sqlite3 and described a nonexistent
+        # "./upgrade.sh"). Prompt grounding makes that rare, this makes it correctable. Cheap: returns
+        # at once unless a path or script token is present.
         try:
             from eli.runtime.self_facts import repair_self_description as _repair_self
             _repaired, _self_fixes = _repair_self(final_response)
@@ -14729,11 +14146,9 @@ Answer:"""
         except Exception:
             log.debug("self-description repair skipped", exc_info=True)
 
-        # Placeholder/template-leak guard (user directive, 2026-06-06: "I expect
-        # the appropriate answer"): the model sometimes emits an unfilled scaffold
-        # like "[list up to 3 habits from memory or analysis]" when evidence
-        # wasn't gathered/used. A template is never an answer — prefer grounded
-        # executor content, else admit the gap honestly rather than show scaffold.
+        # Placeholder/template-leak guard: the model sometimes emits an unfilled scaffold ("[list up
+        # to 3 habits from memory or analysis]") when evidence wasn't gathered or used. A template
+        # is never an answer; prefer grounded executor content, else admit the gap.
         if _eli_is_placeholder_output(final_response):
             if raw_response and not _eli_is_placeholder_output(raw_response):
                 log.debug("[COGNITIVE] Template-placeholder answer discarded; using grounded executor content")
@@ -14795,11 +14210,10 @@ Answer:"""
             router_intent = route_intent(text)
         except Exception as e:
             log.debug(f"[COGNITIVE] Router failed: {e}")
-        # A real deterministic match wins (fast path, no model call). But
-        # `fallback.chat` is NOT a match — it just means "no rule fired". Dropping
-        # to it blindly is what made ELI unable to act on near-miss phrasings and
-        # let it hallucinate facts (e.g. the date). Treat it as unmatched and let
-        # the model resolve intent against ELI's real action catalogue instead.
+        # A real deterministic match wins (fast path, no model call), but `fallback.chat` isn't a
+        # match, it only means no rule fired. Dropping to it blindly left ELI unable to act on near-miss
+        # phrasings and let it hallucinate facts (the date). Treat it as unmatched and let the model
+        # resolve intent against the real action catalogue.
         _matched_by = ((router_intent or {}).get("meta") or {}).get("matched_by", "")
         if (router_intent and router_intent.get("confidence", 0) > 0.5
                 and _matched_by != "fallback.chat"):
@@ -14810,10 +14224,9 @@ Answer:"""
         try:
             from eli.cognition.llm_intent import parse_cached
             li = parse_cached(text)
-            # Banter guard: the resolver sometimes maps playful conversational input
-            # ("use your imagination!", "have a bit of fun") to a generative action like
-            # GENERATE_SCRIPT, which then dead-ends on "no description supplied". If the
-            # text carries NO create-intent, it's conversation — route it to CHAT.
+            # Banter guard: the resolver sometimes maps playful input ("use your imagination!") to a
+            # generative action like GENERATE_SCRIPT, which dead-ends on "no description supplied".
+            # If the text has no create-intent, it's conversation: route to CHAT.
             _gen_actions = {"GENERATE_SCRIPT", "CREATE_SCRIPT", "WRITE_SCRIPT",
                             "GENERATE_PROJECT", "GENERATE_DOCUMENT", "CREATE_DOCUMENT",
                             "WRITE_DOCUMENT", "CODE_SOLVE"}
@@ -14825,13 +14238,11 @@ Answer:"""
                     r"tool|file|project|implement|design|fix|refactor)\b", text, _re_gi.I,
                 ):
                     li = {"action": "CHAT", "args": {"message": text}, "confidence": 0.55}
-            # Follow-up guard: when the user is asking about something ELI ITSELF just
-            # said, that's conversation, not a request to run diagnostics. Live failure:
-            # ELI said "still glitchy…", the user asked "Why are you still glitchy?", and
-            # the resolver fired SELF_ANALYZE (conf 0.95) — answering a personal question
-            # with a canned "Self-Analysis Report (0 recent issues)". Only redirect when
-            # the turn genuinely echoes ELI's last reply AND carries no explicit
-            # run-a-report intent, so "analyse your failures" still works.
+            # Follow-up guard: asking about something ELI itself just said is conversation, not a request
+            # for diagnostics (ELI said "still glitchy...", the user asked "Why are you still glitchy?" and
+            # the resolver fired SELF_ANALYZE at 0.95 with a canned report). Redirect only when the turn
+            # echoes ELI's last reply and has no explicit run-a-report intent, so "analyse your failures"
+            # still works.
             _self_report = {"SELF_ANALYZE", "SELF_IMPROVEMENT_LOG", "RUNTIME_AUDIT",
                             "COGNITION_STATUS", "RUNTIME_STATUS", "PROACTIVE_STATUS",
                             "SELF_REPORT", "MEMORY_STATUS"}
@@ -14920,10 +14331,9 @@ Answer:"""
             return
         self._in_followthrough = True
         try:
-            # Topic-deepen guard: if the previous real action was a news briefing
-            # and the user asked to go deeper on a specific topic ("look closer
-            # into Hubble"), re-fetch THAT topic — not ELI's lossy paraphrase,
-            # which drops the topic and dumps the whole briefing again.
+            # Topic-deepen guard: if the previous real action was a news briefing and the user asks
+            # to go deeper on a specific topic ("look closer into Hubble"), re-fetch that topic, not
+            # ELI's lossy paraphrase, which drops the topic and dumps the whole briefing again.
             _query = commit["clause"]
             try:
                 import re as _ft_re
@@ -14945,11 +14355,9 @@ Answer:"""
                 real_txt = str(real.get("content") or real.get("response") or "").strip()
             else:
                 real_act, real_txt = "", str(real or "").strip()
-            # Followthrough is for ACTIONS ELI promised to perform FOR the user (fetch news,
-            # play media, search, open) — never for internal status/introspection DUMPS. A
-            # casual narration ("I've been checking my memory") must not auto-run MEMORY_STATUS
-            # and carpet-bomb the user with evidence they didn't ask for (the "why did you send
-            # me that data dump" complaint).
+            # Followthrough is for actions ELI promised to perform for the user (fetch news, play media,
+            # search, open), never for internal status dumps. A casual "I've been checking my memory" must
+            # not auto-run MEMORY_STATUS and bury the user in evidence they didn't ask for.
             _ft_dump_actions = {
                 "MEMORY_STATUS", "PERSONAL_MEMORY_SUMMARY", "USER_IDENTITY_SUMMARY",
                 "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME", "AWARENESS_STATUS",
@@ -14962,17 +14370,9 @@ Answer:"""
                 log.debug(f"[FOLLOWTHROUGH] '{commit.get('matched')}' → executed {real_act}")
                 yield "\n\n" + real_txt
             elif real_act in _ft_dump_actions:
-                # Suppressing a dump nobody asked for is right. Suppressing one
-                # ELI just PROMISED to report is breaking its own word: live, it
-                # said "run the full acceleration diagnostics again, and I'll
-                # flag any lingering hiccups", ran RUNTIME_AUDIT, found a real
-                # duplicate-symbol defect, and threw the result away. The user
-                # saw nothing.
-                #
-                # So: when the reply contains an explicit undertaking to report,
-                # surface the FINDINGS only -- never the full PASS/PASS/PASS
-                # listing, which is the data dump the suppression exists to
-                # prevent. Both complaints are satisfied at once.
+                # Suppressing a dump nobody asked for is right. Suppressing one ELI just promised to report
+                # breaks its word (it said "I'll flag any lingering hiccups", found a real defect and dropped
+                # it). If the reply promised to report, surface the findings only, never the full PASS listing.
                 _ft_promised = bool(_ft_re.search(
                     r"(?i)\bi(?:'ll| will| am going to| can)\s+(?:\w+\s+){0,3}?"
                     r"(?:flag|report|tell you|let you know|surface|call out|point out|"
@@ -15091,10 +14491,9 @@ Answer:"""
         # "Hi" now reach the model normally instead of being rejected with
         # "Didn't catch that — say it again?")
 
-        # ELI_REASONING_MODE_RECOVERY_V1
-        # Some indirect stream paths may omit the explicit reasoning_mode kwarg.
-        # process() stamps the active mode on self; recover it here to preserve
-        # non-Quick mode contracts in Stage 11 and fallback guards.
+        # Reasoning-mode recovery (ELI_REASONING_MODE_RECOVERY_V1): some indirect stream paths omit
+        # the reasoning_mode kwarg. process() stamps the active mode on self; recover it here to
+        # keep the non-Quick contracts in Stage 11 and the fallback guards.
         if not reasoning_mode:
             reasoning_mode = getattr(self, "_current_reasoning_mode", None) or None
 
@@ -15352,11 +14751,9 @@ Answer:"""
                             f"response={_s12_score:.2f} agent={_s12_agent_conf:.2f} "
                             f"({_s12_label}) threshold={_s12_threshold:.2f} [{_s12_pass}]"
                         )
-                        # A low confidence SCORE is a quality signal, not a code bug — there is no
-                        # traceback/file for the self-heal patcher to act on, so logging it as a
-                        # code-failure only polluted the failure log + recent-failures probe and
-                        # made low-confidence casual turns look like recurring bugs. Debug-log the
-                        # signal for observability; do not file it as a failure.
+                        # A low confidence score is a quality signal, not a code bug: no traceback or file for the
+                        # self-heal patcher, and filing it polluted the failure log and made casual low-confidence
+                        # turns look like recurring bugs. Debug-log it, don't file it.
                         if _s12_score < _s12_threshold:
                             log.debug(f"[COGNITIVE] low stream confidence score={_s12_score:.2f} "
                                       f"(agent={_s12_agent_conf:.2f}, mode={reasoning_mode or 'quick'})")
@@ -15396,13 +14793,10 @@ Answer:"""
                         "response_truncated": len(final_text) > _TRACE_TEXT_CHARS,
                         "user_input": str(user_input or "")[:400],
                     }
-                    # PERSIST it, not just the in-memory badge. This block already
-                    # existed and only ever set _last_request_meta, so a streamed
-                    # CHAT — which is every ordinary GUI turn — never wrote
-                    # last_trace.json. "What was the last message you sent?" then
-                    # answered from whichever run last wrote the file: observed at
-                    # 2.1.96 reporting a turn from 106 minutes and one restart
-                    # earlier, with full confidence and no indication it was stale.
+                    # Persist it, not just the in-memory badge. This block only set _last_request_meta, so a
+                    # streamed CHAT (every ordinary GUI turn) never wrote last_trace.json, and "What was the last
+                    # message you sent?" answered from whichever run last wrote the file (106 minutes and a restart
+                    # earlier, with full confidence).
                     from eli.runtime.last_trace import save_last_trace as _save_lt
                     _save_lt(dict(self._last_request_meta))
                 except Exception as _smeta_err:
@@ -15640,12 +15034,10 @@ Answer:"""
                 "i'm here.", "i'm here", "got it.", "got it", "ok.", "ok"
             }:
                 return
-            # ELI talking ABOUT ITSELF is not knowledge. Stored as a memory it comes back
-            # in a later session under "Stored knowledge:" and gets recited as fact —
-            # observed live: "I'm standing by, still glitchy, still running on the same
-            # old code" survived across sessions and was replayed as the answer to
-            # "morning" and "how are you?". Conversation history already preserves what
-            # was said; only substantive content earns a memory.
+            # ELI talking about itself is not knowledge. Stored as a memory it comes back in a later
+            # session under "Stored knowledge:" and is recited as fact ("I'm standing by, still glitchy..."
+            # answered "morning"). Conversation history already keeps what was said, so only substantive
+            # content earns a memory.
             _t_low = text.lower()
             _self_status = (
                 # first person + a state word ("I'm good", "I am ready")
@@ -15950,15 +15342,9 @@ Answer:"""
                 insights = result.get("insights", [])
                 if insights:
                     log.debug(f"[COGNITIVE] eli-reflection: {len(insights)} insights generated")
-                    # Persisting them here as well was a DOUBLE write:
-                    # run_reflection -> reflect_on_period already stores each
-                    # insight, and this loop stored the same rows again with no
-                    # duplicate check of any kind. Every reflection cycle
-                    # therefore appended two copies of every insight, which is
-                    # how one machine reached 135 reflection rows with 34 exact
-                    # duplicates — six identical copies of a single row — all of
-                    # them ranking in recall by weight of numbers.
-                    # reflect_on_period owns this; do not write it twice.
+                    # Persisting them here was a double write: run_reflection -> reflect_on_period already stores
+                    # each insight, and this loop stored the same rows again with no duplicate check (135 reflection
+                    # rows on one machine, 34 exact duplicates). reflect_on_period owns it.
             except Exception as e:
                 log.debug(f"[COGNITIVE] Reflection failed: {e}")
         finally:
@@ -16176,10 +15562,9 @@ Answer:"""
             log.debug(f"[COGNITIVE] Governor validation failed (non-fatal): {gov_err}")
             return text
 
-    # Payload keys that must never reach the synthesis prompt: `settings` is the
-    # entire settings dict (~4KB of image/vision/gaze/mode-preset knobs) and would
-    # crowd out the parts that answer the question, besides leaking configuration
-    # into prose. The text keys are already carried as the base content.
+    # Payload keys that never reach the synthesis prompt: `settings` is the whole settings dict
+    # (~4KB of image/vision/gaze/mode-preset knobs) and would crowd out the answer and leak
+    # configuration into prose. The text keys are already the base content.
     _SYNTH_EVIDENCE_SKIP = frozenset({
         "settings", "content", "response", "result", "raw_tool_text",
         "response_contract", "evidence_source", "generation_invoked",
@@ -16294,11 +15679,9 @@ Answer:"""
                         _os_paths.path.abspath(__file__)), '..', '..')
                 ))
             if _proj_root and _proj_root != '/':
-                # Strip the absolute project root to a REPO-RELATIVE path. The paths inside
-                # are '<proj_root>/eli/...', so abbreviating '<proj_root>/' to '' yields
-                # 'eli/...' correctly. (The old replacement used 'eli/' here, which produced
-                # the bogus 'eli/eli/...' the model then faithfully echoed — it was NOT a
-                # hallucination, it was created right here.)
+                # Strip the absolute project root to a repo-relative path: '<proj_root>/eli/...' becomes
+                # 'eli/...' by replacing '<proj_root>/' with ''. The old replacement used 'eli/' and created the
+                # bogus 'eli/eli/...' the model echoed. It wasn't a hallucination.
                 ev = ev.replace(_proj_root + '/', '').replace(_proj_root, '')
         except Exception:
             log.debug("suppressed exception", exc_info=True)
@@ -16307,12 +15690,10 @@ Answer:"""
         if len(ev) > _ev_cap:
             ev = ev[:_ev_cap].rstrip() + "\n[...evidence truncated for length...]"
 
-        # Compact voice primer so grounded/factual answers still sound like ELI (dry,
-        # nerdy, first-person) instead of a flat data terminal — WITHOUT the full 8k
-        # persona, which overflowed n_ctx on this path. Character lives in the phrasing
-        # only; the EXACT FACTS contract above keeps every fact bound to the evidence.
-        # Pulled from the canonical persona VOICE block when available (stays in sync),
-        # else a stable fallback.
+        # Compact voice primer so grounded answers still sound like ELI (dry, nerdy, first-person),
+        # not a data terminal, without the full 8k persona that overflowed n_ctx. Character lives in
+        # the phrasing only, the EXACT FACTS contract above binds every fact to the evidence. Taken from
+        # the canonical persona VOICE block when available, else a stable fallback.
         _voice_primer = (
             "VOICE: speak as ELI — direct, dry, a little nerdy and sardonic, transparent, "
             "first-person; never HR, corporate, or customer-service. A bit of edge and "
@@ -16383,11 +15764,10 @@ Answer:"""
                 text = _strip_reasoning_scaffold(text)
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
-            # Fact-preservation guard: a small model re-narrating grounded evidence often
-            # CORRUPTS file paths — observed "eli/eli/execution/router_enhanced.py" (a doubled
-            # segment that is NOT in the evidence). Deterministically repair doubled path
-            # segments, but ONLY when the evidence confirms the single form (never break a
-            # legitimately repeated directory).
+            # Fact-preservation guard: a small model re-narrating evidence often corrupts file paths
+            # ("eli/eli/execution/router_enhanced.py"). Repair doubled path segments deterministically, but
+            # only when the evidence confirms the single form, so a legitimately repeated directory is
+            # never broken.
             try:
                 text = self._repair_synthesis_paths(text, ev)
             except Exception:
@@ -16495,12 +15875,10 @@ Answer:"""
             _max_tokens = int(max_tokens_override) if (max_tokens_override is not None and max_tokens_override != 0) else -1
             if _nonquick_depth and _max_tokens == -1:
                 _max_tokens = 1800
-            # A grounded factual answer (web/news lookup) is a few sentences, not
-            # an essay. In quick mode max_tokens=-1 means "fill the rest of the
-            # context" (~8.8k tokens observed) — that both slows the reply AND
-            # starves the prompt budget, forcing the system prompt + grounding
-            # instruction to be truncated. Cap it so the evidence fits and the
-            # answer stays tight. Non-quick keeps its larger 1800 budget above.
+            # A grounded factual answer (web/news lookup) is a few sentences, not an essay. In quick mode
+            # max_tokens=-1 means "fill the rest of the context" (~8.8k tokens), which slows the reply and
+            # starves the prompt budget so the system prompt and grounding get truncated. Cap it so the
+            # evidence fits. Non-quick keeps its larger 1800.
             if _max_tokens == -1 and str(action or "").upper() in ("WEB_SEARCH", "NEWS_FETCH"):
                 _max_tokens = 700
             _gen_kwargs = _eli_apply_response_kwargs(
@@ -16566,10 +15944,9 @@ def get_engine() -> CognitiveEngine:
 # PERSONAL_MEMORY body block removed (Phase 2c — helpers relocated above class CognitiveEngine)
 
 
-# Safety guard for the non-quick persona pipeline. I don't let runtime/identity/audit
-# actions get fastpathed like a plain command — the non-quick diagnostics still go
-# engine -> router -> agents/evidence. I just let the final status/audit/trace answer
-# stay deterministic instead of having the persona rewrite it.
+# Safety guard for the non-quick persona pipeline. Runtime/identity/audit actions aren't fastpathed
+# like a plain command: non-quick diagnostics still go engine -> router -> agents/evidence. Only the
+# final status/audit/trace answer stays deterministic instead of being rewritten by the persona.
 try:
     _ELI_NONQUICK_BLOCKED_FAST_ACTIONS = {
         "SELF_REPORT",

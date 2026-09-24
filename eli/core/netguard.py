@@ -45,12 +45,9 @@ class OfflineError(RuntimeError):
     """Raised when a network operation is attempted while ELI is offline."""
 
 
-# In-process, scoped override. A *deliberate, user-initiated* networked task
-# (e.g. downloading a model the user picked in the first-boot wizard) can open a
-# narrow window where network is permitted, WITHOUT changing the persisted
-# offline-by-default policy. Everything still routes through this module —
-# guarded_urlopen and the socket guard both consult _net_allowed() — so the
-# download is gated, just temporarily allowed. The window closes automatically.
+# Scoped in-process override: a deliberate user-initiated networked task (e.g. a model download
+# from the first-boot wizard) opens a narrow window without touching the persisted
+# offline-by-default policy. Everything still goes through this module; the window closes itself.
 _allow_lock = threading.Lock()
 _allow_depth = 0          # reentrant: nested allow_network() blocks
 _allow_reason = ""        # last reason, for diagnostics
@@ -127,10 +124,9 @@ def offline_response(action: str, what: str = "do that") -> Dict[str, Any]:
 _LOCAL_HOST_PREFIXES = ("127.", "0.0.0.0", "::1", "localhost", "::ffff:127.")
 
 
-# Explicitly-registered LOCAL-network services (e.g. a user-configured MQTT broker on
-# the LAN). These are deliberate, user-configured local endpoints — like a local
-# inference server — NOT internet access. ONLY the exact registered host(s) are
-# permitted; the global offline-by-default policy is unchanged for every other host.
+# Explicitly registered local-network services (e.g. a user-configured MQTT broker on the LAN).
+# These are deliberate local endpoints, not internet access. Only the exact registered hosts are
+# permitted; the offline-by-default policy is unchanged for every other host.
 _local_services_lock = threading.Lock()
 _LOCAL_SERVICES: set = set()
 
@@ -172,15 +168,9 @@ def _is_local_host(host: Optional[str]) -> bool:
         return h in _LOCAL_SERVICES
 
 
-# --------------------------------------------------------------------------- #
-# Egress monitoring                                                           #
-# Offline-by-default is enforced above. When the owner deliberately enables    #
-# network, the toggle is no longer a blind hole: every ALLOWED non-loopback    #
-# connection is RECORDED — into an in-memory ring buffer (live dashboard view) #
-# and, throttled, into the tamper-evident audit ledger — so "internet on" is   #
-# reviewable. Recording is best-effort and OFF the hot path (a background      #
-# writer drains a queue); it never delays or breaks a connection.              #
-# --------------------------------------------------------------------------- #
+# Egress monitoring: when the owner deliberately turns network on, every allowed non-loopback
+# connection goes into an in-memory ring buffer and, throttled, the tamper-evident audit ledger,
+# so "internet on" is reviewable. Best effort and off the hot path, it never delays a connection.
 _EGRESS_RING_MAX = 500
 _egress_ring: "deque" = deque(maxlen=_EGRESS_RING_MAX)
 _egress_ring_lock = threading.Lock()
@@ -306,20 +296,9 @@ def guarded_urlopen(url, *args, timeout: float = 20, **kwargs):
     return urllib.request.urlopen(url, *args, timeout=timeout, **kwargs)
 
 
-# --------------------------------------------------------------------------- #
-# Hardened fetch — for content fetched from sources the operator does not own   #
-#                                                                               #
-# `guarded_urlopen` answers one question: is the network switch on? That is the #
-# right question for ELI's own outbound calls, and the wrong one for a URL that #
-# came from a community plugin registry. urllib follows redirects silently, and #
-# the socket guard always permits loopback, so a hostile listing could redirect  #
-# a marketplace fetch into ELI's own API server or a LAN device — server-side    #
-# request forgery, using ELI as the confused deputy.                            #
-#                                                                               #
-# `safe_fetch` is the fetch to use for anything third-party. It pins the scheme, #
-# resolves and rejects non-public addresses, re-validates EVERY redirect hop,    #
-# caps redirects, and caps the response while reading rather than after.         #
-# --------------------------------------------------------------------------- #
+# Hardened fetch for content from sources the operator doesn't own. guarded_urlopen only checks
+# the network switch, and urllib follows redirects into loopback/LAN (SSRF). safe_fetch pins the
+# scheme, rejects non-public addresses, re-checks every redirect hop and caps the response.
 
 _SAFE_SCHEMES = ("http", "https")
 MAX_FETCH_BYTES = 32 * 1024 * 1024      # 32 MiB — far above any plugin, far below OOM
@@ -509,12 +488,9 @@ def install_socket_guard() -> bool:
     if _GUARD_INSTALLED:
         return False
 
-    # Guard against DOUBLE installation across module identities. In a packaged/portable
-    # build this module can be imported under two names (e.g. `eli.core.netguard` and a
-    # top-level `netguard`), each with its own `_GUARD_INSTALLED=False`. If the second copy
-    # captured the first copy's already-guarded `socket.connect` as its "real" one, the
-    # guard would call itself → "maximum recursion depth exceeded" on the next connect
-    # (exactly what MQTT auto-connect tripped). Refuse to wrap an already-guarded socket.
+    # Guard against double installation across module identities. A packaged build can import this
+    # under two names, each with _GUARD_INSTALLED=False, and the second wrapped the first's guarded
+    # connect and recursed (MQTT auto-connect hit it). Refuse to wrap an already-guarded socket.
     if getattr(socket.socket.connect, "_eli_netguard", False):
         _GUARD_INSTALLED = True
         return False

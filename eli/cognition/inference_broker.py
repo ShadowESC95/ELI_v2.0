@@ -10,11 +10,9 @@ log = get_logger(__name__)
 _broker: Optional["InferenceBroker"] = None
 _broker_lock = threading.Lock()
 
-# Timestamp of the last FOREGROUND (user-facing) inference. Background daemon work (proactive
-# insight synthesis, autonomy tick, self-improvement) checks foreground_recently_active() and
-# yields, so it never wedges itself between the calls of a foreground request — a multi-section
-# document or a reasoning-mode loop — which on a slow/CPU-offloaded model stretched turns to 40+
-# minutes of interleaved background generations.
+# Time of the last foreground (user-facing) inference. Background daemon work checks
+# foreground_recently_active() and yields, so it can't wedge itself between the calls of one
+# foreground request on a slow model.
 _last_foreground_ts = 0.0
 _last_foreground_duration = 0.0   # seconds the most recent foreground turn took to generate
 _MAX_ADAPTIVE_DEFER = 900.0       # cap so a pathological 20-min turn can't defer chores forever
@@ -121,27 +119,17 @@ class InferenceBroker:
             background = bool(background) or bool(gi.is_background_inference())
         except Exception:
             log.debug("suppressed exception", exc_info=True)
-        # During shutdown, don't START a new BACKGROUND generation — a
-        # self-improvement/codegen loop would otherwise pay prompt-eval cost on
-        # each remaining item and hold up teardown. In-flight calls abort via the
-        # gguf stopping-criteria; this just prevents new ones queueing.
-        #
-        # It used to short-circuit EVERY call, foreground included, which killed
-        # the one generation shutdown deliberately makes: the end-of-session
-        # summary (engine shutdown step 3.5, after signal_shutdown at step 2). So
-        # every session logged "summary written (llm=False)" and ELI's hand-off
-        # note to its next session was always the heuristic fallback, never the
-        # LLM one the feature exists to produce.
+        # During shutdown don't start new background generations (they'd slow teardown); in-flight
+        # ones abort via the stopping criterion. Foreground calls must still run: the end-of-session
+        # summary is one, and blocking it meant the hand-off note was always the heuristic fallback.
         try:
             if background and self._gguf.is_shutting_down():
                 return ""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
-        # A foreground turn is live or just ran: don't let background work grab the shared model
-        # lock and stall the user (prompt-eval can't be token-preempted once it starts). Skip this
-        # cycle — the daemon re-runs the chore on a later idle tick. Best-effort; model/hardware
-        # agnostic; ELI's depth is unchanged — only the TIMING of background work moves off the
-        # user's turn. Override window via ELI_BG_DEFER_WINDOW (0 disables deferral).
+        # A foreground turn is live or just ran: don't let background work take the shared lock and
+        # stall the user (prompt evaluation can't be preempted once started). Skip this cycle; the
+        # daemon retries on a later idle tick. Window: ELI_BG_DEFER_WINDOW (0 disables).
         if background:
             try:
                 import os as _os_d
@@ -180,11 +168,9 @@ class InferenceBroker:
             with self._lock:
                 response = self._call(prompt, system, max_tokens, temperature, top_p)
             if (not response or _is_think_only(response)) and retry:
-                # A reasoning model can spend its whole budget inside <think> and return either
-                # nothing OR a never-closed think block that strips to empty downstream — both
-                # leave the caller with no usable answer. Force the think block closed on the
-                # retry so the budget goes to the answer. Model-agnostic: a no-op for non-thinking
-                # models, and the prompt/context are unchanged — only the hidden think is suppressed.
+                # A reasoning model can spend its whole budget inside <think> and return nothing, or
+                # a think block that never closes. Force it closed on the retry so the budget goes
+                # to the answer. A no-op for non-thinking models.
                 try:
                     _nt_ctx = gi.force_no_think()
                 except Exception:

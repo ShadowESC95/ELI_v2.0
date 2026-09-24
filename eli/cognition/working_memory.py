@@ -45,12 +45,9 @@ MAX_AGE_TURNS = 40     # evict if not referenced for this many turns
 MAX_AGE_SECONDS = 86400.0 * 3  # wall-clock backstop -- see _evict_stale
 IMPORTANCE_THRESHOLD = 0.65  # auto-pin memories above this score
 
-# Executor command-echo signature, e.g. "SET_USER_NAME: Got it. I'll call you
-# SCREENSHOT." — an ALL-CAPS action token followed by a colon. These are tool
-# output echoes, NOT durable user facts; pinning them poisons the persona brief
-# (the model read "I'll call you SCREENSHOT" and addressed the user as such).
-# Real facts are mixed-case ("User identity: ...", "App usage: ..."), so this
-# never rejects a legitimate pin.
+# Executor command echoes ("SET_USER_NAME: Got it. I'll call you SCREENSHOT.") are ALL-CAPS token +
+# colon. They are tool output, not user facts, and pinning them made the model call the user
+# SCREENSHOT. Real facts are mixed-case, so no legitimate pin is rejected.
 _ACTION_ECHO_RE = re.compile(r"^\s*[A-Z][A-Z0-9_]{3,}\s*:")
 
 
@@ -82,18 +79,12 @@ class _PinnedFact:
         self.last_hit_turn = turn
         self.hit_count = 1
         self.importance = importance
-        # When was this fact FIRST pinned, wall-clock -- immutable after
-        # this. Was set here unconditionally to time.time(), including by
-        # restore(), which silently discarded the real age of every
-        # cross-session fact and reported it as freshly pinned "now".
-        # restore() already persists this exact value as `saved_at`; it
-        # just never read it back. Also never consumed anywhere after being
-        # set -- now backs age display (context_block/summary).
+        # When this fact was first pinned (wall-clock, immutable). restore() used to reset it to
+        # now, discarding the real age of every cross-session fact. It reads back the persisted
+        # `saved_at`; it now backs the age display.
         self.ts = float(ts) if ts is not None else time.time()
-        # Wall-clock of the last reference, mirroring last_hit_turn (a turn
-        # COUNT) so staleness can be judged by real elapsed time too, not
-        # just how many other turns happened in between. A restored fact
-        # starts "last touched" at restore time, same as last_hit_turn.
+        # Wall-clock of the last reference, next to last_hit_turn (a turn count), so staleness can
+        # be judged by elapsed time too. A restored fact starts "last touched" at restore time.
         self.last_hit_ts = time.time()
 
     def touch(self, turn: int) -> None:
@@ -288,12 +279,8 @@ class WorkingMemory:
             conn.execute("DELETE FROM working_memory_pins")
             for key, fact in self._facts.items():
                 if fact.importance >= 0.65:
-                    # saved_at stores the fact's real original pin time
-                    # (fact.ts), not "when this flush ran" -- restore() reads
-                    # it back as the restored fact's ts, and a flush-time
-                    # value there would make every restored fact look exactly
-                    # as old as its LAST persist() call, not how long it has
-                    # actually been known.
+                    # saved_at stores the fact's original pin time (fact.ts), not the flush time, so
+                    # a restored fact isn't made to look as old as its last persist() call.
                     conn.execute(
                         "INSERT OR REPLACE INTO working_memory_pins "
                         "(key, text, source, importance, hit_count, saved_at) VALUES (?,?,?,?,?,?)",

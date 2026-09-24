@@ -46,35 +46,16 @@ from eli.utils.log import get_logger
 
 log = get_logger(__name__)
 
-# A probe blocks startup, so it gets a budget an operator would tolerate rather
-# than one that is certain to finish. 300s was the first value shipped and it was
-# wrong: on a configuration whose layers spill to CPU the probe decode runs at
-# CPU speed, and a live 2.2.8 launch sat at "attempt 1/13" for three and a half
-# minutes with nothing on screen explaining why. Past this budget the answer is
-# "unproven", the operator's settings stand, and startup continues.
-# 60s was the second value and still too long in practice: a 2.3.8 launch spent the
-# full minute proving 99 GPU layers on a 2060 Super, timed out "unproven", and fell
-# back to the 26 layers smart-fit had already measured.
-#
-# A FLAT budget is the bug behind both of those. The probe cold-loads the model and
-# prefills ~45% of the window, so its cost scales with model size and ctx — but the
-# budget did not. At 2.4.14 a 8.89GB Q8 at ctx=10384 could not finish in 30s under
-# any circumstances, so the operator's GPU layers were structurally unprovable and
-# the fallback won every single launch. A small model settled in seconds; a large
-# one was condemned without ever being tested. The budget now derives from the same
-# two numbers the work does.
-# Override the whole calculation with ELI_LOAD_PROBE_TIMEOUT.
+# A probe blocks startup, so the budget is what an operator would sit through, not what is
+# certain to finish. Past it the answer is "unproven" and startup carries on. Cost scales with
+# model size and ctx, so the budget is derived from both. ELI_LOAD_PROBE_TIMEOUT overrides it.
 _TIMEOUT_BASE_S = 30.0        # process spawn + import + backend init
 _TIMEOUT_PER_GB_S = 10.0      # cold read from disk + upload to VRAM
 _TIMEOUT_PER_1K_CTX_S = 2.0   # prefill, worst case with CPU-spilled layers
 _TIMEOUT_FLOOR_S = 30.0
-# The ceiling still answers the original objection: a startup probe must not block
-# for "minutes" plural without end. Three minutes is the most this will ever spend,
-# it is paid ONCE per configuration (cached, and timeouts are memoised for an hour),
-# it only happens when the request already exceeds the measured fit, and the caller
-# prints the real number before blocking. A typical 2-5GB model still settles inside
-# the old 30-60s; only the large models that were previously condemned untested cost
-# more than that.
+# The ceiling stops a startup probe blocking forever: three minutes at most, once per
+# configuration (cached, timeouts remembered), only when the request already exceeds the measured
+# fit, and the caller prints the real number first. A typical 2-5GB model settles well inside it.
 _TIMEOUT_CEILING_S = 180.0
 
 # Verdicts older than this are re-proven — drivers, other GPU tenants and
@@ -155,13 +136,9 @@ def _gpu_identity() -> str:
             _gpu_identity_memo = f"{getattr(gpu, 'name', '?')}|{getattr(gpu, 'total_mb', 0)}"
             return _gpu_identity_memo
     except Exception:
-        # A probe FAILURE is not the same as a confirmed CPU-only machine --
-        # both used to memoize identically as "cpu", so a transient
-        # early-boot detection error would permanently mislabel this
-        # process's load-probe cache identity for the rest of the session,
-        # even after the GPU becomes detectable. Return "cpu" for THIS call
-        # only (a safe, conservative cache key right now); do not cache it,
-        # so the next call gets a real chance to detect the GPU.
+        # A probe failure is not a confirmed CPU-only machine. Both used to memoise as "cpu", so a
+        # transient early-boot detection error mislabelled the cache identity for the whole session.
+        # Return "cpu" for this call only and don't cache it, so the next call can detect the GPU.
         log.debug("load_probe: GPU identity unavailable", exc_info=True)
         return "cpu"
     _gpu_identity_memo = "cpu"
@@ -277,10 +254,9 @@ try:
 except Exception as e:
     print("LOAD_FAIL:%s" % e, file=sys.stderr)
     raise SystemExit(4)
-# Drive a real decode. Loading alone proves nothing: the 2.2.7 abort happened
-# with the model already resident and the context already created. What was
-# never allocated until generation is the compute buffer for a large prompt,
-# so the probe must push a prompt of the size the caller will really use.
+# Drive a real decode: loading alone proves nothing (the abort happened with the model resident and
+# the context created). The compute buffer for a large prompt isn't allocated until generation, so
+# push a prompt of the size the caller will really use.
 try:
     prompt = "word " * int(cfg["probe_tokens"])
     out = llm(prompt, max_tokens=int(cfg["probe_gen"]), echo=False)
@@ -335,19 +311,9 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
     if n_gpu_layers <= 0:
         return SKIPPED, "cpu-only: no GPU allocation to prove"
 
-    # Probe sizes derive from the caller's own parameters — no magic numbers.
-    #
-    # It must be a prompt of the size ELI will really send. A cheaper probe was
-    # tried — four batches instead of a fraction of the window — on the theory
-    # that llama.cpp reaches its peak allocation on the first decode regardless
-    # of prompt length. Measurement says otherwise, and the operator's own logs
-    # are the proof: on one unchanged configuration, 2.2.4-2.2.6 ran first
-    # prompts of ~2147 tokens without trouble and 2.2.7 aborted at 5189. A short
-    # probe would have passed every one of those startups and the crash would
-    # have shipped anyway.
-    #
-    # So the cost is accepted where it buys an answer, and bounded by the
-    # timeout above rather than by making the question easier.
+    # Probe sizes derive from the caller's parameters, no magic numbers. The prompt has to be the
+    # size ELI will really send: a cheaper probe passed startups that later aborted at 5189 tokens,
+    # because llama.cpp's peak allocation depends on prompt length. The timeout above bounds the cost.
     probe_tokens = max(256, int(n_ctx * 0.45))
     probe_gen = max(8, min(32, int(n_ctx * 0.01)))
 
@@ -385,11 +351,9 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
 
     elapsed = time.perf_counter() - t0
     rc = int(proc.returncode or 0)
-    # Prefer the child's own marker line. llama_cpp's LlamaModel.__del__ raises
-    # `AttributeError: 'LlamaModel' object has no attribute 'sampler'` when a
-    # constructor fails part-way, and that lands AFTER the real message — so
-    # taking the last stderr line reported the destructor's noise instead of
-    # "Failed to load model from file", which is the answer that matters.
+    # Prefer the child's own marker line. LlamaModel.__del__ raises "'LlamaModel' object has no
+    # attribute 'sampler'" after a constructor failure, so the last stderr line reported the
+    # destructor's noise instead of "Failed to load model from file".
     _stderr = (proc.stderr or "").strip()
     tail = ""
     for _marker in ("LOAD_FAIL:", "DECODE_FAIL:", "IMPORT_FAIL:"):
@@ -414,13 +378,9 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
         return UNPROVEN_UNAVAILABLE, "llama_cpp unavailable in probe (unproven)"
 
     if rc == -15:
-        # SIGTERM: something outside asked the probe to stop. That says nothing
-        # about the configuration, so it must not be recorded as a verdict —
-        # otherwise a shutdown, a supervisor, or an operator killing a slow
-        # probe would permanently condemn settings that were never tested.
-        # SIGABRT/SIGSEGV/SIGKILL are left below as genuine failures: the CUDA
-        # backend's abort() is exactly what this exists to catch, and an
-        # OOM-kill is a real answer about this configuration's footprint.
+        # SIGTERM means something outside asked the probe to stop, which says nothing about the
+        # configuration, so it isn't recorded as a verdict. SIGABRT/SIGSEGV/SIGKILL stay genuine failures:
+        # the CUDA abort() is what this exists to catch, and an OOM-kill is a real answer.
         log.debug("[LOAD_PROBE] terminated externally — unproven, not recorded")
         return UNPROVEN_UNAVAILABLE, "probe terminated externally (unproven)"
 

@@ -90,10 +90,9 @@ def detect_voice_emotion() -> Tuple[Optional[str], float]:
     return (None, 0.0)
 
 
-# ── Fusion → the emotion ELI EXPRESSES (empathetic response policy) ───────────
-# Detected user emotion → the register ELI should answer in. Mirroring where it
-# helps rapport (playful↔playful), softening where it helps (distress→tender,
-# heat→calm) — deliberate, not sycophantic.
+# Fusion -> the emotion ELI expresses. Detected user emotion maps to the register ELI answers in:
+# mirror where it builds rapport (playful with playful), soften where it helps (distress -> tender,
+# heat -> calm). Deliberate, not sycophantic.
 _RESPONSE_POLICY = {
     "sad": "tender", "angry": "calm", "irritated": "calm", "confused": "curious",
     "comedic": "playful", "ecstatic": "joyful", "joyful": "happy", "curious": "curious",

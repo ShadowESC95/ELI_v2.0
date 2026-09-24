@@ -527,12 +527,9 @@ def apply_final_reasoning_contract(text: object, mode: object = None) -> str:
 
 
 
-# ELI_MODE_DESCRIPTION_V1
-# Per-mode descriptions grounded in the actual kernel/engine.py dispatch model.
-# Keep this conceptual and test-backed: do not hard-code volatile line numbers.
-# Quick is deterministic/direct where possible; private modes are handled by
-# engine runner methods such as _run_chain_of_thought, _run_self_consistency,
-# _run_tree_of_thoughts, and _run_constitutional_ai.
+# Per-mode descriptions grounded in kernel/engine.py's dispatch. Keep them conceptual and
+# test-backed, with no volatile line numbers. Quick is direct where possible; private modes run in
+# engine methods like _run_chain_of_thought and _run_tree_of_thoughts.
 _MODE_DESCRIPTIONS = {
     "quick": (
         "Public, fast path. Deterministic responders answer directly with no GGUF "

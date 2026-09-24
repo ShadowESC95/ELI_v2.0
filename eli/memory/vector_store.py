@@ -55,21 +55,10 @@ def get_vector_store() -> Optional["VectorStore"]:
 
 
 
-# Relative, never absolute. Measured against a real 449-vector index: the WORST
-# real query's best hit scored 0.5294 while the BEST nonsense query's best hit
-# scored 0.5377 — the two bands overlap, so any absolute floor that rejects
-# gibberish also rejects genuine questions. There is no constant that separates
-# them, and shipping one would only look like a relevance check.
-#
-# Within a single query there IS structure: the tenth result sits at roughly 0.84
-# of the first. So the cutoff is expressed against each query's own best hit,
-# which is self-normalising and needs no calibration per corpus. Sweeping the
-# real index, 0.94 is the knee — it trims a weak tail where one exists and leaves
-# a genuinely uniform result set untouched; 0.96 starts cutting good results.
-#
-# Be clear about what this does: it TIGHTENS THE CANDIDATE POOL so weak matches
-# stop diluting the rank fusion. It does not detect nonsense, and nothing at this
-# embedder and corpus size can.
+# Relative, never absolute. On a real index the worst real query scored 0.5294 and the best
+# nonsense one 0.5377, so any absolute floor that rejects gibberish rejects real questions too.
+# The cutoff is relative to each query's own best hit. 0.94 was the knee on the real index;
+# 0.96 starts cutting good results. It tightens the pool, it can't detect nonsense.
 SIM_RELATIVE_FLOOR = 0.94
 SIM_MIN_KEEP = 3
 
@@ -184,10 +173,9 @@ class VectorStore:
             _needs_prune = len(self._meta) > MAX_ENTRIES
             if self._adds_since_save >= SAVE_EVERY:
                 self._save_async()
-        # Prune OUTSIDE the store lock. It re-embeds up to MAX_ENTRIES texts, and
-        # holding the lock across that froze every read and write for the duration
-        # — _prune's own comment said "embed outside the lock", but the call site
-        # was inside it.
+        # Prune outside the store lock. It re-embeds up to MAX_ENTRIES texts, and holding the lock
+        # across that froze every read and write. _prune's own comment said to embed outside the
+        # lock, but the call site was inside it.
         if _needs_prune:
             self._prune()
         return True
@@ -303,10 +291,9 @@ class VectorStore:
             if env_embed:
                 _model_path = str(Path(env_embed).expanduser().resolve())
             else:
-                # Search several roots so a FROZEN build (PyInstaller/AppImage)
-                # finds the bundled embedder even though the writable data-dir copy
-                # is absent. Without this the packaged app fell back to keyword-only
-                # recall ("Embed model not found" in ~/.local/share/ELI_v2/…).
+                # Search several roots so a frozen build (PyInstaller/AppImage) finds the bundled
+                # embedder when the writable data-dir copy is absent. Without this the packaged app
+                # fell back to keyword-only recall ("Embed model not found").
                 _roots = [_project_root(), _models_dir.parent]
                 _meipass = getattr(_sys, '_MEIPASS', '')
                 if _meipass:
@@ -337,13 +324,10 @@ class VectorStore:
                 def get_llm(self): return self._llm
                 def embed(self, text):
                     pfx = '' if text.startswith(('search_query:', 'search_document:', 'classification:', 'clustering:')) else 'search_query: '
-                    # llama.cpp prints "init: embeddings required but some input
-                    # tokens were not marked as outputs -> overriding" from C on
-                    # EVERY embedding, which verbose=False above cannot reach. It
-                    # is a harmless internal note, and memory/RAG embeds many
-                    # times per turn, so it dominated the console at startup and
-                    # made a healthy boot look like it was failing. Narrowly
-                    # scoped to this one call so a real error still surfaces.
+                    # llama.cpp prints "init: embeddings required but some input tokens were not marked as
+                    # outputs -> overriding" from C on every embedding, out of reach of verbose=False. Harmless,
+                    # but memory/RAG embeds many times per turn and it dominated the startup console, making a
+                    # healthy boot look like it was failing. Scoped narrowly to this call so a real error surfaces.
                     from eli.utils.native_io import quiet_native_stderr
                     with quiet_native_stderr():
                         r = self._llm.create_embedding(pfx + text)
@@ -483,10 +467,9 @@ class VectorStore:
         for entry in keep:
             vec = self._embed(entry.get("text", ""))
             if vec is None:
-                # Drop the row with its vector rather than desynchronise the two.
-                # The entry survives in the durable stores and a later
-                # rebuild_full() can restore it; a misaligned index cannot be
-                # detected by the caller and silently returns wrong memories.
+                # Drop the row with its vector instead of desynchronising the two. The entry
+                # survives in the durable stores and rebuild_full() can restore it; a misaligned
+                # index can't be detected by the caller and silently returns wrong memories.
                 dropped += 1
                 continue
             new_index.add(vec)

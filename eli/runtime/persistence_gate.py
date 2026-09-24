@@ -61,12 +61,11 @@ def _tag_list(tags: Any) -> list[str]:
     return [s] if s else []
 
 
-# Deterministic-grounding / status report outputs (SELF_REPORT, MEMORY_STATUS,
-# FRONTIER_STATUS, etc.). They are real answers to specific questions, but they
-# are internal evidence dumps — never natural conversation. If they leak into
-# recent-conversation context the model parrots them for unrelated turns (e.g.
-# answering "good morning" with a stale "long-term memory rows: 737, FAISS: 1"
-# report). Excluded from context injection (not necessarily from storage).
+# Deterministic-grounding/status report outputs (SELF_REPORT, MEMORY_STATUS, FRONTIER_STATUS...)
+# are real answers but internal evidence dumps, never natural conversation. If they leak into
+# recent-conversation context the model parrots them on unrelated turns ("good morning" answered
+# with a stale "long-term memory rows: 737, FAISS: 1"). Excluded from context injection, not
+# necessarily from storage.
 _REPORT_DUMP_MARKERS = (
     "grounded eli self-report",
     "grounded recent memory-processing answer",
@@ -87,14 +86,10 @@ def is_internal_report_dump(text: Any) -> bool:
     return any(m in low for m in _REPORT_DUMP_MARKERS)
 
 
-# ELI narrating its OWN cross-session recall ("From a previous session, we were
-# troubleshooting…"). Such self-talk gets stored, keyword-recalled on any
-# "previous/memory/session" query, re-synthesised and re-stored — a
-# self-amplifying echo that drowns the live conversation (observed: ELI looping
-# on "physics time / troubleshooting your memory" while the user said nothing was
-# wrong). The signature is the opener phrase, which a genuine answer almost never
-# leads with. Never store these as assistant turns (the user still sees the
-# reply; it just doesn't get persisted to be recalled later).
+# ELI narrating its own cross-session recall ("From a previous session, we were..."). That gets
+# stored, recalled on any "previous/session" query and re-stored, an echo that drowns the live
+# conversation. The opener phrase is the tell. Never store these as assistant turns; the user
+# still sees the reply.
 _RECALL_NARRATION_RE = re.compile(
     r"\bfrom\s+(?:a|the|our|your|my)\s+previous\s+(?:session|conversation|chat|exchange)s?\b",
     re.I,

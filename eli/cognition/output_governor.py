@@ -14,11 +14,9 @@ _ERROR_PATTERNS = (
     "requested tokens", "exceed context window", "inference failed",
     "context window", "broker unavailable", "gguf returned empty", "llama_",
 )
-# Strips chat-template role leaks from the start of LLM output. Added
-# "User" variants after observing mistral-7b-instruct-v0.2 opening replies
-# Prevent awkward assistant identity/address boilerplate in normal replies.
-# the wrong role marker. Matches at string start only; mid-sentence "user"
-# is left alone (that is a persona-handoff issue, not a prefix leak).
+# Strip chat-template role leaks from the start of output (including "User" variants seen from
+# mistral-7b-instruct). Start-of-string only; a mid-sentence "user" is a persona-handoff issue, not
+# a prefix leak.
 _ROLE_PREFIX_RE = re.compile(
     r"^\s*[\"“‘']?\s*(?:"
     r"As\s+ELI(?:\s*[,:\-—])?\s*"
@@ -78,12 +76,9 @@ def normalize_assistant_text(user_input: str, text: str) -> str:
     return result
 
 
-# No-Fake-Actions: a real action's outcome is delivered by the executor, never narrated by the
-# model. A bracketed pseudo-tool-confirmation in the prose ("[Pause command executed
-# successfully.]", "[Command executed]", "[Done — command ran]") is therefore always fabrication —
-# the model imitating a tool result it never produced. The pattern is specific to
-# execution/command-completion claims, so legitimate source tags ("[BBC — 14:23]",
-# "[HackerNews/tech]") and ordinary brackets are never touched. Model-agnostic.
+# No fake actions: a real action's outcome comes from the executor, never the model. A
+# bracketed pseudo-confirmation ("[Pause command executed successfully.]") is fabrication.
+# Specific to command-completion claims, so real source tags ("[BBC — 14:23]") are untouched.
 _FAKE_TOOL_CONFIRMATION_RE = re.compile(
     r"\s*\[[^\]\n]*?(?:"
     r"\bexecut(?:ed|ing|ion|es)\b"
@@ -138,24 +133,12 @@ def strip_fabricated_diagnostic_shell(text: str) -> str:
     return "You're right — I got the timing wrong. My mistake."
 
 
-# ── repeated clarification ────────────────────────────────────────────────
-# Live session: the user said "I am making a list of things that need fixing in
-# your codebase and testing edge cases", and over the next six turns ELI asked
-# "what exactly are you trying to do here?" four separate times, until the user
-# wrote in capitals that they had already answered. The anti-repeat guard did
-# fire, but it only compares the OPENING of a reply, so each ask started with a
-# different word and sailed through while the question underneath stayed
-# identical.
-#
-# Asking a question the user has already answered is not a phrasing problem, so
-# it is not fixed by rephrasing. This checks the conversation itself: if ELI has
-# already asked for the user's intent, and the user has said anything since,
-# then asking again is a defect and the sentence is dropped.
+# Repeated clarification. Asking again what the user already answered isn't a phrasing problem,
+# and the anti-repeat guard only compares openings. If ELI already asked for their intent and
+# they've said anything since, the repeat sentence is dropped.
 
-# The phrases that ask the user to restate their intent. Matched against each
-# SENTENCE rather than the whole reply: the offending question is usually the
-# tail of a longer, otherwise-fine answer ("You're right. I'm sorry. So what
-# exactly are you trying to do here?"), and only that sentence should go.
+# Phrases that ask the user to restate their intent, matched per sentence: the offending question is
+# usually the tail of an otherwise fine answer, and only that sentence should go.
 _CLARIFY_PHRASES = re.compile(
     r"(?i)\b(?:"
     r"what (?:exactly )?(?:are|were) you (?:trying|hoping|aiming) to"
@@ -226,23 +209,9 @@ def drop_repeated_clarification(text: str, history=None) -> str:
     return stripped
 
 
-# ── unverified self-status claims ─────────────────────────────────────────
-# Live opening line, on a turn where nothing was checked:
-#     "evening, jason. all systems nominal - no glitches detected in the last
-#      12 hours."
-# There is no twelve-hour glitch check. Nothing ran. The user's next message
-# was "well that is not entirely true, we just sorted out an issue with your
-# gpu acceleration".
-#
-# Every existing guard fires on TASK turns, where an action routes and evidence
-# is gathered. Small talk routes to CHAT with no evidence, so it was the one
-# surface with nothing watching -- and that is exactly where a confident
-# invented status report appeared. A claim about ELI's own health is checkable
-# (RUNTIME_AUDIT, SELF_TEST, the failures table), so making it WITHOUT checking
-# is the no-fake-actions rule broken in the most casual possible voice.
-#
-# This removes the unsupported sentence. It never substitutes a fabricated
-# "actually there are N errors" -- the governor has not run a check either.
+# Unverified self-status claims. Small talk goes to CHAT with no evidence, so nothing checked
+# "all systems nominal" when nothing ran. A health claim is checkable (RUNTIME_AUDIT, SELF_TEST),
+# so leaving it unchecked breaks no-fake-actions. Drop the sentence, never invent a replacement.
 
 _SELF_STATUS_CLAIM = re.compile(
     r"(?i)\b(?:"
@@ -257,11 +226,9 @@ _SELF_STATUS_CLAIM = re.compile(
     r")"
 )
 
-# ELI telling the user to run a check ELI itself exposes. It has RUNTIME_AUDIT,
-# SELF_TEST, SELF_ANALYZE and EXPLAIN_COGNITION_RUNTIME; asking the operator to
-# go and run diagnostics is passing its own job across the table. Deliberately
-# narrow -- only self-diagnostics, so "run your backup" or "run the installer"
-# are untouched.
+# ELI telling the user to run a check ELI itself has (RUNTIME_AUDIT, SELF_TEST, SELF_ANALYZE,
+# EXPLAIN_COGNITION_RUNTIME). Deliberately narrow: only self-diagnostics, so "run your backup" is
+# untouched.
 _SELF_DIAGNOSTIC_DEFLECTION = re.compile(
     r"(?i)\b(?:you (?:should|can|could|might want to)\s+)?"
     r"(?:re-?)?run(?:ning)?\s+(?:the\s+|a\s+|your\s+|full\s+)*"
@@ -270,14 +237,9 @@ _SELF_DIAGNOSTIC_DEFLECTION = re.compile(
 )
 
 
-# ELI asserting its own RUNTIME state -- the accelerator, the offload, the
-# layers. Live at 2.3.26, ungrounded, while 28 of the 99 requested layers were
-# on the card and the user had just said so:
-#     "The GPU's back to full offload"
-# Health claims were already covered above; hardware claims were not, so this
-# one passed every guard untouched and read as a flat lie. Same rule as the
-# rest: when the turn IS grounded -- GPU_STATUS reads nvidia-smi and the live
-# runtime snapshot -- the claim is legitimate and nothing here fires.
+# ELI asserting its own runtime state (accelerator, offload, layers) without evidence, e.g. "the
+# GPU's back to full offload" while 28 of 99 layers were on the card. Health claims were covered,
+# hardware claims weren't. A grounded turn (GPU_STATUS) may say it; nothing fires there.
 _SELF_RUNTIME_CLAIM = re.compile(
     r"(?i)\b(?:"
     r"(?:the )?gpu(?:'s| is)?\s+(?:back (?:to|on)|now (?:at|on)|at)\s+full\b"
@@ -291,16 +253,9 @@ _SELF_RUNTIME_CLAIM = re.compile(
 )
 
 
-# ELI explaining its OWN internals -- why a guard fired, why a route was taken.
-# It has no introspective access to any of that: routing happens before the
-# model is called, and no record of the decision reaches the prompt. Asked at
-# 2.3.26 why a guard had not caught a data dump, it answered:
-#     "I didn't have a chance to activate the guard - and honestly, I'm still
-#      figuring out why it's not triggering"
-# Both halves are invented. The mechanism is real, the account of it is not,
-# which is the most convincing kind of confabulation and the hardest for the
-# user to check. Grounded turns are exempt: EXPLAIN_COGNITION_RUNTIME and the
-# introspection agent read the live pipeline, and may describe it freely.
+# ELI explaining its own internals (why a guard fired, why a route was taken). Routing happens
+# before the model is called and never reaches the prompt, so any account is invented. Grounded
+# turns (EXPLAIN_COGNITION_RUNTIME, the introspection agent) are exempt.
 _SELF_MECHANISM_CLAIM = re.compile(
     r"(?i)(?:"
     r"(?:my|the)\s+(?:\w+\s+){0,3}?"
@@ -356,23 +311,9 @@ def drop_unverified_self_status(text: str, *, is_grounded: bool = False) -> str:
     return stripped
 
 
-# ── ELI claiming the user's life as its own ───────────────────────────────
-# Live: asked what it was doing this evening, ELI answered
-#     "the plan for the evening is to chill out, get some weed, and maybe play
-#      Fallout 4 while watching The Walking Dead"
-# Every one of those is the USER's, read back out of memory in the first
-# person ("i got way too high last night, never actually ended up playing
-# fallout"). Two turns later it correctly said "I'm not planning anything",
-# contradicting itself.
-#
-# repair_self_user_confusion() already covers first-person FACTS that belong to
-# the user (a GitHub handle, a name). This is the other half: first-person
-# INTENTIONS to do things in the physical world, which ELI cannot do at all.
-#
-# Deliberately narrow. It targets stated plans to physically consume, ingest or
-# sleep -- claims that are simply false for software -- and leaves the voice
-# alone. ELI joking, teasing, having opinions, saying it will play music (it
-# can) or open a game (it can) are all untouched; the persona is not the bug.
+# ELI claiming the user's life as its own. repair_self_user_confusion() covers first-person
+# facts that belong to the user; this covers physical intentions (consume, ingest, sleep), false
+# for software. Narrow on purpose: jokes, opinions and "I'll play music" (it can) are untouched.
 
 _EMBODIED_PLAN = re.compile(
     r"(?i)\b(?:"
@@ -423,10 +364,9 @@ def repair_embodied_self_claims(text: str) -> str:
     return stripped
 
 
-# Questions that ask the USER for something ELI reads from the system clock.
-# Deliberately narrow: only the current local time/date, only as a question.
-# "what time do you want the alarm" or "what time did you get in" are real
-# questions about the user's intent or past and must survive untouched.
+# Questions asking the user for something ELI reads from the clock. Deliberately narrow: only the
+# current local time/date, only as a question. "What time do you want the alarm" is a real question
+# and must survive.
 _ASKS_FOR_CLOCK = re.compile(
     r"(?i)\b(?:"
     r"what(?:'s|s| is) the (?:current |right )?time"
@@ -492,10 +432,9 @@ def govern_output(text: str, is_grounded: bool = False,
     # invents when narrating an action that never actually ran (model-agnostic guard).
     result = strip_fabricated_action_claims(result).strip()
     result = strip_fabricated_diagnostic_shell(result).strip()
-    # A token-capped answer must not ship an empty trailing bullet. The engine's
-    # re-generation repair is deliberately non-quick only (a second inference
-    # would defeat quick mode's latency), so quick answers reached the user
-    # ending on a bare "-". Trimming is cheap and safe in every mode.
+    # A token-capped answer must not end on an empty bullet. The engine's regeneration repair is
+    # non-quick only (a second inference would defeat quick mode's latency), so quick answers ended
+    # on a bare "-". Trimming is cheap and safe in every mode.
     result = trim_dangling_fragment(result).strip()
     m = _OUTER_FENCE_RE.match(result)
     if m:
@@ -589,11 +528,9 @@ def repair_local_persona_drift(text: str, user_input: str = "") -> str:
     if _TONE_PERSONA_REQUEST_RE.search(str(user_input or "")):
         return result
 
-    # The old branch replaced *any* answer containing one of the medical drift
-    # keywords, even when the user's current prompt had nothing to do with ELI
-    # repair/surgery metaphors. That can corrupt unrelated phatic replies.
-    # Only emit the corrective "Wrong frame" response when the *user prompt*
-    # itself carries the local-repair metaphor frame.
+    # Only emit the corrective "Wrong frame" reply when the user's prompt itself carries the
+    # repair/surgery metaphor. The old branch replaced any answer with a medical drift keyword and
+    # corrupted unrelated phatic replies.
     _eli_phase13_repair_prompt = str(user_input or "")
     _eli_phase13_repair_context = bool(
         _LOCAL_REPAIR_FRAME_RE.search(_eli_phase13_repair_prompt)
@@ -661,10 +598,8 @@ def clean_response_style(text: str) -> str:
     return out.strip()
 
 
-# Self/user confusion repair — parameterised from runtime profile, not hardcoded.
-# When the model says "my X is <user-fact>", rewrite to attribute the fact to
-# the user. The rewriter pulls user identity from runtime state so shipped
-# source stays user-neutral.
+# Self/user confusion repair: when the model says "my X is <user-fact>", attribute the fact to the
+# user. Identity comes from runtime state, so shipped source stays user-neutral.
 
 _USER_FACT_KEYS = (
     "github_handle", "github", "handle", "username",
@@ -769,34 +704,12 @@ def repair_self_user_confusion(text: str) -> str:
     return result
 
 
-# ─────────────────────────────────────────────────────────────────────
-# Evidence validator: structured "no claim without evidence" gate.
-#
-# Used by control/diagnostic synthesis paths and the engine final pass
-# to ensure model output cannot:
-#   - Reference filesystem paths that are neither in evidence nor on disk
-#   - Reference filenames as concrete artifacts not present in evidence
-#   - Quote runtime parameter values (n_ctx, gpu_layers, batch, threads)
-#     not present in evidence
-#   - Emit ToT/critique scaffolding leakage ("Core Idea:", "Feasibility: 8/10",
-#     "P1: PASS|FAIL", numbered approach lists)
-#   - Emit PASS/FAIL audit lines for files not in the evidence audit
-#   - Emit catastrophic verbatim fabrication signatures observed in past
-#     failures (system-prefix paths and known-bad filenames). User-specific
-#     home paths are caught at runtime via `_check_cross_user_home_paths`,
-#     which resolves the live user on each call so this module ships portable.
-#   - Get truncated mid-thought without a terminal punctuation mark
-#
-# Sanitization modes:
-#   strip_silent → remove offending sentences (cleaner, default for control)
-#   mark_inline  → wrap offenders as <unverified: …> (preserves shape, default for chat)
-# ─────────────────────────────────────────────────────────────────────
+# Evidence validator: nothing in a control/diagnostic answer may lack evidence. Catches invented
+# paths, runtime figures, leaked scaffolding, fake PASS/FAIL lines and truncated output.
+# strip_silent drops the bad sentences (control); mark_inline wraps them as <unverified: ...> (chat).
 
-# Path body ends in a word/slash/hyphen char so trailing sentence
-# punctuation (period, comma, paren) is left out of the captured path.
-# Without this, `/home/.../file.py.` would capture the trailing `.` and
-# fail an evidence-equality check against the same path written without
-# the sentence period.
+# The path body ends in a word/slash/hyphen character so trailing sentence punctuation isn't
+# captured, which would fail the evidence-equality check against the same path.
 _PATH_BODY = r"[\w./\-]*[\w/\-]"
 _FAB_PATH_PREFIXES_RX = re.compile(
     r"(?<![\w/])"
@@ -892,12 +805,9 @@ _TOT_SCAFFOLDING_RXES = (
     re.compile(r"^\s*The\s+highest[-\s]?scoring\s+approach\s+is\b", re.IGNORECASE | re.MULTILINE),
 )
 
-# Section labels the context synthesiser writes into the PROMPT. A weak model
-# can echo one straight back: live on eli-finetuned-phi3, an entire reply was
-# the two literal lines "FINAL INSTRUCTION:" / "I am operating as intended.",
-# exposing ELI's internal prompt structure as if it were speech. Only the label
-# line is removed -- whatever the model actually said after it is left alone for
-# the ordinary guards to judge. Keep in step with context_synthesiser.py.
+# Section labels the context synthesiser writes into the prompt; a weak model can echo one back as
+# its whole reply. Only the label line is removed; the rest is left for the other guards. Keep in
+# step with context_synthesiser.py.
 _PROMPT_SECTION_LABELS = (
     "AGENT BUS NOTES",
     "FINAL INSTRUCTION",
@@ -919,13 +829,9 @@ _PASS_FAIL_AUDIT_RX = re.compile(
     re.IGNORECASE,
 )
 
-# Generic verbatim fabrication signatures — system-prefix or filename
-# patterns that no live runtime would legitimately produce. These are
-# user-agnostic. User-specific home paths (output references a home
-# directory whose username is not the live user) are handled below by
-# `_check_cross_user_home_paths`, which resolves the live user at
-# runtime so this module ships portable (no machine-specific
-# identifiers in source).
+# Generic fabrication signatures: system-prefix or filename patterns no live runtime would produce.
+# Other users' home paths are handled by _check_cross_user_home_paths, which resolves the live user
+# at runtime so no machine-specific identifiers ship in source.
 _FAB_VERBATIM_SIGNATURES = (
     "/usr/local/lib/eli/",
     "gpu_status.so",
@@ -983,12 +889,9 @@ _EVASIVE_PHRASES = (
     "i'd be happy to",
     "i'll report back",
     "once the audit is complete",
-    # Templated/canned phrases caught 2026-05-11 (user-reported) — these
-    # are LLM filler that contradicts the persona's "no HR voice / no
-    # generic chatbot" rule. The persona instructions list more (delve
-    # deeper, wealth of information, readily accessible, etc.) — covered
-    # here so the model's output is scrubbed even when persona rules get
-    # truncated out of the system prompt under heavy context pressure.
+    # Canned filler that contradicts the persona's "no HR voice / no generic chatbot" rule. Scrubbed
+    # here so it goes even when persona rules get truncated out of the prompt under context
+    # pressure.
     "that's an interesting question",
     "i apologize for the incomplete response",
     "i'd be pleased",
@@ -1014,11 +917,9 @@ def _looks_truncated(text: str) -> bool:
     t = (text or "").rstrip()
     if not t:
         return False
-    # A dangling list marker with nothing after it — the generator hit its token
-    # cap just as it opened the next bullet. Checked BEFORE the terminator test
-    # because "-" is neither alphanumeric nor a sentence terminator, so the
-    # original logic returned False and shipped the stub. Observed live: a
-    # profile report that ended "...state uncertainties plainly\n-".
+    # A dangling list marker (the token cap hit as the next bullet opened). Checked before the
+    # terminator test because "-" is neither alphanumeric nor a terminator, which used to ship the
+    # stub.
     _last_line = t.splitlines()[-1].strip() if t.splitlines() else ""
     if _last_line and re.fullmatch(r"(?:[-*+•]|\d+[.)]|#{1,6})", _last_line):
         return True
@@ -1290,10 +1191,8 @@ def validate_against_evidence(
             catastrophic = True
             break
 
-    # 7b. Fabricated TEMPLATE PLACEHOLDERS — e.g. "[Story 1]", "[insert headline]",
-    # "[TBD]". The model emitting fill-in-the-blank tokens instead of real content
-    # is a fake answer (it pretended to have data it didn't). Never let it reach
-    # the user. (Real source tags like "[BBC — 14:23]" are not matched.)
+    # 7b. Fabricated template placeholders ("[Story 1]", "[insert headline]", "[TBD]") are a fake
+    # answer and never reach the user. Real source tags ("[BBC — 14:23]") don't match.
     _placeholder_rx = re.compile(
         r"\[\s*(?:story|item|headline|insert[^\]]*|placeholder|details?|tbd|todo|xxx)\s*\d*\s*\]",
         re.I,
@@ -1395,14 +1294,10 @@ def sanitize_assistant_text(text: Any) -> str:
     out = out.strip()
     return out or "..."
 
-# ===========================================================================
-# MERGED: response-quality governance (was eli.cognition.response_governance)
-# normalize_response there was renamed clean_gguf_artifacts to end the
-# signature collision with this module's normalize_response(user_input, text).
-# ===========================================================================
-# ============================================================================
-# 1. CONFABULATION DETECTION
-# ============================================================================
+# Merged in from eli.cognition.response_governance. Its normalize_response is now
+# clean_gguf_artifacts so it doesn't collide with this module's normalize_response(user_input,
+# text).
+# 1. Confabulation detection.
 
 # Patterns that signal the model is inventing specific numbers it can't know
 _CONFAB_PATTERNS: List[Tuple[re.Pattern, str]] = [
@@ -1554,10 +1449,8 @@ _ERROR_LEAKAGE_PATTERNS = [
     re.compile(r"model\s+not\s+(?:ready|loaded)", re.I),
 ]
 
-# Canned hedge/decline phrase lists removed: persona-bound LLM speaks for ELI,
-# not a static phrase bank. Confidence is now flagged in the governance result
-# so the engine can re-prompt or escalate; the user-facing text is always
-# produced by the model with persona attached.
+# No canned hedge/decline phrases: the persona-bound model speaks for ELI. Confidence is flagged in
+# the governance result so the engine can re-prompt or escalate.
 
 
 def govern_response(
@@ -1601,10 +1494,9 @@ def govern_response(
         user_input, response, intent_confidence, memory_context, evidence
     )
 
-    # 3. Flag confidence — never mutate the model's text with canned phrases.
-    #    The engine reads `low_confidence` / `decline` flags and decides whether
-    #    to re-prompt the persona LLM, escalate to the agent bus, or surface
-    #    the response as-is.
+    # 3. Flag confidence; never mutate the model's text with canned phrases. The engine reads
+    # `low_confidence` / `decline` and decides whether to re-prompt, escalate to the agent bus, or
+    # surface the reply as-is.
     overall = quality["overall_score"]
     if overall < CONFIDENCE_THRESHOLD_DECLINE:
         actions.append(f"declined (score={overall:.2f})")
@@ -1736,10 +1628,9 @@ def score_confidence(response_text: str, user_input: str = "", context: dict = N
     return score_response_quality(user_input, response_text).get("overall_score", 0.5)
 
 
-# Note: role-prefix stripping, HR-phrase polish, and self/user confusion
-# repair live in eli.cognition.output_governor (govern_output ->
-# clean_response_style + repair_self_user_confusion). This module is the
-# governance/quality scoring layer only.
+# Role-prefix stripping, HR-phrase polish and self/user confusion repair live in output_governor
+# (govern_output -> clean_response_style + repair_self_user_confusion). This module is only the
+# governance/quality scoring layer.
 
 
 
@@ -1775,10 +1666,9 @@ def is_echo_of_recent(text: str, recent_replies: List[str],
         try:
             if term_overlap(body, prev) >= threshold:
                 return True
-            # Whole-reply overlap misses an echo wrapped in new words — the observed
-            # "Typo? I caught that. You're still glitchy, still running on the same old
-            # code." Treat a long verbatim run lifted from the previous reply as an echo
-            # too, so a cosmetic prefix can't smuggle the same sentence through again.
+            # Whole-reply overlap misses an echo wrapped in new words. Treat a long verbatim run
+            # lifted from the previous reply as an echo too, so a cosmetic prefix can't smuggle the
+            # same sentence through.
             plow = prev.lower()
             m = difflib.SequenceMatcher(None, low, plow, autojunk=False) \
                        .find_longest_match(0, len(low), 0, len(plow))

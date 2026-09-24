@@ -182,10 +182,9 @@ def resolve_player_target(target: Optional[str] = None, command: Optional[str] =
     if not infos:
         return None
 
-    # Exact player-name match wins. The dashboard passes the live MPRIS id
-    # (e.g. "firefox.instance_1_125"); the fuzzy matcher below turns underscores into
-    # spaces, so an exact id would fail to match its OWN name → resolve to None →
-    # control silently no-ops (the Netflix/YouTube "pause does nothing" bug).
+    # An exact player-name match wins. The dashboard passes the live MPRIS id
+    # ("firefox.instance_1_125"); the fuzzy matcher turns underscores into spaces, so an exact id
+    # failed to match its own name and control silently no-op'd (the "pause does nothing" bug).
     if target:
         tl = str(target).strip().lower()
         for info in infos:

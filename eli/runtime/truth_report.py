@@ -139,10 +139,9 @@ def _git_info(root: Path) -> Dict[str, Any]:
 
 
 def _gpu_hardware_fallback() -> Dict[str, Any]:
-    # Cross-vendor: ELI ships to AMD/Intel/Apple/Qualcomm machines too, not
-    # only NVIDIA ones. This used to report {"available": False} on every one
-    # of them the moment nvidia-smi wasn't found -- the same class of bug
-    # fixed elsewhere in self_status.py / executor_enhanced.py's GPU_STATUS.
+    # Cross-vendor: ELI ships to AMD/Intel/Apple/Qualcomm machines too. This reported {"available":
+    # False} on all of them as soon as nvidia-smi wasn't found, the same class of bug fixed in
+    # self_status.py and executor_enhanced.py's GPU_STATUS.
     try:
         from eli.core.hardware_profile import detect_hardware
         hw = detect_hardware()
@@ -276,11 +275,10 @@ def import_health(modules: list[str] | None = None) -> Dict[str, Any]:
 
 def runtime_truth_report(engine: Any = None) -> Dict[str, Any]:
     root = _project_root()
-    # The install tree is not where a packaged build keeps its data: the code is
-    # on a read-only AppImage mount while settings and the snapshot live under
-    # the user's config/data dirs. Reading them from the project root made this
-    # report describe a runtime that does not exist — the 2.1.82 self-report
-    # failure ce40453 fixed elsewhere.
+    # The install tree isn't where a packaged build keeps its data: the code is on a read-only
+    # AppImage mount while settings and the snapshot live under the user's config/data dirs. Reading
+    # them from the project root made this report describe a runtime that doesn't exist (the 2.1.82
+    # self-report failure ce40453 fixed elsewhere).
     try:
         from eli.core.paths import get_paths as _gp
         _p = _gp()
@@ -368,10 +366,9 @@ def format_runtime_truth(report: Dict[str, Any] | None = None) -> str:
     gpu = report.get("gpu", {})
     git = report.get("git", {})
     imports = report.get("import_health", {})
-    # Effective runtime — what actually loaded. The launcher writes the
-    # split into runtime_snapshot.json AND _live_runtime_params after
-    # the load attempt that succeeded. If those say load_mode=CPU when
-    # settings asked for 21 GPU layers, that mismatch is the truth.
+    # Effective runtime: what actually loaded. The launcher writes the split into
+    # runtime_snapshot.json and _live_runtime_params after the load that succeeded. If those say
+    # load_mode=CPU while settings asked for 21 GPU layers, that mismatch is the truth.
     snap_eff = snapshot.get("effective") or {}
     snap_req = snapshot.get("requested") or {}
     eff_n_ctx     = snap_eff.get("n_ctx", snapshot.get("n_ctx"))

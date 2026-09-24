@@ -302,10 +302,8 @@ def runtime_load_gap(snap: Dict[str, Any] | None = None) -> Dict[str, Any]:
     Returns: ok, on_gpu, clamped, reduced {param: {requested, effective}},
     plus the raw requested/effective maps.
     """
-    # `is None` deliberately, not truthiness: a caller passing an EMPTY snapshot is
-    # saying "this is what I have, and it is nothing". Falling back to the live
-    # process state there would answer with facts about a different subject than
-    # the one asked about — the exact failure mode this helper exists to prevent.
+    # `is None`, not truthiness: an empty snapshot means "this is all I have". Falling back to live
+    # state would answer about a different subject.
     snap = dict(_runtime_snapshot() if snap is None else snap)
     if not snap:
         return {"ok": False, "on_gpu": False, "clamped": False, "reduced": {},
@@ -493,30 +491,14 @@ def build_persona_handoff(
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
-    # Truthful one-line runtime status — empty when the model loaded
-    # exactly as requested on GPU. Non-empty when on CPU or when the
-    # load was clamped, so persona-bound replies don't claim "all
-    # cylinders" while running CPU-only because Fallout 4 took the GPU.
-    # Wall-clock time. ELI had no idea what time it was: `part_of_day()` existed in
-    # eli/runtime/reflection.py and was correct, but only the proactive daemon's
-    # greeting and the daily-report title ever called it — nothing put the clock in
-    # the chat prompt. Live at 2.3.8, at 10:47: "Morning's barely past noon", which
-    # the user had to correct.
-    #
-    # The three blocklists that strip "current time (authoritative" from OUTPUT
-    # (output_governor, persistence_gate, engine) were already there, filtering a
-    # string nothing produced — leftovers from a producer that no longer existed.
-    # This restores the producer they were written for.
+    # One-line runtime status: empty when the model loaded as asked on GPU, otherwise says it's on
+    # CPU or was clamped. The clock comes from part_of_day() in runtime/reflection.py, and the
+    # output blocklists filter what this produces.
     try:
         from eli.runtime.reflection import part_of_day as _part_of_day
         _now = _dt.datetime.now()
-        # Bands MUST match eli/runtime/reflection.py:part_of_day(). They drifted
-        # once already: the prose said "morning is before 12:00" while the model
-        # was handed 00:21, so it greeted the user with "Morning" at twenty past
-        # midnight and was right to -- the instruction it was given said so.
-        # The timezone is named because it was not: when the user mistyped their
-        # own timezone in passing, the model had no authoritative value to weigh
-        # that against and reasoned from the typo instead.
+        # Bands must match part_of_day() in runtime/reflection.py (they drifted once and ELI said
+        # "Morning" at 00:21). The timezone is named so a mistyped one can't override it.
         _tz = _now.astimezone().tzname() or ""
         parts.append(
             "CURRENT TIME (authoritative — trust this over any assumption about "
@@ -538,12 +520,9 @@ def build_persona_handoff(
     except Exception:
         log.debug("live runtime brief unavailable", exc_info=True)
 
-    # ELI's World — full 9-room topology + current embodied state. Injected so
-    # ELI can answer "what are you doing in the anomaly room?" or "what is the
-    # reflection chamber?" with narrative truth rather than runtime JSON.
-    # IMPORTANT NOTE ON FRAMING: the 7B model tends to interpret "room" as a
-    # physical location unless explicitly told otherwise. The header below is
-    # intentionally directive so the scratchpad picks it up during CoT stage 1.
+    # ELI's World: the full 9-room topology and current state, so ELI can answer "what is the
+    # reflection chamber?". The header is deliberately directive: a 7B model reads "room" as a
+    # physical place unless told otherwise.
     try:
         from eli.world.persistence.storage import EliWorldStorage as _WS
         _wstate = _WS().load()
@@ -559,19 +538,9 @@ def build_persona_handoff(
             obj for obj in (_wstate.objects or {}).values()
             if getattr(obj, "room", "") == _room_id
         ]
-        # Is the user actually asking about the world? Computed FIRST, because the
-        # whole block is gated on it — not just the room layout.
-        #
-        # The bug this fixes: only the 9-room layout was gated. The current room, its
-        # purpose, the current activity and the objects in it were appended on EVERY
-        # turn, with a prose note saying they were "available for direct questions,
-        # not for proactive narration". That note is advisement the model ignores.
-        # Live at 2.3.8: "What's up bud, good morning!" was answered with "I'm still in
-        # the Reflection Chamber, staring at the Synthesis Draft like it's some kind of
-        # holy text" — Synthesis Draft being an object in that room, handed to the model
-        # unasked. The user then asked "synthesis draft?" and got a paragraph of
-        # invented struggle with it. A guard has to withhold the material, not request
-        # restraint.
+        # Is the user asking about the world? Computed first because the whole block is gated on it.
+        # Only withholding the material works; telling the model to be restrained doesn't (it
+        # narrated an object in a room nobody asked about).
         _world_query_terms = (
             "room", "world", "anomaly", "archive", "workshop",
             "basement", "upgrade", "simulation", "evidence", "what are you doing",

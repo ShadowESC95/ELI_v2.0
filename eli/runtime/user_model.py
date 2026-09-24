@@ -41,12 +41,10 @@ _SINGLE_VALUED_TYPES = frozenset({
     "identity.role", "preference.style",
 })
 
-# Profile facts are third-person statements ABOUT the user ("User prefers
-# detailed, thorough responses"). First-person fragments and conversational
-# punctuation mean the user's raw sentence leaked into the slot instead of an
-# extracted fact — e.g. an onboarding answer that a since-fixed resolver stored
-# verbatim, leaving "User prefers no, i said more than software and tech?! i
-# prefer #4 answers by default." to be replayed as a settled preference.
+# Profile facts are third-person statements about the user ("User prefers detailed, thorough
+# responses"). First-person fragments and conversational punctuation mean the raw sentence
+# leaked into the slot instead of an extracted fact (an onboarding answer a since-fixed resolver
+# stored verbatim, later replayed as a settled preference).
 _RAW_UTTERANCE_RX = re.compile(
     r"(?:\?|\bi\s+(?:said|meant|prefer|want|think|asked)\b|\bmy\s+(?:name|preference)\b|!\?|\?!)",
     re.I,
@@ -137,11 +135,10 @@ def _read_patterns_grouped(db_path: Optional[Path | str] = None) -> Dict[str, Li
         # about the user; replaying it as one is worse than having no fact.
         if _looks_like_raw_utterance(data):
             continue
-        # Single-valued facts SUPERSEDE rather than accumulate. Rows arrive
-        # newest-first, so the first one wins and older ones are dropped. Without
-        # this, two "identity.name" rows both survived (they differ by value, so
-        # the value-dedup below never fired) and the brief read
-        # "User's name is <first>; User's name is <other>" on every single turn.
+        # Single-valued facts supersede rather than accumulate. Rows arrive newest-first, so the first
+        # wins and older ones drop. Without this two "identity.name" rows both survived (they differ by
+        # value, so the value-dedup below never fired) and the brief read "User's name is <first>; User's
+        # name is <other>" every turn.
         if ptype_l in _SINGLE_VALUED_TYPES:
             if ptype_l in taken_single:
                 continue
@@ -165,10 +162,10 @@ def render_brief(name: str, grouped: Dict[str, List[str]], dossier: str = "") ->
     lines: List[str] = []
     head = f"USER MODEL: {name}" if name else "USER MODEL: (name not yet known)"
     ident = _join(grouped.get("identity", []))
-    # comms_style aggregates EVERY preference.* signal (learned tone/humor/depth +
-    # explicit style/persona/commands). The default n=4 silently dropped the
-    # overflow — so learned tone could be evicted from the per-turn brief by newer
-    # preferences. These are the voice directives; render them all (generous cap).
+    # comms_style aggregates every preference.* signal (learned tone/humor/depth plus explicit
+    # style/persona/commands). The default n=4 silently dropped the overflow, so learned tone could
+    # be evicted from the per-turn brief by newer preferences. These are the voice directives, so
+    # render them all (generous cap).
     style = _join(grouped.get("comms_style", []), n=12)
     bits = [b for b in (ident, style) if b]
     lines.append(head + (" — " + " ".join(bits) if bits else ""))

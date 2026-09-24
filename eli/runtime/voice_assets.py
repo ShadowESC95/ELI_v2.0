@@ -28,23 +28,19 @@ _PIPER_VOICE = "en_US-amy-medium"
 _PIPER_BASE = ("https://huggingface.co/rhasspy/piper-voices/resolve/main/"
                "en/en_US/amy/medium/")
 
-# ── Voice catalog ───────────────────────────────────────────────────────────────
-# Upstream publishes an index of every voice it hosts (166 voices / 45 languages
-# at time of writing) with exact file paths, sizes and md5 digests. Fetching it
-# beats hardcoding voice ids: the user gets every accent/quality upstream offers,
-# downloads are checksum-verified, and the list can never drift out of date.
-# The curated PIPER_CATALOG below stays as the offline fallback + "recommended".
+# Voice catalog. Upstream publishes an index of every voice it hosts (166 voices / 45 languages
+# when written) with exact paths, sizes and md5 digests. Fetching it beats hardcoding ids: the
+# user gets every accent and quality upstream offers, downloads are checksum-verified and the
+# list can't drift. The curated PIPER_CATALOG below is the offline fallback and "recommended".
 _INDEX_URL = "https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json"
 _INDEX_FILENAME = "voices.index.json"
 _INDEX_MAX_AGE_S = 7 * 24 * 3600
 
-# Voices ELI does NOT redistribute, keyed by voice NAME so every quality variant
-# is covered (the licence attaches to the dataset, not to one .onnx):
-#   ryan   — CC-BY-NC-SA 4.0 (non-commercial: incompatible with a shipped product)
-#   lessac — Blizzard/Lessac dataset, redistribution not cleared
-#   cori   — clearance pending review
-# A user may still download these for their own personal use; we simply never
-# put them in a release asset. scripts/asset_release_policy.py mirrors this set.
+# Voices ELI does not redistribute, keyed by voice name so every quality variant is covered
+# (the licence attaches to the dataset): ryan (CC-BY-NC-SA 4.0, non-commercial, incompatible with
+# a shipped product), lessac (Blizzard/Lessac dataset, redistribution not cleared), cori
+# (clearance pending). A user may still download these for personal use; ELI never puts them in
+# a release asset. scripts/asset_release_policy.py mirrors this set.
 RESTRICTED_VOICE_NAMES = frozenset({"ryan", "lessac", "cori"})
 
 PIPER_CATALOG: Dict[str, Dict[str, str]] = {
@@ -236,10 +232,9 @@ def download_voice(voice_id: str, mirror: bool = False) -> Dict[str, Any]:
         dest.mkdir(parents=True, exist_ok=True)
         import urllib.request
         from eli.core import netguard
-        # Prefer the upstream index: it gives the exact repo-relative path (voices
-        # whose folder isn't derivable from the id, e.g. multi-speaker ones) and an
-        # md5 per file so a truncated or proxy-mangled download is caught here
-        # rather than surfacing later as a corrupt-model crash.
+        # Prefer the upstream index: it gives the exact repo-relative path (voices whose folder
+        # isn't derivable from the id, e.g. multi-speaker) and an md5 per file, so a truncated or
+        # proxy-mangled download is caught here and not later as a corrupt-model crash.
         index = voice_index() or fetch_voice_index()
         indexed = _index_files(voice_id, index)
         if indexed:

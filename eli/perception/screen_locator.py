@@ -367,14 +367,9 @@ def locate_on_screen(
     max_matches: int = 8,
     min_score: float = 0.50,
 ) -> Dict[str, Any]:
-    # ── Strategy 1: the accessibility tree (Linux/AT-SPI) ────────────────────
-    # OCR reads pixels, so it cannot tell a BUTTON named "Save" from the word "Save"
-    # in a changelog, cannot see that a control is disabled, and clicks a coordinate
-    # that may have moved. AT-SPI answers with the real widget: role, bounds, state,
-    # and the actions it advertises. Tried first, silently skipped when unavailable
-    # (no AT-SPI, restricted Wayland session, app exposes no tree) — OCR below is
-    # unchanged and remains the fallback, which matters because coverage in the wild
-    # is uneven (Electron often needs --force-renderer-accessibility).
+    # Strategy 1: the accessibility tree (Linux/AT-SPI). OCR can't tell a "Save" button from the
+    # word "Save", can't see a disabled control, and clicks coordinates that may have moved. AT-SPI
+    # gives the real widget. Skipped quietly when unavailable, OCR below is the fallback.
     try:
         from eli.perception import ui_tree as _ui
         if _ui.available():

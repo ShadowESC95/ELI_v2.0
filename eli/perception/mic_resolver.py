@@ -558,14 +558,11 @@ def _run_probe(device_arg: str, source_arg: str) -> int:
 
     min_rms = int(os.environ.get("ELI_MIC_PROBE_MIN_RMS", "50"))
 
-    # Every other PyAudio construction in this module already runs under
-    # _quiet_alsa(); this one did not, and it is the probe that actually runs at
-    # startup — so the ALSA/JACK enumeration storm (dmix, "Unknown PCM
-    # cards.pcm.rear", "jack server is not running", JackShmReadWritePtr…) landed
-    # on the user's console every launch and made a healthy boot look broken.
-    # The verdict travels on stdout, so silencing fd 2 for the whole probe hides
-    # the noise and nothing else. Construction is inside the try as well: it can
-    # raise, and it used to do so outside any handler.
+    # Every other PyAudio construction here runs under _quiet_alsa(); this startup probe didn't,
+    # so the ALSA/JACK enumeration storm (dmix, "Unknown PCM cards.pcm.rear", "jack server is not
+    # running") hit the console every launch and made a healthy boot look broken. The verdict is on
+    # stdout, so silencing fd 2 hides only the noise. Construction is inside the try too, it can
+    # raise, and used to do so outside any handler.
     p = None
     try:
         with _quiet_alsa():

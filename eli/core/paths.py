@@ -650,11 +650,8 @@ def path_info() -> dict:
 
 
 
-# ══════════════════════════════════════════════════════════════
-# BACKWARD COMPATIBILITY — DO NOT REMOVE
-# These exports are used by 30+ modules across the codebase.
-# Migrate callers to the new functions above over time.
-# ══════════════════════════════════════════════════════════════
+# Backward compatibility, do not remove: these exports are used by 30+ modules. Migrate callers to
+# the functions above over time.
 
 class EliPaths:
     """Legacy path object — provides attribute access to all paths."""

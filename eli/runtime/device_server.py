@@ -286,11 +286,10 @@ class DeviceServer:
     def connect(self, autodetect: bool = True) -> Dict[str, Any]:
         cfg = _cfg()
         if not cfg["host"] and autodetect:
-            # "no MQTT broker configured (set mqtt_host)" was a dead end for
-            # anyone who does not know what MQTT is, and nothing ever called
-            # the host suggestions that already existed. Look for a broker
-            # (mDNS first, then the conventional local names) and save what
-            # actually answers, so the common case needs no configuration.
+            # "no MQTT broker configured (set mqtt_host)" was a dead end for anyone who doesn't know what
+            # MQTT is, and nothing called the host suggestions that already existed. Look for a broker
+            # (mDNS first, then the conventional local names) and save what answers, so the common case
+            # needs no configuration.
             try:
                 from eli.runtime.mqtt_setup import autodetect_broker
                 det = autodetect_broker(timeout=2.0)
@@ -461,14 +460,10 @@ class DeviceServer:
             return {"ok": False, "error": f"unknown device: {device_id}"}
         driver_name = (dev.get("driver") or "mqtt").lower()
 
-        # A BLE bulb is switched by writing a vendor payload to a GATT
-        # characteristic — not by MQTT (no broker knows it) and not by the
-        # bluetooth driver, whose "on" is `connect`, i.e. link management that
-        # leaves the bulb untouched while reporting success. Route lights whose
-        # id is a BLE address to the real GATT writer regardless of the driver
-        # recorded against them: these get hand-registered as "mqtt" constantly,
-        # because the add-device form asks for a topic and a MAC is what people
-        # have to hand.
+        # A BLE bulb is switched by a vendor payload written to a GATT characteristic, not MQTT and not
+        # the bluetooth driver (its "on" is `connect`, which reports success and does nothing). Route
+        # lights whose id is a BLE address to the GATT writer whatever driver is recorded, since people
+        # hand-register them as "mqtt".
         cmd_l = (command or "").lower().strip()
         if (str(dev.get("type") or "").lower() in ("light", "bulb", "lamp")
                 and cmd_l in ("on", "off", "toggle", "rgb", "colour", "color")):
@@ -958,10 +953,10 @@ def _mdns_discover(timeout: float, found: List[dict], errors: List[str]) -> None
             log.debug("suppressed exception", exc_info=True)
 
 
-# Rolling discovery cache: devices answer at different moments (mDNS especially is bursty),
-# so we MERGE every sweep into a short-lived cache keyed by (host, kind) and return the union
-# seen within the TTL. This is why a second "Refresh" feels instant and accumulates devices
-# instead of starting cold each time. last_seen lets the UI/age-out stale entries.
+# Rolling discovery cache: devices answer at different moments (mDNS is bursty), so MERGE
+# every sweep into a short-lived cache keyed by (host, kind) and return the union seen within
+# the TTL. That's why a second "Refresh" is instant and accumulates devices instead of starting
+# cold. last_seen lets the UI age out stale entries.
 _DISC_LOCK = threading.Lock()
 _DISC_CACHE: Dict[tuple, dict] = {}
 _DISC_TTL = 300.0  # seconds an entry survives without being re-seen

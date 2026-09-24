@@ -86,14 +86,10 @@ class HabitScheduler:
             log.debug(f"[SCHEDULER] Skipping malformed rule (missing command): {rule!r}")
             return
 
-        # Defense-in-depth: refuse to fire corrupt rules whose command is a bare
-        # ACTION/CAPABILITY token (e.g. GET_WEATHER, NEWS_FETCH, GENERATE_SCRIPT).
-        # Feeding such a token to engine.process() makes the router fall to
-        # fallback.chat and the model role-plays/fabricates the action.
-        # IMPORTANT: this must NOT block a legitimate "launch app" habit where the
-        # user named it after the app (name "firefox", command "firefox"). So only
-        # skip when the command is an ALL-CAPS action token — a plain app name or
-        # natural phrase is a real routine and must run.
+        # Defence in depth: refuse to fire corrupt rules whose command is a bare ACTION/CAPABILITY
+        # token (GET_WEATHER, NEWS_FETCH, GENERATE_SCRIPT). Fed to engine.process() it falls to
+        # fallback.chat and the model fabricates the action. A real "launch app" habit named after the
+        # app (name "firefox", command "firefox") must still fire, so only skip ALL-CAPS tokens.
         _cmd = str(command).strip()
         if _cmd and re.fullmatch(r"[A-Z][A-Z0-9_]{2,}", _cmd):
             log.debug(f"[SCHEDULER] Skipping bare ACTION-token rule "

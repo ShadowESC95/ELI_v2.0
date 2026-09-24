@@ -177,10 +177,9 @@ def current_reasoning_mode_label(engine: Any = None, override: Any = None) -> st
     return _label(current_reasoning_mode(engine, override=override))
 
 def current_reasoning_mode_text(engine: Any = None, override: Any = None, explain: bool = True) -> str:
-    # ELI_REASONING_MODE_TEXT_DESCRIPTION_V1
-    # Pulls per-mode description from cognition/reasoning_modes.mode_description()
-    # so the four private modes get distinct, code-grounded explanations instead
-    # of one shared boilerplate paragraph.
+    # Reasoning-mode text description (ELI_REASONING_MODE_TEXT_DESCRIPTION_V1): pull each mode's
+    # description from cognition/reasoning_modes.mode_description() so the four private modes get
+    # distinct, code-grounded explanations and not one shared paragraph.
     key = current_reasoning_mode(engine, override=override)
     label = _label(key)
     if not explain:

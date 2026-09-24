@@ -24,10 +24,8 @@ _cache: Dict[str, Any] = {}
 _cache_lock = threading.Lock()
 _CACHE_MAX = 256  # prevent unbounded growth
 
-# Actions the model should NOT be offered as an intent target: pure
-# confirm/cancel/internal/no-op surfaces that are reached via dedicated
-# confirmation flows or never by a fresh user phrasing. Derived by name, not a
-# hand-maintained allow-list, so the catalogue stays the single source of truth.
+# Actions not offered to the model as intent targets: confirm/cancel/internal/no-op surfaces reached
+# through dedicated flows. Derived by name, so the catalogue stays the single source of truth.
 _INTERNAL_ACTIONS = frozenset({
     "CHAT", "NOOP", "ANSWER", "DIRECT_RESPONSE", "TEMPLATE", "SEQUENCE_STEP",
     "CONFIRM_CODE_FIX", "CANCEL_CODE_FIX", "CONFIRM_HABIT", "DECLINE_HABIT",
@@ -112,16 +110,9 @@ def _action_grammar(catalogue: List[str]):
     return grammar
 
 
-# Canonical arg key -> the names a model plausibly invents for it.
-#
-# The GBNF grammar constrains the ACTION name, but `args` is a free-form JSON
-# object, so the model names the keys itself: it answered OPEN_APP with
-# {"app_name": "cyberpunk"} while the executor reads "name"/"app", and the user
-# got "Missing app name" for a perfectly understood request.
-#
-# Normalisation is ADDITIVE — the canonical key is filled in only when absent,
-# and nothing the model wrote is renamed or dropped. An action that legitimately
-# reads one of the alias names keeps seeing it.
+# Canonical arg key -> names a model plausibly invents for it. The grammar constrains the action
+# name, not `args`, so the model gave OPEN_APP {"app_name": ...} where the executor reads
+# "name"/"app". Additive only: fill the canonical key if absent, never rename or drop.
 _ARG_ALIASES: Dict[str, tuple] = {
     "name":    ("app_name", "application", "app", "program", "target", "title"),
     "path":    ("file_path", "filepath", "file", "directory", "folder", "dir", "location"),
@@ -185,10 +176,9 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
             + "\n\nEXAMPLES (format only):\n" + _FEW_SHOT
             + f'\nUSER: "{text}"\nJSON:'
         )
-        # Constrain the decoder to the live catalogue when the backend supports it, so
-        # the model cannot invent a capability or emit unparseable JSON. Any backend
-        # without grammar support (or a rejected kwarg) falls through to the free-text
-        # path below, which still parses and validates exactly as before.
+        # Constrain the decoder to the live catalogue when the backend supports it, so the model
+        # can't invent a capability or emit unparseable JSON. Without grammar support, fall through
+        # to the free-text path below.
         _grammar = _action_grammar(catalogue)
         response = None
         if _grammar is not None:
@@ -208,10 +198,9 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
                 prompt, system=system, max_tokens=200, temperature=0.1,
             )
 
-        # Tolerate models that wrap the JSON in markdown code fences (Phi-4 emits ```json … ```;
-        # Qwen emits bare JSON), and give enough budget that long-arg JSON (e.g. file paths) isn't
-        # truncated mid-object. Both caused routing to collapse to CHAT — and the model to then
-        # fabricate that it ran the command. Model-agnostic.
+        # Tolerate markdown-fenced JSON (Phi-4 emits ```json, Qwen bare JSON) and leave enough
+        # budget that long-arg JSON isn't cut off mid-object. Both made routing collapse to CHAT and
+        # the model claim it ran the command.
         _resp = re.sub(r"```(?:json)?|```", " ", response or "")
         m = re.search(r"\{.*\}", _resp, re.DOTALL)
         if not m:

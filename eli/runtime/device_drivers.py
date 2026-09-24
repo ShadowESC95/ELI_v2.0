@@ -520,11 +520,9 @@ class AirPlayDriver(Driver):
             return {"ok": False, "error": f"airplay: {e}"}
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-# Bluetooth — pair / connect / disconnect + route system audio to the device.
-# Uses the OS Bluetooth stack via bt_platform (Linux / macOS / Windows).
-# Every branch degrades to a clean, actionable message — it never raises.
-# ─────────────────────────────────────────────────────────────────────────────
+# Bluetooth: pair / connect / disconnect and route system audio to the device, through the OS stack
+# via bt_platform (Linux/macOS/Windows). Every branch degrades to a clean, actionable message and
+# never raises.
 class BluetoothDriver(Driver):
     name = "bluetooth"
     label = "Bluetooth device"

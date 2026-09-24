@@ -60,12 +60,10 @@ _INVALID_SINGLE_TOKENS = {
     "preferred", "prefer", "known",
 }
 
-# Imperative command verbs. A captured name almost never opens with one — a
-# real session logged "pause spotify" as the user's name (it was the first
-# thing typed), so every self-report greeted the user as "pause spotify".
-# A multi-word candidate whose FIRST word is a command verb is a command, not
-# a name, and is rejected. Single-word overlaps (e.g. the name "Mark") are left
-# alone; this only fires on the command SHAPE (verb + object).
+# Imperative command verbs. A captured name almost never opens with one (a session logged
+# "pause spotify" as the user's name, so every self-report greeted them that way). A multi-word
+# candidate whose first word is a command verb is a command, not a name. Single-word overlaps
+# (the name "Mark") are left alone, this only fires on verb + object.
 _COMMAND_VERBS = frozenset({
     "pause", "play", "resume", "stop", "skip", "next", "previous", "rewind",
     "open", "close", "launch", "start", "quit", "exit", "run", "execute",
@@ -158,10 +156,10 @@ def extract_explicit_identity_facts(text: Any) -> Dict[str, str]:
         if value and key not in facts:
             facts[key] = value
 
-    # "call me X" is the one ambiguous declarer: it also matches questions and
-    # complaints ("why did you call me X", "you called me X", "don't/stop call
-    # me X"). Only accept it as a real preferred-name declaration when it's a
-    # genuine first-person imperative — never from a question/reference/negation.
+    # "call me X" is the one ambiguous declarer: it also matches questions and complaints ("why
+    # did you call me X", "you called me X", "don't/stop call me X"). Accept it as a
+    # preferred-name declaration only as a genuine first-person imperative, never from a question,
+    # reference or negation.
     if "preferred_name" not in facts:
         _call_me_is_declaration = not re.search(
             r"\b(?:you|why|what|when|who|how|did|do|does|never|didn'?t|don'?t|"

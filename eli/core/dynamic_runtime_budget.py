@@ -86,10 +86,9 @@ _MIN_BATCH = 128
 # A proportion of measured memory, not a size band: a machine with twice the
 # RAM gets twice the allowance, with no thresholds to fall between.
 _RAM_FRACTION_FOR_CTX = 0.25
-# A model's own trained window is the only honest ceiling. An earlier draft of
-# this used a flat 32768, which silently clamped every 128k-context model to a
-# quarter of its window — ELI runs 1B to 100B+, so no fixed number belongs here.
-# 0 means "unknown", and then the ceiling comes from RAM alone.
+# A model's own trained window is the only honest ceiling. A flat 32768 clamped every 128k model to
+# a quarter of its window and ELI runs 1B to 100B+. 0 means unknown; then RAM alone sets the
+# ceiling.
 
 
 
@@ -154,10 +153,9 @@ def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
     threads = max(2, (os.cpu_count() or 4) - 2)
     size_gb = model_size_gb(model_path)
 
-    # Headroom comes from the one place that defines it. A local 900 made this the
-    # fourth different reserve in the process (700 discrete / 400 iGPU elsewhere) and
-    # silently ignored ELI_VRAM_RESERVE_MB, so the operator's own reserve moved every
-    # other calculation except this one.
+    # Headroom comes from the one place that defines it. A local 900 was a fourth different reserve
+    # and ignored ELI_VRAM_RESERVE_MB, so the operator's reserve moved every calculation except this
+    # one.
     try:
         from eli.core.hardware_profile import vram_reserve_mb as _vrm
         _reserve_mb = int(_vrm())
@@ -166,20 +164,9 @@ def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
         _reserve_mb = 700
     usable_vram = max(0, vram_free - _reserve_mb)
 
-    # ── ctx / gpu_layers / batch come from the MEASURED fit ────────────────
-    #
-    # This used to be three ladders of hardcoded buckets — ctx picked from
-    # {16384, 12288, 8192, 6144, 4096} by RAM band, gpu_layers from
-    # {99, 35, 24, 16, 8, 4} by model-size band, batch from
-    # {512, 384, 256, 128} by VRAM band. Nothing measured the KV cache or the
-    # compute graph, so the numbers disagreed with what the loader actually
-    # did: on one live 2.3.0 launch this table's ctx and the resident ctx were
-    # 6144 and 10384, on the same machine, at the same moment.
-    #
-    # hardware_profile.smart_fit_config is the real arithmetic — KV cache per
-    # token, compute-graph reserve, MB per layer from the model's own size —
-    # and it is what the loader uses. Deriving from it keeps one answer in the
-    # process instead of two that drift apart.
+    # ctx / gpu_layers / batch come from the measured fit. They used to come from hardcoded bucket
+    # ladders that measured nothing and disagreed with the loader (6144 vs 10384 on one machine).
+    # smart_fit_config does the real arithmetic and is what the loader uses, so there's one answer.
     try:
         from eli.core.startup_hardware_optimizer import train_ctx_for_model
         _train = int(train_ctx_for_model(str(model_path)) or 0)
@@ -205,10 +192,8 @@ def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
 
     n_ctx = _round_ctx(n_ctx)
 
-    # Output budget: a share of the window, so prompt headroom is preserved at
-    # every size instead of jumping between three fixed values. The last of the
-    # bands lived here (4096 / 3072 / 2048 by ctx), which meant a ctx of 6143
-    # and 6144 got budgets 1024 tokens apart for no measured reason.
+    # Output budget is a share of the window, so prompt headroom holds at every size. The old bands
+    # gave ctx 6143 and 6144 budgets 1024 tokens apart for no measured reason.
     max_tokens = _output_budget_for_ctx(n_ctx)
 
     # Mode-specific budgets.

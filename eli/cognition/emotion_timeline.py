@@ -37,10 +37,8 @@ from eli.utils.log import get_logger
 
 log = get_logger(__name__)
 
-# ── Tuning ────────────────────────────────────────────────────────────────────
-# A single grumpy sentence is not a mood. These thresholds are what separate a
-# spike from a state; they are deliberately conservative because a wrong "you seem
-# upset" is far more costly than a missed one.
+# Tuning: one grumpy sentence is not a mood. These thresholds separate a spike from a state, and are
+# conservative because a wrong "you seem upset" costs more than a missed one.
 SUSTAINED_MIN_READS = 3          # reads of one valence before it counts as a state
 SUSTAINED_WINDOW = 8             # how many recent reads we look back over
 SUSTAINED_WINDOW_HOURS = 6.0     # ...and how far back those reads may be

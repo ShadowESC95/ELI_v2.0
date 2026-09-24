@@ -119,11 +119,9 @@ def _gpu_line() -> str:
     ])
     if rc == 0 and out:
         return out.splitlines()[0]
-    # Cross-vendor fallback: this evidence line feeds grounded answers about
-    # the machine's own GPU, and this used to say "unavailable" on every
-    # AMD/Intel/Apple machine -- and on any NVIDIA machine with a driver
-    # hiccup -- even when hardware_profile.detect_hardware() (used
-    # everywhere else) already knows the real card.
+    # Cross-vendor fallback: this evidence line feeds grounded answers about the machine's GPU and
+    # said "unavailable" on every AMD/Intel/Apple machine, and on NVIDIA with a driver hiccup,
+    # although hardware_profile.detect_hardware() already knows the card.
     try:
         from eli.core.hardware_profile import detect_hardware
         hw = detect_hardware()
@@ -561,10 +559,8 @@ def _build_synthesis_prompt(user_text: str, action: str, evidence: str, mode_lab
     )
 
 
-# =============================================================================
-# ELI RESPONSE SURFACE CONTRACT V2
-# Final authority: separates diagnostic evidence from user-facing answer surface.
-# =============================================================================
+# Response surface contract v2: the final authority separating diagnostic evidence from the
+# user-facing answer surface.
 
 import os as _eli_os
 import re as _eli_re
@@ -885,10 +881,9 @@ def _eli_cognition_pipeline_v2(focus: str = "", question: str = "") -> str:
     except Exception:
         log.debug("inference runtime block unavailable", exc_info=True)
 
-    # A question about the inference runtime leads with the NUMBERS, then keeps
-    # the architecture description — both are required. Returning only the
-    # footprint (v2.4.16) dropped "Cognition pipeline" / Router from reports that
-    # the tests and the operator rely on when asking how ELI works at runtime.
+    # A question about the inference runtime leads with the numbers, then keeps the architecture
+    # description; both are required. Returning only the footprint (v2.4.16) dropped "Cognition
+    # pipeline" / Router from reports the tests and operator rely on.
     if focus_l == "inference_runtime":
         parts = []
         if runtime_block:
@@ -1115,10 +1110,7 @@ except Exception:
 
 
 
-# =============================================================================
-# ELI PERSONAL MEMORY NOISE FILTER V3
-# Overrides V2 sampler/name handling without touching routing.
-# =============================================================================
+# Personal memory noise filter v3: overrides the v2 sampler/name handling without touching routing.
 
 _PERSONAL_MEMORY_NOISE_V3 = (
     "Reflection (24h):",
@@ -1240,10 +1232,8 @@ def _eli_known_user_name_v2() -> str:  # type: ignore[override]
     return "the local user"
 
 
-# =============================================================================
-# ELI PERSONAL MEMORY FACT-CLAUSE FILTER V4
-# Replaces broad row sampling with stable user-fact extraction.
-# =============================================================================
+# Personal memory fact-clause filter v4: replaces broad row sampling with stable user-fact
+# extraction.
 
 _PERSONAL_MEMORY_ROW_REJECT_V4 = (
     "conversation volume:",
@@ -1393,10 +1383,8 @@ def _eli_memory_fact_score_v4(s: str, source_table: str = "") -> int:
     return score
 
 
-# =============================================================================
-# ELI PERSONAL MEMORY DURABLE PROFILE FILTER V5
-# Rejects transient interaction facts and keeps durable user-profile facts only.
-# =============================================================================
+# Personal memory durable-profile filter v5: rejects transient interaction facts and keeps durable
+# user-profile facts only.
 
 _PERSONAL_MEMORY_TRANSIENT_REJECT_V5 = (
     "binary file:",
@@ -1565,11 +1553,8 @@ def _eli_memory_fact_score_v5(s: str, source_table: str = "") -> int:
     return score
 
 
-# =============================================================================
-# ELI PERSONAL MEMORY CLAUSE-FIRST PROFILE FILTER V6
-# Fixes V5 over-filtering by extracting valid durable clauses before rejecting
-# mixed/noisy rows. Also reads durable profile files when present.
-# =============================================================================
+# Personal memory clause-first profile filter v6: fixes v5 over-filtering by extracting valid
+# durable clauses before rejecting mixed/noisy rows. Also reads durable profile files when present.
 
 _PERSONAL_MEMORY_HARD_ROW_REJECT_V6 = (
     "runtime truth report:",
@@ -1863,11 +1848,8 @@ def _eli_sample_memory_texts_v2(limit: int = 80) -> list[str]:  # type: ignore[o
     return clean
 
 
-# =============================================================================
-# ELI DYNAMIC USER PROFILE FILTER V8
-# Portable profile surface: no shipped/static user profile files.
-# Reads durable facts from the local installation's own DB/memory only.
-# =============================================================================
+# Dynamic user profile filter v8: portable profile surface with no shipped/static user profile
+# files. Reads durable facts only from the local installation's own DB/memory.
 
 import getpass as _eli_getpass
 import re as _eli_v8_re
@@ -2426,11 +2408,8 @@ def render_action(
 
     return ""
 
-# =============================================================================
-# ELI DYNAMIC PROFILE CLAUSE EXTRACTOR V10
-# Recovers durable user-preference clauses from noisy rows without preserving
-# prompt/image/runtime wrappers.
-# =============================================================================
+# Dynamic profile clause extractor v10: recovers durable user-preference clauses from noisy rows
+# without keeping prompt/image/runtime wrappers.
 
 import re as _eli_v10_re
 
@@ -2678,18 +2657,14 @@ def _eli_v10_personal_memory_answer(mode_label: str = "") -> str:
     return "\n".join(lines).strip()
 
 
-# [DEAD CODE REMOVED — A1] The v10 layer captured _ELI_V10_PREVIOUS_RENDER_ACTION
-# and defined _eli_v14_render_action_legacy, but it never rebound `render_action`
-# to that function (the next layer, v11, captured v9's render_action). So the
-# function was orphaned: defined, never installed, never called — and its capture
-# was used only inside it. Removed after verifying render_action output is
-# byte-identical across all actions/modes (oracle). The live delegation chain is
-# unchanged.
+# Dead code removed: the v10 layer captured _ELI_V10_PREVIOUS_RENDER_ACTION and defined
+# _eli_v14_render_action_legacy but never rebound `render_action` to it (v11 captured v9's), so
+# it was never installed or called. render_action output was byte-identical across all
+# actions/modes after removal, and the live delegation chain is unchanged.
 
-# Hard rules I enforce on the response surface here: never leak the user's real name or
-# OS account name into anything user-facing, redact home paths, let quick mode use the
-# instant deterministic surfaces, and push non-quick modes through the normal
-# persona/cognition path instead.
+# Hard rules I enforce on the response surface: never leak the user's real name or OS account name
+# into anything user-facing, redact home paths, let quick mode use the instant deterministic
+# surfaces, and push non-quick modes through the normal persona/cognition path.
 
 import getpass as _eli_v11_getpass
 import re as _eli_v11_re
@@ -2896,11 +2871,10 @@ _ELI_V11_PREVIOUS_INSTALL = globals().get("install")
 
 
 
-# Tightens the layer above. Quick mode can still use the short deterministic surfaces,
-# but non-quick identity/runtime actions must NOT get handed back to the older wrappers —
-# those let the model hallucinate its role, model size, names or paths. User identity is
-# never exposed, home paths are redacted, and anything coming off a fallback model path
-# gets post-sanitised before it goes out.
+# Tightens the layer above. Quick can still use the short deterministic surfaces, but non-quick
+# identity/runtime actions must not go back to the older wrappers, which let the model
+# hallucinate its role, model size, names or paths. User identity is never exposed, home paths
+# are redacted, and anything from a fallback model path is sanitised before it goes out.
 
 import getpass as _eli_v12_getpass
 import re as _eli_v12_re
@@ -3182,10 +3156,10 @@ _ELI_V12_PREVIOUS_INSTALL = globals().get("install")
 
 
 
-# Fixes a surface issue in the layer above. Quick mode gets a short deterministic answer
-# only; the deeper modes get a proper persona answer built from the exact deterministic
-# runtime evidence. No personal-name exposure, no "You are <user> local user" prose, and
-# I don't hand SELF_REPORT/runtime-identity surfaces off to the model.
+# Fixes a surface issue in the layer above. Quick gets a short deterministic answer; deeper
+# modes get a persona answer built from the exact deterministic runtime evidence. No personal
+# name exposure, no "You are <user> local user" prose, and SELF_REPORT/runtime-identity
+# surfaces aren't handed to the model.
 
 import re as _eli_v13_re
 
@@ -3402,10 +3376,10 @@ _ELI_V13_SURFACE_ACTIONS = set(globals().get("_ELI_V12_SURFACE_ACTIONS", set()))
 
 
 
-# Quick-only bypass rules. The direct deterministic bypass is allowed ONLY in quick mode —
-# deeper modes have to run through CognitiveEngine.process / the persona pipeline. I
-# post-validate runtime/identity answers so nothing hallucinated slips out, and the
-# redaction is path/name-safe without mangling normal prose. No "<user>" in prose.
+# Quick-only bypass rules. The direct deterministic bypass is allowed only in quick mode;
+# deeper modes go through CognitiveEngine.process / the persona pipeline. Runtime/identity
+# answers are post-validated so nothing hallucinated slips out, and redaction is path/name-safe
+# without mangling prose. No "<user>" in prose.
 
 import getpass as _eli_v14_getpass
 import json as _eli_v14_json
@@ -3790,10 +3764,8 @@ def install(CognitiveEngine):  # type: ignore[override]
     return CognitiveEngine
 
 
-# =============================================================================
-# ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1
-# Immutable policy engine that replaces stacked render_action overrides.
-# =============================================================================
+# Deterministic grounding policy engine (ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1): an immutable
+# engine that replaces the stacked render_action overrides.
 try:
     if not globals().get("_ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1"):
         _ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1 = True

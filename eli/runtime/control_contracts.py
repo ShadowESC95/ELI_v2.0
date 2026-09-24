@@ -17,10 +17,10 @@ CONTROL_ACTIONS = {
     "EXPLAIN_LAST_RESPONSE",
     "EXPLAIN_MEMORY_RUNTIME",
     "EXPLAIN_COGNITION_RUNTIME",
-    # EXPLAIN_ALL_REASONING_MODES: executor reads reasoning_modes.py and returns
-    # the full multi-paragraph mode descriptions. Must bypass quick-mode 512-token
-    # GGUF cap by going through the control evidence path (direct_evidence_actions
-    # inside finalise_control_result returns the executor text unchanged).
+    # EXPLAIN_ALL_REASONING_MODES: the executor reads reasoning_modes.py and returns the full
+    # multi-paragraph descriptions. It has to bypass the quick-mode 512-token GGUF cap, so it goes
+    # through the control evidence path (direct_evidence_actions in finalise_control_result returns
+    # the executor text unchanged).
     "EXPLAIN_ALL_REASONING_MODES",
     "RUNTIME_AUDIT",
     "IMPORT_AUDIT",
@@ -85,10 +85,9 @@ _BAD_PHRASES = (
     "i don't have access to the actual codebase",
     "confidentiality reasons",
     "no need for you to worry",
-    # False self-denial: ELI disowning its OWN grounded memory when pushed back
-    # on. Observed live — it reported real stored profile fields, the user said
-    # "wrong", and it retracted the lot as "likely a hallucination / I have no
-    # access to your data". Both halves are false: the facts came out of
+    # False self-denial: ELI disowning its own grounded memory when pushed back on. It reported
+    # real stored profile fields, the user said "wrong", and it retracted the lot ("likely a
+    # hallucination / I have no access to your data"). Both halves are false, the facts came from
     # user.sqlite3. Denying a real capability is as damaging as inventing one.
     "i don't have access to your personal files",
     "i do not have access to your personal files",
@@ -178,12 +177,10 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
     if re.search(r"\b(confidence in (?:your|my) last response|which agents contributed|what agents contributed|last response trace|previous response trace|last turn trace)\b", low):
         return "EXPLAIN_LAST_RESPONSE"
 
-    # Persona/identity-EVOLUTION questions ("how has your persona/identity
-    # evolved/changed/been defined") are grounded self-report — answer from real
-    # identity grounding, not generic change-chat. This MUST run before the
-    # _is_change_query suppression below: that guard matches "evolved/changed"
-    # and would otherwise force these specific questions to CHAT, even though the
-    # SELF_REPORT regex already lists them (an internal contradiction).
+    # Persona/identity-evolution questions ("how has your persona/identity evolved/changed") are
+    # grounded self-report: answer from real identity grounding, not change-chat. Must run before
+    # the _is_change_query suppression below, which matches "evolved/changed" and would force them
+    # to CHAT although the SELF_REPORT regex already lists them.
     if re.search(
         r"\b(?:persona|identity)\b.{0,40}\b(?:evolv(?:ed|ing)|chang(?:ed|ing)|"
         r"defin(?:ed|ing)|develop(?:ed|ing)|grown?)\b",
@@ -226,10 +223,9 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
         r"\b("
         r"who are you"
         r"|who you are"
-        # PHASE16C_IDENTITY_WHAT_ARE_YOU_BOUNDARY_FIX
-        # Match identity questions such as "what are you?" or
-        # "what are you exactly?", but do not match conversational
-        # continuations such as "what are you talking about?".
+        # PHASE16C_IDENTITY_WHAT_ARE_YOU_BOUNDARY_FIX: match identity questions ("what are you?",
+        # "what are you exactly?") but not conversational continuations ("what are you talking
+        # about?").
         r"|what are you(?=\s*(?:[?!.,]*\s*$|(?:exactly|really|actually)[?!.,]*\s*$))"
         r"|do you know who you are"
         r"|tell me about yourself"
@@ -303,11 +299,10 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
     if re.search(r"\b(run a full runtime audit|run full runtime audit|runtime audit|system audit|health check|diagnostics?|what'?s actually broken|what is actually broken)\b", low):
         return "RUNTIME_AUDIT"
 
-    # META_DIAGNOSTIC: clarification requests about ELI's own background activity.
-    # The bare "what updates?" branch requires a disambiguation word (talking about,
-    # mean, referring to, doing, going on) so "What updates have you performed?"
-    # or "What updates and checks have you performed as of late?" route to SELF_REPORT
-    # instead of being misidentified as a confused clarification request.
+    # META_DIAGNOSTIC: clarification requests about ELI's own background activity. The bare "what
+    # updates?" branch needs a disambiguation word (talking about, mean, referring to, doing, going
+    # on) so "What updates have you performed?" routes to SELF_REPORT and isn't misread as a
+    # confused clarification.
     if re.search(
         r"\b("
         r"what (?:updates?|changes?|routine checks?)\s+(?:are you|do you mean|did you mean|is that|is this|was that)"
@@ -344,10 +339,9 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
     if act in CONTROL_ACTIONS:
         return act
 
-    # === PHASE15_REDISTRIBUTABLE_META_DIAGNOSTIC_GATE ===
-    # Do not convert ordinary conversational confusion into internal diagnostics.
-    # META_DIAGNOSTIC is reserved for prompts that explicitly refer to ELI's
-    # response/output/runtime/tooling and ask for fault explanation or tracing.
+    # PHASE15_REDISTRIBUTABLE_META_DIAGNOSTIC_GATE: don't turn ordinary conversational confusion
+    # into internal diagnostics. META_DIAGNOSTIC is for prompts that explicitly refer to ELI's
+    # response, output, runtime or tooling and ask for fault explanation or tracing.
     _eli_phase15_meta_referent = bool(re.search(
         r"\b(response|answer|output|runtime|pipeline|router|executor|orchestrator|agent|tool|memory|browser|web|online|search|diagnostic|audit|system|eli)\b",
         low,
@@ -546,11 +540,9 @@ def _trace_text(trace: Dict[str, Any]) -> str:
     grounding = trace.get("grounding_confidence")
     conf_str = "" if agg_val is None else f"{agg_val:.2f}"
 
-    # Lead with the MESSAGE. "What was the last message you sent, explain it" was
-    # answered with request ids, agent names and confidence scores and never once
-    # said what the message was — because the text was not recorded at all, only
-    # response_chars. It is recorded now, so quote it first and let the telemetry
-    # be the supporting detail it was always meant to be.
+    # Lead with the message. "What was the last message you sent, explain it" got request ids, agent
+    # names and confidence scores and never the message, because only response_chars was recorded.
+    # It's recorded now, so quote it first and let the telemetry support it.
     head: list[str] = []
     _said = str(trace.get("response_text") or "").strip()
     if _said:
@@ -688,10 +680,9 @@ def build_control_evidence(engine: Any, action: Any, args: Dict[str, Any] | None
     if act == "EXPLAIN_LAST_RESPONSE":
         prev = _last_trace(engine)
         text = _trace_text(prev)
-        # Attach REAL per-cycle telemetry (agent_dispatches timings + runtime_events)
-        # so "give me the raw metric breakdowns / agent logs for that cycle" is
-        # answered from actual logged data. Without this the evidence was only the
-        # trace summary, so ELI wrongly concluded it had "no logs" and confabulated.
+        # Attach real per-cycle telemetry (agent_dispatches timings + runtime_events) so "give me the
+        # raw metric breakdowns / agent logs for that cycle" is answered from logged data. Without it
+        # the evidence was just the trace summary, so ELI concluded it had "no logs" and made things up.
         telemetry = _runtime_telemetry_text()
         if telemetry:
             text = f"{text}\n\n{telemetry}"
@@ -934,12 +925,10 @@ def _eli_phase19_mutation_claim_supported(out: str, ev: str) -> bool:
 
 # === END ELI_PHASE19_CONTROL_TRUTH_LOCK_V1 ===
 
-# Evidence renders these under a machine-style key (n_gpu_layers, model_path,
-# user_db...) while prose uses the human phrase ("gpu layers") — a plain
-# substring check would reject correct answers on spelling alone, which is why
-# these terms used to be blanket-exempted below. That exemption also let the
-# model state them with no evidence backing at all; checking every known
-# spelling closes that hole without reintroducing the false positives.
+# Evidence renders these under a machine-style key (n_gpu_layers, model_path, user_db) while
+# prose uses the human phrase ("gpu layers"), so a plain substring check rejected correct answers
+# on spelling. That's why these terms were blanket-exempted below, which also let the model state
+# them with no evidence. Checking every known spelling closes that hole without false positives.
 _CONCRETE_TERM_ALIASES: Dict[str, tuple] = {
     "context size": ("context size", "n_ctx", "context_size"),
     "gpu layers": ("gpu layers", "n_gpu_layers", "gpu_layers"),
@@ -1162,14 +1151,11 @@ def finalise_control_result(engine: Any, user_input: Any, action: str, evidence_
         "GAZE_STATUS",
         "GAZE_CALIBRATE",
     }
-    # Mode contract:
-    #   * Quick mode → engine passes synthesized_text="" so compact (deterministic
-    #     evidence) becomes the answer. Quick is evidence-final by design.
-    #   * Non-quick modes (CoT/ToT/Self-C/Constitutional) → engine runs a
-    #     dedicated single-call control synthesis with evidence as immutable
-    #     ground truth, then the governor validates. Synthesized text that
-    #     passes the governor is the answer; if it failed/was empty, compact
-    #     is the fallback.
+    # Mode contract: quick passes synthesized_text="" so the compact deterministic evidence is the
+    # answer (evidence-final by design). Non-quick modes (CoT/ToT/Self-C/Constitutional) run a
+    # single-call control synthesis with the evidence as immutable ground truth, then the governor
+    # validates. Synthesis that passes is the answer, compact is the fallback if it failed or was
+    # empty.
     if act in direct_evidence_actions and not final_text:
         final_text = compact
 
@@ -1183,11 +1169,9 @@ def finalise_control_result(engine: Any, user_input: Any, action: str, evidence_
         source = str(evidence_result.get("evidence_source") or "executor")
         agents = ["introspection"] if "runtime" in source or "introspection" in source else [source]
 
-    # Confidence: ONLY the bus-aggregated value. No synthetic fallback —
-    # if the bus produced no measurement, label it 'unmeasured' rather
-    # than fabricate 0.96 from `ok`. The 0.96/0.25 stub previously here
-    # was responsible for the "very high (0.96)" label appearing on
-    # turns where no real agent evidence was collected.
+    # Confidence: only the bus-aggregated value, with no synthetic fallback. If the bus produced no
+    # measurement, label it 'unmeasured' rather than invent 0.96 from `ok` (that stub put a "very
+    # high (0.96)" label on turns with no real agent evidence).
     raw_conf = getattr(bus_result, "aggregated_confidence", None)
     if raw_conf is None:
         confidence = None
@@ -1222,10 +1206,9 @@ def finalise_control_result(engine: Any, user_input: Any, action: str, evidence_
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
-    # Keep the structured `report` and full `meta` blocks INSIDE the envelope
-    # for downstream telemetry/learning, but ensure `content`/`response` are
-    # always plain text so any caller that str()s the result will still emit
-    # the user-facing answer rather than the entire envelope.
+    # Keep the structured `report` and full `meta` inside the envelope for telemetry and learning,
+    # but make `content`/`response` always plain text so a caller that str()s the result still emits
+    # the user-facing answer and not the whole envelope.
     if not final_text:
         final_text = json.dumps(
             {

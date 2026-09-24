@@ -30,10 +30,10 @@ def classify_diagnostic_action(text: str) -> Optional[str]:
     if not low:
         return None
 
-    # A request to PRODUCE an artifact about ELI's internals ("generate/write a
-    # document/report about your agent bus") is a generative task, NOT a diagnostic
-    # status dump — never classify it here, or this gate swallows it before it can
-    # route to GENERATE_DOCUMENT (eval-caught: doc-gen returned the agent-bus status).
+    # A request to produce an artifact about ELI's internals ("generate/write a document/report
+    # about your agent bus") is a generative task, not a diagnostic status dump. Never classify it
+    # here or this gate swallows it before GENERATE_DOCUMENT (doc-gen returned the agent-bus
+    # status).
     if re.search(
         r"\b(generate|create|write|make|draft|produce|compose|prepare|build)\b"
         r".{0,30}\b(document|doc|report|essay|article|paper|write-?up|brief|memo|"
@@ -342,10 +342,9 @@ def handle_diagnostic_action(action: str, text: str, engine: Any = None) -> Opti
         return _explain_last_response(engine)
 
     if action == "EXPLAIN_COGNITION_RUNTIME":
-        # Return None so quick-mode falls through to the LLM pipeline.
-        # The static _cognition_report() only describes the bypass mechanism
-        # itself — not the actual 12-stage pipeline the user is asking about.
-        # Non-quick modes use gather_evidence() + LLM synthesis (correct path).
+        # Return None so quick mode falls through to the LLM pipeline. The static _cognition_report()
+        # only describes the bypass mechanism, not the actual 12-stage pipeline the user asks about.
+        # Non-quick modes use gather_evidence() plus LLM synthesis, the right path.
         return None
 
     if action == "IMPORT_AUDIT":

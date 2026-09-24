@@ -31,11 +31,10 @@ _LAST_FAILURE = None
 YES_RE = re.compile(r"^\s*(yes|y|yeah|yep|confirm|go ahead|do it|proceed|install it|download it)\s*$", re.I)
 NO_RE = re.compile(r"^\s*(no|n|cancel|stop|abort|never mind|dont|don't)\s*$", re.I)
 
-# Fuzzy word-in-input matchers — tolerate trailing words ("yes please"),
-# leading politeness ("ok sure, go ahead"), and STT noise ("confirmed yes",
-# "namagem1 yes"). The anchored YES_RE/NO_RE above stay strict for the
-# install/download confirm flows that rely on exact single-word answers; these
-# are the lenient variant for free-form conversational affirmations.
+# Fuzzy word-in-input matchers: tolerate trailing words ("yes please"), leading politeness
+# ("ok sure, go ahead") and STT noise ("confirmed yes"). The anchored YES_RE/NO_RE above stay
+# strict for the install/download confirm flows that need exact single-word answers; these are
+# the lenient variant for free-form affirmations.
 _YES_WORD = re.compile(r"\b(yes|yeah|yep|yup|sure|ok|okay|confirm|confirmed|go ahead|go for it|do it|please do|proceed|sounds good|go|affirmative)\b", re.I)
 _NO_WORD = re.compile(r"\b(no|nope|nah|cancel|stop|abort|never mind|nevermind|dont|don'?t|leave it|skip it)\b", re.I)
 
@@ -751,9 +750,8 @@ def build_install_candidates(name: str) -> list[dict]:
             candidates.append({
                 "source": "apt",
                 # DEBIAN_FRONTEND=noninteractive so packages with a debconf prompt
-                # (e.g. wireshark-common's "should non-superusers capture packets?"
-                # dialog) take their default instead of blocking on a TUI the user
-                # cannot navigate in the spawned terminal.
+                # (wireshark-common's "should non-superusers capture packets?") take their default
+                # instead of blocking on a TUI the user can't navigate in the spawned terminal.
                 "command": (
                     f"sudo DEBIAN_FRONTEND=noninteractive apt-get update && "
                     f"sudo DEBIAN_FRONTEND=noninteractive apt-get install -y {apt_pkg}"
@@ -1620,12 +1618,10 @@ def try_handle_query(text: str) -> str | None:
     if not raw:
         return None
 
-    # ---- Pending-repair confirmation intercept --------------------------
-    # Consume YES/NO answers against any pending repair state before falling
-    # through to open/check/install dispatch below.
-    # Uses both exact match (YES_RE/NO_RE) and fuzzy word-in-input matching
-    # (is_affirmation/is_negation) to tolerate STT noise like "confirmed yes"
-    # or "namagem1 yes".
+    # Pending-repair confirmation intercept: consume YES/NO answers against pending repair state
+    # before falling through to open/check/install dispatch. Uses exact match (YES_RE/NO_RE) and
+    # fuzzy word-in-input matching (is_affirmation/is_negation) to tolerate STT noise like
+    # "confirmed yes".
     pending = get_pending()
     if pending:
         stage = str(pending.get("stage") or "").strip().lower()
@@ -1634,10 +1630,9 @@ def try_handle_query(text: str) -> str | None:
         # YES takes priority over NO when both appear (e.g. "yes no wait")
         if _is_yes and stage in {"offered", "pending", "proposed"}:
             plan = pending.get("plan") or {}
-            # Media-tool installs already asked "download/install it?" — first
-            # yes must run apt/pip, not a second preview the 3B will narrate
-            # instead of executing (Jess Iris Xe: "I'll confirm the repair…"
-            # while mpv never installed).
+            # Media-tool installs already asked "download/install it?", so the first yes must run
+            # apt/pip, not a second preview the 3B narrates instead of executing ("I'll confirm the
+            # repair..." while mpv never installed).
             if str(plan.get("domain") or "").lower() == "media_tool":
                 return execute_pending_plan()
             with _LOCK:
@@ -1651,11 +1646,9 @@ def try_handle_query(text: str) -> str | None:
             clear_pending()
             return "Cancelled."
 
-    # ---- "install X" / "download X" explicit commands ------------------
-    # Handles both:
-    #   (a) user confirming a pending offer by naming the app directly
-    #       e.g. "install netflix" after ELI asked about installing netflix
-    #   (b) fresh direct install request with no prior pending state
+    # "install X" / "download X" explicit commands: (a) the user confirming a pending offer by
+    # naming the app ("install netflix" after ELI asked about it), and (b) a fresh direct install
+    # request with no pending state.
     _idm = re.match(r"^\s*(install|download|get|setup|set up)\s+(.+?)\s*$", raw, re.I)
     if _idm:
         subject = extract_app_name(_idm.group(2).strip())

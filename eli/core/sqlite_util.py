@@ -38,10 +38,9 @@ def apply_pragmas(conn: sqlite3.Connection, *, db_path: str | None = None,
     Returns the journal mode actually in effect ("wal" or "delete"). Never raises
     on a filesystem that rejects WAL — that is the whole point.
     """
-    # synchronous first: it applies in any journal mode, and setting it to NORMAL
-    # before the WAL write-probe below means that probe's COMMIT is fsync-free on a
-    # healthy WAL system (WAL+NORMAL only fsyncs at checkpoint), so this stays cheap
-    # on the hot path.
+    # Set synchronous first: it applies in any journal mode, and NORMAL before the WAL write-probe
+    # makes that probe's COMMIT fsync-free on a healthy WAL system, so it stays cheap on the hot
+    # path.
     if synchronous:
         try:
             conn.execute(f"PRAGMA synchronous={synchronous};")

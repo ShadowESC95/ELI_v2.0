@@ -34,11 +34,9 @@ _CATCHUP_DELAY = 180.0  # missed one-shot tasks run this many seconds after boot
                         # catch-up never races the boot load for VRAM (recurring jobs reschedule
                         # to their next window instead; see restore_scheduled_tasks)
 
-# ── VRAM interlock ──────────────────────────────────────────────────────────
-# A background job must never trigger a SEPARATE / early model load while the main
-# (GUI) model hasn't claimed its VRAM yet — that starves VRAM and forces the main
-# model onto CPU (the boot-race bug). Every job waits for the main model to be loaded
-# before doing heavy work, so it shares that model instead of cold-loading another.
+# VRAM interlock: a background job must never trigger a separate or early model load while the
+# main (GUI) model hasn't claimed its VRAM, which starves VRAM and forces the main model onto
+# CPU (the boot-race bug). Every job waits for the main model to load and shares it.
 _MODEL_WAIT_TIMEOUT = 900.0  # wait up to 15 min for the main model, then skip (re-arms nightly)
 _MODEL_WAIT_POLL = 15.0      # poll interval while waiting
 # Foreground interlock — a scheduled job must never call eng.process() (OPEN_APP, etc.)
@@ -387,12 +385,10 @@ def _arm(pid: str, request: str, when_ts: float, when_spec: str, kind: str,
         meta["project"] = project  # Phase 3: the project that owns this task
 
     def worker(req, *a, **k):
-        # ── VRAM interlock ──
-        # Wait for the main (GUI) model to be loaded before running. This prevents a
-        # background job from triggering a separate/early cold model load that starves
-        # VRAM and forces the main model onto CPU. Once the main model is up, this job
-        # shares it (single inference broker). If it never loads within the window, skip
-        # (a recurring job re-arms for its next nightly slot via _on_done).
+        # VRAM interlock: wait for the main (GUI) model to be loaded before running, so a background
+        # job can't trigger a separate early cold load that starves VRAM. Once it's up the job shares it
+        # (single inference broker). If it never loads within the window, skip (a recurring job re-arms
+        # for its next nightly slot via _on_done).
         try:
             from eli.cognition.gguf_inference import is_loaded as _model_loaded
         except Exception:
@@ -477,10 +473,9 @@ def schedule_request(request: str, when_spec: str = "", kind: Optional[str] = No
     except Exception:
         project = ""
 
-    # Dedup recurring jobs: a standing nightly job (testgen/eval/report) gets re-armed
-    # on every boot AND when it completes — without this it accumulates duplicate copies
-    # in the store (observed: 4× testgen / 3× eval), so several heavy jobs would pile up
-    # at 02:00. Keep exactly ONE entry per (kind, request) for recurring tasks.
+    # Dedup recurring jobs: a standing nightly job (testgen/eval/report) is re-armed on every boot
+    # and on completion, so it accumulated duplicates (4x testgen, 3x eval) and several heavy jobs
+    # piled up at 02:00. Keep exactly one entry per (kind, request) for recurring tasks.
     if recurring:
         try:
             with _STORE_LOCK:
@@ -544,11 +539,10 @@ def restore_scheduled_tasks() -> int:
             catchup = wt <= now
             if catchup:
                 if _recurring:
-                    # A missed RECURRING job (the nightly testgen/eval/report jobs) must
-                    # NOT catch up on boot: it loads the GGUF model and runs minutes-long
-                    # inference while the GUI's own model is still loading, starving VRAM
-                    # and forcing the main model onto CPU. Reschedule to its next future
-                    # occurrence (parse_when defaults to the next 02:00 overnight slot).
+                    # A missed recurring job (the nightly testgen/eval/report jobs) must not catch up on boot: it
+                    # loads the GGUF and runs minutes of inference while the GUI's own model is still loading,
+                    # starving VRAM and forcing the main model onto CPU. Reschedule to its next future occurrence
+                    # (parse_when defaults to the next 02:00 slot).
                     try:
                         wt = parse_when(_when_spec)
                     except Exception:
