@@ -1238,8 +1238,9 @@ class LocalModelManager:
                 log.debug(
                     f"[GUI][LOAD] your settings exceed the measured fit "
                     f"({'; '.join(_proof_bits)}) — verifying them on this "
-                    f"machine before loading (one-off, then cached; set "
-                    f"ELI_LOAD_PROBE=0 to skip)")
+                    f"machine before loading (a verdict is cached; a probe that "
+                    f"times out is remembered too, so it is not repeated every launch; "
+                    f"set ELI_LOAD_PROBE=0 to skip)")
             if gpu_offload_supported is False:
                 # Honour user settings as a fallback rung, not attempt 1 — RAM fit leads.
                 _add_attempt("requested", _base_ctx, 0, _base_batch, front=False)
@@ -1389,16 +1390,25 @@ class LocalModelManager:
                     # 2.2.8 launch sat on "attempt 1/13" for three and a half
                     # minutes with nothing on screen, and looked hung.
                     try:
-                        from eli.core.load_probe import probe_timeout_for as _lp_budget
+                        from eli.core.load_probe import (
+                            budget_is_ceiling_cut as _lp_cut,
+                            probe_timeout_for as _lp_budget,
+                        )
                         _probe_budget = _lp_budget(str(path_obj), int(_cand["n_ctx"]))
+                        _probe_cut = _lp_cut(str(path_obj), int(_cand["n_ctx"]))
                     except Exception:
                         log.debug("[GUI][LOAD] probe budget lookup failed", exc_info=True)
                         _probe_budget = 30.0
+                        _probe_cut = False
                     log.info(
                         f"[GUI][LOAD] verifying your settings on this machine "
                         f"(ctx={_cand['n_ctx']} gpu_layers={_cand['n_gpu_layers']} "
                         f"batch={_cand['n_batch']}) — up to "
-                        f"{_probe_budget:.0f}s this once, then remembered…")
+                        f"{_probe_budget:.0f}s"
+                        + (" (this model is large enough that the probe is expected "
+                           "to hit that limit; if it does, that is remembered and "
+                           "not repeated on later launches)"
+                           if _probe_cut else " this once, then remembered…"))
                     try:
                         from eli.core import load_probe as _lp
                         _verdict, _why = _lp.probe_verdict(

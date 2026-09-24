@@ -130,7 +130,7 @@ def test_a_probe_that_cannot_run_does_not_override_the_operator():
     (no subprocess, no llama_cpp in the child) must not be permanently capped."""
     src = LOADER.read_text(encoding="utf-8")
     i = src.index('if _cand.get("verify"):')
-    window = src[i:i + 2600]
+    window = src[i:i + 3400]
     assert '_verdict, _why = "unavailable"' in window, \
         "an unavailable probe must leave the operator's settings standing"
     # ...and 'unavailable' must not be one of the verdicts that falls through.
@@ -141,7 +141,7 @@ def test_a_probe_that_cannot_run_does_not_override_the_operator():
 def test_the_failure_message_says_nothing_was_altered():
     src = LOADER.read_text(encoding="utf-8")
     i = src.index('if _cand.get("verify"):')
-    window = src[i:i + 4200].lower()
+    window = src[i:i + 5000].lower()
     assert "not being altered" in window
 
 

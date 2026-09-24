@@ -104,12 +104,32 @@ def probe_timeout_for(model_path: str, n_ctx: int) -> float:
     except Exception:
         log.debug("load_probe: model size unreadable for timeout scaling", exc_info=True)
         size_gb = 0.0
-    budget = (
+    budget = _uncapped_budget(size_gb, n_ctx)
+    return float(min(_TIMEOUT_CEILING_S, max(_TIMEOUT_FLOOR_S, budget)))
+
+
+def _uncapped_budget(size_gb: float, n_ctx: int) -> float:
+    return (
         _TIMEOUT_BASE_S
         + size_gb * _TIMEOUT_PER_GB_S
         + (max(0, int(n_ctx)) / 1000.0) * _TIMEOUT_PER_1K_CTX_S
     )
-    return float(min(_TIMEOUT_CEILING_S, max(_TIMEOUT_FLOOR_S, budget)))
+
+
+def budget_is_ceiling_cut(model_path: str, n_ctx: int) -> bool:
+    """True when the probe's own estimate exceeds the ceiling it is held to.
+
+    Such a probe is expected to be cut off, so the operator is told that up front
+    instead of "up to Ns this once", and a timeout is remembered long-term (it will
+    time out the same way next launch) rather than for an hour.
+    """
+    if (os.environ.get("ELI_LOAD_PROBE_TIMEOUT", "") or "").strip():
+        return False
+    try:
+        size_gb = Path(model_path).stat().st_size / (1024 ** 3)
+    except Exception:
+        return False
+    return _uncapped_budget(size_gb, n_ctx) > _TIMEOUT_CEILING_S
 
 
 def _cache_path() -> Path:
@@ -202,7 +222,13 @@ def _recently_timed_out(model_path: str, n_ctx: int, n_gpu_layers: int,
     entry = _load_cache().get(_timeout_key(model_path, n_ctx, n_gpu_layers, n_batch))
     if not isinstance(entry, dict):
         return False
-    return (time.time() - float(entry.get("ts", 0) or 0)) < _TIMEOUT_MEMO_TTL_S
+    # A timeout at a ceiling-cut budget is not a transient slowness: the same
+    # config gets the same budget and the same cut-off on every launch, and the key
+    # already carries the model file's size and the GPU identity, so it stops
+    # applying when either changes. Re-paying the full ceiling every hour (i.e.
+    # every fresh session) bought nothing -- it cost 3 minutes per launch, live.
+    ttl = _DEFAULT_TTL_S if entry.get("ceiling_cut") else _TIMEOUT_MEMO_TTL_S
+    return (time.time() - float(entry.get("ts", 0) or 0)) < ttl
 
 
 def _record_timeout(model_path: str, n_ctx: int, n_gpu_layers: int,
@@ -210,6 +236,7 @@ def _record_timeout(model_path: str, n_ctx: int, n_gpu_layers: int,
     cache = _load_cache()
     cache[_timeout_key(model_path, n_ctx, n_gpu_layers, n_batch)] = {
         "ts": time.time(),
+        "ceiling_cut": bool(budget_is_ceiling_cut(model_path, n_ctx)),
         "model": str(model_path),
         "n_ctx": int(n_ctx),
         "n_gpu_layers": int(n_gpu_layers),
