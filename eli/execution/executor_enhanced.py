@@ -2891,6 +2891,11 @@ def self_test() -> Dict[str, Any]:
         results["platform_report"] = platform_capability_report(verbose=True)
     except Exception:
         log.debug("self_test platform capability probe failed", exc_info=True)
+    try:
+        from eli.perception.desktop_capabilities import runtime_tools_report
+        results["desktop_control"] = runtime_tools_report()
+    except Exception:
+        log.debug("self_test desktop control probe failed", exc_info=True)
 
     if backend == "gguf":
         gguf_run = _self_test_gguf(model_label)

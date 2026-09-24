@@ -44,6 +44,7 @@ class AwarenessState:
         self.platform_report: str = ""
         self.media_capabilities: Dict[str, Any] = {}
         self.hardware_capabilities: Dict[str, Any] = {}
+        self.desktop_control: str = ""
         self._cap_sync = None
         self._code_mon = None
 
@@ -145,6 +146,8 @@ class AwarenessState:
         if self.platform_report:
             lines.append("\nPlatform capabilities:")
             lines.append(self.platform_report)
+        if self.desktop_control:
+            lines.append(f"Desktop control: {self.desktop_control}")
         lines.append(f"\nBoot time: {self.boot_time:.2f}s")
         return "\n".join(lines)
 
@@ -251,6 +254,11 @@ def boot_awareness(
         state.media_capabilities = detect_media_capabilities()
         state.hardware_capabilities = detect_hardware_capabilities()
         state.platform_report = platform_capability_report(verbose=True)
+        try:
+            from eli.perception.desktop_capabilities import format_runtime_tools
+            state.desktop_control = format_runtime_tools()
+        except Exception as exc:
+            log.debug("awareness: desktop control probe failed: %s", exc)
         if not quiet:
             for line in state.platform_report.splitlines():
                 log.info("awareness: %s", line)

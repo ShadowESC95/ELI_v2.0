@@ -161,8 +161,24 @@ def runtime_tools_report() -> dict[str, Any]:
     }
 
 
+def format_runtime_tools(report: dict[str, Any] | None = None) -> str:
+    """One line a human (or the briefing) can read: what this host can do on the desktop."""
+    r = report or runtime_tools_report()
+    inp = r.get("input") or {}
+    shot = r.get("screenshot") or {}
+    loc = (r.get("locate") or {}).get("backends") or []
+    parts = [
+        f"input via {inp.get('primary', 'none')}"
+        + (f" (fallback {inp['fallback']})" if inp.get("fallback") not in (None, "none", inp.get("primary")) else ""),
+        f"screenshots via {shot.get('primary', 'none')}",
+        "find-on-screen via " + (", ".join(loc) if loc else "none"),
+    ]
+    return f"{r.get('platform', '?')}/{r.get('display_server', '?')}: " + "; ".join(parts)
+
+
 __all__ = [
     "display_server",
+    "format_runtime_tools",
     "input_backend",
     "locate_backend",
     "runtime_tools_report",
