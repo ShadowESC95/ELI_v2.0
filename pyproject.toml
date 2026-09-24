@@ -247,6 +247,7 @@ eli = "eli.gui.app:main"
 "eli-v2.0" = "eli.gui.app:main"
 eli-cli = "eli.gui.app:main"
 eli-mcp = "eli.integrations.mcp.server:main"
+eli-jobs = "eli.planning.jobqueue_cli:main"
 
 [project.gui-scripts]
 eli-gui = "eli.gui.app:main"

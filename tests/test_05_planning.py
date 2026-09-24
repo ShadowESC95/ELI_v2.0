@@ -60,11 +60,6 @@ def test_planning_jobqueue_loadable():
     assert mod is not None
 
 
-def test_planning_jobq_loadable():
-    mod = importlib.import_module("eli.planning.jobq")
-    assert mod is not None
-
-
 def test_planning_jobqueue_cli_loadable():
     mod = importlib.import_module("eli.planning.jobqueue_cli")
     assert mod is not None

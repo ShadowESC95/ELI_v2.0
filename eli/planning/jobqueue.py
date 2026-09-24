@@ -125,7 +125,22 @@ def _claim_next(conn: sqlite3.Connection) -> Optional[int]:
         return None
     return jid
 
-def run_worker(poll_s: float=0.5) -> None:
+def recover_interrupted() -> int:
+    """Mark jobs left 'running' by a worker that died as failed; they will not resume."""
+    conn = _db()
+    rows = conn.execute("SELECT id, meta_json FROM jobs WHERE status='running'").fetchall()
+    for jid, meta_json in rows:
+        meta = json.loads(meta_json or "{}")
+        meta["error"] = "the worker stopped before this job finished"
+        conn.execute("UPDATE jobs SET status='failed', meta_json=? WHERE id=?", (json.dumps(meta), jid))
+    conn.commit()
+    conn.close()
+    return len(rows)
+
+
+def run_worker(poll_s: float=0.5, once: bool=False) -> None:
+    """Run queued jobs one at a time. With once=True, return when the queue is empty."""
+    recover_interrupted()
     while True:
         conn = _db()
         jid = _claim_next(conn)
@@ -133,6 +148,8 @@ def run_worker(poll_s: float=0.5) -> None:
         conn.close()
 
         if jid is None:
+            if once:
+                return
             time.sleep(poll_s)
             continue
 

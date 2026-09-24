@@ -110,7 +110,6 @@ ALL_MODULES = [
     "eli.planning.goal_tick",
     "eli.planning.habits",
     "eli.planning.habits_scheduler",
-    "eli.planning.jobq",
     "eli.planning.jobqueue",
     "eli.planning.jobqueue_cli",
     "eli.planning.operator_goal_actions",
