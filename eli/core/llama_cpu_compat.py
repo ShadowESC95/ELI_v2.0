@@ -9,8 +9,10 @@ fall back to a source build tuned for the host CPU when a wheel is incompatible.
 """
 from __future__ import annotations
 
+import hashlib
+import json
+import os
 import platform
-import re
 import subprocess
 import sys
 from pathlib import Path
@@ -140,6 +142,76 @@ def runtime_smoke_test(*, timeout_s: float = 30.0) -> Tuple[bool, str]:
     return False, detail[-500:] if detail else f"exit {out.returncode}"
 
 
+_ILLEGAL_INSTRUCTION = "illegal instruction"
+_memo: dict = {}
+
+
+def _runtime_key() -> str:
+    """Identity of this llama.cpp build on this CPU; a different build or CPU re-tests."""
+    try:
+        import llama_cpp
+        build = f"{getattr(llama_cpp, '__version__', '?')}|{getattr(llama_cpp, '__file__', '')}"
+    except Exception:
+        build = "unimportable"
+    cpu = ",".join(sorted(_linux_cpu_flags())) or platform.processor() or platform.machine()
+    return hashlib.sha1(f"{build}|{platform.machine()}|{cpu}".encode()).hexdigest()
+
+
+def _cache_file() -> Optional[Path]:
+    try:
+        from eli.core.paths import get_paths
+        return Path(get_paths().artifacts_dir) / "llama_runtime_smoke.json"
+    except Exception:
+        return None
+
+
+def preflight_runtime() -> Optional[str]:
+    """None when the native runtime starts on this CPU, else a plain-language reason.
+
+    Runs the smoke test in a subprocess once per (llama.cpp build, CPU) and caches the
+    verdict, so a CPU missing an instruction the prebuilt wheel needs is reported
+    instead of killing the app with SIGILL on the first model load. Only a definitive
+    illegal-instruction result blocks; a timeout or unclear failure never does.
+    Disable with ELI_CPU_PREFLIGHT=0.
+    """
+    if (os.environ.get("ELI_CPU_PREFLIGHT", "1") or "1").strip().lower() in ("0", "false", "no", "off"):
+        return None
+    key = _runtime_key()
+    if key in _memo:
+        return _memo[key]
+    cache = _cache_file()
+    try:
+        if cache and cache.exists():
+            saved = json.loads(cache.read_text(encoding="utf-8"))
+            if saved.get("key") == key:
+                _memo[key] = saved.get("message") or None
+                return _memo[key]
+    except Exception:
+        log.debug("llama runtime smoke cache unreadable", exc_info=True)
+
+    ok, detail = runtime_smoke_test()
+    if ok:
+        message = None
+    elif _ILLEGAL_INSTRUCTION in (detail or "").lower():
+        message = (
+            "This CPU is missing an instruction the bundled llama.cpp runtime needs "
+            "(it crashed with 'illegal instruction'), so a model cannot be loaded with "
+            "this build. Install a llama-cpp-python build compiled for this CPU "
+            "(flags: python -m eli.core.llama_cpu_compat cmake-flags)."
+        )
+    else:
+        log.debug("llama runtime smoke test inconclusive (%s); not blocking", detail)
+        return None
+    _memo[key] = message
+    try:
+        if cache:
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_text(json.dumps({"key": key, "message": message}), encoding="utf-8")
+    except Exception:
+        log.debug("llama runtime smoke cache write failed", exc_info=True)
+    return message
+
+
 def _cli(argv: Optional[Sequence[str]] = None) -> int:
     args = list(argv or sys.argv[1:])
     cmd = args[0] if args else "help"
@@ -149,6 +221,10 @@ def _cli(argv: Optional[Sequence[str]] = None) -> int:
     if cmd == "cmake-flags":
         print(safe_source_cmake_flags())
         return 0
+    if cmd == "preflight":
+        why = preflight_runtime()
+        print(why or "ok")
+        return 1 if why else 0
     if cmd == "smoke":
         ok, why = runtime_smoke_test()
         if ok:
@@ -156,7 +232,7 @@ def _cli(argv: Optional[Sequence[str]] = None) -> int:
             return 0
         print(why, file=sys.stderr)
         return 1
-    print("usage: python -m eli.core.llama_cpu_compat {trusted|cmake-flags|smoke}")
+    print("usage: python -m eli.core.llama_cpu_compat {trusted|cmake-flags|smoke|preflight}")
     return 2
 
 

@@ -15,6 +15,7 @@ sys.path.insert(0, str(ROOT))
 # is plain config (an in-project path runtime_settings won't strip) — NOT a
 # monkeypatch. _artifacts_dir() and _store_path() both honour ELI_ARTIFACTS_DIR.
 os.environ["ELI_ARTIFACTS_DIR"] = str(ROOT / "artifacts" / "_pytest")
+os.environ.setdefault("ELI_CPU_PREFLIGHT", "0")  # no smoke subprocess in tests
 # ELI_ARTIFACTS_DIR alone did NOT isolate the SQLite stores — the user DB path is resolved
 # by eli.core.paths.user_db_path(), which honours ELI_USER_DB/ELI_MEMORY_DB FIRST (before
 # any dev-tree fallback). So tests that called store_memory()/awareness reflection were

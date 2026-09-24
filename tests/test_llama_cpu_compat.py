@@ -68,3 +68,61 @@ def test_startup_probes_llama_before_launch():
     )
     assert "llama_backend_init" in text
     assert "repairing CPU backend" in text
+
+
+# ── preflight: report an incompatible CPU instead of dying with SIGILL ─────────
+
+import pytest as _pytest
+
+
+@_pytest.fixture
+def _preflight_env(tmp_path, monkeypatch):
+    monkeypatch.setenv("ELI_CPU_PREFLIGHT", "1")
+    monkeypatch.setattr(lcc, "_cache_file", lambda: tmp_path / "smoke.json")
+    monkeypatch.setattr(lcc, "_memo", {})
+    return tmp_path
+
+
+def test_illegal_instruction_blocks_with_a_plain_message(_preflight_env, monkeypatch):
+    monkeypatch.setattr(lcc, "runtime_smoke_test", lambda **k: (False, "illegal instruction (x)"))
+    msg = lcc.preflight_runtime()
+    assert msg and "missing an instruction" in msg
+
+
+def test_a_healthy_runtime_passes(_preflight_env, monkeypatch):
+    monkeypatch.setattr(lcc, "runtime_smoke_test", lambda **k: (True, "ok"))
+    assert lcc.preflight_runtime() is None
+
+
+def test_an_inconclusive_failure_never_blocks(_preflight_env, monkeypatch):
+    for detail in ("timeout", "ImportError: libfoo", ""):
+        monkeypatch.setattr(lcc, "_memo", {})
+        monkeypatch.setattr(lcc, "runtime_smoke_test", lambda **k: (False, detail))
+        assert lcc.preflight_runtime() is None
+
+
+def test_the_verdict_is_cached_across_processes(_preflight_env, monkeypatch):
+    calls = []
+    monkeypatch.setattr(lcc, "runtime_smoke_test", lambda **k: calls.append(1) or (False, "illegal instruction"))
+    first = lcc.preflight_runtime()
+    monkeypatch.setattr(lcc, "_memo", {})          # a fresh process: memo empty, file present
+    assert lcc.preflight_runtime() == first and len(calls) == 1
+
+
+def test_it_can_be_switched_off(_preflight_env, monkeypatch):
+    monkeypatch.setenv("ELI_CPU_PREFLIGHT", "0")
+    monkeypatch.setattr(lcc, "runtime_smoke_test", lambda **k: (False, "illegal instruction"))
+    assert lcc.preflight_runtime() is None
+
+
+def test_the_gguf_loader_raises_instead_of_crashing(_preflight_env, monkeypatch, tmp_path):
+    import eli.cognition.gguf_inference as gi
+    model = tmp_path / "m.gguf"
+    model.write_bytes(b"GGUF" + b"\0" * 64)
+    monkeypatch.setattr(gi, "get_model_path", lambda: model)
+    monkeypatch.setattr(lcc, "runtime_smoke_test", lambda **k: (False, "illegal instruction"))
+    monkeypatch.setattr(gi, "_llm", None)
+    from eli.cognition.model_load_diagnostics import ModelLoadError
+    with _pytest.raises(ModelLoadError) as ei:
+        gi.load_model(force_reload=True)
+    assert "missing an instruction" in str(ei.value)

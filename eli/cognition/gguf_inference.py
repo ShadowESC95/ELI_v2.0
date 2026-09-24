@@ -815,6 +815,14 @@ def load_model(force_reload: bool = False):
         _pe.retryable = False
         raise _pe
 
+    from eli.core.llama_cpu_compat import preflight_runtime as _cpu_preflight
+    _cpu_msg = _cpu_preflight()
+    if _cpu_msg:
+        globals()["_last_load_error"] = _cpu_msg
+        _ce = _ModelLoadError(_cpu_msg)
+        _ce.retryable = False
+        raise _ce
+
     n_ctx = _env_int("ELI_GGUF_N_CTX", None)
     if n_ctx is None:
         n_ctx = _as_int(_runtime_value(settings, "n_ctx", "context_size"), config.get_gguf_n_ctx())
