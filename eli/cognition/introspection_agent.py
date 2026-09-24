@@ -6,16 +6,7 @@ from pathlib import Path
 from eli.kernel.pipeline import get_pipeline_description
 from eli.core.paths import get_paths
 
-def _eli_path_get(obj, key, default=None):
-    """
-    Compatibility helper for ELI path containers.
-    Accepts both dict-style path maps and object/namespace-style path maps.
-    """
-    if obj is None:
-        return default
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
+from eli.core.paths import path_get as _eli_path_get
 
 
 class IntrospectionAgent:

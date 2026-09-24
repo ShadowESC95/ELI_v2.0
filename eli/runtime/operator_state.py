@@ -21,21 +21,7 @@ def _archive_path() -> Path:
     return _project_root() / "artifacts" / "proactive" / "proposal_queue.archive.jsonl"
 
 
-def _safe_read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
-    out: List[Dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-            if isinstance(obj, dict):
-                out.append(obj)
-        except Exception:
-            continue
-    return out
+from eli.utils.jsonio import read_jsonl_dicts as _safe_read_jsonl
 
 
 def _as_dict(obj: Any) -> Dict[str, Any]:

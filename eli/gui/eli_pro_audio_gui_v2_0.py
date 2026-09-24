@@ -48,16 +48,7 @@ except Exception:
     import logging as _boot_logging
     _boot_logging.getLogger("eli.gui.boot").debug("suppressed exception", exc_info=True)
 
-def _eli_path_get(obj, key, default=None):
-    """
-    Compatibility helper for ELI path containers.
-    Accepts both dict-style path maps and object/namespace-style path maps.
-    """
-    if obj is None:
-        return default
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
+from eli.core.paths import path_get as _eli_path_get
 
 # Qt imports — PySide6 first, and that's a licensing call, not a taste one. PySide6 is
 # LGPLv3 so proprietary code can link it dynamically; PyQt6 is GPLv3, which would drag the

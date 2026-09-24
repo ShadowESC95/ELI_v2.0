@@ -467,6 +467,27 @@ def project_root() -> Path:
     return Path(__file__).resolve().parents[2]
 
 
+def path_get(obj, key, default=None):
+    """Read ``key`` from a dict-style or attribute-style paths container."""
+    if obj is None:
+        return default
+    if isinstance(obj, dict):
+        return obj.get(key, default)
+    return getattr(obj, key, default)
+
+
+def canonical_root(fallback: Path) -> Path:
+    """The project root, honouring ELI_PROJECT_ROOT and frozen builds.
+
+    ``fallback`` (the module's own parent directory) is used only if resolution fails;
+    in a frozen build that directory is inside the read-only bundle.
+    """
+    try:
+        return Path(project_root())
+    except Exception:
+        return fallback
+
+
 @lru_cache(maxsize=1)
 def source_root() -> Path:
     """Writable ELI source tree used for self-patching and code examination.

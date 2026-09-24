@@ -36,21 +36,7 @@ def attention_path() -> Path:
 def suppression_path() -> Path:
     return _artifacts_dir() / "runtime" / "attention_suppression.json"
 
-def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
-    out: List[Dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-            if isinstance(obj, dict):
-                out.append(obj)
-        except Exception:
-            continue
-    return out
+from eli.utils.jsonio import read_jsonl_dicts as _read_jsonl
 
 def _load_suppression() -> Dict[str, Any]:
     p = suppression_path()

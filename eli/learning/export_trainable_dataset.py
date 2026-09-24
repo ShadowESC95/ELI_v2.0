@@ -15,17 +15,11 @@ from eli.learning.dataset_filters import (
 )
 
 
-def _eli_canonical_root_PROJECT_ROOT() -> Path:
-    # Canonical env-honoring root — __file__ resolves into the read-only
-    # bundle in frozen builds (identical to this path in source installs).
-    try:
-        from eli.core.paths import project_root
-        return Path(project_root())
-    except Exception:
-        return Path(__file__).resolve().parents[2]
-
-
-PROJECT_ROOT = _eli_canonical_root_PROJECT_ROOT()
+try:
+    from eli.core.paths import canonical_root
+    PROJECT_ROOT = canonical_root(Path(__file__).resolve().parents[2])
+except Exception:
+    PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_IN = PROJECT_ROOT / "training/datasets/eli_supervised_v0.with_self_model.jsonl"
 REGISTRY = PROJECT_ROOT / "models/lora/registry/eli_phi_targets.json"

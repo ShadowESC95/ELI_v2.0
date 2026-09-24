@@ -21,15 +21,9 @@ def _default_db_path() -> Path:
 
 
 def _project_root() -> Path:
-    """Canonical, environment-honouring root — not this module's own location.
-
-    Path(__file__).parents[2] points INSIDE the read-only bundle in a shipped
-    build, so anything resolved from it reads or writes the wrong tree. Same
-    class as the self-report bug fixed in 2.1.82.
-    """
     try:
-        from eli.core.paths import project_root as _canonical
-        return Path(_canonical())
+        from eli.core.paths import canonical_root
+        return canonical_root(Path(__file__).resolve().parents[2])
     except Exception:
         return Path(__file__).resolve().parents[2]
 

@@ -21,16 +21,7 @@ log = get_logger(__name__)
 # Verbose diagnostics knob for optional-dependency fallbacks (TTS etc.).
 DEBUG = os.environ.get("ELI_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
 
-def _eli_path_get(obj, key, default=None):
-    """
-    Compatibility helper for ELI path containers.
-    Accepts both dict-style path maps and object/namespace-style path maps.
-    """
-    if obj is None:
-        return default
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
+from eli.core.paths import path_get as _eli_path_get
 
 
 def _eli_generated_scripts_dir() -> Path:
@@ -3258,39 +3249,10 @@ def _yt_mix_url(watch_url: str | None) -> str | None:
     return watch_url
 
 
-def _yt_apply_browser_autoplay(url: str) -> str:
-    """Add query params so youtube.com starts playback and keeps a Mix going."""
-    if not url or "youtube.com" not in url:
-        return url
-    sep = "&" if "?" in url else "?"
-    extras: list[str] = []
-    if "autoplay=" not in url.lower():
-        extras.append("autoplay=1")
-    if "list=RD" in url and "start_radio=" not in url.lower():
-        extras.append("start_radio=1")
-    return f"{url}{sep}{'&'.join(extras)}" if extras else url
-
-
-def _yt_resolve_watch_url_ytdlp(query: str) -> str | None:
-    """Fallback resolver when the lightweight HTML scrape finds nothing."""
-    from eli.integrations.media.media_deps import path_env_for_subprocess, yt_dlp_argv
-    argv = yt_dlp_argv()
-    if not argv:
-        return None
-    try:
-        r = subprocess.run(
-            [*argv, "--flat-playlist", "--print", "url", f"ytsearch1:{query}"],
-            capture_output=True, text=True, timeout=15,
-            env=path_env_for_subprocess(),
-        )
-        if r.returncode == 0:
-            for line in (r.stdout or "").splitlines():
-                url = line.strip()
-                if url.startswith("http") and "watch?v=" in url:
-                    return url
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    return None
+from eli.integrations.media.youtube_playback import (
+    yt_apply_browser_autoplay as _yt_apply_browser_autoplay,
+    yt_resolve_watch_url_ytdlp as _yt_resolve_watch_url_ytdlp,
+)
 
 
 def _yt_browser_play_url(query: str) -> str:

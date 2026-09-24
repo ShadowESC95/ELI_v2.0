@@ -39,21 +39,7 @@ def queue_path(path: Optional[str] = None) -> Path:
     return _artifacts_dir() / "proactive" / "proposal_queue.jsonl"
 
 
-def _read_jsonl(path: Path) -> List[Dict[str, Any]]:
-    if not path.exists():
-        return []
-    out: List[Dict[str, Any]] = []
-    for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
-        line = line.strip()
-        if not line:
-            continue
-        try:
-            obj = json.loads(line)
-            if isinstance(obj, dict):
-                out.append(obj)
-        except Exception:
-            continue
-    return out
+from eli.utils.jsonio import read_jsonl_dicts as _read_jsonl
 
 
 def _write_jsonl(path: Path, records: List[Dict[str, Any]]) -> None:

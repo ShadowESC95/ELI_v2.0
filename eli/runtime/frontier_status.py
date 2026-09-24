@@ -31,15 +31,7 @@ def _artifacts_dir() -> Path:
         return _project_root() / "artifacts"
 
 
-def _read_json(path: Path) -> Dict[str, Any]:
-    try:
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    return {}
+from eli.utils.jsonio import read_json_dict as _read_json
 
 
 def _table_count(db_path: Path, table: str) -> int | None:

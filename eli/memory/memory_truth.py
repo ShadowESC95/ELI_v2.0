@@ -9,9 +9,8 @@ from typing import Any, Dict
 
 def _project_root() -> Path:
     try:
-        from eli.core.paths import project_root
-        value = project_root() if callable(project_root) else project_root
-        return Path(value).expanduser().resolve()
+        from eli.core.paths import canonical_root
+        return canonical_root(Path(__file__).resolve().parents[2])
     except Exception:
         return Path(__file__).resolve().parents[2]
 

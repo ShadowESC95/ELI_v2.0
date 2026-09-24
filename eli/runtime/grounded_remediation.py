@@ -80,11 +80,9 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 def _root() -> Path:
-    # Canonical env-honoring root — __file__ resolves into the read-only
-    # bundle in frozen builds and pending-state writes then crash.
     try:
-        from eli.core.paths import project_root
-        return Path(project_root())
+        from eli.core.paths import canonical_root
+        return canonical_root(Path(__file__).resolve().parents[3])
     except Exception:
         return Path(__file__).resolve().parents[3]
 

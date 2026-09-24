@@ -14,15 +14,9 @@ log = get_logger(__name__)
 
 
 def _root() -> Path:
-    """Canonical, environment-honouring root — not this module's own location.
-
-    Path(__file__).parents[2] points INSIDE the read-only bundle in a shipped
-    build, so anything resolved from it reads or writes the wrong tree. Same
-    class as the self-report bug fixed in 2.1.82.
-    """
     try:
-        from eli.core.paths import project_root as _canonical
-        return Path(_canonical())
+        from eli.core.paths import canonical_root
+        return canonical_root(Path(__file__).resolve().parents[2])
     except Exception:
         return Path(__file__).resolve().parents[2]
 
@@ -48,15 +42,7 @@ def _db_path() -> Path:
     return _artifacts() / "db" / "user.sqlite3"
 
 
-def _read_json(path: Path) -> Dict[str, Any]:
-    try:
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            if isinstance(data, dict):
-                return data
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    return {}
+from eli.utils.jsonio import read_json_dict as _read_json
 
 
 def runtime_snapshot() -> Dict[str, Any]:

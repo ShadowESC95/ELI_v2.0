@@ -33,16 +33,7 @@ from eli.cognition.context_synthesiser import build_persona_handoff
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
-def _eli_path_get(obj, key, default=None):
-    """
-    Compatibility helper for ELI path containers.
-    Accepts both dict-style path maps and object/namespace-style path maps.
-    """
-    if obj is None:
-        return default
-    if isinstance(obj, dict):
-        return obj.get(key, default)
-    return getattr(obj, key, default)
+from eli.core.paths import path_get as _eli_path_get
 
 
 def _eli_test_mode() -> bool:
@@ -2150,51 +2141,9 @@ def _mw_rs_quick_direct(question, mode) -> dict:
 
 # -- MEMORY_RUNTIME strict grounded no-raw-GGUF ------------------------
 
-def _mw_mem_runtime_strict_is_question(text) -> bool:
-    import re as _re
-    raw = str(text or "").strip()
-    low = raw.lower()
-    if not low:
-        return False
-    if _re.search(r"\b(?:run|execute|call|invoke)?\s*`?explain_memory_runtime`?\b", low):
-        return True
-    if _re.search(
-        r"\b("
-        r"explain exactly how your memory system works internally|"
-        r"memory system works internally|"
-        r"how (?:does|do) your memory system work|"
-        r"how does your memory work internally|"
-        r"which files.*which db tables.*which functions|"
-        r"memory runtime(?: surface)?|"
-        r"memory architecture|"
-        r"memory internals"
-        r")\b",
-        low,
-    ):
-        return True
-    if _re.search(r"\bmemor(?:y|ies)\b", low) and _re.search(
-        r"\b("
-        r"database files?|db files?|databases?|sqlite|tables?|schema|"
-        r"functions?|internally|architecture|runtime|"
-        r"faiss|fts5|vectors?|vectoring|recall_log|conversation_turns|"
-        r"user\.sqlite3|agent\.sqlite3|memory\.sqlite3"
-        r")\b",
-        low,
-    ):
-        asks_profile = _re.search(
-            r"\b(what do you know about me|what do you remember about me|"
-            r"my preferences|my profile|who am i|what is my name)\b",
-            low,
-        )
-        asks_arch = _re.search(
-            r"\b(files?|db|database|sqlite|tables?|functions?|schema|"
-            r"internally|runtime|architecture)\b",
-            low,
-        )
-        if asks_profile and not asks_arch:
-            return False
-        return True
-    return False
+from eli.execution.router_enhanced import (  # the router owns this test
+    _eli_memory_runtime_route_lock_should_trigger as _mw_mem_runtime_strict_is_question,
+)
 
 
 def _mw_mem_runtime_strict_collect_evidence(raw, mode) -> dict:
