@@ -843,13 +843,26 @@ def load_model(force_reload: bool = False):
         _pinned = None
         try:
             from eli.core.runtime_settings import pinned_gpu_layers_for_model as _pin4
-            _pinned = _pin4(model_path, settings)
+            _pinned = _pin4(model_path, settings, current_ctx=n_ctx)
         except Exception:
             log.debug("[GGUF] gpu-layer pin provenance unavailable", exc_info=True)
         if _pinned is not None:
             n_gpu_layers = int(_pinned)
         else:
-            n_gpu_layers = _as_int(_runtime_value(settings, "gpu_layers", "n_gpu_layers"), config.get_gguf_n_gpu_layers())
+            # The pin did not apply (wrong model, or -- since it was validated
+            # against THIS ctx above -- measured at a different ctx that no
+            # longer represents what will fit). settings["n_gpu_layers"] is the
+            # exact value that was just invalidated -- and config.py's own
+            # get_gguf_n_gpu_layers() is a thin wrapper over the SAME
+            # settings.json key, so calling it here would silently reinstate
+            # the stale pin through a different accessor. 99 is the literal
+            # "all layers" policy sentinel this codebase already uses
+            # everywhere else (ALL_GPU_LAYERS_MIN) to mean "don't constrain,
+            # let smart-fit measure and reduce to fit" -- not a guess at a
+            # real layer count, a deliberate non-constraint, exactly what an
+            # invalidated pin should fall back to. Same outcome a genuine
+            # model swap with no pin at all already gets.
+            n_gpu_layers = 99
 
     n_batch = _env_int("ELI_GGUF_N_BATCH", None)
     if n_batch is None:

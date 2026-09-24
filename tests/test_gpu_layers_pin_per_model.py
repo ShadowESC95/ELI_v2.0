@@ -18,10 +18,21 @@ def _tuner_source() -> str:
 
     The GUI module cannot be imported headlessly (PySide6 symbols are missing),
     so importing it to inspect its source would only ever fail in CI.
+
+    main_window/_mixins/settings_model.py checked FIRST: on a repo where the
+    GUI got decomposed into a real package (v3), eli_pro_audio_gui_v2_0.py is
+    dead code nothing imports, but it is not deleted -- so it can still
+    contain a stale copy of this same logic (down to the same
+    `_canonical_layers` name) and would win this search by file order,
+    silently checking dead code while the live file went unchecked. Confirmed
+    live in v3: a fix landed correctly in settings_model.py but this search
+    still picked the untouched dead file and reported the fix missing. Where
+    only one of the two exists (v2 has no main_window package), the other is
+    used as before.
     """
     root = Path(rs.__file__).resolve().parents[2]
-    for rel in ("eli/gui/eli_pro_audio_gui_v2_0.py",
-                "eli/gui/main_window/_mixins/settings_model.py"):
+    for rel in ("eli/gui/main_window/_mixins/settings_model.py",
+                "eli/gui/eli_pro_audio_gui_v2_0.py"):
         f = root / rel
         if f.is_file() and "_canonical_layers" in f.read_text(encoding="utf-8"):
             return f.read_text(encoding="utf-8")
@@ -118,3 +129,81 @@ def test_a_different_model_is_still_rejected_after_normalisation():
     assert rs.pinned_gpu_layers_for_model(
         "/models/phi3.gguf",
         {"n_gpu_layers": 7, "n_gpu_layers_model": "qwen-27b.gguf"}) is None
+
+
+# ── ctx-awareness (2.4.56) ──────────────────────────────────────────────────
+# A pinned layer count is only as valid as the ctx it was measured at: KV
+# cache for every layer lives on GPU regardless of offload, so it scales with
+# ctx directly. Live report: gpu_layers=7 was measured (and correctly pinned)
+# for THIS model at ctx=2048; the operator then typed ctx=12200 and loaded --
+# the model-identity check alone still said the pin applied (same model!),
+# so 7 was enforced as a hard ceiling at a ctx it was never validated for,
+# and the loader crushed batch and ctx far harder than necessary trying to
+# squeeze under it. Same failure shape as the cross-model case above, one
+# dimension over.
+def test_a_pin_from_a_much_smaller_ctx_is_dropped():
+    got = rs.pinned_gpu_layers_for_model(
+        "/models/phi3.gguf",
+        {"n_gpu_layers": 7, "n_gpu_layers_model": "phi3.gguf", "n_gpu_layers_ctx": 2048},
+        current_ctx=12200)
+    assert got is None, "a pin measured at ctx=2048 must not cap a load at ctx=12200"
+
+
+def test_a_pin_at_the_same_ctx_is_still_honoured():
+    got = rs.pinned_gpu_layers_for_model(
+        "/models/phi3.gguf",
+        {"n_gpu_layers": 7, "n_gpu_layers_model": "phi3.gguf", "n_gpu_layers_ctx": 2048},
+        current_ctx=2048)
+    assert got == 7
+
+
+def test_ctx_is_ignored_when_the_caller_does_not_check_it():
+    """Backward compatible: a caller that never passes current_ctx keeps the
+    old (model-only) behaviour, e.g. a settings inspector with no load ctx."""
+    got = rs.pinned_gpu_layers_for_model(
+        "/models/phi3.gguf",
+        {"n_gpu_layers": 7, "n_gpu_layers_model": "phi3.gguf", "n_gpu_layers_ctx": 2048})
+    assert got == 7
+
+
+def test_a_pin_saved_before_ctx_was_ever_stamped_is_not_spuriously_invalidated():
+    """settings.json written before this fix has no n_gpu_layers_ctx key at
+    all -- absence must not be treated as "definitely a different ctx"."""
+    got = rs.pinned_gpu_layers_for_model(
+        "/models/phi3.gguf",
+        {"n_gpu_layers": 7, "n_gpu_layers_model": "phi3.gguf"},
+        current_ctx=12200)
+    assert got == 7
+
+
+def test_all_layers_pin_survives_a_ctx_change_too():
+    """99 / -1 are a policy, correct at every ctx as well as every model."""
+    for pin in (99, 128, -1):
+        got = rs.pinned_gpu_layers_for_model(
+            "/models/phi3.gguf",
+            {"n_gpu_layers": pin, "n_gpu_layers_model": "phi3.gguf", "n_gpu_layers_ctx": 2048},
+            current_ctx=12200)
+        assert got == pin
+
+
+def test_the_pin_is_stamped_with_ctx_when_saved():
+    src = _tuner_source()
+    assert re.search(r'_s\["n_gpu_layers_ctx"\]\s*=\s*_canonical_ctx', src), (
+        "the ctx a pin was measured at is never recorded, so a stale-ctx pin "
+        "can never be told from a fresh one")
+
+
+def test_the_tuner_checks_ctx_before_honouring_a_pin():
+    src = _tuner_source()
+    assert re.search(r"_pin_for_model\([^)]*current_ctx\s*=", src), (
+        "the tuner calls pinned_gpu_layers_for_model without current_ctx, so "
+        "a pin measured at a different ctx is honoured as if it still applied")
+
+
+def test_the_headless_loader_checks_ctx_before_honouring_a_pin():
+    root = Path(rs.__file__).resolve().parents[2]
+    src = (root / "eli/cognition/gguf_inference.py").read_text(encoding="utf-8")
+    assert re.search(r"_pin4\([^)]*current_ctx\s*=", src), (
+        "the headless/server load path resolves n_gpu_layers without "
+        "checking ctx, so it can diverge from the GUI on the exact same "
+        "stale-ctx-pin scenario")

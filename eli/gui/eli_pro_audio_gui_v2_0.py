@@ -10549,16 +10549,22 @@ class EliMainWindow(QMainWindow):
                 )
                 _live = dict(_rs_load_pin() or {})
                 _pin_model = str(_live.get("n_gpu_layers_model") or "")
+                _pin_ctx = int(_live.get("n_gpu_layers_ctx") or 0)
                 _live["n_gpu_layers"] = int(_user_pinned_layers or 0)
-                _applies = _pin_for_model(model_path, _live)
+                _applies = _pin_for_model(model_path, _live, current_ctx=_canonical_ctx)
             except Exception:
-                _pin_model, _applies = "", (_user_pinned_layers or None)
+                _pin_model, _pin_ctx, _applies = "", 0, (_user_pinned_layers or None)
             if _user_pinned_layers and _applies is None:
+                if _pin_model and _pin_model != _this_model:
+                    _why = f"was pinned for {_pin_model}, not {_this_model}"
+                elif _pin_ctx and _pin_ctx != _canonical_ctx:
+                    _why = f"was measured at ctx={_pin_ctx}, not the current ctx={_canonical_ctx}"
+                else:
+                    _why = "no longer applies"
                 self._hardware_tuning_log(
-                    f"gpu_layers={_user_pinned_layers} was pinned for "
-                    f"{_pin_model or 'an unrecorded model'}, not {_this_model} - using "
-                    f"the tuner's {int(rec.n_gpu_layers)}, measured for this model. "
-                    f"Set the value here to pin it to {_this_model}."
+                    f"gpu_layers={_user_pinned_layers} {_why} - using "
+                    f"the tuner's {int(rec.n_gpu_layers)}, measured for this model at "
+                    f"this ctx. Reload with the same ctx to keep a pin across loads."
                 )
                 _user_pinned_layers = 0
             _canonical_layers = int(_user_pinned_layers) if _user_pinned_layers else int(rec.n_gpu_layers)
@@ -10586,9 +10592,12 @@ class EliMainWindow(QMainWindow):
                 _s = dict(_rs_load() or {})
                 _s["n_ctx"] = _canonical_ctx        # user's chosen ctx, preserved
                 _s["n_gpu_layers"] = _canonical_layers   # user's choice, preserved
-                # Stamp the model the count now belongs to, so the next swap can
-                # tell a deliberate pin from one inherited from another model.
+                # Stamp the model AND ctx the count now belongs to, so the next
+                # swap -- or the next ctx change on the SAME model -- can tell a
+                # deliberate pin from one inherited from a different model or a
+                # different (usually much smaller) ctx it was never measured at.
                 _s["n_gpu_layers_model"] = _this_model
+                _s["n_gpu_layers_ctx"] = _canonical_ctx
                 _s["batch_size"] = _canonical_batch   # user's choice, preserved
                 if int(rec.n_threads) > 0:
                     _s["n_threads"] = int(rec.n_threads)

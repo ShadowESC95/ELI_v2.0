@@ -235,8 +235,9 @@ DEFAULTS: Dict[str, Any] = {
 ALL_GPU_LAYERS_MIN = 99
 
 
-def pinned_gpu_layers_for_model(model_path, settings=None):
-    """The user's pinned n_gpu_layers -- but only if it applies to THIS model.
+def pinned_gpu_layers_for_model(model_path, settings=None, current_ctx=None):
+    """The user's pinned n_gpu_layers -- but only if it applies to THIS model
+    AT THIS CONTEXT WINDOW.
 
     n_gpu_layers is an ABSOLUTE count, so a number chosen for one model means
     something entirely different on the next: 7 layers is a reasonable slice of a
@@ -245,13 +246,32 @@ def pinned_gpu_layers_for_model(model_path, settings=None):
     followed the user across model swaps and silently stranded them on the CPU
     while the tuner -- which had measured the right answer -- stood down.
 
+    The same is true across ctx changes on the SAME model, and it is not
+    hypothetical: n_gpu_layers is only ever a valid ceiling as a measurement
+    of "what fits", and KV cache for every layer lives on GPU regardless of
+    offload, so it scales with ctx directly -- a count measured at ctx=2048
+    can mean "7 layers fit with room to spare" and, unchanged, become "only 2
+    layers actually fit" the moment ctx grows to 12200, because the KV cache
+    for the OTHER 46 layers is now eating VRAM the small-ctx measurement never
+    had to account for. Before n_gpu_layers was enforced as a ceiling this was
+    harmless (the loader silently recomputed a fresh number regardless of what
+    was "requested"); once it IS enforced (see hardware_profile.smart_fit_config's
+    user_gpu_layers), blindly reusing a small-ctx pin at a much larger ctx
+    forces batch and ctx itself to be crushed far harder than necessary to
+    squeeze under a ceiling that was never actually calibrated for the ctx
+    now in play. So the pin is invalidated -- exactly like a model mismatch --
+    whenever the ctx it was measured at is on record and differs from the
+    ctx about to be used; the tuner then measures fresh, for THIS ctx, same as
+    a model swap already does.
+
     Returns None when the pin does not apply, meaning "let the tuner measure".
 
     "All layers" (>= ALL_GPU_LAYERS_MIN, or negative for llama.cpp's -1) is
     deliberately exempt: it is a POLICY rather than a measurement, it is correct
-    on every model, and the loader already reduces it to fit. Treating it as
-    stale would quietly downgrade "try them all, then fall back" into "use the
-    fallback", which is a different and worse behaviour on capable hardware.
+    on every model and every ctx, and the loader already reduces it to fit.
+    Treating it as stale would quietly downgrade "try them all, then fall
+    back" into "use the fallback", which is a different and worse behaviour
+    on capable hardware.
 
     Lives here, not in the GUI, because the desktop app is not the only loader:
     the server/API path (and the mobile client riding the same /v1) resolves the
@@ -268,9 +288,16 @@ def pinned_gpu_layers_for_model(model_path, settings=None):
         return pin
     recorded = model_identity_key(s.get("n_gpu_layers_model"))
     current = model_identity_key(model_path)
-    if recorded and current and recorded == current:
-        return pin
-    return None
+    if not (recorded and current and recorded == current):
+        return None
+    if current_ctx is not None:
+        try:
+            recorded_ctx = int(s.get("n_gpu_layers_ctx") or 0)
+        except Exception:
+            recorded_ctx = 0
+        if recorded_ctx and int(current_ctx) != recorded_ctx:
+            return None
+    return pin
 
 
 def model_identity_key(model_path) -> str:
