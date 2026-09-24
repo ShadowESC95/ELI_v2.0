@@ -81,3 +81,10 @@ def test_an_operator_chosen_ctx_is_never_replaced(monkeypatch):
     for chosen in (4096, 102400):
         rec = hp.recommend(hw, models, user_ctx=chosen)
         assert rec.n_ctx <= chosen
+
+
+def test_weights_that_do_not_fit_the_budget_give_the_floor_not_no_limit(monkeypatch):
+    """A measured shortage is a cap of zero; it must never read as 'unlimited'."""
+    monkeypatch.delenv("ELI_CTX_FRACTION", raising=False)
+    v = _target(1_000_000, ram=2.0, size=30.0, monkeypatch=monkeypatch)
+    assert v == 2048

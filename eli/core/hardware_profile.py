@@ -2143,20 +2143,23 @@ def auto_ctx_target(
         log.debug("trained context unavailable for auto ctx", exc_info=True)
         wanted = 0
 
-    cap = 0
+    cap = None
     try:
         share = float(os.environ.get("ELI_CTX_KV_SHARE", "0.5") or "0.5")
         layers = layers_for_model(model_path, model_size_gb)
         spare_mb = (int(free_vram_mb) if use_gpu else 0) \
             + cpu_ram_budget_mb(available_ram_gb) - float(model_size_gb) * 1024.0
         per_token = _kv_cache_mb(1024, layers, quant=kv_quantized) / 1024.0
-        if spare_mb > 0 and per_token > 0:
-            cap = int(spare_mb * max(0.05, min(1.0, share)) / per_token)
+        if per_token > 0:
+            # A MEASURED shortage (weights alone exceed the budget) is a cap of
+            # zero -> the floor, not "no limit". Only a failed measurement
+            # leaves cap as None.
+            cap = max(0, int(max(0.0, spare_mb) * max(0.05, min(1.0, share)) / per_token))
     except Exception:
         log.debug("memory-derived ctx cap unavailable", exc_info=True)
-        cap = 0
+        cap = None
 
-    limits = [v for v in (wanted, cap) if v > 0]
+    limits = [v for v in (wanted if wanted > 0 else None, cap) if v is not None]
     if not limits:
         from eli.core.runtime_settings import DEFAULT_N_CTX
         return int(DEFAULT_N_CTX)
