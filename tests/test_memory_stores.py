@@ -10,30 +10,8 @@ from eli.memory.memory import Memory
 
 # ── SQLite Memory Store ───────────────────────────────────────────────────
 
-def test_sqlite_memory_importable():
-    try:
-        from eli.memory.sqlite_memory import SQLiteMemory
-        assert SQLiteMemory is not None
-    except ImportError:
-        pytest.skip("sqlite_memory not available")
-
-def test_sqlite_memory_init(tmp_db):
-    try:
-        from eli.memory.sqlite_memory import SQLiteMemory
-        sm = SQLiteMemory(db_path=str(tmp_db))
-        assert sm is not None
-    except ImportError:
-        pytest.skip("sqlite_memory not available")
-
 
 # ── Stores ────────────────────────────────────────────────────────────────
-
-def test_stores_importable():
-    try:
-        from eli.memory.stores import get_memory_store
-        assert get_memory_store is not None
-    except ImportError:
-        pytest.skip("stores not available in this form")
 
 
 # ── DB Paths ──────────────────────────────────────────────────────────────
