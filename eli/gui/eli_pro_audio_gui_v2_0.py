@@ -10723,6 +10723,19 @@ class EliMainWindow(QMainWindow):
             else:
                 self.model_path_input.setText(selected_path)
 
+            # The dialog's "Target batch" is what the operator just asked for. The
+            # tuner treats the Settings-tab batch spinbox as a pinned user choice
+            # that beats its own number, and that spinbox still held the previous
+            # session's value -- so a dialog set to 256 loaded 512, with nothing
+            # anywhere saying the request had been overridden. Carry the dialog's
+            # value into the spinbox so there is one request, not two.
+            try:
+                _dlg_batch = int(dlg.target_batch_spin.value())
+                if _dlg_batch > 0:
+                    self.batch_size_input.setValue(_dlg_batch)
+            except Exception:
+                log.debug("could not carry the dialog's target batch forward", exc_info=True)
+
             if selected_path:
                 tune_result = self._apply_hardware_recommendation_for_model(selected_path)
                 if not bool(tune_result.get("ok")):
