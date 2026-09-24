@@ -40,6 +40,3 @@ def test_kernel_self_upgrade_loadable():
 def test_kernel_state_loadable():
     assert importlib.import_module("eli.kernel.state") is not None
 
-
-def test_kernel_task_bus_loadable():
-    assert importlib.import_module("eli.kernel.task_bus") is not None

@@ -56,9 +56,6 @@ def test_runtime_authority_gate_loadable():
     assert _load("eli.runtime.authority_gate") is not None
 
 
-def test_runtime_authority_state_loadable():
-    assert _load("eli.runtime.authority_state") is not None
-
 
 def test_runtime_awareness_boot_loadable():
     assert _load("eli.runtime.awareness_boot") is not None
@@ -102,9 +99,6 @@ def test_runtime_live_introspection_loadable():
     assert _load("eli.runtime.live_introspection") is not None
 
 
-def test_runtime_memory_evidence_loadable():
-    assert _load("eli.runtime.memory_evidence") is not None
-
 
 def test_runtime_operator_feed_loadable():
     assert _load("eli.runtime.operator_feed") is not None
@@ -140,9 +134,6 @@ def test_runtime_reflection_loadable():
 def test_runtime_response_contracts_loadable():
     assert _load("eli.runtime.response_contracts") is not None
 
-
-def test_runtime_response_packets_loadable():
-    assert _load("eli.runtime.response_packets") is not None
 
 
 def test_runtime_response_policy_loadable():

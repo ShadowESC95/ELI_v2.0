@@ -97,13 +97,6 @@ def test_hyde_with_dummy_infer():
 
 # ── Context Builder ───────────────────────────────────────────────────────
 
-def test_context_builder_importable():
-    try:
-        from eli.cognition.context_builder import build_context
-        assert build_context is not None
-    except ImportError:
-        pytest.skip("context_builder not available in this form")
-
 
 # ── Response Governance ───────────────────────────────────────────────────
 

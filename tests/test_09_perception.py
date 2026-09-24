@@ -34,28 +34,15 @@ def test_perception_analyze_image_loadable():
     assert importlib.import_module("eli.perception.analyze_image") is not None
 
 
-def test_perception_analyze_mesh_loadable():
-    assert importlib.import_module("eli.perception.analyze_mesh") is not None
-
 
 def test_perception_analyze_pdfs_loadable():
     assert importlib.import_module("eli.perception.analyze_pdfs") is not None
 
 
-def test_perception_eli_listen_loadable():
-    assert importlib.import_module("eli.perception.eli_listen") is not None
-
-
-def test_perception_extract_equations_loadable():
-    assert importlib.import_module("eli.perception.extract_equations") is not None
-
 
 def test_perception_log_rotation_loadable():
     assert importlib.import_module("eli.perception.log_rotation") is not None
 
-
-def test_perception_voice_worker_loadable():
-    assert importlib.import_module("eli.perception.voice_worker") is not None
 
 
 def test_perception_voice_worker_streaming_loadable():

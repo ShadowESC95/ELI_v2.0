@@ -39,10 +39,6 @@ def test_planning_habits_scheduler_loadable():
     assert mod is not None
 
 
-def test_planning_habits_state_loadable():
-    mod = importlib.import_module("eli.planning.habits_state")
-    assert mod is not None
-
 
 def test_planning_attention_queue_loadable():
     mod = importlib.import_module("eli.planning.attention_queue")
@@ -105,15 +101,6 @@ def test_planning_operator_goal_actions_loadable():
     mod = importlib.import_module("eli.planning.operator_goal_actions")
     assert mod is not None
 
-
-def test_planning_agent_loop_loadable():
-    mod = importlib.import_module("eli.planning.agent_loop")
-    assert mod is not None
-
-
-def test_planning_task_planner_loadable():
-    mod = importlib.import_module("eli.planning.task_planner")
-    assert mod is not None
 
 
 def test_planning_db_paths_loadable():

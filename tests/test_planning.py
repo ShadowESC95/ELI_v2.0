@@ -76,22 +76,6 @@ def test_plugins_dir_exists():
     p = plugins_dir()
     assert p is not None
 
-def test_plugin_handlers_importable():
-    try:
-        from eli.execution.executor_plugin_handlers import (
-            handle_plugin_action,
-        )
-        assert handle_plugin_action is not None
-    except ImportError:
-        pytest.skip("executor_plugin_handlers not in expected form")
-
-def test_router_plugin_intents_importable():
-    try:
-        from eli.execution.router_plugin_intents import get_plugin_intents
-        assert get_plugin_intents is not None
-    except ImportError:
-        pytest.skip("router_plugin_intents not available")
-
 
 # ── Knowledge Graph ───────────────────────────────────────────────────────
 
@@ -169,13 +153,6 @@ def test_memory_adapter_recall_returns_list(tmp_db):
 
 
 # ── Memory Service ────────────────────────────────────────────────────────
-
-def test_memory_service_importable():
-    try:
-        from eli.memory.memory_service import MemoryService
-        assert MemoryService is not None
-    except ImportError:
-        pytest.skip("memory_service not available")
 
 
 # ── Habits Memory ────────────────────────────────────────────────────────

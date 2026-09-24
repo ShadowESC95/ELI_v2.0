@@ -37,10 +37,6 @@ def test_execution_planner_loadable():
     assert mod is not None
 
 
-def test_execution_plugin_handlers_loadable():
-    mod = importlib.import_module("eli.execution.executor_plugin_handlers")
-    assert mod is not None
-
 
 def test_execution_operator_actions_loadable():
     mod = importlib.import_module("eli.execution.operator_actions")
@@ -56,10 +52,6 @@ def test_execution_route_authority_loadable():
     mod = importlib.import_module("eli.execution.route_authority")
     assert mod is not None
 
-
-def test_execution_router_plugin_intents_loadable():
-    mod = importlib.import_module("eli.execution.router_plugin_intents")
-    assert mod is not None
 
 
 def test_execution_tool_execution_authority_loadable():

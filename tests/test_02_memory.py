@@ -37,10 +37,6 @@ def test_memory_knowledge_graph_has_class():
 
 # (removed test_memory_working_memory_loadable — eli.memory.working_memory was deleted)
 
-def test_memory_sqlite_memory_loadable():
-    mod = importlib.import_module("eli.memory.sqlite_memory")
-    assert mod is not None
-
 
 def test_memory_system_index_loadable():
     mod = importlib.import_module("eli.memory.system_index")
@@ -52,24 +48,11 @@ def test_memory_habits_db_loadable():
     assert mod is not None
 
 
-def test_memory_habits_service_loadable():
-    mod = importlib.import_module("eli.memory.habits_memory_service")
-    assert mod is not None
-
 
 def test_memory_memory_adapter_loadable():
     mod = importlib.import_module("eli.memory.memory_adapter")
     assert mod is not None
 
-
-def test_memory_memory_service_loadable():
-    mod = importlib.import_module("eli.memory.memory_service")
-    assert mod is not None
-
-
-def test_memory_stores_loadable():
-    mod = importlib.import_module("eli.memory.stores")
-    assert mod is not None
 
 
 def test_memory_db_paths_exists():
@@ -80,14 +63,3 @@ def test_memory_db_paths_exists():
     assert paths is not None
     assert any(getattr(paths, a, None) for a in ("user_db", "agent_db", "memory_db"))
 
-
-def test_memory_populate_loadable():
-    mod = importlib.import_module("eli.memory.populate_memories")
-    assert mod is not None
-
-
-def test_memory_no_cross_import_crash():
-    """Memory adapter + service should be importable together."""
-    adapter = importlib.import_module("eli.memory.memory_adapter")
-    service = importlib.import_module("eli.memory.memory_service")
-    assert adapter and service

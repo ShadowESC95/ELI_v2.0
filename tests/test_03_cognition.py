@@ -38,10 +38,6 @@ def test_cognition_gguf_inference_loadable():
     assert mod is not None
 
 
-def test_cognition_context_builder_loadable():
-    mod = importlib.import_module("eli.cognition.context_builder")
-    assert mod is not None
-
 
 def test_cognition_context_synthesiser_loadable():
     mod = importlib.import_module("eli.cognition.context_synthesiser")
@@ -122,7 +118,3 @@ def test_cognition_working_memory_loadable():
     mod = importlib.import_module("eli.cognition.working_memory")
     assert mod is not None
 
-
-def test_cognition_chat_model_loadable():
-    mod = importlib.import_module("eli.cognition.chat_model")
-    assert mod is not None

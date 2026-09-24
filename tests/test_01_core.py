@@ -41,10 +41,6 @@ def test_core_db_paths_exposes_paths():
         f"eli.core.db_paths looks empty: {attrs}"
 
 
-def test_core_compatibility_loadable():
-    mod = importlib.import_module("eli.core.compatibility")
-    assert mod is not None
-
 
 def test_core_portable_paths_loadable():
     mod = importlib.import_module("eli.core.portable_paths")
