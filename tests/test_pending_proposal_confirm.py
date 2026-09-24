@@ -168,3 +168,12 @@ def test_a_declarative_offer_stem_is_still_ignored():
     """Interrogative form is what makes it answerable with "yes"."""
     assert pp.extract_proposal("You want me to keep a deeper persona.") == ""
     assert pp.extract_proposal("I can appreciate the absurdity of existence.") == ""
+
+
+def test_a_short_yes_reroutes_the_pending_offer():
+    """A one-word "yes" must confirm the offer; the confirm stage used to raise
+    NameError on this branch and the error was swallowed."""
+    from eli.execution.router_enhanced import route
+    pp.set_pending_proposal("what time is it", "Want the time?")
+    routed = route("yes")
+    assert routed["meta"].get("matched_by") == "pending_proposal.confirm", routed

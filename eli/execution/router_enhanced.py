@@ -8512,7 +8512,7 @@ try:
                     if is_affirmation(low):
                         # "yes please dig into the timestamps" is a new request,
                         # not consent to a stale install/download proposal.
-                        if len(low.split()) > 4 or _re.search(
+                        if len(low.split()) > 4 or re.search(
                             r"\b(?:dig|timestamp|investigate|check|trace|fix)\b", low
                         ):
                             clear_pending_proposal()

@@ -64,14 +64,6 @@ def safe_goal_tick(limit: int = 3):
         return {"ok": False, "kind": "safe_goal_tick", "error": str(exc)}
 
 
-try:
-    if "AutonomyController" in globals() and not hasattr(AutonomyController, "goal_tick"):
-        def _goal_tick(self, limit: int = 3):
-            return safe_goal_tick(limit=limit)
-        AutonomyController.goal_tick = _goal_tick
-except Exception:
-    pass
-
 def safe_scheduler_tick(limit: int = 3, cooldown_sec: int = 60):
     try:
         from eli.planning.autonomy_scheduler import scheduler_tick
@@ -88,10 +80,3 @@ def safe_scheduler_snapshot(limit: int = 25):
         return {"ok": False, "kind": "safe_scheduler_snapshot", "error": str(exc)}
 
 
-try:
-    if "AutonomyController" in globals() and not hasattr(AutonomyController, "scheduler_tick"):
-        def _scheduler_tick(self, limit: int = 3, cooldown_sec: int = 60):
-            return safe_scheduler_tick(limit=limit, cooldown_sec=cooldown_sec)
-        AutonomyController.scheduler_tick = _scheduler_tick
-except Exception:
-    pass
