@@ -134,6 +134,17 @@ class _Session:
 
     # -- lifecycle ---------------------------------------------------------
     def start(self) -> bool:
+        # A server lands in config disabled by default (eli/plugins/mcp.py's
+        # install_server()) and stays that way until set_enabled(True) -- but
+        # this live path used to launch and call ANY configured server
+        # regardless, because it reads the same config file without ever
+        # checking the flag. "It is switched OFF until you enable it" (the
+        # install response's own words) was therefore not true for the path
+        # that actually matters.
+        if not bool(self.spec.get("enabled")):
+            self.error = f"{self.name} is disabled — enable it before it can be used"
+            return False
+
         command = str(self.spec.get("command") or "")
         if not command:
             self.error = "no command configured"
@@ -148,11 +159,28 @@ class _Session:
         if isinstance(extra, dict):
             env.update({str(k): str(v) for k, v in extra.items()})
 
+        # Containment. This mirrors eli/plugins/mcp.py:probe() exactly -- same
+        # permission fields, same subprocess_sandbox module -- because this is
+        # the path that actually runs every time a tool is called, not just at
+        # install/doctor time. Before this fix an MCP server ran here with
+        # full, unsandboxed access (network, filesystem, no PID isolation)
+        # regardless of what the install-time consent screen and permissions
+        # list said it was allowed. See subprocess_sandbox.py for what
+        # "contained" means per platform.
+        cwd = str(Path(self.spec["cwd"]).expanduser()) if self.spec.get("cwd") else None
+        allow_network = "network" in (self.spec.get("permissions") or [])
+        read_paths = list(self.spec.get("read_paths") or [])
+        write_paths = list(self.spec.get("write_paths") or [])
+        if cwd:
+            read_paths.append(cwd)
+
         try:
-            self.proc = subprocess.Popen(
-                argv, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                stderr=subprocess.DEVNULL, text=True, env=env,
-                cwd=str(self.spec.get("cwd") or "") or None, bufsize=1)
+            from eli.plugins import subprocess_sandbox
+            self.proc = subprocess_sandbox.popen(
+                argv, allow_network=allow_network, read_paths=read_paths,
+                write_paths=write_paths, cwd=cwd,
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                stderr=subprocess.DEVNULL, text=True, env=env, bufsize=1)
         except Exception as e:
             self.error = f"could not start: {e}"
             log.debug("mcp[%s]: launch failed", self.name, exc_info=True)
