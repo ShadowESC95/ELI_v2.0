@@ -280,6 +280,24 @@ def coerce_user_visible(result: Any, user_input: Any = "", mode: Any = "") -> st
                         ),
                         f"GPU: {_gpu_name or 'unavailable'}",
                     ]
+                    # The comparison the numbers above cannot show on their own:
+                    # this compact surface listed only what LOADED, so a load that
+                    # had been reduced to fit (layers requested 7, loaded 6) read
+                    # exactly like one that was not -- and an operator asking
+                    # "why is this inconsistent?" got a status card with nothing
+                    # in it to be inconsistent with. Same facts every other
+                    # runtime surface uses (truth_report.runtime_load_facts).
+                    _facts = _blob.get("load_facts") or {}
+                    if _facts.get("differences"):
+                        _lines.append("Loaded differently from what was requested:")
+                        _lines += [f"  - {d}" for d in _facts["differences"]]
+                    elif _facts:
+                        _lines.append("Requested and loaded values match.")
+                    _tun = _facts.get("tuner_recommendation") or {}
+                    if _tun:
+                        _lines.append(
+                            "Tuner suggestion (a stored fallback, not what loaded): "
+                            + ", ".join(f"{k}={v}" for k, v in _tun.items()))
                     return "\n".join(_lines)
                 if _surface == "identity_evidence":
                     return "Identity: ELI — runtime snapshot present, persona files loaded."

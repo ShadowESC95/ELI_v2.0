@@ -28,6 +28,92 @@ def _read_json(path: Path) -> Dict[str, Any]:
     return {}
 
 
+_LOAD_LABELS = {"n_ctx": "context (n_ctx)", "n_gpu_layers": "GPU layers",
+                "n_batch": "batch"}
+
+
+def runtime_load_facts(snapshot: Dict[str, Any] | None,
+                       settings: Dict[str, Any] | None = None) -> Dict[str, Any]:
+    """The requested-vs-loaded comparison, computed once, for every runtime surface.
+
+    Live report (2.4.57): the operator asked ELI why its ctx/batch/GPU-layer
+    numbers looked inconsistent -- the log showed layers requested 7 / loaded 6,
+    and three different ctx figures (the tuner's 12288 and 10240, the operator's
+    12200). ELI answered "my current runtime configuration is consistent and not
+    conflicting". Every fact it was handed was true, but the evidence only listed
+    what LOADED plus a `clamped` flag that no real snapshot writer ever sets
+    (always null), so nothing in it said the loader had been asked for more than
+    it delivered. A model asked "is this consistent?" of evidence that lacks the
+    comparison will say yes.
+
+    So the comparison is derived here, deterministically, from the snapshot's own
+    requested/effective blocks (via the same `runtime_load_gap` GPU_STATUS uses --
+    one rule, not a second opinion), and `consistent` is only True when there is
+    genuinely nothing to report. The tuner's stored recommendation is surfaced
+    too, labelled as what it is: a suggestion kept as a fallback, which by design
+    is NOT what loads when the operator's own values fit.
+    """
+    snapshot = dict(snapshot or {})
+    settings = dict(settings or {})
+    try:
+        from eli.cognition.context_synthesiser import runtime_load_gap
+        gap = runtime_load_gap(dict(snapshot)) if snapshot else {}
+    except Exception:
+        gap = {}
+    reduced = dict(gap.get("reduced") or {})
+    eff = dict(gap.get("effective") or {})
+
+    differences: list[str] = []
+    for key, label in _LOAD_LABELS.items():
+        pair = reduced.get(key)
+        if pair:
+            differences.append(
+                f"{label}: requested {pair['requested']}, loaded {pair['effective']} — "
+                f"reduced to fit this machine's free memory")
+
+    # A saved value that differs from what loaded, where the loader's own
+    # requested block did not already explain it (e.g. a snapshot from a writer
+    # that predates the requested/effective split).
+    cfg_keys = {"n_ctx": "n_ctx", "n_gpu_layers": "n_gpu_layers", "n_batch": "batch_size"}
+    for key, cfg_key in cfg_keys.items():
+        if key in reduced:
+            continue
+        try:
+            configured = int(settings.get(cfg_key) or 0)
+            loaded = int(eff.get(key) or 0)
+        except Exception:
+            continue
+        if configured > 0 and loaded > 0 and configured != loaded:
+            differences.append(
+                f"{_LOAD_LABELS[key]}: saved setting {configured}, loaded {loaded}")
+
+    tuner: Dict[str, Any] = {}
+    for key, cfg_key in (("n_ctx", "hw_profile_n_ctx"),
+                         ("n_gpu_layers", "hw_profile_n_gpu_layers"),
+                         ("n_batch", "hw_profile_batch_size")):
+        value = settings.get(cfg_key)
+        if value not in (None, "", 0):
+            tuner[key] = value
+
+    return {
+        "clamped": bool(reduced),
+        "reduced": reduced,
+        "differences": differences,
+        "consistent": not differences,
+        "tuner_recommendation": tuner,
+        "tuner_note": (
+            "The tuner's numbers are a stored suggestion (fallback), not what loaded: "
+            "the operator's own values are used when they fit, and the loader "
+            "reduces only what does not."
+        ) if tuner else "",
+        "max_tokens_note": (
+            "settings max_tokens is a ceiling derived from the loaded ctx, not a "
+            "per-call limit: each generation fits its own budget from the prompt "
+            "size and reasoning mode."
+        ),
+    }
+
+
 def _git_info(root: Path) -> Dict[str, Any]:
     def run(args: list[str]) -> str:
         try:
@@ -246,12 +332,16 @@ def runtime_truth_report(engine: Any = None) -> Dict[str, Any]:
                 "max_tokens",
                 "temperature",
                 "top_p",
+                "hw_profile_n_ctx",
+                "hw_profile_n_gpu_layers",
+                "hw_profile_batch_size",
             )
             if k in settings
         },
         "runtime_snapshot_path": str(snapshot_path),
         "runtime_snapshot_exists": snapshot_path.exists(),
         "runtime_snapshot": snapshot,
+        "load_facts": runtime_load_facts(snapshot, settings),
         "environment": {k: os.environ.get(k) for k in env_keys if os.environ.get(k) is not None},
         "gpu": _nvidia_info(),
         "gguf": _gguf_runtime(),
@@ -280,7 +370,12 @@ def format_runtime_truth(report: Dict[str, Any] | None = None) -> str:
     eff_batch     = snap_eff.get("n_batch", snapshot.get("n_batch"))
     load_mode     = snapshot.get("load_mode")
     on_gpu        = snapshot.get("on_gpu")
-    clamped       = snapshot.get("clamped")
+    facts         = report.get("load_facts") or runtime_load_facts(snapshot, settings)
+    # `snapshot["clamped"]` is a flag no real writer sets, so it was always null
+    # here. An explicit flag still wins when one is present; otherwise the
+    # comparison decides.
+    clamped       = snapshot.get("clamped") if snapshot.get("clamped") is not None \
+        else facts.get("clamped")
 
     bad_imports = {k: v for k, v in imports.items() if not v.get("ok")}
     plat = report.get("platform", {})
@@ -319,6 +414,7 @@ def format_runtime_truth(report: Dict[str, Any] | None = None) -> str:
             "n_threads": eff_threads,
             "n_batch": eff_batch,
         },
+        "load_facts": facts,
         "gguf": {
             "module_imported": gguf.get("module_imported"),
             "llm_exists": gguf.get("llm_exists"),

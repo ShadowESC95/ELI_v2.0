@@ -1936,8 +1936,30 @@ def _format_runtime_status(report: Dict[str, Any]) -> str:
         f"- gguf_loaded_in_this_process: {loaded}",
     ]
 
+    # What was ASKED of the loader vs what LOADED, computed by the one shared rule
+    # (truth_report.runtime_load_facts) so this surface cannot say less than the
+    # others. Without it the lines above were all "loaded" values, and a question
+    # like "why is my config inconsistent?" had nothing to be inconsistent with.
+    try:
+        from eli.runtime.truth_report import runtime_load_facts
+        _facts = runtime_load_facts(runtime, settings)
+        if _facts.get('differences'):
+            for _d in _facts['differences']:
+                lines.append(f"- loaded_below_request: {_d}")
+        elif runtime.get('requested') or runtime.get('effective'):
+            lines.append("- requested_vs_loaded: match")
+        if _facts.get('tuner_recommendation'):
+            lines.append(
+                "- tuner_suggestion (stored fallback, NOT what loaded): "
+                + ", ".join(f"{k}={v}" for k, v in _facts['tuner_recommendation'].items()))
+    except Exception:
+        log.debug("runtime load facts unavailable for RUNTIME_STATUS", exc_info=True)
+
     if settings.get('max_tokens') not in (None, ''):
         lines.append(f"- max_tokens: {settings.get('max_tokens')}")
+        lines.append("- max_tokens_note: a ceiling derived from the loaded ctx, not a "
+                     "per-call limit — each generation fits its own budget from the "
+                     "prompt size and reasoning mode")
     if settings.get('temperature') not in (None, ''):
         lines.append(f"- temperature: {settings.get('temperature')}")
     if settings.get('use_mmap') not in (None, ''):

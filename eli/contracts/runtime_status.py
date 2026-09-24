@@ -93,6 +93,9 @@ class RuntimeStatusEvidence:
     temperature: Any
     use_mmap: Any
     use_mlock: Any
+    # requested-vs-loaded comparison (truth_report.runtime_load_facts). Defaulted
+    # and last so nothing that builds this dataclass has to know about it.
+    load_facts: Any = None
 
 
 def _first(*values: Any, default: Any = "unknown") -> Any:
@@ -332,7 +335,23 @@ def build_live_evidence(
         temperature=_first(cfg.get("temperature"), runtime.get("temperature")),
         use_mmap=_first(cfg.get("use_mmap"), runtime.get("use_mmap")),
         use_mlock=_first(cfg.get("use_mlock"), runtime.get("use_mlock")),
+        load_facts=_load_facts(snapshot, cfg),
     )
+
+
+def _load_facts(snapshot: Mapping[str, Any], cfg: Mapping[str, Any]) -> Any:
+    """What was asked of the loader vs what loaded, from the one shared rule.
+
+    Never raises: this is evidence decoration, and a failure here must not turn a
+    status question into an error.
+    """
+    try:
+        from eli.runtime.truth_report import runtime_load_facts
+        return runtime_load_facts(dict(_as_mapping(snapshot.get("runtime")) or snapshot),
+                                  dict(cfg))
+    except Exception:
+        log.debug("runtime load facts unavailable", exc_info=True)
+        return None
 
 
 def build_content(
@@ -373,6 +392,26 @@ def build_content(
         f"- total_mib: {e['gpu_total_mib']}",
         f"- free_mib: {e['gpu_free_mib']}",
         "",
+    ]
+
+    # Requested vs loaded. The "Effective runtime" block above lists only what
+    # LOADED, so a load reduced to fit (layers requested 7, loaded 6) read exactly
+    # like an untouched one -- and asked "is this configuration consistent?", a
+    # model handed only that block says yes. State the comparison outright.
+    facts = e.get("load_facts") or {}
+    if facts:
+        lines.append("Requested vs loaded:")
+        if facts.get("differences"):
+            lines += [f"- loaded_below_request: {d}" for d in facts["differences"]]
+        else:
+            lines.append("- requested_vs_loaded: match")
+        tuner = facts.get("tuner_recommendation") or {}
+        if tuner:
+            lines.append("- tuner_suggestion (a stored fallback, NOT what loaded): "
+                         + ", ".join(f"{k}={v}" for k, v in tuner.items()))
+        lines.append("")
+
+    lines += [
         "Project/runtime paths:",
         f"- project_root: {e['project_root']}",
         f"- user_db: {e['user_db']}",
@@ -380,6 +419,8 @@ def build_content(
         "",
         "Generation settings:",
         f"- max_tokens: {e['max_tokens']}",
+        "- max_tokens_note: a ceiling derived from the loaded ctx, not a per-call "
+        "limit; each generation fits its own budget from the prompt size and mode",
         f"- temperature: {e['temperature']}",
         f"- use_mmap: {e['use_mmap']}",
         f"- use_mlock: {e['use_mlock']}",
