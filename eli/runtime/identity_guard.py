@@ -51,16 +51,6 @@ def clear_lock() -> bool:
     if lock_path.exists():
         lock_path.unlink()
 
-    try:
-        from eli.runtime.authority_state import get_state
-        state = get_state()
-        if hasattr(state, "locked_model"):
-            state.locked_model = None
-        if hasattr(state, "persona_lock"):
-            state.persona_lock = None
-    except Exception:
-        pass
-
     return True
 
 

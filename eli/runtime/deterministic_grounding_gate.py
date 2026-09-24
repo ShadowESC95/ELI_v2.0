@@ -962,7 +962,7 @@ def _eli_memory_internals_v2() -> str:
         "- eli/cognition/orchestrator.py: retrieval/planning/context assembly path.",
         "- eli/cognition/context_synthesiser.py: context packaging and recall filtering.",
         "- eli/cognition/user_info_builder.py: durable user-profile synthesis.",
-        "- eli/runtime/memory_evidence.py: deterministic memory evidence surface.",
+        "- eli/memory/retrieval.py: shared per-turn retrieval (keyword, semantic, RAG, knowledge graph).",
         "- eli/runtime/personal_memory_surface.py / personal_memory_deep_response.py: user-facing memory summaries.",
     ])
     return "\n".join(lines)

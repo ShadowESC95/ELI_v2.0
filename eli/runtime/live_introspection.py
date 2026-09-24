@@ -702,7 +702,6 @@ def build_report(action: str, user_input: str = "") -> Dict[str, Any]:
         files = [
             "eli/memory/memory.py",
             "eli/memory/memory_adapter.py",
-            "eli/memory/memory_service.py",
             "eli/memory/knowledge_graph.py",
             "eli/memory/vector_store.py",
             "eli/kernel/state.py",

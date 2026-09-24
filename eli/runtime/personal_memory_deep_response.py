@@ -156,7 +156,7 @@ def _static_memory_functions() -> List[str]:
     files = [
         root / "eli" / "memory" / "memory.py",
         root / "eli" / "memory" / "memory_adapter.py",
-        root / "eli" / "memory" / "memory_service.py",
+        root / "eli" / "memory" / "retrieval.py",
         root / "eli" / "memory" / "vector_store.py",
         root / "eli" / "memory" / "knowledge_graph.py",
         root / "eli" / "cognition" / "agent_bus.py",
@@ -164,7 +164,6 @@ def _static_memory_functions() -> List[str]:
         root / "eli" / "cognition" / "context_synthesiser.py",
         root / "eli" / "cognition" / "user_info_builder.py",
         root / "eli" / "runtime" / "personal_memory_surface.py",
-        root / "eli" / "runtime" / "memory_evidence.py",
     ]
 
     found: List[str] = []
