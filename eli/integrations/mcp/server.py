@@ -156,5 +156,39 @@ def serve(stdin=None, stdout=None) -> int:
     return 0
 
 
+def connection_config(allow_control: bool = False) -> Dict[str, Any]:
+    """The ``mcpServers`` entry another app needs to launch ELI as an MCP server.
+
+    A frozen build (AppImage, portable, Windows/macOS bundle) is launched through its
+    own executable with ``--mcp-server``; a source install through ``python -m``.
+    """
+    if getattr(sys, "frozen", False) or os.environ.get("APPIMAGE"):
+        command = os.environ.get("APPIMAGE") or sys.executable
+        args = ["--mcp-server"]
+    else:
+        command = sys.executable
+        args = ["-m", "eli.integrations.mcp.server"]
+    entry: Dict[str, Any] = {"command": command, "args": args}
+    if allow_control:
+        entry["env"] = {"ELI_MCP_ALLOW_CONTROL": "1"}
+    return {"mcpServers": {"eli": entry}}
+
+
+def main() -> int:
+    """Process entry point. Stdout carries only protocol traffic.
+
+    Importing the executor prints status banners, and native libraries write to the
+    file descriptor directly, so the protocol gets a private duplicate of stdout and
+    fd 1 itself is pointed at stderr for the life of the process.
+    """
+    try:
+        protocol_out = os.fdopen(os.dup(1), "w", buffering=1, encoding="utf-8")
+        os.dup2(2, 1)
+    except OSError:
+        protocol_out = sys.stdout
+    sys.stdout = sys.stderr
+    return serve(stdout=protocol_out)
+
+
 if __name__ == "__main__":  # pragma: no cover - process entry point
-    raise SystemExit(serve())
+    raise SystemExit(main())

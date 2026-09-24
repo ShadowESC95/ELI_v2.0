@@ -620,7 +620,42 @@ class MarketplaceTab(QWidget):
         self._mcp_status.setWordWrap(True)
         self._mcp_status.setStyleSheet(f"color:{_DIM};")
         v.addWidget(self._mcp_status)
+
+        v.addWidget(QLabel(
+            "<b>Use ELI from other apps.</b> ELI can act as an MCP server, so a client "
+            "such as an editor or desktop assistant can call ELI's actions. Paste this "
+            "into that app's MCP servers config."))
+        self._mcp_scope = QComboBox()
+        self._mcp_scope.addItem("Safe actions only (recommended)", False)
+        self._mcp_scope.addItem("Include control actions (mouse, keyboard, shell, self-change)", True)
+        self._mcp_scope.currentIndexChanged.connect(self._refresh_mcp_config)
+        v.addWidget(self._mcp_scope)
+        self._mcp_cfg = QTextEdit()
+        self._mcp_cfg.setReadOnly(True)
+        self._mcp_cfg.setMaximumHeight(140)
+        v.addWidget(self._mcp_cfg)
+        copy_row = QHBoxLayout()
+        copy_btn = QPushButton("Copy config")
+        copy_btn.clicked.connect(self._copy_mcp_config)
+        copy_row.addWidget(copy_btn)
+        copy_row.addStretch(1)
+        v.addLayout(copy_row)
+        self._refresh_mcp_config()
         return w
+
+    def _refresh_mcp_config(self) -> None:
+        try:
+            from eli.integrations.mcp.server import connection_config
+            allow = bool(self._mcp_scope.currentData())
+            self._mcp_cfg.setPlainText(json.dumps(connection_config(allow), indent=2))
+        except Exception as exc:
+            log.debug(f"[MARKET] MCP server config unavailable: {exc}", exc_info=True)
+            self._mcp_cfg.setPlainText("")
+
+    def _copy_mcp_config(self) -> None:
+        self._mcp_cfg.selectAll()
+        self._mcp_cfg.copy()
+        self._mcp_status.setText("Config copied.")
 
     def _refresh_mcp(self) -> None:
         try:

@@ -246,6 +246,7 @@ Repository = "https://github.com/ShadowESC95/ELI_v2.0"
 eli = "eli.gui.app:main"
 "eli-v2.0" = "eli.gui.app:main"
 eli-cli = "eli.gui.app:main"
+eli-mcp = "eli.integrations.mcp.server:main"
 
 [project.gui-scripts]
 eli-gui = "eli.gui.app:main"
