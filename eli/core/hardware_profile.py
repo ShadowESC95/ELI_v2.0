@@ -2100,6 +2100,69 @@ def unified_fit_config(
     )
 
 
+def auto_ctx_target(
+    model_path: Optional[str],
+    model_size_gb: float,
+    *,
+    free_vram_mb: int,
+    available_ram_gb: float,
+    use_gpu: bool,
+    kv_quantized: bool = False,
+    grain: int = 2048,
+) -> int:
+    """The context window "auto" aims for, derived from this model and this machine.
+
+    Auto used to aim at a fixed DEFAULT_N_CTX, so every model on every machine was
+    capped at the same number -- too small for a 32k-trained model on a 64GB box,
+    too large for a 4k one on a laptop, and the same wherever the operator had not
+    chosen. It is now the smaller of two measured limits:
+
+    * the model's own trained context x ``ELI_CTX_FRACTION`` (the dialog's
+      "Context target fraction"), read from GGUF metadata; and
+    * the context whose KV cache fits within ``ELI_CTX_KV_SHARE`` of the memory left
+      once the weights are placed (free VRAM when offloading + the RAM budget).
+
+    It is a target, not a guarantee: the fit that follows still reduces it against
+    the real VRAM/RAM budget. An operator-chosen ctx never comes through here.
+    DEFAULT_N_CTX is only the last resort when neither limit can be measured.
+    """
+    wanted = 0
+    try:
+        # Only a trained context that was actually READ counts. train_ctx_for_model
+        # substitutes a conservative constant when the header is unreadable; using
+        # that here would put a hidden fixed figure back under "auto".
+        from eli.core.startup_hardware_optimizer import _gguf_metadata_ctx
+        _forced = (os.environ.get("ELI_MODEL_TRAIN_CTX") or "").strip()
+        if _forced.isdigit():
+            wanted = int(_forced)
+        elif model_path:
+            wanted = int(_gguf_metadata_ctx(str(model_path)) or 0)
+        frac = float(os.environ.get("ELI_CTX_FRACTION", "0.9") or "0.9")
+        wanted = int(wanted * max(0.05, min(1.0, frac)))
+    except Exception:
+        log.debug("trained context unavailable for auto ctx", exc_info=True)
+        wanted = 0
+
+    cap = 0
+    try:
+        share = float(os.environ.get("ELI_CTX_KV_SHARE", "0.5") or "0.5")
+        layers = layers_for_model(model_path, model_size_gb)
+        spare_mb = (int(free_vram_mb) if use_gpu else 0) \
+            + cpu_ram_budget_mb(available_ram_gb) - float(model_size_gb) * 1024.0
+        per_token = _kv_cache_mb(1024, layers, quant=kv_quantized) / 1024.0
+        if spare_mb > 0 and per_token > 0:
+            cap = int(spare_mb * max(0.05, min(1.0, share)) / per_token)
+    except Exception:
+        log.debug("memory-derived ctx cap unavailable", exc_info=True)
+        cap = 0
+
+    limits = [v for v in (wanted, cap) if v > 0]
+    if not limits:
+        from eli.core.runtime_settings import DEFAULT_N_CTX
+        return int(DEFAULT_N_CTX)
+    return max(grain, (min(limits) // grain) * grain)
+
+
 def recommend(hw: Optional[HardwareProfile] = None,
               models: Optional[List[Dict[str, Any]]] = None,
               user_ctx: Optional[int] = None) -> ModelRecommendation:
@@ -2213,16 +2276,20 @@ def recommend(hw: Optional[HardwareProfile] = None,
     #   ceiling after model selection.
     # • CPU-only     — RAM is the binding constraint; use available RAM.
     _ctx_grain = 2048
-    try:
-        from eli.core.runtime_settings import DEFAULT_N_CTX as _DEF_CTX
-    except Exception:
-        _DEF_CTX = 12288
     if user_ctx and int(user_ctx) >= 2048:
         rec.n_ctx = max(2048, (int(user_ctx) // _ctx_grain) * _ctx_grain)
         _ctx_note = "user-pinned — reduced to fit only if memory is tight"
     else:
-        rec.n_ctx = int(_DEF_CTX)
-        _ctx_note = f"default {_DEF_CTX} — reduced to fit if memory is tight"
+        _auto_m = max(models, key=lambda m: m["size_gb"]) if models else None
+        rec.n_ctx = auto_ctx_target(
+            _auto_m["path"] if _auto_m else None,
+            _auto_m["size_gb"] if _auto_m else 0.0,
+            free_vram_mb=hw.free_vram_mb, available_ram_gb=hw.available_ram_gb,
+            use_gpu=bool(use_gpu_layers), kv_quantized=bool(rec.cache_type_k),
+            grain=_ctx_grain,
+        )
+        _ctx_note = (f"auto {rec.n_ctx} — from the model's trained context and this "
+                     f"machine's memory, reduced to fit if memory is tight")
     if use_gpu_layers:
         rec.reasoning.append(f"n_ctx={rec.n_ctx} (GPU — {_ctx_note})")
     else:

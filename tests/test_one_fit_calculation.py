@@ -68,10 +68,12 @@ def test_the_recommendation_matches_what_the_loader_would_do(size_gb, free_mb, t
     hw = _hw(free_mb, total_mb)
     rec = recommend(hw, _models(size_gb))
     kv_q = bool(total_mb < 12000)
-    try:
-        from eli.core.runtime_settings import DEFAULT_N_CTX as _target_ctx
-    except Exception:
-        _target_ctx = 12288
+    # "auto" is derived from the model and this machine, not a constant: the
+    # invariant is that the recommendation equals the loader's fit of THAT target.
+    from eli.core.hardware_profile import auto_ctx_target
+    _target_ctx = auto_ctx_target(
+        "/tmp/test.gguf", size_gb, free_vram_mb=free_mb,
+        available_ram_gb=hw.available_ram_gb, use_gpu=True, kv_quantized=kv_q)
     ctx, layers = _loader_fit(
         size_gb, free_mb, int(_target_ctx), kv_q, hw.available_ram_gb)
     assert (rec.n_ctx, rec.n_gpu_layers) == (ctx, layers), (

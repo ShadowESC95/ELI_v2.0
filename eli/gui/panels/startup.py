@@ -868,6 +868,7 @@ class StartupModelSelectionDialog(QDialog):
     def _refresh_hw_summary(self) -> None:
         try:
             from eli.core.hardware_profile import (
+                auto_ctx_target,
                 cpu_ram_budget_mb,
                 detect_hardware,
                 effective_use_gpu_layers,
@@ -890,7 +891,11 @@ class StartupModelSelectionDialog(QDialog):
                 try:
                     _mp = Path(_model_path)
                     _size_gb = _mp.stat().st_size / 1e9
-                    _ctx = int(self.ctx_window_spin.value()) or 12288
+                    _ctx = int(self.ctx_window_spin.value()) or auto_ctx_target(
+                        str(_mp), _size_gb, free_vram_mb=_hw.free_vram_mb,
+                        available_ram_gb=_hw.available_ram_gb,
+                        use_gpu=effective_use_gpu_layers(_hw),
+                        kv_quantized=bool(_hw.total_vram_mb and _hw.total_vram_mb < 12000))
                     _batch = int(self.target_batch_spin.value()) or 256
                     _kvq = bool(_hw.total_vram_mb and _hw.total_vram_mb < 12000)
                     _use_gpu = effective_use_gpu_layers(_hw)

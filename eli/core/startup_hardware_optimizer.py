@@ -669,10 +669,13 @@ def allocate(
                 detect_hardware,
                 effective_use_gpu_layers,
             )
-            from eli.core.runtime_settings import DEFAULT_N_CTX as _DEF_CTX
+            from eli.core.hardware_profile import auto_ctx_target as _auto_ctx
             _hw = detect_hardware()
             if not effective_use_gpu_layers(_hw):
-                _target = int(forced_ctx or user_ctx or _DEF_CTX)
+                _target = int(forced_ctx or user_ctx or _auto_ctx(
+                    profile_model, model_gb, free_vram_mb=0,
+                    available_ram_gb=_hw.available_ram_gb, use_gpu=False,
+                    kv_quantized=(ram_gb <= 16)))
                 _batch_in = int(forced_batch or user_batch or 128)
                 _cpu_ctx, _cpu_batch = cpu_ram_fit_config(
                     model_gb, _hw.available_ram_gb,
@@ -744,17 +747,12 @@ def allocate(
     model_vram_mb = model_gb * 1024.0          # VRAM needed for full offload
     kv_per_token  = layers_total * 1024 / 1048576.0  # MB per ctx token (q4_0 KV)
 
-    # Default target context window for ALL models. The user overrides it in the
-    # GUI startup loader (Context window field → ELI_FORCE_CTX, or user_preferred_ctx
-    # in settings.json). 16384 is intentionally modest: on a VRAM-limited GPU a large
-    # train-ctx-sized window's KV cache + compute buffer eat the VRAM that would
-    # otherwise hold GPU layers, forcing CPU-bound inference. The fraction spinbox can
-    # still pull ctx BELOW this default; VRAM/RAM reduce-to-fit further.
-    try:
-        from eli.core.runtime_settings import DEFAULT_N_CTX as _DEFAULT_CTX
-    except Exception:
-        _DEFAULT_CTX = 16384
-    _default_target = min(int(_DEFAULT_CTX), train_ctx, round_ctx(int(train_ctx * ctx_fraction)))
+    # Auto target: the model's own trained context x the fraction spinbox, not a
+    # constant shared by every model and machine. The operator's own value
+    # (Context window field -> ELI_FORCE_CTX, or user_preferred_ctx) is handled
+    # below and never comes through here; VRAM/RAM caps below still reduce this.
+    _default_target = round_ctx(int(train_ctx * ctx_fraction))
+    _DEFAULT_CTX = _default_target
 
     if forced_ctx:
         n_ctx = int(forced_ctx)
@@ -767,7 +765,7 @@ def allocate(
         kv_budget = max(0.0, budget_after_batch - model_vram_mb)
         max_ctx_vram = max(2048, int(kv_budget / max(kv_per_token, 1e-6)))
         n_ctx = round_ctx(min(_default_target, max_ctx_vram))
-        ctx_source = f"default {int(_DEFAULT_CTX)} (VRAM-capped, kv_budget={kv_budget:.0f}MB)"
+        ctx_source = f"auto {int(_DEFAULT_CTX)} (VRAM-capped, kv_budget={kv_budget:.0f}MB)"
     else:
         # Partial offload → KV for CPU-resident layers lives in RAM. Keep the default
         # target when the model + its ACTUAL KV cache fit available RAM (q4 KV for
@@ -778,10 +776,10 @@ def allocate(
         _ram_avail_mb = ram_gb * 1024.0
         if (model_gb * 1024.0) + _kv_default_mb + 2048 <= _ram_avail_mb:
             n_ctx = _default_target
-            ctx_source = f"default {int(_DEFAULT_CTX)} (model+KV fit RAM)"
+            ctx_source = f"auto {int(_DEFAULT_CTX)} (model+KV fit RAM)"
         else:
             n_ctx = round_ctx(min(_default_target, ram_ctx_cap(ram_gb, model_gb)))
-            ctx_source = f"default {int(_DEFAULT_CTX)} (RAM-capped)"
+            ctx_source = f"auto {int(_DEFAULT_CTX)} (RAM-capped)"
 
     kv = kv_cache_mb(n_ctx, layers_total)
 
