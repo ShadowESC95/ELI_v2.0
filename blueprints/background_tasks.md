@@ -69,7 +69,9 @@ Kill switch: `ELI_CODEGEN_BACKGROUND=0`.
   BACKGROUND_JOBS executor round-trip. No model needed.
 - **Threads, not processes:** background tasks share the process; a running
   thread can't be force-killed (cancel is best-effort / cooperative). True OS
-  isolation for a job would use the subprocess `jobqueue`.
+  isolation for a job uses the durable subprocess `jobqueue`: run `eli-jobs worker` and
+  queue with `eli-jobs submit --cmd "..."` (jobs survive a restart; one a dead worker left
+  running is marked failed on the next worker start).
 - **"LLM deems longer wait":** currently a deterministic estimator (+ explicit
   phrasing). The planner's decomposition (`plan_steps`) can be fed in for an
   LLM-informed estimate — hook present, not yet auto-wired.

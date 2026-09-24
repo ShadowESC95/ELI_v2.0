@@ -20,14 +20,14 @@ subsystem, and OS control. All local, no APIs, no third-party accounts.
 | `screen_locator.py` | 410 | locate UI elements on screen (AT-SPI → local VL-ground → OCR) |
 | `screen_analysis.py` | ~180 | depth modes, prior-screen memory, research-context prompts |
 | `ui_ground.py` | ~320 | local GGUF precision click + computer-use agent (no HTTP) |
-| `desktop_capabilities.py` | ~170 | cross-OS input/screenshot/locate probe for dossier/SELF_TEST |
+| `desktop_capabilities.py` | ~170 | cross-OS input/screenshot/locate probe; feeds the awareness briefing and SELF_TEST |
 | `media_deps.py` | ~140 | bundled-python + PATH discovery for yt-dlp/mpv/desktop CLIs |
 | `gaze_engine.py` | 358 |
 | `log_rotation.py` | 225 | log housekeeping |
 | `analyze_pdfs/image/mesh/csv.py` | ~600 | file-type analysers |
 | `ambient_vision.py` | 207 | periodic screen glances (off by default) |
 | `local_whisper_stt.py` | 316 |
-| `voice_worker(_streaming).py`, `eli_listen.py`, `extract_equations.py` | small | workers/helpers |
+| `voice_worker_streaming.py` | small | streaming voice worker |
 
 ## Vision (`vision.py` + `ambient_vision.py` + `analyze_image.py`)
 
@@ -295,8 +295,7 @@ capability isn't available (e.g. area screenshots on some Windows installs).
 
 ## File analysers
 
-`analyze_pdfs`, `analyze_image`, `analyze_csv`, `analyze_mesh`,
-`extract_equations` — typed handlers behind the `ANALYZE_*` actions, feeding
+`analyze_pdfs`, `analyze_image`, `analyze_csv` — typed handlers behind the `ANALYZE_*` actions, feeding
 extracted content (text/OCR/structure) into the grounded pipeline.
 
 ## Honest assessment

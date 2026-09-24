@@ -81,6 +81,12 @@ The deterministic control path:
 - `compact_evidence_answer` / `finalise_control_result` — assemble the final
   grounded response.
 
+### Synthesis is validated against its evidence
+`cognition/output_governor.validate_against_evidence` also rejects any figure or model designation
+(`H100`, `512 GB`, `32K`) that the evidence does not contain, allowing for unit conversion; the
+non-Quick compact synthesis path uses it and falls back to the deterministic evidence text.
+`contracts/grounded_control.py` owns which actions never fall back to a clarifying question.
+
 ### `runtime/evidence_ledger.py` (595 LOC)
 A persistent SQLite ledger of evidence events: `record_event`, `recent_events`,
 `repeated_event_signals` (detect recurring issues over N days), `status_evidence`,
@@ -94,9 +100,9 @@ agent-bus confidence aggregation (`_score_tool_result`), which scores a tool
 result with no recorded `"ok"` field as unverified (same low score as a
 confirmed failure) rather than defaulting a missing outcome to success.
 
-### `runtime/memory_evidence.py` + `runtime/retrieval_packets.py`
-`collect_memory_evidence` / `build_memory_evidence_text` turn memory hits into an
-evidence block. `retrieval_packets` builds `StagePacket`s for each retrieval
+### `runtime/retrieval_packets.py`
+Memory hits reach the prompt through the shared turn retrieval in `memory/retrieval.py`.
+`retrieval_packets` builds `StagePacket`s for each retrieval
 stage (parallel-retrieval, hybrid-merge, rerank, source-trace) — provenance so
 the pipeline can show *where* a fact came from.
 
@@ -125,7 +131,7 @@ recoverable instead of dead ends.
 
 1. Router classifies action. Control/grounded actions enter the deterministic
    path.
-2. `build_control_evidence` / `collect_memory_evidence` gather facts.
+2. `build_control_evidence` gathers facts.
 3. PHASE45 deterministic bypass: for many status actions `render_action` /
    `direct_grounded_answer` answer **without** the LLM.
 4. If the LLM generates, `output_violates_evidence` + `validate_against_evidence`
@@ -202,6 +208,8 @@ and runs `NEWS_FETCH` again instead of falling through to web-escalation hedge.
 ---
 
 ## Update — 2.3.7 (evidence layer stopped discarding history)
+
+*`runtime/memory_evidence.py` was removed in 2.4.63; shared turn retrieval in `memory/retrieval.py` replaced it. Kept for history.*
 
 `runtime/memory_evidence.collect_memory_evidence` pulled recent processed memories,
 observations and conversation turns with `limit = max(4, min(limit, 8))`. The inner

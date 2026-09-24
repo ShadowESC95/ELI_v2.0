@@ -37,6 +37,11 @@ is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
   `gguf_ready` abstraction the orchestrator, engine, and ReAct loop call, so
   callers don't touch `gguf_inference` directly.
 
+- **CPU runtime preflight (`core/llama_cpu_compat.py`)**: before the first native load, a cached
+  smoke test (once per llama.cpp build and CPU) checks the runtime starts on this CPU. Prebuilt
+  wheels assume AVX-VNNI and SIGILL on older chips; the loader now reports that plainly instead of
+  crashing. Only a definitive illegal-instruction blocks a load. `ELI_CPU_PREFLIGHT=0` disables it.
+
 ## Hardware profiling (`core/hardware_profile.py`, ~1400 LOC)
 
 Free-VRAM-aware sizing, genuinely cross-vendor: NVIDIA via `nvidia-smi`, then a

@@ -19,7 +19,7 @@ the live system:
   (`classify_diagnostic_action` → `gather_evidence` → `format_evidence_block` →
   `maybe_handle` — deterministic diagnostic answers).
 - **Response assembly**: `final_response_assembly.py`, `final_response_provider.py`,
-  `response_contracts.py`, `response_packets.py`, `response_policy.py`,
+  `response_contracts.py`, `response_policy.py`,
   `user_visible_response_surface.py`.
 - **Personal memory surfaces**: `personal_memory_surface.py`,
   `personal_memory_clean_response.py`, `personal_memory_deep_response.py`,
@@ -73,8 +73,6 @@ Background cognition + goal/queue machinery:
   `proactive_daemon` where the world-suggestions + patterns + improvements are in
   scope. His agenda now spans failure-repair, world-driven, AND self-improvement —
   i.e. he sets his own intentions, governed.
-- `task_planner.py` — now delegates to `execution_planner` (see
-  `orchestration_and_agents.md`).
 
 ## World / autonomy model (`eli/world/`, 1.5k LOC)
 

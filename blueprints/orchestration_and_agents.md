@@ -19,7 +19,6 @@ Source files:
 - `eli/kernel/pipeline_trace.py` — canonical S01–S12 logging
 - `eli/kernel/engine.py` — wiring / dispatch gate
 - `eli/execution/execution_planner.py` — declarative plan model (UNUSED)
-- `eli/planning/task_planner.py` — planner shim (stub)
 
 ## Two agent stacks (this is the key thing to understand)
 
@@ -182,9 +181,8 @@ Stage 12 side effects (store turn, publish meta, `_learn_from_result`) run throu
    `agent_profile`, and drives `active_agents` *through* `plan.agent_profile`
    (selection result unchanged). The plan is surfaced on
    `DispatchResult.execution_plan`. `EXECUTE_GOAL` also builds a real plan via it.
-5. **`task_planner.TaskPlanner`** — no longer a hardcoded shim; it now delegates
-   to `execution_planner.build_execution_plan` so there is a single real plan
-   representation across the codebase.
+5. **`task_planner.TaskPlanner`** — removed in 2.4.63; `execution_planner.build_execution_plan`
+   is the single plan representation.
 
 ## Where it is actually weak (corrected)
 
@@ -198,8 +196,7 @@ Stage 12 side effects (store turn, publish meta, `_learn_from_result`) run throu
    tool actions*, not bus agents — so a bus-level dependency (e.g. KG seeded by
    memory's entities) still cannot be expressed.
 3. **Planning partially consolidated (improved).** `execution_planner` is now
-   the canonical typed plan and drives bus selection; `task_planner` delegates
-   to it. Remaining overlap: the engine's `_build_runtime_orchestrator_plan`
+   the canonical typed plan and drives bus selection. Remaining overlap: the engine's `_build_runtime_orchestrator_plan`
    (rich stage dict) and the bus `OrchestratorAgent` plan still coexist with the
    typed `ExecutionPlan`. The ReAct loop remains the only planner that actually
    *executes* a sequence. A future pass could fold the stage dict into
@@ -228,7 +225,7 @@ Stage 12 side effects (store turn, publish meta, `_learn_from_result`) run throu
 |---|---|---|
 | **Med** | Move `_load_custom_agents()` above the runtime-policy timeout loop (or re-apply the override after loading). | One-line fix for the redistribution timeout gap (#5). |
 | **Med** | Make the bus optionally two-round for dependent agents (round-1 results passed into round-2 `run()`), gated by a real plan. | Enables KG-seeded-by-memory etc. (#2). |
-| **Med** | Either wire `execution_planner.ExecutionPlan` in as the bus's selection/sequencing source, or delete it + the shim `task_planner` to cut dead surface. | Resolves the 5-planner fragmentation (#3). |
+| **Med** | Either wire `execution_planner.ExecutionPlan` in as the bus's selection/sequencing source, or delete it to cut dead surface. | Resolves the 5-planner fragmentation (#3). |
 | **Med** | Generic evidence-density floor: count any non-empty payload at low weight so unknown-key/custom agents aren't zeroed. | Makes custom agents first-class to confidence (#7). |
 | **Med** | Cooperative-cancel token checked before write-capable agents commit. | Closes the late-write hole (#6). |
 | **Low** | Early-return once a direct `action_result` exists; surface agent health (timeout rate, p95) from `agent_metrics` in RUNTIME_STATUS. | Latency + observability (#8). |

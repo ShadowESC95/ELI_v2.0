@@ -134,13 +134,11 @@ Pipeline stages are logged canonically via `eli/kernel/pipeline_trace.py`:
   ordered prepasses (web realtime lookup, media, file/PDF, memory, control…)
   then a core router, with an LLM-intent fallback (`cognition/llm_intent.py`).
   Holds module state like `_last_used_path` for referential follow-ups.
-- **`execution_planner.py`** / `execution_intent_packets.py` — typed
+- **`execution_planner.py`** — typed
   `ExecutionPlan` / `RouteDecision` artifacts the bus consumes.
-- **`route_authority.py`, `route_contracts.py`, `tool_execution_authority.py`,
-  `operator_policy.py`** — guardrails on what may be routed/executed.
-- **`portable_intent_contract.py`, `router_plugin_intents.py`,
-  `executor_plugin_handlers.py`, `media_runtime.py`, `operator_actions.py`** —
-  plugin/media/OS intent wiring.
+- **`route_authority.py`, `route_contracts.py`, `operator_policy.py`** — guardrails on what may be routed/executed.
+- **`portable_intent_contract.py`, `media_runtime.py`, `operator_actions.py`** —
+  media/OS intent wiring (plugin actions are handled directly in `executor_enhanced.py`).
 
 Key router behaviours (each is a fixed bug → guarded by `tools/eval/cases.yaml`):
 media controls require **whole-word + command-shape** (no substring "tab" in
@@ -230,8 +228,7 @@ orchestrator — it does **not** bypass it for a bare bus dispatch.
   runtime snapshot publishing. Model-agnostic; loads whatever GGUF is configured.
 - **`reasoning_modes.py`** — modes: `quick`, `chain_of_thought`, `self_consistency`,
   `tree_of_thoughts`, `constitutional_ai` (private execution strategy, not shown raw).
-- **`chat_model.py`, `context_builder.py`, `context_synthesiser.py`,
-  `user_info_builder.py`** — prompt/context assembly.
+- **`context_synthesiser.py`, `user_info_builder.py`** — prompt/context assembly.
 - **`llm_intent.py`** — LLM fallback for ambiguous routing. Decoding is constrained by a
   GBNF grammar built from the live action catalogue, so the model can only name a
   capability that actually exists and can only emit well-formed JSON — an invented
@@ -255,12 +252,11 @@ unbacked facts.
   agent, self/project fact → broad local agent fan-out — and **hedges honestly**
   if nothing grounds it. Trigger is grounding, *not* the (often-high)
   response-confidence. Env: `ELI_GROUNDING_ESCALATION`.
-- **`evidence_ledger.py`, `evidence_store.py`, `evidence_arbitration.py`,
-  `memory_evidence.py`** — what counts as evidence, where it's recorded, conflict
-  resolution.
+- **`evidence_ledger.py`, `evidence_arbitration.py`** — what counts as evidence, where it's
+  recorded (the ledger also records every executed action), conflict resolution.
 - **`persistence_gate.py`** — stops internal report-dumps/junk being written to
   memory (and replayed later).
-- **`response_contracts.py`, `response_packets.py`, `response_policy.py`,
+- **`response_contracts.py`, `response_policy.py`,
   `final_response_assembly.py`, `final_response_provider.py`,
   `user_visible_response_surface.py`** — shape/clean the final user-visible
   answer; format internal "surface packets" into readable text (never raw JSON).
@@ -328,9 +324,9 @@ Retrieval is hybrid: keyword + FTS5 + FAISS + RAG + KG, merged & reranked (§7).
 - **Vision** — `vision.py` (model-agnostic VL: Moondream / Qwen2.5-VL hot-swap;
   mtmd encoder forced to CPU to avoid CUDA clip segfault), `analyze_image.py`,
   `ambient_vision.py` (ambient toggle), `screen_locator.py`, `gaze_engine.py`,
-  `analyze_mesh.py`, `extract_equations.py`.
+  `analyze_csv.py`, `analyze_pdfs.py`.
 - **STT** — `local_whisper_stt.py` (faster-whisper `small.en`, CPU int8,
-  `local_only` when offline), `audio_stt.py`, `eli_listen.py`, `voice_worker*.py`
+  `local_only` when offline), `audio_stt.py`, `voice_worker_streaming.py`
   (wake-word "computer", music-bleed filter, echo gate).
 - **TTS** — `tts_router.py` (Piper voices, e.g. `en_US-amy-medium`).
 - **OS** — `os_controller.py` (app/window/keyboard/mouse), `analyze_csv.py`,
@@ -358,7 +354,7 @@ Retrieval is hybrid: keyword + FTS5 + FAISS + RAG + KG, merged & reranked (§7).
   failures (now filtered of transient/user errors).
 - **Habit scheduler** (`planning/habits_scheduler.py`, `habits.py`) — learned
   routines; guarded against junk-rule replay.
-- **Scheduler / task bus** (`kernel/scheduler.py`, `kernel/task_bus.py`).
+- **Scheduler** (`kernel/scheduler.py`).
 - **Background tasks** (`runtime/background_tasks.py`) — async heavy jobs.
 - **Code monitor** (`runtime/code_monitor.py`), **ambient vision loop**.
 - **World event bus** (`world/world_event_bus.py`) — fed confidence/agent events.
@@ -396,7 +392,7 @@ under `artifacts/world/`. Experimental/creative subsystem.
   per-user/gitignored, seeded from `config/templates/settings.template.json`.
 - **`hardware_profile.py`, `startup_hardware_optimizer.py`,
   `dynamic_runtime_budget.py`** — detect GPU/VRAM, pick ctx/gpu_layers/batch.
-- **`first_run.py`, `first_run_wizard.py`** — onboarding state.
+- **First run** — onboarding state lives in settings (`first_run_complete`), driven by `gui/app.py`.
 - **`model_download.py`** — curated GGUF downloader (catalog, resumable,
   GGUF-magic + size validated, netguard-gated). Install-time menu only —
   inference stays model-agnostic.
