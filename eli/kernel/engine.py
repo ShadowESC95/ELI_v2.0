@@ -7671,15 +7671,9 @@ Answer:"""
             except Exception:
                 _eli_gc_action = ""
 
-            _eli_gc_grounded_actions = {
-                "RUNTIME_STATUS",
-                "MEMORY_COUNT",
-                "RECENT_MEMORY_PROCESSING",
-                "SELF_REPORT_RECENT_UPDATES",
-                "GUI_RUNTIME_AUDIT",
-            }
+            from eli.contracts.grounded_control import is_grounded_control_action
 
-            if _eli_gc_action in _eli_gc_grounded_actions:
+            if is_grounded_control_action(_eli_gc_action):
                 log.debug(
                     f"[COGNITIVE][FINAL] grounded-control no-clarify v2 suppressed "
                     f"action={_eli_gc_action} score={best_score:.2f} threshold={threshold:.2f}",

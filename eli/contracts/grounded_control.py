@@ -25,7 +25,14 @@ GROUNDED_CONTROL_ACTIONS = {
     "EXPLAIN_MEMORY_RUNTIME",
     "EXPLAIN_LAST_RESPONSE",
     "SELF_REPORT",
+    "RECENT_MEMORY_PROCESSING",
+    "SELF_REPORT_RECENT_UPDATES",
 }
+
+
+def is_grounded_control_action(action: Any) -> bool:
+    """True for actions whose answer is the executor's evidence, never a clarifying question."""
+    return str(action or "").strip().upper() in GROUNDED_CONTROL_ACTIONS
 
 
 RUNTIME_STATUS_REQUIRED_TERMS = (

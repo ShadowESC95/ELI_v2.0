@@ -192,3 +192,12 @@ def test_mic_dropdown_enumerates_under_the_stderr_guard():
     window = text[max(0, text.index(call) - 200):text.index(call)]
     assert "quiet_native_stderr" in window, \
         "the mic dropdown enumerates devices without silencing PortAudio"
+
+
+def test_grounded_control_actions_have_one_owner():
+    """The engine's no-clarify rule and the contract must agree on the action set."""
+    from eli.contracts.grounded_control import GROUNDED_CONTROL_ACTIONS, is_grounded_control_action
+    for a in ("RUNTIME_STATUS", "MEMORY_COUNT", "RECENT_MEMORY_PROCESSING",
+              "SELF_REPORT_RECENT_UPDATES", "GUI_RUNTIME_AUDIT", "EXPLAIN_LAST_RESPONSE"):
+        assert a in GROUNDED_CONTROL_ACTIONS and is_grounded_control_action(a.lower())
+    assert not is_grounded_control_action("CHAT") and not is_grounded_control_action(None)
