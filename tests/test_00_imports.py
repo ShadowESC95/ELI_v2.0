@@ -45,14 +45,12 @@ ALL_MODULES = [
     "eli.core.runtime_settings",
     # ── execution ─────────────────────────────────────────────────────────────
     "eli.execution",
-    "eli.execution.execution_intent_packets",
     "eli.execution.execution_planner",
     "eli.execution.executor_enhanced",
     "eli.execution.operator_actions",
     "eli.execution.operator_policy",
     "eli.execution.route_authority",
     "eli.execution.router_enhanced",
-    "eli.execution.tool_execution_authority",
     # ── gui ───────────────────────────────────────────────────────────────────
     "eli.gui",
     "eli.gui.app",
@@ -157,7 +155,6 @@ ALL_MODULES = [
     "eli.runtime.control_contracts",
     # eli.runtime.eli_agent — module does not exist (stale entry), removed 2026-06-01
     "eli.runtime.evidence_arbitration",
-    "eli.runtime.evidence_store",
     "eli.runtime.final_response_provider",
     "eli.runtime.grounded_remediation",
     "eli.runtime.identity_guard",
@@ -179,8 +176,6 @@ ALL_MODULES = [
     "eli.runtime.self_model_refresh",
     "eli.runtime.stage_packets",
     "eli.runtime.stage_packet_store",
-    "eli.runtime.tool_result_models",
-    "eli.runtime.tool_result_store",
     # ── tools ─────────────────────────────────────────────────────────────────
     "eli.tools",
     "eli.tools.image_engine",

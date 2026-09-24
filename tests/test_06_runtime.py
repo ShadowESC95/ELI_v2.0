@@ -77,12 +77,6 @@ def test_runtime_evidence_arbitration_loadable():
     assert _load("eli.runtime.evidence_arbitration") is not None
 
 
-def test_runtime_evidence_store_loadable():
-    assert _load("eli.runtime.evidence_store") is not None
-
-
-
-
 def test_runtime_final_response_provider_loadable():
     assert _load("eli.runtime.final_response_provider") is not None
 
@@ -152,16 +146,6 @@ def test_runtime_stage_packets_loadable():
 
 def test_runtime_stage_packet_store_loadable():
     assert _load("eli.runtime.stage_packet_store") is not None
-
-
-def test_runtime_tool_result_models_loadable():
-    assert _load("eli.runtime.tool_result_models") is not None
-
-
-
-def test_runtime_tool_result_store_loadable():
-    assert _load("eli.runtime.tool_result_store") is not None
-
 
 
 def test_runtime_auth_loadable():

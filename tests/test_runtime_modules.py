@@ -172,19 +172,6 @@ def test_personal_memory_surface_importable():
 
 # ── Evidence Store ────────────────────────────────────────────────────────
 
-def test_evidence_store_importable():
-    from eli.runtime.evidence_store import get_current_evidence_packet
-    assert get_current_evidence_packet is not None
-
-def test_evidence_store_instantiation(tmp_db):
-    from eli.runtime.evidence_store import get_current_evidence_packet
-    try:
-        result = get_current_evidence_packet()
-        assert result is not None
-    except Exception:
-        pass
-
-
 # ── Awareness Boot ────────────────────────────────────────────────────────
 
 def test_awareness_boot_importable():

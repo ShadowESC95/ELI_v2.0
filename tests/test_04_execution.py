@@ -27,11 +27,6 @@ def test_execution_executor_has_class():
     assert matches, f"No Executor class in executor_enhanced.py: {syms}"
 
 
-def test_execution_intent_packets_loadable():
-    mod = importlib.import_module("eli.execution.execution_intent_packets")
-    assert mod is not None
-
-
 def test_execution_planner_loadable():
     mod = importlib.import_module("eli.execution.execution_planner")
     assert mod is not None
@@ -52,11 +47,6 @@ def test_execution_route_authority_loadable():
     mod = importlib.import_module("eli.execution.route_authority")
     assert mod is not None
 
-
-
-def test_execution_tool_execution_authority_loadable():
-    mod = importlib.import_module("eli.execution.tool_execution_authority")
-    assert mod is not None
 
 
 def test_execution_cross_import_router_executor():

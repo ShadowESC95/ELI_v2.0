@@ -72,14 +72,6 @@ def test_self_heal_notices_are_writable(packaged):
     assert _under_packaged(_self_heal_notices_path())
 
 
-def test_tool_result_store_is_writable(packaged, monkeypatch, tmp_path):
-    monkeypatch.setattr(P, "data_dir", lambda: tmp_path / "artifacts")
-    from eli.runtime.tool_result_store import tool_result_store_path
-    p = tool_result_store_path()
-    assert str(p).startswith(str(tmp_path)), "would write into the install tree"
-    assert p.parent.exists(), "parent not created"
-
-
 def test_grounded_remediation_is_writable(packaged, monkeypatch, tmp_path):
     monkeypatch.setattr(P, "data_dir", lambda: tmp_path / "artifacts")
     from eli.runtime.grounded_remediation import _pending_file

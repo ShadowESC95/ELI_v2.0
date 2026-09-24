@@ -2174,6 +2174,30 @@ def _maybe_background_codegen(action, args):
         return None
 
 
+def _record_tool_execution(action: str, args: Any, result: Any) -> None:
+    """Log this action in the evidence ledger: what ran, whether it worked, and the
+    argument names only (values can be private)."""
+    if (os.environ.get("ELI_LEDGER_TOOL_EVENTS", "1") or "1").strip().lower() in ("0", "false", "no", "off"):
+        return
+    if not action or action.upper() == "CHAT":
+        return
+    from eli.runtime.evidence_ledger import record_event
+    ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
+    text = ""
+    if isinstance(result, dict):
+        text = str(result.get("response") or result.get("content") or result.get("message") or "")
+    record_event(
+        "tool_execution",
+        source="executor",
+        action=action,
+        subject=",".join(sorted(str(k) for k in (args or {}))) if isinstance(args, dict) else "",
+        content=text[:200],
+        payload={"ok": ok},
+        outcome="ok" if ok else "failed",
+        severity="info" if ok else "warning",
+    )
+
+
 def _maybe_background_code_work(action, args):
     """Route FIX_FILE / EXAMINE_CODE to the in-process background job queue when
     they would monopolize the shared model lock (CodeAgent, tier-3 review, sweeps).
@@ -12787,6 +12811,10 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
     merged.update(kwargs or {})
     res = _execute_impl(action=str(a), args=merged)
     __eli_ret = _normalize_result(res)
+    try:
+        _record_tool_execution(str(a), merged, __eli_ret)
+    except Exception:
+        log.debug("tool execution not recorded", exc_info=True)
     # Normalize LIST_CAPABILITIES top-level content/response (pipeline expects table here)
     try:
         if isinstance(__eli_ret, dict) and __eli_ret.get('action') == 'LIST_CAPABILITIES':

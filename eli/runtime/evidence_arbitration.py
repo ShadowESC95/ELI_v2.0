@@ -154,13 +154,6 @@ def arbitrate_evidence(limit: int = 40) -> Dict[str, Any]:
         pass
 
     try:
-        from eli.runtime.tool_result_store import load_recent_tool_results
-        for rec in load_recent_tool_results(limit=limit):
-            items.append(_score_tool_result(rec))
-    except Exception:
-        pass
-
-    try:
         from eli.planning.goal_store import list_active_goals
         for goal in list(list_active_goals() or [])[: max(1, min(10, limit // 4))]:
             items.append(_score_goal(goal))
