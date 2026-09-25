@@ -1,6 +1,6 @@
 # ELI Agent Algorithms — what each of the 15 agents actually computes
 
-> **Updated for v2.4.68.** Orchestrator runs for all CHAT modes; bus composed at S06.
+> **Updated for v2.4.69.** Orchestrator runs for all CHAT modes; bus composed at S06.
 
 Your framing is the right lens: **the DAG structures the reasoning steps; RAG is
 the engine that pulls the raw information during those steps.** ELI maps onto

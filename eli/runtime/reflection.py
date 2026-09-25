@@ -308,6 +308,17 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
         section_errors.append(f"evidence_ledger: {exc}")
         log.debug("suppressed exception", exc_info=True)
 
+    # Lessons: failures that keep recurring become hypotheses that expire and are checked against later runs.
+    try:
+        from eli.runtime import lessons as _lessons
+        _lessons.review()
+        _new = _lessons.from_failure_clusters(days=max(7.0, hours / 24.0))
+        if _new:
+            insights.append(f"Lessons proposed from repeated failures: {len(_new)} (each expires unless later runs support it)")
+    except Exception as exc:
+        section_errors.append(f"lessons: {exc}")
+        log.debug("suppressed exception", exc_info=True)
+
     # Store reflection as a memory for future context
     if insights:
         reflection_text = f"Reflection ({hours}h): " + "; ".join(insights)

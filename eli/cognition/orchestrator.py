@@ -964,6 +964,12 @@ class AgentOrchestrator:
             log.debug(f"[ORCHESTRATOR] specialist bus failed (non-fatal): {_spec_err}")
 
         try:
+            self.engine._pending_recall_ids = [
+                int(h["id"]) for h in wm.merged_hits
+                if str(h.get("id", "")).isdigit() and int(h["id"]) > 0][:5]
+        except Exception:
+            log.debug("recalled ids not recorded", exc_info=True)
+        try:
             _agg = getattr(wm.bus_result, "aggregated_confidence", None)
             self.engine._memory_diag = _memory_diag.retrieval_record(
                 len(keyword_hits), len(semantic_hits), len(kg_hits), len(wm.merged_hits),

@@ -1,6 +1,6 @@
 # ELI — Full Project Breakdown & Assessment
 
-> **Updated for v2.4.68 (September 2026).** Every CHAT mode runs the gradient
+> **Updated for v2.4.69 (September 2026).** Every CHAT mode runs the gradient
 > orchestrator, retrieval is shared in `eli/memory/retrieval.py`, memory is governed by a
 > storage policy (`eli/memory/policy.py`), and the S01–S12 pipeline is traced canonically.
 > Installers are CI-launch-tested and published on
@@ -35,8 +35,8 @@ in-process from the desktop GUI.
 
 ## 2. Scale and shape
 
-**193,541 lines across 434 Python files** in `eli/`, plus `api/server.py` (2,292 lines with
-an embedded dashboard) and **511 test files** under `tests/`.
+**194,623 lines across 437 Python files** in `eli/`, plus `api/server.py` (2,292 lines with
+an embedded dashboard) and **522 test files** under `tests/`.
 
 | Subsystem | Lines | Files | Role |
 |---|---:|---:|---|
@@ -106,13 +106,13 @@ an embedded dashboard) and **511 test files** under `tests/`.
    app allowlists.
 4. **Breadth, integrated.** Vision, voice, OS control, memory, knowledge graph, plugins and
    self-training in one pipeline.
-5. **A large safety net.** 12,252 tests are collected; the structural tests catch broken
+5. **A large safety net.** 12,399 tests are collected; the structural tests catch broken
    imports, stale action lists and unpinned routes.
 
 ## 5. Where it is weak (measured)
 
-1. **Swallowed errors.** 4,348 handlers catch `Exception` (most log at debug level), 5 are
-   bare `except:`, and 160 are a lone `pass`. A ratchet test
+1. **Swallowed errors.** 4,369 handlers catch `Exception` (most log at debug level), 5 are
+   bare `except:`, and 162 are a lone `pass`. A ratchet test
    (`tests/claims/test_no_silent_swallow.py`) stops the silent count rising.
 2. **Large files.** The executor is an action ladder and the engine a long orchestration
    method; the regression surface is high and unit-testing is hard.

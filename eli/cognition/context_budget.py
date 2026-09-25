@@ -33,6 +33,29 @@ def output_reserve_tokens(max_tokens: int, n_ctx: int) -> int:
     return max(1, min(ceiling, max(256, int(n_ctx) // 8)))
 
 
+_MEASURED: dict = {}
+_SAMPLE = ("The meeting moved to Tuesday, so please send the report before noon. def load(path): "
+           "return json.loads(open(path).read()) # 42 rows, 3.5 MB. I work nights now; my dog is called Max. ")
+
+
+def chars_per_token() -> float:
+    """Characters per token for the loaded model, measured with its own tokenizer, else the default."""
+    try:
+        from eli.cognition import gguf_inference as _gi
+        llm = getattr(_gi, "_llm", None)
+        if llm is None:
+            return CHARS_PER_TOKEN
+        key = id(llm)
+        if key not in _MEASURED:
+            text = _SAMPLE * 8
+            n = len(llm.tokenize(text.encode("utf-8", errors="ignore"), add_bos=False))
+            _MEASURED.clear()
+            _MEASURED[key] = min(6.0, max(2.0, len(text) / n)) if n else CHARS_PER_TOKEN
+        return _MEASURED[key]
+    except Exception:
+        return CHARS_PER_TOKEN
+
+
 def memory_char_budget(n_ctx: int, fixed_chars: int, max_tokens: int, *,
                        wanted_chars: Optional[int] = None, protect_memory: bool = False) -> int:
     """Chars of memory that fit beside `fixed_chars` of persona and prompt.
@@ -40,8 +63,9 @@ def memory_char_budget(n_ctx: int, fixed_chars: int, max_tokens: int, *,
     With protect_memory (recall questions) memory keeps at least a third of the window.
     """
     n_ctx = max(1, int(n_ctx))
-    total = int(n_ctx * CHARS_PER_TOKEN * (1.0 - HEADROOM))
-    reserve = int(output_reserve_tokens(max_tokens, n_ctx) * CHARS_PER_TOKEN)
+    cpt = chars_per_token()
+    total = int(n_ctx * cpt * (1.0 - HEADROOM))
+    reserve = int(output_reserve_tokens(max_tokens, n_ctx) * cpt)
     budget = max(MIN_MEMORY_CHARS, total - int(fixed_chars) - reserve)
     if protect_memory:
         floor = total // 3

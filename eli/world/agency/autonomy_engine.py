@@ -239,6 +239,9 @@ class EliWorldAutonomyEngine:
         elif et in {"improvement_proposal", "upgrade_candidate"}:
             a.autonomy_pressure = _ease_up(a.autonomy_pressure, 0.35)
             a.focus = _ease_up(a.focus, 0.1)
+        elif et == "review_completed":
+            a.repair_pressure = _ease_down(a.repair_pressure, 0.15)
+            a.uncertainty = _ease_down(a.uncertainty, 0.05)
         elif et in {"task_completed", "repair_completed"}:
             a.repair_pressure = _ease_down(a.repair_pressure, 0.3)
             a.tool_activity = _ease_down(a.tool_activity, 0.2)

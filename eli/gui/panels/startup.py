@@ -1066,6 +1066,19 @@ class StartupModelSelectionDialog(QDialog):
             _as_gib = lambda gb: float(gb or 0) * 1_000_000_000 / (1024 ** 3)
         return f"[{m.get('source', '?')}] {m.get('name', 'model')} ({_as_gib(m.get('size_gb', 0.0)):.2f} GiB)"
 
+    def showEvent(self, event):
+        super().showEvent(event)
+        # Whatever filled the path box (saved settings, the tuner, a previous session), the dropdown must
+        # name the same model. Settings loading can run after the first selection and leave it on item 0.
+        if not getattr(self, "_aligned_once", False):
+            self._aligned_once = True
+            try:
+                path = self.model_path_input.text().strip()
+                if path and self.selected_provider() != "ollama" and Path(path).is_file():
+                    self._select_model_path(path)
+            except Exception:
+                pass
+
     def _sync_model_path_from_combo(self):
         if self.selected_provider() == "ollama":
             return

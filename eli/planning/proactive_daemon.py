@@ -532,6 +532,12 @@ class ProactiveDaemon:
                             _past_topics.add(str(_t).lower())
                     except Exception:
                         _SWLOG.debug("suppressed exception", exc_info=True)
+            # Rows written before the filler-word filter still carry "haha", "well", "high" as topics.
+            try:
+                from eli.runtime.reflection import topic_words as _topic_words
+                _past_topics = {t for t in _past_topics if _topic_words(t)}
+            except Exception:
+                _SWLOG.debug("legacy topics not filtered", exc_info=True)
             for _pat in patterns:
                 if _pat.get("type") == "topic_focus":
                     _cur_topics = set(str(t).lower() for t in _pat.get("topics", []))

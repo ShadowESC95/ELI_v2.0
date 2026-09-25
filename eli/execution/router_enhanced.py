@@ -1706,6 +1706,17 @@ def _trailing_request_clause(raw: str) -> str:
     return tail
 
 
+_ON_SCREEN_RE = re.compile(
+    r"\b(?:on|in)\s+(?:my|the|this)\s+(?:screen|display|monitor)\b|\bwhat\s+(?:do\s+you\s+)?see\s+on\s+(?:my|the)\b"
+    r"|\blook(?:ing)?\s+at\s+(?:my|the)\s+screen\b", re.I)
+_SEE_CUE_RE = re.compile(r"\b(?:see|visible|showing|shown|displayed|open|appears?|looking|look|there\s+(?:a|an|any)|is\s+there|are\s+there|what(?:'s| is| are))\b", re.I)
+
+
+def _asks_what_is_on_screen(low: str) -> bool:
+    """A question about what the screen currently shows. It needs the screen read, not a chat answer."""
+    return bool(_ON_SCREEN_RE.search(low) and _SEE_CUE_RE.search(low))
+
+
 def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     """`_clause_depth` is internal: the long-question guard re-routes a trailing
     clause through this same function, and must not recurse further than once."""
@@ -2576,8 +2587,9 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # clause, so re-route the last sentence alone and accept it only if it's short and confident.
     if (("?" in raw or "!" in raw) and len(low.split()) >= 12
             and not _is_wallclock_question(low)
+            and not _asks_what_is_on_screen(low)
             and not re.match(
-            r"^(open|access|initiate|fabricate|check|run|execute|type|press|pause|resume|play|next|previous|stop|mute|unmute|read|list|show|write|add|analyse|analyze|improve)\b", low)):
+            r"^(open|access|initiate|fabricate|check|run|execute|type|press|pause|resume|play|next|previous|stop|mute|unmute|read|list|show|write|add|analyse|analyze|improve|look\s+at\s+(?:my|the)\s+screen)\b", low)):
         _tail = _trailing_request_clause(raw) if _clause_depth == 0 else ""
         if _tail:
             _tail_route = route(_tail, _clause_depth=_clause_depth + 1)
@@ -3251,6 +3263,17 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if _note_m2:
         return _mk("WRITE_NOTE", {"text": _note_m2.group(
             1).strip()}, 0.95, matched_by="notes.add_early")
+
+    # "Please store this fact in memory: X. Then confirm ..." stores X; the trailing request is not part of it.
+    m = re.match(
+        r"^(?:please\s+)?(?:store|save|record|remember|keep)\s+(?:this|the following|that)?\s*(?:fact|information|detail|note)?\s*"
+        r"(?:in|to|into|inside)\s+(?:your\s+)?(?:long[- ]term\s+)?memory\s*[:\-]\s*(.+?)"
+        r"(?:\.\s+(?:then|and|also)\s+(?:confirm|tell|say|report|let|reply|answer)\b.*)?$",
+        raw, re.I | re.S)
+    if m and m.group(1).strip():
+        text_to_store = m.group(1).strip().rstrip(".")
+        return _mk("MEMORY_STORE", {"text": text_to_store, "tags": ["user_memory", "remembered"]}, 1.0,
+                   matched_by="memory.store_in_memory_phrase", entities={"text": text_to_store})
 
     # Explicit remember/store (keep this later than some command parses)
     m = re.match(
@@ -6245,6 +6268,18 @@ def _eli_gui_audit_actual_scan_v2(text):
 # about memory are grounded telemetry and must not be stolen by generic CHAT, OPEN_APP or
 # personal-memory routing. It only guarantees the right evidence action, it doesn't answer.
 
+_RECALL_CONTENT_RE = re.compile(
+    r"\bwhat\s+(?:was|were|is|are)\s+(?:the\s+)?[^.?!]{0,90}?\b(?:i|we)\s+(?:gave|told|said|mentioned|stored|saved|asked\s+you\s+to\s+remember)\b"
+    r"|\bwithout\s+me\s+restating\b|\bwhat\s+did\s+i\s+(?:tell|give|ask)\s+you\b", re.I)
+_MEMORY_MACHINERY_RE = re.compile(
+    r"\b(?:files?|db|databases?|sqlite|tables?|schema|functions?|internally|architecture|pipeline|faiss|fts5?|vectors?|runtime)\b", re.I)
+
+
+def _asks_for_remembered_content(low: str) -> bool:
+    """Asks what was said or stored (the content), not how memory works. Recall it before explaining anything."""
+    return bool(_RECALL_CONTENT_RE.search(low) and not _MEMORY_MACHINERY_RE.search(low))
+
+
 def _eli_memory_runtime_route_lock_should_trigger(text):
     import re as _re
 
@@ -6252,6 +6287,13 @@ def _eli_memory_runtime_route_lock_should_trigger(text):
     low = raw.lower()
 
     if not low:
+        return False
+
+    if _asks_for_remembered_content(low):
+        return False
+    # "GPU memory", "VRAM temperature": hardware, not the memory subsystem, unless it also names the machinery.
+    if _re.search(r"\b(?:gpu|vram|cuda|nvidia|graphics|thermal|temperature|temp)\b", low) and not _re.search(
+            r"\b(?:sqlite|databases?|db|tables?|faiss|fts5?|schema|explain_memory_runtime|memory (?:system|internals|architecture))\b", low):
         return False
 
     # Literal control/action invocation.
@@ -6598,6 +6640,7 @@ def _eli_phase38_final_memory_question_contract(raw):
     )
     asks_memory_internals = (
         not _memory_compliment
+        and not _asks_for_remembered_content(low)
         and (
         "memory system" in low
         or "memory internals" in low

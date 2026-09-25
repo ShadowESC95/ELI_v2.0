@@ -113,6 +113,13 @@ def is_news_fetch_complaint(text: str) -> bool:
         r"\b(?:news|story|stories|article|headline|fetch|deeper|briefing)\b", s, re.I))
 
 
+def is_answer_correction(text: str) -> bool:
+    """The user is telling ELI its last answer was wrong (not a complaint about the app itself)."""
+    s = str(text or "")
+    return bool(CORRECTION_QUERY_RE.search(s) or RUNTIME_RECHECK_CORRECTION_RE.search(s)
+                or is_biographical_dispute(s))
+
+
 def is_correction_query(text: str) -> bool:
     s = str(text or "")
     if is_news_fetch_complaint(s):

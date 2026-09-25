@@ -120,6 +120,24 @@ def should_store_conversation_turn(role: str, text: Any) -> bool:
     return True
 
 
+_CHATTER_WORDS = frozenset("""
+a an the and or but so very really quite just too also then there here this that these those it its is are was
+were be been am i you we they he she me my your our us them him her do does did not no yes yeah yep nope ok okay
+k sure right well oh ah hmm hm um uh er wow whoa ha haha hahaha hehe heh lol lmao rofl lmfao funny hilarious lot much
+nice cool great awesome good fine amazing lovely sweet neat thanks thank thx ty cheers please pls sorry hello hi
+hey hiya yo morning afternoon evening night bye goodbye cya later see ya alright anyway indeed exactly true
+totally definitely absolutely of course got it gotcha noted understood makes sense fair enough what how
+""".split())
+
+
+def is_chatter(text: Any) -> bool:
+    """Only filler, greetings and reactions ("haha", "lol that is funny", "hello there"): nothing worth keeping as knowledge."""
+    words = re.findall(r"[a-z']+", _low(text))
+    if not words or re.search(r"\d", _norm(text)):
+        return False
+    return all(w in _CHATTER_WORDS or w.strip("'") in _CHATTER_WORDS for w in words)
+
+
 def should_store_memory_text(text: Any, role: str = "user", tags: Any = None) -> bool:
     t = _norm(text)
     if not t:
@@ -168,6 +186,9 @@ def should_store_memory_text(text: Any, role: str = "user", tags: Any = None) ->
         if low in _ASSISTANT_TRIVIAL:
             return False
         return True
+
+    if is_chatter(t):
+        return False
 
     stripped = low.rstrip("?!.").strip()
     if low.endswith("?") or stripped.endswith("?"):

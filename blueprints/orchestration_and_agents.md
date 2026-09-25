@@ -1,6 +1,6 @@
 # ELI Orchestration & Agents — Full Topology
 
-> **Updated for v2.4.68.** All CHAT modes run the orchestrator at scaled depth; retrieval is
+> **Updated for v2.4.69.** All CHAT modes run the orchestrator at scaled depth; retrieval is
 > unified in `eli/memory/retrieval.py`; stage 12 learning is centralised in
 > `learning_coordinator.py`; the direct-versus-synthesise gate
 > (`_deterministic_direct_payload_actions`) has been audited against what the executor

@@ -11,6 +11,7 @@ from pathlib import Path
 import hashlib
 
 from eli.memory import get_memory
+from eli.planning import routine_stats as _rs
 
 
 
@@ -187,8 +188,8 @@ def detect_habits(days: int = 14, min_occurrences: int = 3, min_days: int = 3):
         log.debug("suppressed exception", exc_info=True)
     events = mem.get_habit_events(event_type=None, days=days)
 
-    clusters = defaultdict(list)
-    cluster_days = defaultdict(set)  # (app, command, hour) -> {distinct calendar days}
+    obs = defaultdict(list)  # (app, command) -> [(minute of day, calendar day or None)]
+    active_days = set()      # days with any event at all: the days a routine could have happened
     behavior_counts = Counter()
     behavior_examples = {}
 
@@ -211,6 +212,9 @@ def detect_habits(days: int = 14, min_occurrences: int = 3, min_days: int = 3):
             details = {}
         etype = str(e.get("event_type") or details.get("event_type") or "").strip()
         ts = e.get("timestamp")
+        _any_day = _extract_day_key(ts)
+        if _any_day is not None:
+            active_days.add(_any_day)
 
         action = str(details.get("action") or details.get("command") or details.get("cmd") or etype or "").strip().upper()
         subject = str(
@@ -246,30 +250,42 @@ def detect_habits(days: int = 14, min_occurrences: int = 3, min_days: int = 3):
             # Timestamp-less / degenerate event — don't fabricate a 00:00 habit.
             continue
         hour, minute = hm
-        _ckey = (str(app), command, int(hour))
-        clusters[_ckey].append(int(minute))
-        _day = _extract_day_key(ts)
-        if _day is not None:
-            cluster_days[_ckey].add(_day)
+        obs[(str(app), command)].append((_rs.minute_of_day(hour, minute), _extract_day_key(ts)))
 
     existing_rules = mem.get_habit_rules(enabled_only=False)
+    summary = {"suggested": 0, "shifts": [], "lapsed": []}
 
-    for (app, command, hour), minutes in clusters.items():
+    for (app, command), points in obs.items():
+        _dated = [(m, d) for m, d in points if d is not None]
+        _fmt = lambda mins: "%02d:%02d" % _rs.to_hour_minute(mins)
+        try:
+            _shift = _rs.detect_shift(_dated)
+            if _shift:
+                summary["shifts"].append((app, _shift))
+                _note_routine_change(mem, "shift", app, command,
+                                     f"You used to open {app} around {_fmt(_shift['old'])} and lately around {_fmt(_shift['new'])}.")
+            elif _rs.detect_lapse({d for _, d in _dated}, active_days):
+                summary["lapsed"].append(app)
+                _note_routine_change(mem, "lapse", app, command,
+                                     f"You used to open {app} most days you were active and have not lately.")
+        except Exception:
+            log.debug("routine change check failed", exc_info=True)
+
+    for app, command, cluster in [(a, c, cl) for (a, c), pts in obs.items() for cl in _rs.cluster_times(pts)]:
         # Recurrence gate: prefer distinct-day evidence (a real routine repeats across days); fall
         # back to the raw count only when events are dateless (synthetic timestamps). Stops a
         # single-session burst ("opened the app 3x this afternoon") being proposed as a daily habit.
-        _days_seen = cluster_days.get((app, command, hour))
-        if _days_seen:
-            if len(_days_seen) < int(min_days):
+        if cluster.distinct_days:
+            if cluster.distinct_days < int(min_days):
                 continue
-        elif len(minutes) < int(min_occurrences):
+        elif len(cluster.minutes) < int(min_occurrences):
             continue
 
-        # Representative minute from the cluster
-        avg_minute = int(round(sum(minutes) / len(minutes)))
-
-        carry_hour, minute = _round_up_to_next_5(avg_minute)
-        hour = (hour + carry_hour) % 24
+        # The cluster's circular mean, so 08:58 and 09:02 are one routine. A time on the hour goes
+        # to the next five minutes, as before.
+        _mid = int(round(cluster.centre))
+        _mid = _mid + 5 if _mid % 60 == 0 else ((_mid + 4) // 5) * 5
+        hour, minute = _rs.to_hour_minute(_mid)
 
         name = f"Open {app} at {hour:02d}:{minute:02d}"
 
@@ -294,9 +310,24 @@ def detect_habits(days: int = 14, min_occurrences: int = 3, min_days: int = 3):
             # user's say-so; approval is enabling it in the Habits tab. Positional args[0..3] are
             # preserved; enabled is an explicit keyword.
             mem.add_habit_rule(name, command, hour, minute, None, enabled=False)
+            summary["suggested"] += 1
             log.debug(f"[HABIT] Suggested (disabled) rule created — awaiting approval: {name}")
 
     _write_behavior_observations(mem, behavior_counts, behavior_examples, min_occurrences)
+    return summary
+
+
+def _note_routine_change(mem, kind: str, app: str, command: str, text: str) -> None:
+    """Record that a routine moved or stopped, once. A rule the user enabled is never changed on its own."""
+    digest = hashlib.sha1(f"{kind}|{app}|{command}|{text}".encode("utf-8", "ignore")).hexdigest()[:10]
+    try:
+        recent = mem.get_recent_observations(limit=200) if hasattr(mem, "get_recent_observations") else []
+        if any(digest in str((r or {}).get("content") or (r or {}).get("observation") or "") for r in recent if isinstance(r, dict)):
+            return
+        mem.add_observation("habit", f"[habit-{kind}:{digest}] {text} Suggest reviewing the matching rule.",
+                            source="habit_detector", category="routine_change")
+    except Exception:
+        log.debug("routine change not recorded", exc_info=True)
 
 
 def _write_behavior_observations(mem, counts: Counter, examples: dict, min_occurrences: int) -> None:

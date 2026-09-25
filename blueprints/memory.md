@@ -1,6 +1,6 @@
 # ELI Memory Subsystem
 
-> **Updated for v2.4.68.** Memory is governed by a storage policy
+> **Updated for v2.4.69.** Memory is governed by a storage policy
 > (`eli/memory/policy.py`): every row has an origin, repeats are merged, weight follows a
 > forgetting curve reinforced by use, and faded derived rows are archived. Recall applies a
 > time window before ranking, and reports what it did. Turn retrieval is shared in
@@ -31,7 +31,8 @@ internals), with live counts for each layer.
 |---|---:|---|
 | `memory.py` | 5,677 | the `Memory` class (69 public methods), schema, `DBPaths`, upkeep, module facade |
 | `policy.py` | 118 | pure storage-policy functions (origin, dedupe key, strength, archive, merge) |
-| `retrieval.py` | 186 | shared turn retrieval (`retrieve_for_turn`), turn cache, time window |
+| `retrieval.py` | 209 | shared turn retrieval (`retrieve_for_turn`), turn cache, time window |
+| `claims.py` | 206 | dated claims about the user: valid-from and valid-to, learned-at, supersession |
 | `unified_retrieval.py` | 168 | the orchestrator stages consume `retrieve_for_turn` through it; formats the verified-memory block |
 | `vector_store.py` | 637 | FAISS index, embedder, tombstones |
 | `knowledge_graph.py` | 643 | entity and relation graph |
@@ -73,13 +74,44 @@ Columns added to `memories`: `event_ts`, `seen_count`, `last_seen`, `last_recall
 `recall_count`, `origin`, `text_key`. Tables added: `memories_archive`, `memory_meta`. The
 `semantic` table gained `evidence_count`, `last_seen`, `evidence`.
 
+### What counts as the same fact, and what strengthens a memory
+
+- **Dedupe key.** `normalise_text` lower-cases, single-spaces and trims sentence punctuation from the
+  edge of each word, and keeps meaningful marks. "I love C++", "I love C#" and "I love C" are three
+  facts, "balance -5" is not "balance 5", and "3.5" is not "35". "Not fine!" and "not fine" are one.
+  A key-version marker makes upkeep recompute old keys once (`rekey_text_keys`); it never merges.
+- **Retrieval is exposure, not use.** Recalling a memory only increments `exposure_count`. Its strength
+  is reinforced by `record_recall_outcome(ids, helped=True)`, which the engine calls when the next
+  user message does not correct the answer those memories went into; a correction lowers the weight
+  and increments `corrected_count`. A wrong memory that keeps being retrieved cannot make itself
+  stronger. `recall_count` now means answers a memory helped with, and only that protects a row
+  from archiving.
+- **What enters durable memory.** `persistence_gate.should_store_memory_text` rejects filler and
+  reactions ("haha", "lol that is funny", "hello there"), text under four words, questions, and ELI's
+  own internal output. Conversation turns are still logged in full; only durable memory is filtered.
+
+### Dated claims (`claims.py`)
+
+`memory_claims` holds what ELI believes about the user as bitemporal rows: `valid_from`/`valid_to`
+(when it was true) and `recorded_at`/`superseded_at` (when ELI knew it). A first-person statement such
+as "I work nights now", "I moved to Berlin", "I work at Acme Corp" or "my dog is called Max" becomes a
+claim when it is stored. A single-valued relation supersedes the old value and keeps it as history,
+"I used to work nights" is recorded as history only, "I no longer work nights" retires the standing
+claim, and the same value again confirms instead of duplicating. `Memory.claims_current()`,
+`claims_during(start, end)`, `claims_known_at(when)` and `claim_history(relation)` answer "what is true
+now", "what held in spring" and "what did you believe on 1 March". Retrieval adds the relevant claims
+to the evidence (a period question gets what held then), and deleting the source memory withdraws its
+claims. Extraction is a small exact set of patterns, not a model call.
+
 ### Daily upkeep
 
 `Memory.run_upkeep()` runs at most once a day (`upkeep_due()`), started asynchronously at
 engine start and after responses (`upkeep_async()`), and skipped under `ELI_TEST_MODE`. Steps:
 
 1. **backfill**: label existing rows with origin, key and event time (after copying the
-   database to a `.pre_policy.bak` file the first time);
+   database to a `.pre_policy.bak` file the first time). A dry run reports what it would fill
+   and writes nothing;
+1a. **rekey**: recompute dedupe keys once after the key definition changes;
 2. **consolidate**: merge exact duplicates and rebuild `memories_fts`;
 3. **decay**: recompute `weight` with the policy strength (idempotent: a pure function of age,
    importance and use, so a missed run cannot leave a row over-weighted);
@@ -91,7 +123,10 @@ engine start and after responses (`upkeep_async()`), and skipped under `ELI_TEST
    days the owner has used ELI, and drop ledger copies of replay rows;
 7. **semantic**: fold repeated facts into one row with `evidence_count` and up to five quotes.
 
-`integrity_report()` reports the state of all of this for the health checks.
+A run only marks the day done when every step succeeded; otherwise `run_upkeep` reports
+`status: partial` with the failed steps, and upkeep retries after an hour.
+`integrity_report()` reports the state of all of this for the health checks: `ok` is false when
+vectors are missing, and `status` is `healthy` or `degraded`.
 
 ## The `Memory` class (`memory.py`)
 
@@ -157,6 +192,11 @@ budgets.
   hits outside the window are dropped, and the user's turns inside the window are read from
   `conversation_turns`. The result carries `window_stats` (candidates, added by date, in
   window, turns) and the orchestrator logs and reports it (`memory_diag`).
+- **Explicit dates.** `parse_window` reads ISO dates ("2026-03-03"), "3 March", "March 3rd 2025",
+  ranges ("between 1 May and 10 May"), "in June 2025" and "during 2024" as well as relative periods.
+  A date with no year is its latest past occurrence.
+- **Token budget.** `context_budget.chars_per_token()` measures the loaded model's own tokenizer
+  and falls back to 3.5 characters per token.
 - **Hop-2 deepening** when the first hits are sparse; **heuristic rerank** via
   `rerank_candidates()`; **contradiction detection** through the bus.
 - **Dated evidence.** Each recalled line carries its event date (`evidence_format`); working
@@ -222,6 +262,15 @@ a passing mention cannot overwrite a fact the owner stated and reaffirmed
 (`_insert_user_pattern` weighs provenance and corroboration; each supersession is recorded in
 `belief_revisions`, and repeats are deduplicated). `store_episodic` and `store_semantic` are
 thin aliases and are not the promotion path.
+
+## Measuring it
+
+`tools/eval/memory_bench.py` runs 11 deterministic scenarios against a temporary database, with no
+model: extraction, multi-session recall, a relative and an explicit time window, knowledge update,
+abstention, provenance, deletion, no destructive merge, no self-reinforcement, and chatter not
+becoming durable knowledge. They follow the LongMemEval ability categories but are written for ELI;
+they are not the official dataset. `tests/test_memory_bench.py` runs them, so a memory change that
+regresses one fails the suite.
 
 ## Honest assessment
 

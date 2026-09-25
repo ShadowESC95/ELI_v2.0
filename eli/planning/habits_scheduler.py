@@ -28,7 +28,7 @@ class HabitScheduler:
         except Exception as e:
             log.debug(f"[SCHEDULER] habit self-heal skipped: {e}")
         self.running = True
-        self._fired_keys: set = set()  # (rule_id, YYYYMMDDHHMM) — fire once per minute
+        self._fired_keys: set = self._load_fired()  # (rule_id, YYYYMMDDHHMM) — fire once per minute, across restarts
         self.thread = threading.Thread(target=self._run_loop, daemon=True)
         self.thread.start()
 
@@ -66,6 +66,7 @@ class HabitScheduler:
                     if _key in self._fired_keys:
                         continue
                     self._fired_keys.add(_key)
+                    self._save_fired()
                     # Execute the command
                     self._execute_rule(rule)
 
@@ -75,6 +76,26 @@ class HabitScheduler:
                 self._fired_keys = {k for k in self._fired_keys if k[1] == _stamp}
 
             time.sleep(30)  # check every 30 seconds
+
+    @staticmethod
+    def _fired_path():
+        from eli.planning.habits import _artifacts_dir
+        return _artifacts_dir() / "habit_fired.json"
+
+    def _load_fired(self) -> set:
+        try:
+            import json
+            return {(k[0], k[1]) for k in json.loads(self._fired_path().read_text(encoding="utf-8"))}
+        except Exception:
+            return set()
+
+    def _save_fired(self) -> None:
+        try:
+            import json
+            latest = sorted(self._fired_keys, key=lambda k: k[1])[-32:]
+            self._fired_path().write_text(json.dumps(latest), encoding="utf-8")
+        except Exception:
+            log.debug("habit run keys not saved", exc_info=True)
 
     def _execute_rule(self, rule: Dict):
         """Run a habit rule and record its execution."""
@@ -112,12 +133,15 @@ class HabitScheduler:
                 )
                 _error = str(result.get("error") or "Unknown error")
             else:
+                # Plain text says something was answered, not that the action ran.
                 _content = str(result or "")
-                _ok = bool(_content.strip())
-                _error = "No structured result returned"
+                _ok = False
+                _error = "no structured result, so the run is unverified"
 
             if _ok:
                 print(f"   ✅ Success: {_content[:60]}")
+            elif not isinstance(result, dict):
+                print(f"   ⚠️ Unverified: {_error}")
             else:
                 print(f"   ❌ Failed: {_error}")
         except Exception as e:

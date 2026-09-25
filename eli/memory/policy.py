@@ -54,8 +54,18 @@ def classify_origin(source: str = "user", kind: str = "memory", tags=None, text:
     return ORIGIN_ELI if src in _ELI else ORIGIN_USER
 
 
+KEY_VERSION = "2"
+_EDGE_PUNCT = "\"'\u201c\u201d\u2018\u2019()[]{}<>,;:!?."
+
+
 def normalise_text(text: str) -> str:
-    return re.sub(r"\W+", " ", str(text or "").lower()).strip()
+    """Lower-case, single-spaced, with sentence punctuation trimmed from each word's edges.
+
+    Signs, symbols and inner marks stay, because they carry meaning: "C++" is not "C", "-5" is not
+    "5", "3.5" is not "35".
+    """
+    words = (w.strip(_EDGE_PUNCT) for w in str(text or "").lower().split())
+    return " ".join(w for w in words if any(ch.isalnum() for ch in w))
 
 
 def text_key(text: str) -> str:

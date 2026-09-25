@@ -75,7 +75,7 @@ def test_decay_weakens_derived_rows_but_not_important_user_facts(mem):
     assert w[tel] < w[meh] < 1.0
 
 
-def test_recall_resets_the_curve_and_counts_the_use(mem):
+def test_recall_is_exposure_and_only_a_used_answer_resets_the_curve(mem):
     mid = mem.store_memory("i love the dune films")["id"]
     _age(mem, mid, 90)
     mem.apply_weight_decay()
@@ -83,9 +83,12 @@ def test_recall_resets_the_curve_and_counts_the_use(mem):
     assert before < 1.0
     mem.recall_memory("dune films", limit=3)
     flush_recall_writes()
+    w, n, exposed = _rows(mem, "select weight, recall_count, exposure_count from memories where id=?", mid)[0]
+    assert w == before and n == 0 and exposed == 1
+    assert _rows(mem, "select count(*) from recall_log where memory_id=?", mid)[0][0] >= 1
+    mem.record_recall_outcome([mid], helped=True)
     w, n = _rows(mem, "select weight, recall_count from memories where id=?", mid)[0]
     assert w == 1.0 and n == 1
-    assert _rows(mem, "select count(*) from recall_log where memory_id=?", mid)[0][0] >= 1
 
 
 def test_faded_unused_derived_rows_are_archived_and_restorable(mem):

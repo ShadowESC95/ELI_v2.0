@@ -191,7 +191,11 @@ def memory_store(text, tags=None, kind="note", source="chat", confidence=0.7, ts
             kind=str(kind),
             confidence=float(confidence),
         )
-        return {"ok": True, "path": str(_get_memory_path())}
+        result = result if isinstance(result, dict) else {}
+        skipped = bool(result.get("skipped"))
+        return {"ok": bool(result.get("ok", True)) and not skipped, "path": str(_get_memory_path()),
+                "id": result.get("id"), "skipped": skipped, "reason": result.get("reason") or result.get("error") or "",
+                "vector_indexed": result.get("vector_indexed")}
     except Exception as e:
         return {"ok": False, "error": repr(e), "path": str(_get_memory_path())}
 
@@ -608,6 +612,24 @@ def _format_runtime_audit(report: Dict[str, Any]) -> str:
             lines.append(f"  {mark} {p.get('name')}: {p.get('detail')}")
     return '\n'.join(lines) if lines else 'No runtime files audited.'
 
+_LINE_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8, "nine": 9, "ten": 10}
+
+
+def _content_from_line_spec(content: str) -> str:
+    """"exactly three lines: a=1, b=2, c=3" means three lines, not that sentence written into the file."""
+    m = re.match(r"^\s*(?:exactly\s+)?(\d+|" + "|".join(_LINE_WORDS) + r")\s+lines?\s*(?:of\s+text\s*)?[:\-]\s*(.+?)\s*$",
+                 str(content or ""), re.I | re.S)
+    if not m:
+        return content
+    n = int(m.group(1)) if m.group(1).isdigit() else _LINE_WORDS[m.group(1).lower()]
+    body = m.group(2)
+    for split in (r"\n", r"\s*[;,]\s*(?:and\s+)?", r"\s+(?=\S+\s*=)", r"\s+and\s+"):
+        items = [x.strip() for x in re.split(split, body) if x.strip()]
+        if len(items) == n:
+            return "\n".join(items) + "\n"
+    return content
+
+
 def _gpu_status_report() -> Dict[str, Any]:
     # get_live_gpu_telemetry() is the one place that answers "what is my GPU doing now":
     # nvidia-smi/rocm-smi dispatch, the cross-vendor identity fallback and honest None for
@@ -626,14 +648,25 @@ def _gpu_status_report() -> Dict[str, Any]:
         # settings" was answered "not specified in the evidence").
         if not runtime_snapshot:
             return []
-        return [
-            "",
-            "ELI selected llama.cpp load parameters:",
+        lines = ["", "ELI selected llama.cpp load parameters:"]
+        if runtime_snapshot.get("model_name") or runtime_snapshot.get("model_path"):
+            lines.append(f"- model: {runtime_snapshot.get('model_name') or Path(str(runtime_snapshot.get('model_path'))).name}")
+        if runtime_snapshot.get("model_path"):
+            lines.append(f"- model file: {runtime_snapshot.get('model_path')}")
+        lines += [
             f"- context: {runtime_snapshot.get('n_ctx', 'unknown')}",
             f"- GPU-layer parameter: {runtime_snapshot.get('n_gpu_layers', 'unknown')}",
             f"- batch: {runtime_snapshot.get('n_batch', 'unknown')}",
             f"- CPU threads: {runtime_snapshot.get('n_threads', 'unknown')}",
         ]
+        if runtime_snapshot.get("load_mode"):
+            lines.append(f"- load mode: {runtime_snapshot.get('load_mode')}")
+        _req, _eff = runtime_snapshot.get("requested"), runtime_snapshot.get("effective")
+        if isinstance(_req, dict) and isinstance(_eff, dict):
+            _fmt = lambda d: (f"ctx={d.get('n_ctx', '?')} gpu_layers={d.get('n_gpu_layers', '?')} "
+                              f"batch={d.get('n_batch', '?')}")
+            lines.append(f"- requested: {_fmt(_req)}; effective: {_fmt(_eff)}")
+        return lines
 
     from eli.core.hardware_profile import get_live_gpu_telemetry
     telem = get_live_gpu_telemetry()
@@ -663,7 +696,8 @@ def _gpu_status_report() -> Dict[str, Any]:
     else:
         lines.append("- VRAM: unavailable")
     lines.append(f"- GPU utilization: {util}%" if util is not None else "- GPU utilization: unavailable")
-    lines.append(f"- temperature: {telem['temp_c']} C" if telem["temp_c"] is not None else "- temperature: unknown")
+    lines.append(f"- GPU core temperature: {telem['temp_c']} C (VRAM / memory-chip temperature is not reported by this reading)"
+                 if telem["temp_c"] is not None else "- temperature: unknown")
     if telem["power_w"] is not None:
         _limit = f" / {telem['power_limit_w']:.2f} W limit" if telem["power_limit_w"] is not None else ""
         lines.append(f"- power: {telem['power_w']:.2f} W{_limit}")
@@ -5653,9 +5687,19 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             result = memory_store(txt, tags=tags)
             if isinstance(result, dict):
                 result.setdefault("action", a)
-                result.setdefault("ok", True)
-                result.setdefault("content", result.get("content") or "memory stored")
-                result.setdefault("response", result.get("response") or result["content"])
+                if result.get("ok"):
+                    _idx = result.get("vector_indexed")
+                    _where = Path(str(result.get("path") or "user.sqlite3")).name
+                    _msg = (f'Stored in long-term memory ({_where}'
+                            + (f", row {result['id']}" if result.get("id") else "")
+                            + ("; semantic index: yes" if _idx else "; semantic index: no" if _idx is False else "")
+                            + f'): "{txt}"')
+                elif result.get("skipped"):
+                    _msg = f"Not stored: the memory filter rejected it ({result.get('reason') or 'not durable knowledge'})."
+                else:
+                    _msg = f"Not stored: {result.get('error') or result.get('reason') or 'the memory write failed'}."
+                result["content"] = _msg
+                result["response"] = _msg
             return result
         except Exception as e:
             # If local fails, try adapter
@@ -8497,13 +8541,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             # the report stays a clean readable list.
 
             msg = "\n".join(lines)
-            # Fire repair_completed so the world engine decreases repair_pressure.
-            # Without this, repair_pressure accumulates permanently and triggers
-            # an infinite proactive SELF_ANALYZE loop.
+            # A review is not a repair, but without easing repair_pressure it accumulates and
+            # triggers an endless proactive SELF_ANALYZE loop.
             try:
                 from eli.world.world_event_bus import fire_world_event as _fwe_sa
                 _fwe_sa(
-                    "repair_completed",
+                    "review_completed",
                     "self_analyze",
                     f"SELF_ANALYZE completed: reviewed {len(failures)} failure(s).",
                     {"failures_reviewed": len(failures)},
@@ -10018,6 +10061,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not path:
             msg = "Specify a file path to create (e.g. /tmp/note.txt)."
             return {"ok": False, "action": a, "error": "missing path", "content": msg, "response": msg}
+        content = _content_from_line_spec(content)
         # Light, safe substitution so "containing today's date / your version" resolves.
         _today = _dt_cf.date.today().isoformat()
         _ver = ""
@@ -10070,9 +10114,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"Could not create {p}: {_cf_e}"
             return {"ok": False, "action": a, "error": str(_cf_e), "content": msg, "response": msg}
         _rb_show = _readback if len(_readback) <= 2000 else _readback[:2000] + "…"
-        msg = f"Created {p} ({len(content)} chars). Read back:\n{_rb_show}"
-        return {"ok": True, "action": a, "path": str(p), "created": True,
-                "bytes": len(content.encode('utf-8')), "readback": _readback,
+        _lines_written = len(_readback.splitlines())
+        _matches = _readback.replace("\r\n", "\n") == content.replace("\r\n", "\n")
+        msg = (f"Created {p} ({len(content)} chars, {_lines_written} line{'s' if _lines_written != 1 else ''}"
+               f"{'' if _matches else ', read-back differs from what was requested'}). Read back:\n{_rb_show}")
+        return {"ok": _matches, "action": a, "path": str(p), "created": True,
+                "bytes": len(content.encode('utf-8')), "readback": _readback, "lines": _lines_written,
                 "content": msg, "response": msg}
 
     # ---- GENERATE_PROJECT ----
@@ -15403,6 +15450,23 @@ try:
 except Exception as _eli_gui_audit_visible_contract_err:
     log.debug(f"[EXECUTOR] GUI_RUNTIME_AUDIT visible result contract failed: {_eli_gui_audit_visible_contract_err}")
 # =============================================================================
+
+# Each finished action gives the lessons that apply to it one check (see eli/runtime/lessons.py).
+try:
+    _execute_before_lessons = execute
+
+    def execute(action, args=None, **kwargs):
+        result = _execute_before_lessons(action, args, **kwargs)
+        try:
+            _name = action.get("action", "") if isinstance(action, dict) else action
+            if isinstance(result, dict) and _name:
+                from eli.runtime.lessons import observe_action as _observe_lessons
+                _observe_lessons(_name, bool(result.get("ok")))
+        except Exception:
+            log.debug("lesson observation skipped", exc_info=True)
+        return result
+except Exception:
+    log.debug("[EXECUTOR] lesson observation not installed", exc_info=True)
 
 # Final execute_action alias sync (ELI_EXECUTOR_FINAL_EXECUTE_ACTION_ALIAS_SYNC_V1): execute_action
 # must expose the same final contract as execute. Several historical wrappers reassigned execute

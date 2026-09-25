@@ -338,16 +338,25 @@ def _migrate_memory_provenance(conn) -> None:
 
 
 # Storage-policy columns (eli/memory/policy.py): event_ts is when it was said (ts is when written),
-# seen_count/last_seen count repeats, last_recalled/recall_count track use, text_key dedupes.
+# seen_count/last_seen count repeats, last_recalled/recall_count count answers a memory helped with,
+# exposure_count counts retrievals alone, corrected_count counts answers it was part of that were corrected.
+# text_key dedupes.
 _POLICY_COLUMNS = [
     ("event_ts", "REAL"),
     ("seen_count", "INTEGER DEFAULT 1"),
     ("last_seen", "REAL"),
     ("last_recalled", "REAL"),
     ("recall_count", "INTEGER DEFAULT 0"),
+    ("exposure_count", "INTEGER DEFAULT 0"),
+    ("corrected_count", "INTEGER DEFAULT 0"),
     ("origin", "TEXT"),
     ("text_key", "TEXT"),
 ]
+
+
+def _policy_min_weight() -> float:
+    from eli.memory import policy as _policy
+    return _policy.MIN_WEIGHT
 
 
 def _ensure_policy_schema(conn) -> None:
@@ -2189,6 +2198,12 @@ class Memory(metaclass=_MemoryMeta):
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
 
+        try:
+            if origin == _policy.ORIGIN_USER:
+                self.record_claims_from(t, rowid, event_ts or ts)
+        except Exception:
+            log.debug("claims not recorded", exc_info=True)
+
         # Extract entity-relation triples into knowledge graph (fire-and-forget)
         try:
             if origin != _policy.ORIGIN_TELEMETRY:
@@ -2667,7 +2682,8 @@ class Memory(metaclass=_MemoryMeta):
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
 
-            # recall resets the forgetting curve and counts the use; importance stays as scored
+            # Retrieval only counts as exposure. Strength is reinforced later, by record_recall_outcome,
+            # when the answer these memories went into was not corrected.
             try:
                 _boost_ids = [
                     int(_h["id"]) for _h in out[:5]
@@ -2681,9 +2697,8 @@ class Memory(metaclass=_MemoryMeta):
                     _enqueue_recall_write(
                         self.db_path,
                         lambda c, bid=_bid, now=_rnow: c.execute(
-                            "UPDATE memories SET last_recalled = ?, "
-                            "recall_count = COALESCE(recall_count, 0) + 1, weight = 1.0 WHERE id = ?",
-                            (now, bid),
+                            "UPDATE memories SET exposure_count = COALESCE(exposure_count, 0) + 1 WHERE id = ?",
+                            (bid,),
                         ),
                     )
                     _enqueue_recall_write(
@@ -3113,7 +3128,114 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
-    def backfill_policy_fields(self) -> Dict[str, Any]:
+    def _claims_conn(self):
+        from eli.memory import claims as _claims
+        conn = self._get_connection()
+        _claims.ensure_schema(conn)
+        return conn
+
+    def record_claims_from(self, text: str, memory_id: Optional[int] = None, when: Optional[float] = None) -> List[int]:
+        """Turn first-person statements into dated claims. A changed fact supersedes the old one and keeps it as history."""
+        from eli.memory import claims as _claims
+        if not _claims.extract(text):
+            return []
+        conn = self._claims_conn()
+        try:
+            ids = _claims.record_from_text(conn, text, source_memory_id=memory_id, when=when)
+            conn.commit()
+        finally:
+            conn.close()
+        if ids:
+            try:
+                from eli.memory.retrieval import invalidate_turn_cache
+                invalidate_turn_cache()
+            except Exception:
+                log.debug("turn cache not cleared", exc_info=True)
+        return ids
+
+    def _claims_query(self, fn, *args):
+        conn = self._claims_conn()
+        try:
+            return fn(conn, *args)
+        finally:
+            conn.close()
+
+    def claims_current(self):
+        from eli.memory import claims as _c
+        return self._claims_query(_c.current)
+
+    def claims_during(self, start: float, end: float):
+        from eli.memory import claims as _c
+        return self._claims_query(_c.valid_during, start, end)
+
+    def claims_known_at(self, when: float):
+        from eli.memory import claims as _c
+        return self._claims_query(_c.known_at, when)
+
+    def claim_history(self, relation: str):
+        from eli.memory import claims as _c
+        return self._claims_query(_c.history, relation)
+
+    def record_recall_outcome(self, ids, helped: bool) -> int:
+        """Reinforce memories that went into an answer nobody corrected; weaken ones that did not.
+
+        Retrieval alone never strengthens a memory, so a wrong memory that keeps coming back cannot
+        make itself more prominent.
+        """
+        ids = sorted({int(i) for i in (ids or []) if str(i).lstrip("-").isdigit() and int(i) > 0})
+        if not ids:
+            return 0
+        conn = self._get_connection()
+        try:
+            cols = _memory_table_columns(conn, "memories")
+            if "recall_count" not in cols or "corrected_count" not in cols:
+                return 0
+            now = time.time()
+            marks = ",".join("?" * len(ids))
+            if helped:
+                cur = conn.execute(
+                    f"UPDATE memories SET recall_count = COALESCE(recall_count, 0) + 1, last_recalled = ?, "
+                    f"weight = 1.0 WHERE id IN ({marks})", [now] + ids)
+            else:
+                cur = conn.execute(
+                    f"UPDATE memories SET corrected_count = COALESCE(corrected_count, 0) + 1, "
+                    f"weight = MAX(?, COALESCE(weight, 1.0) * 0.5) WHERE id IN ({marks})",
+                    [_policy_min_weight()] + ids)
+            conn.commit()
+            return int(cur.rowcount or 0)
+        except Exception:
+            log.debug("recall outcome not recorded", exc_info=True)
+            return 0
+        finally:
+            conn.close()
+
+    def rekey_text_keys(self, dry_run: bool = False) -> Dict[str, Any]:
+        """Recompute every row's dedupe key when the key definition changes. Never merges rows."""
+        from eli.memory import policy as _policy
+        out: Dict[str, Any] = {"rekeyed": 0}
+        conn = self._get_connection()
+        try:
+            if "text_key" not in _memory_table_columns(conn, "memories"):
+                return out
+            if self._meta_get(conn, "text_key_version") == _policy.KEY_VERSION:
+                out["skipped"] = "current"
+                return out
+            rows = conn.execute("SELECT id, COALESCE(text, content, value, ''), COALESCE(text_key, '') FROM memories").fetchall()
+            changes = [(_policy.text_key(t), i) for i, t, k in rows if _policy.text_key(t) != k]
+            out["rekeyed"] = len(changes)
+            if dry_run:
+                return out
+            conn.executemany("UPDATE memories SET text_key = ? WHERE id = ?", changes)
+            self._meta_set(conn, "text_key_version", _policy.KEY_VERSION)
+            conn.commit()
+            return out
+        except Exception as e:
+            out["error"] = str(e)
+            return out
+        finally:
+            conn.close()
+
+    def backfill_policy_fields(self, dry_run: bool = False) -> Dict[str, Any]:
         """Label pre-policy rows (origin, key, true event time). Metadata only; backs up the db first."""
         from eli.memory import policy as _policy
         from eli.runtime.memory_provenance import resolve_write_provenance
@@ -3129,6 +3251,9 @@ class Memory(metaclass=_MemoryMeta):
                 "FROM memories WHERE origin IS NULL OR origin = '' OR text_key IS NULL OR text_key = ''"
             ).fetchall()
             if not todo:
+                return out
+            if dry_run:
+                out["would_fill"] = len(todo)
                 return out
             try:
                 bak = Path(str(self.db_path) + ".pre_policy.bak")
@@ -3286,7 +3411,11 @@ class Memory(metaclass=_MemoryMeta):
                 sess = {r[0] for r in conn.execute("SELECT DISTINCT session_id FROM conversation_turns")}
                 summ = {r[0] for r in conn.execute("SELECT DISTINCT session_id FROM session_summaries")}
                 rep["sessions"], rep["sessions_without_summary"], rep["summaries_without_session"] = len(sess), len(sess - summ), len(summ - sess)
-            rep["ok"] = not any(rep.get(k) for k in ("fts_missing", "fts_orphans", "vector_orphans", "duplicate_groups", "unlabelled"))
+            rep["ok"] = not any(rep.get(k) for k in ("fts_missing", "fts_orphans", "vector_orphans", "missing_vectors",
+                                                     "duplicate_groups", "unlabelled"))
+            rep["status"] = "healthy" if rep["ok"] else "degraded"
+            if rep.get("vectors") is None:
+                rep["vector_index"] = "unavailable"
         except Exception as e:
             rep["error"] = str(e)
         finally:
@@ -3388,11 +3517,16 @@ class Memory(metaclass=_MemoryMeta):
         return True
 
     def upkeep_due(self) -> bool:
-        """True when upkeep has not run today."""
+        """True when upkeep has not completed today. A partly failed run is retried after an hour."""
         conn = self._get_connection()
         try:
-            last = self._meta_get(conn, "last_upkeep_day")
-            return last != time.strftime("%Y-%m-%d")
+            if self._meta_get(conn, "last_upkeep_day") == time.strftime("%Y-%m-%d"):
+                return False
+            try:
+                attempt = float(self._meta_get(conn, "last_upkeep_attempt") or 0.0)
+            except (TypeError, ValueError):
+                attempt = 0.0
+            return (time.time() - attempt) >= 3600.0 or self._meta_get(conn, "last_upkeep_status") != "partial"
         finally:
             conn.close()
 
@@ -3403,7 +3537,8 @@ class Memory(metaclass=_MemoryMeta):
             return report
         report["ran"] = True
         steps = (
-            ("backfill", lambda: self.backfill_policy_fields()),
+            ("backfill", lambda: self.backfill_policy_fields(dry_run=dry_run)),
+            ("rekey", lambda: self.rekey_text_keys(dry_run=dry_run)),
             ("consolidate", lambda: self.consolidate_memories(dry_run=dry_run)),
             ("decay", lambda: {"updated": self.apply_weight_decay()} if not dry_run else {}),
             ("archive", lambda: self.archive_faded(dry_run=dry_run)),
@@ -3416,11 +3551,18 @@ class Memory(metaclass=_MemoryMeta):
                 report[name] = fn()
             except Exception as e:
                 report[name] = {"error": str(e)}
+        failed = sorted(k for k, v in report.items() if isinstance(v, dict) and v.get("error"))
+        report["status"] = "partial" if failed else "complete"
+        if failed:
+            report["failed_steps"] = failed
         if not dry_run:
             conn = self._get_connection()
             try:
                 import json as _json
-                self._meta_set(conn, "last_upkeep_day", time.strftime("%Y-%m-%d"))
+                if not failed:
+                    self._meta_set(conn, "last_upkeep_day", time.strftime("%Y-%m-%d"))
+                self._meta_set(conn, "last_upkeep_status", report["status"])
+                self._meta_set(conn, "last_upkeep_attempt", str(time.time()))
                 self._meta_set(conn, "last_upkeep_report", _json.dumps(report, default=str)[:4000])
                 conn.commit()
             finally:

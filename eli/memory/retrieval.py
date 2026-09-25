@@ -5,6 +5,7 @@ memory is not searched twice with divergent budgets on the same turn.
 """
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional
@@ -49,6 +50,26 @@ def invalidate_turn_cache(session_id: str = "") -> None:
     for k in list(_TURN_CACHE):
         if k.startswith(prefix):
             _TURN_CACHE.pop(k, None)
+
+
+def _claim_hits(mem: Any, query: str, window: Optional[tuple]) -> List[Dict[str, Any]]:
+    """Dated claims as evidence: what held during the period asked about, else the standing claims the question touches."""
+    try:
+        from eli.memory import claims as _claims
+        if window:
+            rows = mem.claims_during(window[0], window[1])
+        else:
+            words = {w for w in re.findall(r"[a-z]{3,}", (query or "").lower())}
+            rows = [c for c in mem.claims_current()
+                    if words & set(re.findall(r"[a-z]{3,}", f"{c['relation']} {c['value']}".lower()))
+                    or re.search(r"\b(?:about me|know about|remember about|my (?:job|work|home|pet))\b", (query or "").lower())]
+        return [{"id": f"claim:{c['id']}", "text": _claims.describe(c), "content": _claims.describe(c),
+                 "source": "claims", "kind": "claim", "score": 0.9, "importance": 0.8,
+                 "timestamp": c["recorded_at"], "event_ts": c["valid_from"] or c["recorded_at"],
+                 "origin": "user_said", "verification_status": "verified"} for c in rows[:8]]
+    except Exception:
+        log.debug("claim evidence unavailable", exc_info=True)
+        return []
 
 
 def retrieve_for_turn(
@@ -156,6 +177,8 @@ def retrieve_for_turn(
                   time.strftime("%Y-%m-%d %H:%M", time.localtime(window[0])),
                   time.strftime("%Y-%m-%d %H:%M", time.localtime(window[1])),
                   len(raw_hits), len(raw_hits) - added, candidates, added, len(conv_hits))
+
+    raw_hits += _claim_hits(mem, q, window)
 
     contradictions: List[Dict[str, Any]] = []
     if rerank and raw_hits:

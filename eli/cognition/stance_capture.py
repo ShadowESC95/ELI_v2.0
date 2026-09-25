@@ -56,6 +56,14 @@ _NOT_A_STANCE = re.compile(
     re.I,
 )
 
+MAX_QUESTION_WORDS = 45
+_RUNTIME_TALK = re.compile(
+    r"\b(?:gpu|vram|cuda|nvidia|ctx|context (?:size|window)|batch|threads?|runtime|model file|sqlite|database|"
+    r"faiss|inference backend|backend|layers?)\b", re.I)
+_NO_EVIDENCE_REPLY = re.compile(
+    r"\bi (?:cannot|can'?t|could not|do not|don'?t) (?:provide|tell you|report|confirm|find|see)\b|"
+    r"\b(?:evidence|records?|data) (?:does not|doesn'?t|do not|don'?t) (?:list|contain|include|show)\b|\bno record of\b", re.I)
+
 _HEDGE = re.compile(r"\b(?:i think|i guess|maybe|perhaps|possibly|might be|not sure)\b", re.I)
 
 _WORD = re.compile(r"[a-z][a-z0-9'-]{2,}")
@@ -101,6 +109,10 @@ def detect_stance(user_text: str, reply: str) -> Optional[Tuple[str, str]]:
     body = str(reply or "").strip()
     if len(body) < MIN_REPLY_CHARS:
         return None            # acknowledgements are not positions
+    if len(str(user_text or "").split()) > MAX_QUESTION_WORDS or _RUNTIME_TALK.search(str(user_text or "")):
+        return None            # a question about ELI's own runtime is not a subject ELI takes a side on
+    if _NO_EVIDENCE_REPLY.search(body[:220]):
+        return None            # "the evidence does not list it" reports a gap, not a belief
     if _NOT_A_STANCE.search(body[:200]):
         return None            # a report that happens to start with "I have"
     if body.rstrip().endswith("?"):

@@ -153,9 +153,9 @@ def _run_targeted_tests(module_path: Path, timeout: float = 120.0) -> Tuple[bool
     """CI-grade verification: run the tests most related to a just-patched module
     (`pytest -k <module-stem>`). Returns (ran, passed, detail):
 
-      • ran=False  → no matching tests, a timeout, or an infra error — TOLERATED
-                     (never a false revert; a self-modifier must not block on its
-                     own tooling).
+      • ran=False  → no matching tests, a timeout, or an infra error. Never a false revert,
+                     but the patch is reported as unverified (ELI_SELFPATCH_REQUIRE_TESTS=1
+                     reverts it instead).
       • ran=True, passed=False → a genuine regression: the caller reverts.
 
     pytest exit codes: 0 all-pass, 1 failures, 5 no-tests-collected."""
@@ -969,8 +969,9 @@ class SelfImprovementEngine:
 
         # Targeted regression (CI-grade): a patch can compile and import and still break behaviour.
         # Run the patched module's related tests and revert on a genuine failure. Timeouts, no matching
-        # tests and infra errors are tolerated (never a false revert). ELI_SELFPATCH_VERIFY_TESTS=0
-        # disables it.
+        # tests and infra errors are not a pass: the patch stays and is reported unverified, or is
+        # reverted when ELI_SELFPATCH_REQUIRE_TESTS=1. ELI_SELFPATCH_VERIFY_TESTS=0 disables the run.
+        verification = "not run"
         if verify and os.environ.get("ELI_SELFPATCH_VERIFY_TESTS", "1").strip().lower() not in ("0", "false", "no", "off"):
             t_ran, t_passed, t_detail = _run_targeted_tests(p)
             if t_ran and not t_passed:
@@ -979,6 +980,15 @@ class SelfImprovementEngine:
                 log.debug(f"[SELF-IMPROVE] Patch reverted — targeted tests failed: {t_detail[:200]}")
                 return {"ok": False, "applied": False,
                         "message": f"Patch broke targeted tests (reverted): {t_detail[:200]}"}
+            if t_ran:
+                verification = "targeted tests passed"
+            else:
+                verification = f"unverified: {t_detail}"
+                if os.environ.get("ELI_SELFPATCH_REQUIRE_TESTS", "0").strip().lower() in ("1", "true", "yes", "on"):
+                    if backup.exists():
+                        shutil.copy2(str(backup), str(p))
+                    return {"ok": False, "applied": False, "verification": verification,
+                            "message": f"Patch reverted, its tests could not run ({t_detail[:160]})"}
 
         # Log the applied patch
         try:
@@ -997,7 +1007,8 @@ class SelfImprovementEngine:
                 conn.execute(
                     "INSERT INTO code_patches (file_path, description, old_code, new_code, status, timestamp, failure_ref) "
                     "VALUES (?,?,?,?,?,?,?)",
-                    (rel_path, description, old_code[:1000], new_code[:1000], "applied",
+                    (rel_path, description, old_code[:1000], new_code[:1000],
+                     "applied" if verification == "targeted tests passed" else "applied_unverified",
                      time.time(), patch.get("failure_ref", ""))
                 )
                 conn.commit()
@@ -1015,7 +1026,8 @@ class SelfImprovementEngine:
             "file": rel,
             "backup": str(backup),
             "reloaded": reloaded,
-            "message": f"Patch applied to {p.name}: {description}",
+            "verification": verification,
+            "message": f"Patch applied to {p.name}: {description} ({verification})",
         }
 
     def apply_patch_set(self, patches: list, *, verify: bool = True) -> dict:

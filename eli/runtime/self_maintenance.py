@@ -151,6 +151,7 @@ def fire_maintenance_world_event(cycle_result: Dict[str, Any]) -> None:
         fire_improvement_event(
             proposal_count=int(cycle_result.get("proposal_count") or 0),
             failure_count=int(cycle_result.get("failure_count") or 0),
+            repaired=int(cycle_result.get("repaired_count") or 0),
         )
     except Exception:
         log.debug("fire_maintenance_world_event skipped", exc_info=True)

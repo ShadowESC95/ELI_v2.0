@@ -1,6 +1,6 @@
 # ELI Runtime Surfaces, Planning, World, Tools & Plugins
 
-> **Updated for v2.4.68.** Stage 12 learning via `learning_coordinator.py`; goal
+> **Updated for v2.4.69.** Stage 12 learning via `learning_coordinator.py`; goal
 > autogenesis feeds the proactive stack.
 
 The remaining subsystems: the `runtime/` response/introspection surfaces, the
@@ -60,6 +60,21 @@ Background cognition + goal/queue machinery:
   `attention_queue.py`, `jobqueue.py`, `operator_goal_actions.py`, `habits.py` —
   goal persistence, capability-proposal queue, attention prioritisation, a job
   queue, and habit scheduling.
+- **Routine detection** (`habits.py`, `routine_stats.py`): app launches are clustered on the
+  clock as a circle (neighbours within 30 minutes join, across midnight too), so 08:58 and 09:02
+  are one routine. A routine needs launches on at least three distinct days. `detect_shift` flags a
+  routine whose recent times sit an hour or more from the earlier ones, and `detect_lapse` flags one
+  that stopped, judged against the days the person was active at all; each is recorded once as an
+  observation and never changes a rule you enabled. `detect_habits` returns
+  `{suggested, shifts, lapsed}`. The scheduler keeps its run keys on disk so a restart in the same
+  minute does not run a habit twice, and a plain-text reply from the engine is reported as unverified
+  rather than as success.
+- **Lessons** (`runtime/lessons.py`): failures that recur (same action, same error, three or more
+  times) become lessons with a trigger, evidence, proposed change, predicted outcome and an expiry.
+  Each finished action of that kind gives its lessons one check; a lesson is retired when it expires
+  unconfirmed or its checks show it does not help, and renewed a few times when they do.
+- **World events.** `review_completed` eases repair pressure after any review;
+  `repair_completed` fires only for a verified repair.
 - `goal_autogenesis.py` (NEW, 2026-06-08) — **closes the autonomy loop**: the goal
   stack (goal_store → `due_goals` → `governed_goal_tick` → proposal_queue) was fully
   wired but the store was always EMPTY because `create_goal` was operator-only, so

@@ -31,12 +31,66 @@ def _n(tok: str) -> int:
     return int(tok) if tok.isdigit() else _NUM.get(tok, 1)
 
 
+_MON = "|".join(list(_MONTHS) + [m[:3] for m in _MONTHS if m != "may"] + ["sept"])
+_DMY = re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MON})\.?(?:,?\s+(\d{{4}}))?\b")
+_MDY = re.compile(rf"\b({_MON})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(\d{{4}}))?\b")
+_ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
+
+
+def _month_no(name: str) -> int:
+    return [m[:3] for m in _MONTHS].index(name[:3]) + 1
+
+
+def _explicit_dates(low: str, n: datetime) -> list:
+    """Calendar days named in the text, as (position, date). A day with no year is its latest past occurrence."""
+    found = []
+
+    def add(pos, y, mo, d):
+        try:
+            day = datetime(int(y) if y else n.year, mo, d)
+            if not y and day > n:
+                day = datetime(day.year - 1, mo, d)
+            found.append((pos, day))
+        except ValueError:
+            pass
+    for m in _ISO.finditer(low):
+        add(m.start(), m.group(1), int(m.group(2)), int(m.group(3)))
+    for m in _DMY.finditer(low):
+        add(m.start(), m.group(3), _month_no(m.group(2)), int(m.group(1)))
+    for m in _MDY.finditer(low):
+        add(m.start(), m.group(3), _month_no(m.group(1)), int(m.group(2)))
+    return sorted(found)
+
+
+def _explicit_window(low: str, n: datetime) -> Optional[Window]:
+    days = _explicit_dates(low, n)
+    if len(days) >= 2 and re.search(r"\b(?:between|from)\b", low):
+        a, b = days[0][1], days[-1][1]
+        return _ts(min(a, b)), _ts(max(a, b) + timedelta(days=1))
+    if days:
+        day = days[0][1]
+        return _ts(day), _ts(day + timedelta(days=1))
+    m = re.search(rf"\b(?:in|during|of)\s+({_MON})\s+(\d{{4}})\b", low)
+    if m:
+        month, year = _month_no(m.group(1)), int(m.group(2))
+        return _ts(datetime(year, month, 1)), _ts(datetime(year + (month == 12), month % 12 + 1, 1))
+    m = re.search(r"\b(?:in|during|throughout)\s+((?:19|20)\d{2})\b", low)
+    if m:
+        year = int(m.group(1))
+        return _ts(datetime(year, 1, 1)), _ts(datetime(year + 1, 1, 1))
+    return None
+
+
 def parse_window(text: str, now: Optional[float] = None) -> Optional[Window]:
     """(start, end) epoch seconds for the period a question refers to, or None if it names none."""
     low = str(text or "").lower()
     n = datetime.fromtimestamp(time.time() if now is None else float(now))
     sod = _start_of_day(n)
     end_now = _ts(n)
+
+    explicit = _explicit_window(low, n)
+    if explicit:
+        return explicit
 
     def span(days_back: float, until: Optional[datetime] = None) -> Window:
         return _ts(sod - timedelta(days=days_back)), _ts(until) if until else end_now
