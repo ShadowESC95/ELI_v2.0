@@ -53,6 +53,7 @@ _EXEMPT = {
     "PERSONAL_MEMORY_DEEP_EXPLAIN": "engine personal-memory grounded path",
     "REFRESH_USER_INFO": "engine profile path / CHAT",
     "EXPLAIN_LAST_RESPONSE": "engine control-contract, not a bare router match",
+    "IMAGE_STATUS": "engine control-contract (route_control_text), not a bare router match",
     "PERSONA_LOCK_SET": "persona-control path / CHAT",
     "PERSONA_LOCK_STATUS": "persona-control path / CHAT",
     "HABIT_STATUS": "habits surfaced via Proactive/CHAT",
@@ -83,6 +84,7 @@ _ACCEPTABLE = {
     "RUN_CMD": {"SHELL_EXEC"},
     "SHELL_EXEC": {"RUN_CMD"},
     "LIST_NOTES": {"LIST_DIR"},
+    "DOC_GENERATE": {"GENERATE_DOCUMENT"},
     # minimise/hide-window family: all five are served by ONE executor branch
     # (executor_enhanced.py: `if a in ("MINIMIZE_APP","MINIMISE_APP","HIDE_APP",
     # "MINIMIZE_WINDOW","MINIMISE_WINDOW")`), so they are functional synonyms and the

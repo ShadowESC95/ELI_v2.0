@@ -17,7 +17,7 @@ your own evidence, and — uniquely — **improves its own source code and can e
 re-train its own brain on your conversations.** Unlike Siri, Alexa, or
 ChatGPT, nothing you say to ELI has to leave your house: it is **offline by
 default, enforced at the network socket itself**, with a switch *you* control.
-It is not a chatbot bolted onto a cloud API. It is ~193,942 lines of Python in `eli/` that
+It is not a chatbot bolted onto a cloud API. It is ~193,520 lines of Python in `eli/` that
 form a complete **cognitive operating system for one person and one machine** — and, as of
 2026-06-28, a self-hosted **web app** that brings the same local brain (chat, a live
 dashboard, ELI's own smart-home, multi-user accounts, a tamper-evident audit trail, shared
@@ -134,7 +134,7 @@ and gets out of your way.**
 
 ## For the tech head: the architecture, accurately
 
-~193,942 lines of Python across 434 files (`eli/`). A real cognitive runtime — not an API
+~193,520 lines of Python across 434 files (`eli/`). A real cognitive runtime — not an API
 wrapper:
 
 - **Request pipeline.** A deterministic **router** (205 executor dispatch actions, 227
@@ -162,8 +162,7 @@ wrapper:
 - **Inference & hardware.** GGUF via llama.cpp, **fully model-agnostic** (chat
   template auto-detected by model family — ChatML/Qwen, Llama-3, Mistral). A
   hardware profiler auto-fits context/GPU-layers/batch to your machine with
-  **adaptive fallback** (observed live: it cascaded through six configs to fit an
-  an 8 GB GPU). A user-tunable **synthesis prompt cap** keeps the small model
+  **adaptive fallback** (it steps context, batch and GPU layers down until the model fits). A user-tunable **synthesis prompt cap** keeps the small model
   from degenerating on oversized prompts — exposed in a GUI "Cognition" tab.
 
 - **Self-improvement & learning.** A real failure→analysis→patch loop
@@ -194,7 +193,7 @@ wrapper:
 - **Extensibility.** A real plugin system (10 built-ins: weather, web, calendar,
   notes, pomodoro, document-reader, web-automation, system-stats,
   media, TTS) with install/enable/disable, plus user-created custom agents that
-  register live. `capability_sync` keeps the 208-capability manifest *measured*
+  register live. `capability_sync` keeps the 227-capability manifest *measured*
   against the actual code, not asserted.
 
 ---
@@ -270,7 +269,7 @@ frontier coder), `memory.md`, `security.md`, `inference_and_hardware.md`,
 `learning.md`, `perception.md`.*
 
 
-## 2.3.7 in one paragraph
+## Plugins, agents and training in one paragraph
 
 This release is about **reach, not invention**: four subsystems that already existed
 in full became usable. The LoRA trainer gained the GUI its own code always said it

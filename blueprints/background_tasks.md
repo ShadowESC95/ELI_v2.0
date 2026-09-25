@@ -1,3 +1,5 @@
+> **Updated for v2.4.67.**
+
 # ELI Background Tasks & Unified Code Generation
 
 Two related additions:
@@ -75,5 +77,4 @@ Kill switch: `ELI_CODEGEN_BACKGROUND=0`.
 - **"LLM deems longer wait":** currently a deterministic estimator (+ explicit
   phrasing). The planner's decomposition (`plan_steps`) can be fed in for an
   LLM-informed estimate — hook present, not yet auto-wired.
-- **GUI:** a dedicated Coding/Jobs tab is not built yet (see note below); jobs are
-  reachable via chat ("check job N", "background jobs") and the action API today.
+- **GUI:** the Tasks tab (`eli/gui/tabs/tasks_tab.py`) is the single home for background work: coding jobs and scheduled or overnight tasks (add, edit, cancel). Jobs are also reachable in chat ("check job N", "background jobs") and through the action API.

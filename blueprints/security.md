@@ -1,6 +1,6 @@
 # ELI Security Posture
 
-> **Updated for v2.4.12.** Fail-closed shell gate, path allow-roots, custom-agent
+> **Updated for v2.4.67.** Fail-closed shell gate, path allow-roots, custom-agent
 > SHA-256 trust registry, prompt-injection sanitisation at engine entry (S02).
 
 ELI runs locally with real OS reach (shell, file, app control) plus a
@@ -158,7 +158,7 @@ matching safeguards:
 
 ---
 
-## Update — 2026-06-09 (RUN_CMD terminal is real; mock leak fenced)
+## RUN_CMD terminal is real; mock leak fenced
 - **RUN_CMD uses a real `subprocess.run`** (`executor_enhanced.py:5350` — no shell,
   capture_output, timeout) behind the destructive-command security gate (`_BLOCKED_PATTERNS`:
   `rm -rf /`, `mkfs`, `dd of=/dev/`, `chmod 777 /`, fork bomb, shutdown/reboot). The gate is
@@ -172,7 +172,7 @@ matching safeguards:
 
 ---
 
-## Web app & multi-user security (2026-06-28)
+## Web app & multi-user security
 
 ELI now ships a self-hosted FastAPI web app (`api/server.py`). It is local-first and
 inherits all of the gates above (the model is the same local GGUF behind netguard;
@@ -245,7 +245,7 @@ commands/files/apps stay fail-closed). The web surface adds:
   matter more once the web app is exposed beyond the owner's machine — keep it bound to
   trusted networks.
 
-## Update — 2026-07-02 (stable phone token, admin-gated model switch)
+## Stable phone token, admin-gated model switch
 
 Two web-tier changes this cycle, both verified against the code:
 
@@ -265,7 +265,7 @@ Two web-tier changes this cycle, both verified against the code:
 Neither weakens the existing posture — the socket failsafe, fail-closed command gate, and audit
 ledger all still apply.
 
-## Update — 2026-07-03 (token moved to the URL fragment; test reds cleared)
+## Token moved to the URL fragment; test reds cleared
 
 - **Token in the URL fragment, never the query string.** Every emitter of the phone link now
   builds `…/#token=…` instead of `…/?token=…`: the server's printed URLs *and* the desktop **Web
@@ -282,7 +282,7 @@ ledger all still apply.
   fixed. Not a security change per se, but the suite is now fully green.
 
 
-## Update — 2.3.7 (community plugin marketplace: consent, verification, scanning)
+## Community plugin marketplace: consent, verification, scanning
 
 ELI ships a marketplace **client**; the marketplace itself belongs to the community.
 Nobody curates it, so the usual first line of defence — "the store checked it" —

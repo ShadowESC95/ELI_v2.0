@@ -1,6 +1,6 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.4.38.** GGUF path is canonical (optional Ollama backend still
+> **Updated for v2.4.67.** GGUF path is canonical (optional Ollama backend still
 > exists as a secondary path). VRAM fit reads `{arch}.block_count` from the GGUF
 > header (model-agnostic) with a size heuristic fallback only when metadata is
 > unreadable. Token budgets scale by reasoning mode via `reasoning_modes.py`.
@@ -9,7 +9,7 @@ How ELI loads a model, talks to it, and adapts to whatever machine it's on. The
 inference path is model-agnostic (see memory `eli-model-agnostic`); the boot path
 is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
 
-## Inference (`cognition/gguf_inference.py`, 2.7k LOC + `inference_broker.py`)
+## Inference (`cognition/gguf_inference.py`, 3.2k LOC + `inference_broker.py`)
 
 - **Model resolution (`get_model_path`)**: `ELI_GGUF_MODEL_PATH` env →
   `model_path`/`custom_model_path`/`bundled_model_path`/`gguf_model_path` settings

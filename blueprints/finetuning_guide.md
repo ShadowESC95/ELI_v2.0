@@ -254,7 +254,7 @@ export BASE_LOCAL="training/base/$(basename "$BASE")"
 - `training/train_lora.py` — QLoRA trainer (parameterised, Qwen3-8B default)
 - `training/merge_and_convert.py` — merge → GGUF → quantize → install
 - `training/README.md` — quick-start; this doc — the full rationale + correctness
-- `training/datasets/`, `training/runs/`, `training/base/` — data, adapters, base weights
+- `training/datasets/`, `training/runs/`, `training/base/` — data, adapters, base weights (created locally when you run the pipeline)
 
 ## Golden rules, one more time
 1. Fine-tune **voice + contracts**, never the dynamic persona/memory.
@@ -266,10 +266,10 @@ export BASE_LOCAL="training/base/$(basename "$BASE")"
 
 ---
 
-## Appendix — the guided path (2.3.7)
+## Appendix — the guided path
 
 Everything above remains the rigorous manual route, and it is still the one to read
-if you want to understand what is happening. Since 2.3.7 the same pipeline is also
+if you want to understand what is happening. The same pipeline is also
 driven from **Labs ▸ 🎓 Training**, which is the recommended path on an unfamiliar
 machine because it *reports* rather than assumes.
 

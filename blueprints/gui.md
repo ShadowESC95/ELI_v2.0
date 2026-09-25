@@ -1,9 +1,9 @@
 # ELI GUI
 
-> **Updated for v2.4.38.** Ollama model selector fixed on packaged builds
+> **Updated for v2.4.67.** Ollama model selector fixed on packaged builds
 > (`QDialogButtonBox` exported via `eli/gui/qt_compat.py`).
 
-`eli/gui/` — 25.4k LOC, 22 modules (8 top-level + panels/tabs/docks/widgets). A full native PySide6/PyQt desktop app (with a
+`eli/gui/` — 27.4k LOC, 27 modules (8 top-level + panels/tabs/docks/widgets). A full native PySide6/PyQt desktop app (with a
 Qt-binding compat shim), plus a first-boot launcher and a large scientific
 "Labs" workspace.
 
@@ -33,7 +33,7 @@ flowchart TD
     Set --> S2[Marketplace · browse · scan · permissions · sources]
 ```
 
-### New in 2.3.7
+### Marketplace and training additions
 
 | Surface | Where | What it is |
 |---|---|---|
@@ -46,16 +46,16 @@ flowchart TD
 
 | File | LOC | Role |
 |---|---|---|
-| `eli_pro_audio_gui_v2_0.py` | 12.1k | the main window + most app logic (god-file) |
+| `eli_pro_audio_gui_v2_0.py` | 13.1k | the main window + most app logic (god-file) |
 | `labs_tab.py` | 5.7k | scientific workspace tab |
-| `app.py` | 831 | launcher / first-boot auto-tune / entry `main()` |
-| `panels/startup.py` | 1305 |
-| `panels/settings.py` | 733 | settings dialog incl. Plugins + Marketplace sub-tabs |
+| `app.py` | 827 | launcher / first-boot auto-tune / entry `main()` |
+| `panels/startup.py` | 1974 | guided first-boot: hardware, model pick or download, tuning |
+| `panels/settings.py` | 825 | settings dialog incl. Plugins + Marketplace sub-tabs |
 | `tabs/training_tab.py` | 841 | Labs ▸ Training — the LoRA wizard |
-| `tabs/marketplace_tab.py` | 707 | Settings ▸ Marketplace — browse/installed/permissions/sources |
-| `panels/permission_dialog.py` | 223 | plugin consent dialog + thread-marshalling bridge |
+| `tabs/marketplace_tab.py` | 991 | Settings ▸ Marketplace — browse/installed/permissions/sources |
+| `panels/permission_dialog.py` | 232 | plugin consent dialog + thread-marshalling bridge |
 | `docks/operator_console_dock.py` | 303 | operator console dock |
-| `widgets/ollama_model_selector.py` | 294 | optional Ollama model picker |
+| `widgets/ollama_model_selector.py` | 444 | optional Ollama model picker |
 | `tabs/experimental_tab.py`, `panels/agent_wizard.py`, `docks/proactive_dock.py`, `tabs/eli_world_tab.py`, `qt_compat.py`, `panels/_qt.py` | small | tabs/docks/widgets + Qt compat |
 
 ## Launcher (`app.py`)
@@ -68,13 +68,13 @@ consumes VRAM before ELI launches, so free ≠ total), `_auto_tune(model_path, h
 
 ## Main window (`eli_pro_audio_gui_v2_0.py`)
 
-A 12.6k-line module holding the window **and** a stack of embedded classes that
+A 13.1k-line module holding the window **and** a stack of embedded classes that
 are really application logic, not just UI:
 - `CentralMemoryAdapter` — bridges the GUI to the memory subsystem.
-- `LocalModelManager` (708) — discover/load/swap local GGUF models.
-- `OllamaModelManager` (1142) — optional Ollama integration (legacy/optional;
+- `LocalModelManager` (line 749) — discover/load/swap local GGUF models.
+- `OllamaModelManager` (line 1646) — optional Ollama integration (legacy/optional;
   ELI's stance is 100% local GGUF, so this is a secondary path).
-- `ExecutorBridge` (1246) — routes GUI actions into the executor/engine.
+- `ExecutorBridge` (line 1778) — routes GUI actions into the executor/engine.
 - `_GUIEngineAdapter` — engine façade for the UI.
 - UI widgets: `_QABoard` (quick-action card board), `_MiniTelemetryGraph` (live
   telemetry), `_ZoomableSettingsView`, `_ZoomableImagePreview`, `_FlowLayout`,
@@ -127,8 +127,7 @@ called off the GUI thread never fires.
 
 ### Settings ▸ 🛒 Marketplace (`tabs/marketplace_tab.py`)
 
-Four panes matching the four decisions an operator makes: **Browse**, **Installed**,
-**Permissions**, **Sources**. See `security.md` for the verification and scanning
+Five panes: **Browse**, **Installed**, **Permissions**, **MCP servers**, **Sources**. See `security.md` for the verification and scanning
 model — the short version is that the install path is deliberately slow, nothing is
 written to disk before the operator has seen a scan result, and what is written
 arrives switched off with no permissions granted.
@@ -166,12 +165,12 @@ fail-closed rule true even when the UI is what failed.
   full scientific workspace. Cross-binding (PyQt/PySide) compat is handled. Most
   local-LLM projects ship a chat box; this is an application.
 - **Weak / watch:**
-  1. **God-file #3** — `eli_pro_audio_gui_v2_0.py` (12.6k) mixes UI with core
+  1. **God-file #3** — `eli_pro_audio_gui_v2_0.py` (13.1k) mixes UI with core
      logic (`LocalModelManager`, `ExecutorBridge`, `CentralMemoryAdapter`,
      `_GUIEngineAdapter`). The model/executor/memory bridges should live outside
      the window module so the UI isn't coupled to core internals (and so they're
      testable headless). `labs_tab.py` (5.7k) is a second large file.
-  2. **Ollama manager** (1.1k LOC) sits oddly against the "100% local GGUF,
+  2. **Ollama manager** (about 130 lines, plus the 444-line model selector widget) sits oddly against the "100% local GGUF,
      don't-care-about-Ollama" stance — it's an optional/legacy path carrying
      real weight; candidate for removal or clear quarantine.
   3. UI logic instantiating engine/memory directly makes a clean headless mode

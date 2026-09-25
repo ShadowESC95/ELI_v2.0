@@ -1,6 +1,6 @@
 # Installation — one-click setup, cross-platform (2026-09-11)
 
-> **Updated for v2.4.24 (September 2026).** One hardware-aware GUI wizard for every supported OS.
+> **Updated for v2.4.67 (September 2026).** One hardware-aware GUI wizard for every supported OS.
 > Primary install: GitHub Releases (`ELI-Setup-*.exe`, Linux AppImage, macOS dmg, portable → `./ELI_Setup.sh`).
 > Core wizard stages hard-fail until nomic + voice + chat model are present. Windows desktop = ELI only
 > (GUI singleton). **Home** tab ≠ Home Assistant. See `first time Installation/INSTALLATION_GUIDE.md`.
@@ -52,7 +52,7 @@ Every release ships the platform assets below plus `SHA256SUMS.txt`.
 - Want the source tree → **linux-portable.tar.gz** → `./ELI_Setup.sh` only (never `scripts/install_eli.sh`).
 - Frozen builds bundle **nomic** + **Piper voice weights**; Windows TTS still needs a Piper **CLI** on PATH or under `tts_piper/` (weights alone are not enough).
 - **No download bundles a chat model.** First launch / wizard fetches one.
-- Windows: desktop shortcut is **ELI only** (Server is Start Menu). If two windows open, close one — v2.4.24+ refuses a second GUI instance.
+- Windows: desktop shortcut is **ELI only** (Server is Start Menu). If two windows open, close one — v2.4.67+ refuses a second GUI instance.
 
 > **Model size vs. your GPU matters more than which download you pick.** Choose a model that
 > fits your VRAM — e.g. **Qwen3-8B / Qwen2.5-7B** on an 8 GB GPU. Very large models (30B+) run
@@ -67,10 +67,10 @@ Arch's system Python 3.14, which has no `llama-cpp-python` wheel, is irrelevant)
 packages. Download and run it **directly**:
 
 ```bash
-U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.4.24
-wget "$U/ELI_v2-2.4.24-x86_64.AppImage"
-chmod +x ELI_v2-2.4.24-x86_64.AppImage
-./ELI_v2-2.4.24-x86_64.AppImage
+U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.4.67
+wget "$U/ELI_v2-2.4.67-x86_64.AppImage"
+chmod +x ELI_v2-2.4.67-x86_64.AppImage
+./ELI_v2-2.4.67-x86_64.AppImage
 ```
 
 Two fixes worth knowing, both resolved in current builds and verified on a clean Arch VM:
@@ -103,8 +103,8 @@ This works when you run the **`.AppImage` directly** *or* via `--appimage-extrac
 set the `APPIMAGE` path the launcher needs. Force it any time with:
 
 ```bash
-./ELI_v2-2.4.24-x86_64.AppImage --integrate      # add/refresh menu entries
-./ELI_v2-2.4.24-x86_64.AppImage --uninstall       # remove them
+./ELI_v2-2.4.67-x86_64.AppImage --integrate      # add/refresh menu entries
+./ELI_v2-2.4.67-x86_64.AppImage --uninstall       # remove them
 ```
 
 Running the **manually extracted `./squashfs-root/AppRun`** does *not* create menu icons — there's
@@ -180,7 +180,7 @@ Chat model: `python -m eli.core.model_download --auto` (or `--list`, or a named 
 ELI stays offline by default; downloads are deliberate one-time actions.
 
 
-## Update — 2.3.7 (training dependencies now ship)
+## Training dependencies now ship
 
 `peft` and `datasets` were previously only in `requirements.lock.txt`, so a plain
 `pip install -r requirements.txt` produced an install whose Training tab could never

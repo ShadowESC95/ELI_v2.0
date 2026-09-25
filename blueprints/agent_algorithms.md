@@ -1,6 +1,6 @@
-# ELI Agent Algorithms — what each of the 15 (+1) agents actually computes
+# ELI Agent Algorithms — what each of the 15 agents actually computes
 
-> **Updated for v2.4.12.** Orchestrator runs for all CHAT modes; bus composed at S06.
+> **Updated for v2.4.67.** Orchestrator runs for all CHAT modes; bus composed at S06.
 
 Your framing is the right lens: **the DAG structures the reasoning steps; RAG is
 the engine that pulls the raw information during those steps.** ELI maps onto
@@ -16,7 +16,7 @@ this cleanly —
   runtime facts (`capability`, `introspection`, `frontier`, …).
 
 So there are **15 specialist agents in `_ALL_AGENTS`** plus the **`AgentOrchestrator`**
-that sequences them — that's the "14/15".
+that sequences them. `SpecAgent` instances and custom agents register on top.
 
 ## Roles at a glance
 
@@ -48,7 +48,7 @@ calibration`, single-agent-capped, corroboration-bonused.
 - **Out:** `{results, conv_hits, memory_context}`. The primary RAG retriever.
 
 ### 2. `system` — deterministic action effector  · 8.0s
-- **Gate:** `action ∈ SYSTEM_ACTIONS` (≈90 OS/runtime actions); `LLM_ACTIONS`
+- **Gate:** `action ∈ SYSTEM_ACTIONS` (121 OS and runtime actions); `LLM_ACTIONS`
   (GENERATE_SCRIPT, etc.) are **deferred** (never run inside the timed parallel
   phase — they'd time out + double-execute).
 - **Algorithm:** delegates to `executor_enhanced.execute(action, args)` behind the
@@ -77,7 +77,7 @@ calibration`, single-agent-capped, corroboration-bonused.
   Deterministic whole-system audit.
 
 ### 7. `plugin` — plugin effector  · 6.0s
-- **Gate:** `action ∈ PLUGIN_ACTIONS` (GET_WEATHER, LIST_EVENTS, ADD_EVENT).
+- **Gate:** `action ∈ PLUGIN_ACTIONS` (ADD_EVENT, GET_WEATHER, LIST_EVENTS).
 - **Algorithm:** `execute(action, args)` into the plugin layer; silent skip
   otherwise.
 
@@ -129,7 +129,7 @@ calibration`, single-agent-capped, corroboration-bonused.
   (`intent["_upstream"]`) rather than the raw query — **deterministic, no LLM**. It pulls the
   representative text each retriever surfaced this turn, measures **pairwise term agreement**,
   and emits a **corroboration-vs-contradiction** signal. **DAG edges:** depends on
-  `memory`/`system`/`knowledge_graph`, so it runs in a **downstream topological layer** and
+  `memory`, `file_code`, `knowledge_graph` and `system`, so it runs in a **downstream topological layer** and
   sees their results — giving the agent DAG a real second tier instead of a flat fan-out.
 
 ---
@@ -179,9 +179,9 @@ step away from:
    whole pipeline end-to-end.
 
 
-## Update — 2.3.7: `SpecAgent` and the measurable-agent contract
+## `SpecAgent` and the measurable-agent contract
 
-A new agent class joins the fourteen built-ins. `SpecAgent` is not hand-written
+A further agent class joins the fifteen built-ins. `SpecAgent` is not hand-written
 Python — it is an interpreter for an `AgentSpec` (see `orchestration_and_agents.md`),
 and its algorithm is deliberately small:
 

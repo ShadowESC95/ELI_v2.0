@@ -1,12 +1,12 @@
 # ELI — What It Can Actually Do
 
-> **Updated for v2.4.12.** All CHAT modes run the gradient orchestrator; 15 specialist
+> **Updated for v2.4.67.** All CHAT modes run the gradient orchestrator; 15 specialist
 > agents; 227 capabilities (210 routable or executor-backed). Regenerate the action list with
 > `python -m eli.tools.registry.capability_updater`.
 
-*A complete capability showcase, for the layman and the tech-savvy alike. Every
-capability listed here is real and present in the code — nothing is aspirational
-or embellished. This is the "what you get" document.*
+*A capability showcase for the layman and the tech-savvy alike. Each capability listed
+here is present in the code. This is the "what you get" document; `project_overview.md`
+holds the limits.*
 
 ---
 
@@ -20,8 +20,8 @@ and **nothing leaves your device unless you explicitly allow it.**
 
 Here's the part most "AI assistants" can't say: it's *yours*. A fully local,
 embodied desktop AI you actually own — **227 capabilities** (210 routable or executor-backed
-by voice or text), a 14-agent reasoning bus, persistent memory, and full
-voice/vision/gaze control, in ~193,942 lines of Python in `eli/`. One machine, your data, no landlord. (The
+by voice or text), a 15-agent reasoning bus, persistent memory, and full
+voice/vision/gaze control, in ~193,520 lines of Python in `eli/`. One machine, your data, no landlord. (The
 capability count is read live from the manifest each boot, so it grows as ELI
 does. Auto-generated action reference: `capabilities_and_actions.md`.)
 
@@ -156,8 +156,9 @@ and learns a **per-user voice profile**. Dictation, transcription, and a spoken
 voice (Piper TTS) that never voices garbled fragments.
 
 ### 🔊 Voices — accents, characters & your own *(new, 2.1.23)*
-ELI ships with a set of voices and can fetch **166 more, across 45 languages** —
-including 38 English voices (US, British, Scottish, Northern and Southern English).
+ELI ships with a set of voices and can fetch more from the upstream Piper library (about 166 voices across some 45
+languages at the time of writing, including US, British, Scottish, Northern and Southern
+English). The list is read from upstream, so the exact number changes.
 Do it by voice or text — *"what voices do you have"*, *"download a British voice"*,
 *"use the alan voice"* — or open **Settings ▸ Runtime ▸ "VOICE / TTS" > "Get more voices /
 accents..."**; either way it downloads (checksum-verified) and becomes selectable
@@ -262,7 +263,7 @@ than dumping a report or guessing.
 | ⚡ **Quick Actions** | A drag-and-drop board of one-click actions. |
 | 🖥️ **Screen** | Screen control, capture, and analysis. |
 | 📂 **Files** | Browse, act on, and **convert** files (any format). |
-| 🔬 **Labs** | Scientific + developer workspace — 10 sub-tabs: Notebook, Memory & Conversations, Jupyter, Calculator, Physics, File Chat, Workspaces, Sim/IDE, **Orchestration**, **Test & Review**. |
+| 🔬 **Labs** | Scientific + developer workspace — 11 sub-tabs: Notebook, Memory & Conversations, Jupyter, Calculator, Physics, File Chat, Workspaces, Sim/IDE, **Orchestration**, **Test & Review**, **Training**. |
 | 🧩 **Coding** | Write, run, and have ELI fix/explain code. (All background jobs are listed in the Tasks tab.) |
 | 🗓️ **Tasks** | The single home for all background work — coding jobs + scheduled/overnight tasks (add, edit, cancel). |
 | 📄 **Report Builder** | Evidence-grounded, multi-stage document generation (promoted from Labs). |
@@ -270,7 +271,7 @@ than dumping a report or guessing.
 | 🌍 **Eli's World** | The live embodied self-model — ELI's avatar moving through cognitive "rooms" as it reasons. |
 | ⚙️ **Settings** | 10 pages: Model, Runtime, Generation, Identity, Audio, Application, Agents, Gaze, Web Server, Advanced. |
 
-*(Orchestration and Test & Review are developer/diagnostic tools — they live as **Labs sub-tabs**, not top-level tabs.)*
+*(Orchestration, Test & Review and Training are Labs sub-tabs, not top-level tabs.)*
 
 ---
 
@@ -287,7 +288,7 @@ ELI is built to be shaped by *you*:
   and the **background-deepening** toggle — all live sliders, deeper or leaner to
   taste.
 - **Extend it.** A real plugin system (weather, web, calendar, notes, pomodoro,
-  smart-home, document-reader, web-automation, system-stats, media, TTS) with
+  document-reader, web-automation, system-stats, media, TTS) with
   install/enable/disable — and you can **create your own custom agents** through a
   guided dialog (validated and trust-gated before they run, then live-registered).
 - **Teach it routines.** ELI proposes habits it notices; you approve, edit, or
@@ -325,7 +326,7 @@ separate from this capability showcase): `project_overview.md`. Exhaustive
 technical map: `capability_catalogue.md`.*
 
 
-## New in 2.3.92 — cross-OS media + local screen intelligence
+## Cross-OS media and local screen intelligence
 
 - **YouTube visible playback:** plain “play X on YouTube” → local mpv window (not headless audio-only); `youtube.com` still opens the browser when asked.
 - **Native streaming apps:** Spotify/Netflix/etc. launch native apps, not browser tabs, unless you explicitly ask for the website.
@@ -335,7 +336,7 @@ technical map: `capability_catalogue.md`.*
 - **Deep screen audit:** “analyze my screen in depth”, research-linked and prior-session memory fusion on `SCREEN_READ_ANALYZE`.
 - **Screen tab settings:** one-click depth, ambient watch, precision click, computer-use agent — all local.
 
-## New in 2.3.73 — conversation grounding
+## Conversation grounding
 
 - **Thread-aware web queries:** underspecified follow-ups (“reviews for season 3”) expand with the active show/topic before search.
 - **Proactive web on corrections:** grounding demands and explicit search requests route to `WEB_SEARCH` with a distilled query, not CHAT confabulation.
@@ -344,7 +345,7 @@ technical map: `capability_catalogue.md`.*
 
 ---
 
-## New in 2.3.72 — live-session honesty
+## Live-session honesty
 
 - **News topic deepen:** “go deeper into X” after a briefing → topic-scoped `NEWS_FETCH`, not CHAT guesswork.
 - **News complaint redo:** calling out a guessed story recovers the topic and re-fetches.
@@ -353,7 +354,7 @@ technical map: `capability_catalogue.md`.*
 
 ---
 
-## New in 2.3.7 — train it, extend it, and see what it checked
+## Train it, extend it, and see what it checked
 
 ### Train your own model (Labs ▸ 🎓 Training)
 
@@ -365,12 +366,11 @@ and a cancel button.
 
 The review step is the point. **Nothing trains on anything you have not personally
 approved.** ELI removes the obviously broken exchanges for you and flags the
-questionable ones, so you are reading the ~40% that need judgement rather than all of
+questionable ones, so you are reading the ones that need judgement rather than all of
 them.
 
-Works on NVIDIA and AMD. If your card is too small, it tells you exactly how much it
-needed and what would fix it, instead of silently falling back to a CPU run that
-takes days.
+If your hardware cannot train, the preflight says so and says why, instead of silently
+falling back to a run that takes days.
 
 ### Community plugins (Settings ▸ 🛒 Marketplace)
 

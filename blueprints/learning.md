@@ -1,6 +1,6 @@
 # ELI Learning — LoRA Self-Training Pipeline
 
-> **Updated for v2.4.12.** Stage 12 learning hooks for chat turns are centralized in
+> **Updated for v2.4.67.** Stage 12 learning hooks for chat turns are centralized in
 > `eli/cognition/learning_coordinator.py` (`finalize_turn()`).
 
 `eli/learning/` — 4.3k LOC, 14 files. ELI's self-improvement-via-fine-tuning
@@ -8,7 +8,7 @@ path. **Important framing:** this is a *curated, human-gated, operator-invoked*
 training pipeline — **not** an autonomous self-modifying loop, and it targets a
 **separate trainable Hugging Face base**, not the inference GGUF.
 
-Since 2.3.7 it is driven from **Labs ▸ 🎓 Training** (a four-step wizard) as well
+It is driven from **Labs ▸ 🎓 Training** (a four-step wizard) as well
 as from chat actions and the overnight scheduled task. Two long-standing blockers
 were removed at the same time: the human review gate now has an interface, and the
 target system is no longer locked to Phi-3.

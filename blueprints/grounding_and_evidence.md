@@ -1,6 +1,6 @@
 # ELI Grounding & Evidence Layer
 
-> **Updated for v2.4.38.** Quick mode still returns verbatim for deterministic
+> **Updated for v2.4.67.** Quick mode still returns verbatim for deterministic
 > introspection; all CHAT modes now pass through the gradient orchestrator first.
 
 The anti-confabulation system — a deterministic evidence scaffold wrapped around
@@ -37,22 +37,18 @@ source.
 
 ## Components
 
-### `runtime/deterministic_grounding_gate.py` (4.3k LOC)
+### `runtime/deterministic_grounding_gate.py` (3.4k lines)
 The deterministic renderer. `render_action(action, args, user_input, mode_label)`
 produces a grounded answer for control/status actions directly from runtime data
 (settings, runtime snapshot, DB counts, GPU line) — bypassing the model.
 `install(CognitiveEngine)` wires it into the engine. `_eli_v14_runtime_data()`
 assembles the live config block (model_path, n_ctx, gpu_layers, …).
 
-> **Code-health flag:** the file contains **eight** `render_action` definitions
-> (seven module-level plus one nested inside a nominal "policy engine" wrapper
-> that despite its name doesn't replace the stack, it just delegates to the
-> previous version for anything it doesn't handle itself), each marked
-> `# type: ignore[override]`. They are stacked successive redefinitions where the
-> last one wins — the file grew by appending new versions rather than editing in
-> place. It works, but it's the single clearest example of the "added beside, not
-> folded in" pattern, and it makes the effective code path hard to trace. Prime
-> consolidation candidate.
+> **Structure.** `render_action` is one explicit ordered pipeline: each layer is a function
+> that takes the layer below it as an argument, composed by `_stack(...)` into
+> `_RENDER_PIPELINE`. An action no layer handles returns a JSON surface
+> `missing_deterministic_renderer` rather than a made-up answer. The layer order is pinned
+> by a characterisation test that compares the rendered output of every audited action.
 >
 > **`_eli_last_response_confidence_v2()`** (called for "how confident are you in
 > your last answer") used to return a fixed template string regardless of what
@@ -62,7 +58,7 @@ assembles the live config block (model_path, n_ctx, gpu_layers, …).
 > already used correctly for "what was your last message," and says plainly
 > when no trace is available rather than fabricating an answer.
 
-### `runtime/control_contracts.py` (943 LOC)
+### `runtime/control_contracts.py` (1,232 lines)
 The deterministic control path:
 - `is_control_action` / `route_control_text` — recognise control/status intents.
 - `build_control_evidence(engine, action, args, …)` — gather the evidence packet
@@ -87,26 +83,26 @@ The deterministic control path:
 non-Quick compact synthesis path uses it and falls back to the deterministic evidence text.
 `contracts/grounded_control.py` owns which actions never fall back to a clarifying question.
 
-### `runtime/evidence_ledger.py` (595 LOC)
+### `runtime/evidence_ledger.py` (603 lines)
 A persistent SQLite ledger of evidence events: `record_event`, `recent_events`,
 `repeated_event_signals` (detect recurring issues over N days), `status_evidence`,
 `artifact_snapshot`. Gives ELI a durable, queryable record of what actually
 happened.
 
-### `runtime/evidence_arbitration.py` (195 LOC)
+### `runtime/evidence_arbitration.py` (193 lines)
 `EvidenceItem` + `arbitrate_evidence(limit)` + `build_evidence_context_text` —
 scores and merges competing evidence into a single context block. Pairs with the
 agent-bus confidence aggregation (`_score_tool_result`), which scores a tool
 result with no recorded `"ok"` field as unverified (same low score as a
 confirmed failure) rather than defaulting a missing outcome to success.
 
-### `runtime/retrieval_packets.py`
-Memory hits reach the prompt through the shared turn retrieval in `memory/retrieval.py`.
-`retrieval_packets` builds `StagePacket`s for each retrieval
-stage (parallel-retrieval, hybrid-merge, rerank, source-trace) — provenance so
-the pipeline can show *where* a fact came from.
+### Retrieval provenance
+Memory hits reach the prompt through the shared turn retrieval in `memory/retrieval.py`. Each
+recalled line carries its event date and status (`memory_provenance.format_grounding_memory_line`)
+and the orchestrator adds a retrieval diagnostics block (what was searched, how many items,
+which time window) so ELI can say truthfully what its search did.
 
-### `cognition/output_governor.py` (1224 LOC)
+### `cognition/output_governor.py` (1,681 lines)
 Post-generation governor: `govern_output(text, is_grounded)`,
 `normalize_assistant_text`, `validate_against_evidence`, plus a family of
 drift-repair functions — `strip_generic_ai_identity_drift` (kills "As an AI
@@ -114,12 +110,12 @@ language model…"), `repair_local_persona_drift`, `repair_self_user_confusion`
 (fixes the model conflating itself with the user), `clean_response_style`. The
 last line of defence before text reaches the user.
 
-### `cognition/grounded_status.py` (644 LOC)
+### `cognition/grounded_status.py` (648 lines)
 `direct_grounded_answer(user_text)` — fully deterministic answers for identity /
 memory-inventory / status questions, assembled from the DBs
 (`format_user_identity`, `format_memory_inventory`, table distributions). No LLM.
 
-### `runtime/grounded_remediation.py` (1.6k LOC)
+### `runtime/grounded_remediation.py` (1.7k lines)
 The failure→repair loop. When an action fails (app won't open, path missing,
 browser/IDE absent), it: `diagnose_app/path/browser/ide` → `build_repair_plan`
 → `offer_for_result` ("want me to install X?") → `handle_confirmation` (consumes
@@ -147,9 +143,8 @@ recoverable instead of dead ends.
   conversational remediation loop. This is the subsystem that most justifies the
   "frontier" label.
 - **Weak:**
-  1. The **seven stacked `render_action` overrides** in a 4.3k file — the
-     effective behaviour is whatever the last definition does; the earlier six
-     are dead weight that obscure the real path. Consolidate to one.
+  1. The gate file is still 3.4k lines with many version-named helpers (`_eli_v9_*`, `_eli_v14_*`);
+     the layers are ordered explicitly now, but the helpers wait to be folded into fewer, named modules.
   2. **Overlapping surfaces** — `grounded_status`, `control_contracts`,
      `deterministic_grounding_gate`, and the `runtime/*_response` / `*_surface`
      modules all render grounded answers with partial overlap. The boundaries
@@ -160,7 +155,7 @@ recoverable instead of dead ends.
 
 ---
 
-## Update — 2026-06-09
+## Behaviours that keep answers grounded
 - **Self-patch only patches what it can ground.** `generate_code_patch` extracts the target
   file from the error traceback; when a failure has no in-project file (e.g. an HTTP/connection
   error, "No commands to run"), it used to ask the model anyway, which **invented** a path
@@ -174,7 +169,7 @@ recoverable instead of dead ends.
   so factual/introspection answers sound like ELI without losing the EXACT-FACTS contract that
   pins every number/path/table/DB to the evidence.
 
-## Update — 2026-06-09 (deterministic reports surfaced verbatim; examiner correctness)
+## Deterministic reports are surfaced verbatim; examiner correctness
 - **Verbatim guard for deterministic grounded reports.** `_get_chat_response` now returns the
   EXAMINE_CODE tiered report and the FILE_AUDIT file-count VERBATIM when they appear in the
   evidence, and surfaces the FIX_FILE success event as a real outcome — instead of letting the
@@ -193,7 +188,7 @@ recoverable instead of dead ends.
   FIX_FILE.
 
 
-## New in 2.3.72 — news topic deepen (grounded, not guessed)
+## News topic deepen (grounded, not guessed)
 
 After a `NEWS_FETCH` briefing, a follow-up like **“go deeper into the transformer
 story”** must not route to open `CHAT` and let the model invent details. The engine
@@ -207,16 +202,10 @@ and runs `NEWS_FETCH` again instead of falling through to web-escalation hedge.
 
 ---
 
-## Update — 2.3.7 (evidence layer stopped discarding history)
+## History is not discarded before the budgeter sees it
 
-*The old memory-evidence module was removed in 2.4.63; shared turn retrieval in `memory/retrieval.py` replaced it. Kept for history.*
-
-`collect_memory_evidence` in the old memory-evidence module pulled recent processed memories,
-observations and conversation turns with `limit = max(4, min(limit, 8))`. The inner
-`min` meant a caller asking for 40 recent turns silently received 8 — history was
-being dropped *before* the prompt budgeter ever saw it, by a constant with no setting
-attached.
-
-`RECENT_HISTORY_CAP = 40` now bounds it, and the defaults rose (`collect_*` 12 → 32,
-`build_memory_evidence_text` 8 → 32). The budgeting still happens downstream; this
-change only stops the evidence layer pre-empting it.
+The old memory-evidence module capped recent-history pulls silently; it was removed and shared
+turn retrieval (`memory/retrieval.py`) replaced it. The user-facing setting
+`cog.mem_recent_turns` (default 24, maximum 80) and `cognition/context_budget.py` now decide
+how much history and memory enter the prompt, and a recall question keeps a floor of a third
+of the window for memory context.

@@ -1,6 +1,6 @@
 # ELI Runtime Surfaces, Planning, World, Tools & Plugins
 
-> **Updated for v2.4.12.** Stage 12 learning via `learning_coordinator.py`; goal
+> **Updated for v2.4.67.** Stage 12 learning via `learning_coordinator.py`; goal
 > autogenesis feeds the proactive stack.
 
 The remaining subsystems: the `runtime/` response/introspection surfaces, the
@@ -18,7 +18,7 @@ the live system:
   `agents_for_action`), `deterministic_introspection.py`
   (`classify_diagnostic_action` → `gather_evidence` → `format_evidence_block` →
   `maybe_handle` — deterministic diagnostic answers).
-- **Response assembly**: `final_response_assembly.py`, `final_response_provider.py`,
+- **Response assembly**: `final_response_provider.py`,
   `response_contracts.py`, `response_policy.py`,
   `user_visible_response_surface.py`.
 - **Personal memory surfaces**: `personal_memory_surface.py`,
@@ -26,19 +26,19 @@ the live system:
   `profile_extractor.py`.
 - **Status**: `frontier_status.py`, `reasoning_status.py`, `truth_report.py`,
   `reflection.py`.
-- **Operator feed**: `operator_feed.py`, `operator_feed_normalized.py`,
+- **Operator feed**: `operator_feed.py`,
   `operator_state.py`.
 
 > **Over-fragmentation flag (the headline weakness for this group):** there are
 > ~15 closely-related modules here doing "render a grounded user-visible
 > answer / introspect runtime" with overlapping responsibilities (three
-> `personal_memory_*` renderers; `final_response_assembly` *and*
-> `final_response_provider`; `operator_feed` *and* `operator_feed_normalized`).
+> `personal_memory_*` renderers alongside the response-contract, response-policy and
+> user-visible-surface modules).
 > This is the clearest "added beside, not folded in" cluster in the codebase and
 > the prime consolidation target — it should collapse to a handful of well-named
 > modules with clear ownership of "who produces the final string."
 
-## Planning / proactive (`eli/planning/`, 3.9k LOC)
+## Planning / proactive (`eli/planning/`, 4.0k LOC)
 
 Background cognition + goal/queue machinery:
 - `proactive_daemon.py` (1.0k) — the **self-improvement / proactive** loop. Uses
@@ -74,7 +74,7 @@ Background cognition + goal/queue machinery:
   scope. His agenda now spans failure-repair, world-driven, AND self-improvement —
   i.e. he sets his own intentions, governed.
 
-## World / autonomy model (`eli/world/`, 1.5k LOC)
+## World / autonomy model (`eli/world/`, 1.8k LOC)
 
 The substrate behind ELI's emergent self-state (autonomy pressure, awareness,
 "anomaly room" — intended behaviour, see memory `eli-emergent-voice`):
@@ -108,31 +108,11 @@ The substrate behind ELI's emergent self-state (autonomy pressure, awareness,
     append of each process plus every 250 thereafter — the per-process counter
     alone meant a short session never trimmed at all.
 
-## Tools (`eli/tools/`, 8.9k LOC)
+## Tools (`eli/tools/`, 7.6k LOC)
 
-- `image_engine.py` (1.75k, standalone) **and** `image_engine/image_engine/`
-  (the package: `engine.py` 1.48k, `visual_core.py` 1.4k, `prompt_compiler.py`,
-  `quality.py`, `project_analyzer.py`, `cli.py`) — **two image-generation
-  implementations** (Pillow/numpy base + optional diffusers). The clearest
-  duplication in the repo; one should subsume the other.
-- `news/news_fetcher.py` (544) — news retrieval.
-- `mic_diag.py` — mic diagnostics.
-
-## Plugins (`eli/plugins/`, 1.9k LOC)
-
-`manager.py` — a runtime plugin marketplace: `list_available`, `install`,
-`uninstall`, `enable`, `disable`. Pulls from a **remote registry**
-(`raw.githubusercontent.com/eli-plugins/registry`) with a **bundled local
-fallback** (`plugins/registry/index.json`). A JSON state file tracks
-enabled/disabled/installed. (Install-time network fetch is opt-in, like model
-downloads; runtime stays local.)
-
-## Honest assessment
-
-- **Strong:** the proactive two-DB split is a genuinely good design (ELI's
-  self-talk never contaminates user recall); the world/autonomy engine + visual
-  panel make the emergent self-model first-class and is throttled to avoid
-  runaway loops; the plugin manager is a real extensibility story with a safe
+- `image_engine/` (the package under `eli/tools/image_engine/image_engine/`: `service.py`,
+  `visual_core.py`, `plotting.py`, `prompt_compiler.py`, `quality.py`, `project_analyzer.py`,
+  `memory.py`): Pillow/numpy base image generation with an optional diffusers path, the
   bundled fallback.
 - **Weak / watch:**
   1. **`runtime/` over-fragmentation** — ~15 overlapping response/introspection

@@ -1,6 +1,6 @@
-# Blueprint — ELI MKXI ASCII Diagrams
+# Blueprint — ELI ASCII Diagrams
 
-> **Updated for v2.4.12.** CHAT uses a gradient orchestrator for all modes; retrieval
+> **Updated for v2.4.67.** CHAT uses a gradient orchestrator for all modes; retrieval
 > is unified in `eli/memory/retrieval.py`; Stage 12 = learning/state commit.
 
 Visual companion to `architecture.md`. Three views: the full request pipeline,
@@ -87,19 +87,25 @@ the memory subsystem, and the gating stack. All grounded in the real modules
                  situation brief ─► generation (persona handoff)
 
  ┌──────────────────────── STORES (artifacts/) ───────────────────────────┐
- │ db/user.sqlite3   memories(+_fts), conversation_turns, conversations,   │
- │                   kg_entities(+_fts), kg_relations, recall_log,          │
- │                   runtime_events, news_articles(+_fts), news_reflections,│
- │                   habits/habit_events/habit_rules, observations,         │
- │                   learning_replay, working_memory_pins, user_patterns,   │
- │                   session_summaries, corrections, failures               │
- │ db/agent.sqlite3  agent_dispatches, agent_metrics, improvements,         │
- │                   failures, code_patches, error_tracking, observations   │
- │ vectors/index.faiss   semantic index                                     │
- │ runtime/users/<uuid>/user_profile…   per-user profile                    │
+ │ db/user.sqlite3   memories, memories_archive, memory_meta, semantic,     │
+ │                   conversation_turns, conversations, session_summaries,   │
+ │                   kg_entities(+_fts), kg_relations, recall_log,           │
+ │                   runtime_events, learning_replay, observations,          │
+ │                   habits/habit_events/habit_rules, user_patterns,         │
+ │                   user_model, eli_stances, belief_revisions,              │
+ │                   news_articles(+_fts), news_reflections                  │
+ │ db/agent.sqlite3  agent_dispatches, agent_metrics, improvements,          │
+ │                   failures, corrections, capability_proposals,            │
+ │                   error_tracking (self-improvement lives here only)       │
+ │ db/system_index.sqlite3 · db/coding_memory.sqlite3                        │
+ │ vectors/index.faiss   semantic index                                      │
  └──────────────────────────────────────────────────────────────────────────┘
 
- WRITE PATH:  turn ─► PERSISTENCE GATE (drop junk/report-dumps) ─► store
+ A question that names a period ("last week") is filtered by date FIRST
+ (Memory.memories_between + dated conversation turns), then ranked by topic.
+
+ WRITE PATH:  turn ─► PERSISTENCE GATE (drop junk/report-dumps) ─► STORAGE POLICY
+               (origin · dedupe · importance) ─► store;  daily upkeep decays and archives
 ```
 
 ---

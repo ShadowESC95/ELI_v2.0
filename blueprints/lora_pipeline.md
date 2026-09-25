@@ -42,7 +42,7 @@ phi-hardcoded**:
 - Tests: `tests/test_lora_pipeline.py` (target-module resolver, DAG order + dry-run
   no-train, both actions, routing, scheduled kind).
 
-## Update — 2.3.7: the deferred base-profile change, done
+## The deferred base-profile change, done
 
 The item recorded above as *"deferred to your go-ahead"* — making the base profile
 swappable to any HF causal-LM directory — is implemented, along with the GUI the
