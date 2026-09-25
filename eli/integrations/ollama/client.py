@@ -22,6 +22,7 @@ import os
 import threading
 import urllib.error
 import urllib.request
+from pathlib import Path
 from typing import Any, Callable, Dict, Generator, List, Optional
 
 
@@ -330,9 +331,8 @@ def get_active_host() -> str:
     return _host()
 
 
-def ollama_models_dir() -> "Path":
+def ollama_models_dir() -> Path:
     """Return the OS-default Ollama model storage directory."""
-    from pathlib import Path
     import sys as _sys
     env = os.environ.get("OLLAMA_MODELS")
     if env:

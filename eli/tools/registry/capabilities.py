@@ -111,15 +111,6 @@ except NameError:
     else:
         SUPPORTED_ACTIONS = []
 
-if callable(globals().get("list_capabilities")):
-    _orig_list_capabilities = list_capabilities
-    def list_capabilities(fmt='list'):
-        data = _orig_list_capabilities()
-        if fmt == 'json':
-            return {"ok": True, "capabilities": data}
-        return data
-
-
 # ---- Missing exports required by doctor.py ----
 
 def as_jsonable(obj=None):

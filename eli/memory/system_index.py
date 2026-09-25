@@ -9,11 +9,8 @@ ELI will query this before falling back to gtk‑launch or direct commands.
 
 import os
 import sqlite3
-import subprocess
 from pathlib import Path
 from typing import List, Dict, Optional, Any
-import time
-import json
 
 DB_PATH = Path(os.environ.get("ELI_SYSTEM_INDEX", str(Path(os.environ.get("ELI_DB_DIR", "artifacts/db")) / "system_index.sqlite3")))
 

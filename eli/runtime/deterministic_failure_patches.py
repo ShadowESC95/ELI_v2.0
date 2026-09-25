@@ -5,7 +5,6 @@ Some failures are parameter-shape or alias bugs with a known, minimal fix.
 """
 from __future__ import annotations
 
-import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 

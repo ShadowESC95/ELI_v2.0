@@ -24,7 +24,6 @@ import json
 import sys
 import time
 import threading
-from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 from eli.cognition.context_synthesiser import build_persona_handoff

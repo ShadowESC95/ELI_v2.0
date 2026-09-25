@@ -23,7 +23,6 @@ from __future__ import annotations
 
 import os
 import re
-import time
 from typing import Any, Dict, Optional, Tuple
 
 from eli.utils.log import get_logger

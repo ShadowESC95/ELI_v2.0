@@ -11,7 +11,6 @@ This module deliberately does not own STT, wake words, routing, or GUI logic.
 """
 
 
-import json
 import os
 import shutil
 import subprocess

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import inspect
 import json
-import platform
 import re
 import subprocess
 from pathlib import Path

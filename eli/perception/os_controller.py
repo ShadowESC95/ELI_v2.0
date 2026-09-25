@@ -11,7 +11,6 @@ import os
 from datetime import datetime
 import subprocess
 import shutil
-import time
 from typing import Optional, Dict, Any
 from eli.utils import platform_compat as platform
 from eli.utils.platform_compat import LINUX, WINDOWS, MACOS

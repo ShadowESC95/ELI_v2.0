@@ -10,9 +10,7 @@ release tag (pyproject.toml version).
 from __future__ import annotations
 
 import ast
-import glob
 import json
-import os
 import re
 import subprocess
 from pathlib import Path
@@ -21,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SKIP_PARTS = ("/.venv/", "/models/", "/.claude/", "/node_modules/", "/build/", "/clearbuild/")
 
 # Current release — keep in sync with pyproject.toml.
-VERSION = "2.4.65"
+VERSION = "2.4.66"
 VERSION_TAG = f"v{VERSION}"
 
 

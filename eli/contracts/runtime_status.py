@@ -18,7 +18,6 @@ from typing import Any, Mapping
 import json
 import logging
 import os
-import re
 
 log = logging.getLogger(__name__)
 

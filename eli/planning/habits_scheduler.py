@@ -4,13 +4,11 @@ Habit scheduler – runs in background and executes habit rules at the correct t
 
 import time
 import threading
-import json
 import re
 import sqlite3  # added to catch OperationalError
 from datetime import datetime, timedelta
 from typing import List, Dict
 from eli.memory import get_memory
-from eli.execution.executor_enhanced import execute
 
 
 from eli.utils.log import get_logger

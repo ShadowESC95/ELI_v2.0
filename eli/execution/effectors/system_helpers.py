@@ -5,8 +5,6 @@ Leaf module — no imports from executor_enhanced to avoid circular dependencies
 from __future__ import annotations
 
 import os
-import re
-import shlex
 import shutil
 import subprocess
 from pathlib import Path

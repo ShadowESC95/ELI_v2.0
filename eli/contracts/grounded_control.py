@@ -13,7 +13,6 @@ Purpose:
 from __future__ import annotations
 
 from typing import Any, Mapping
-import re
 
 
 GROUNDED_CONTROL_ACTIONS = {

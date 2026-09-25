@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import argparse
-import sys
 
 
 def _has_venv() -> bool:

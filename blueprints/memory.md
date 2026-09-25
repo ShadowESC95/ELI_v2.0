@@ -18,8 +18,8 @@ full-text + vector + graph, all local SQLite/FAISS. Companion to
 | `vector_store.py` | 637 | FAISS vector index + embedder + tombstones |
 | `retrieval.py` | ~150 | shared turn retrieval (`retrieve_for_turn`) + 8 s cache |
 | `__init__.py` | 0 |
-| `system_index.py` | 281 | indexed apps/executables/files |
-| `memory_truth.py` | 189 |
+| `system_index.py` | 278 | indexed apps/executables/files |
+| `memory_truth.py` | 188 |
 | `memory_adapter.py` | 131 | compat adapter |
 
 ## The `Memory` class (`memory.py`)

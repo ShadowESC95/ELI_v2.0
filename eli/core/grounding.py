@@ -13,7 +13,6 @@ duplicate the logic.
     from eli.core.grounding import is_grounded_query
 """
 from __future__ import annotations
-import re
 from typing import Optional
 
 

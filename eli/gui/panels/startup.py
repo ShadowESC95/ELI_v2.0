@@ -977,6 +977,9 @@ class StartupModelSelectionDialog(QDialog):
                     "Not installed — optional; CPU inference works without it.")
             show_vulkan = vulkan_machine or not nvidia
             show_cuda = nvidia and not bool(getattr(_hw, "gpu_integrated", False))
+            _verb = "Reinstall" if (_pack_ok and _backend) else "Install"
+            self.gpu_pack_vulkan_btn.setText(f"{_verb} Vulkan GPU pack")
+            self.gpu_pack_cuda_btn.setText(f"{_verb} CUDA GPU pack")
             self.gpu_pack_vulkan_btn.setVisible(show_vulkan)
             self.gpu_pack_cuda_btn.setVisible(show_cuda)
             busy = getattr(self, "_gpu_pack_thread", None) is not None and self._gpu_pack_thread.isRunning()

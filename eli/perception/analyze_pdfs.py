@@ -20,11 +20,9 @@ from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 import re
-import json
 import time
 import hashlib
 
-from eli.core.paths import path_get as _eli_path_get
 
 # Optional imports
 _PYPDF_OK = False

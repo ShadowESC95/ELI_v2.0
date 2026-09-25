@@ -17,13 +17,11 @@ import sys
 import json
 import time
 import threading
-import traceback
 import gc
 import subprocess
 import urllib.request
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
-from queue import Empty
 from datetime import datetime
 import re
 import shutil

@@ -13,7 +13,7 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 > ELI is a **local-first, offline-by-default, model-agnostic** cognitive runtime
 > + assistant GUI (and, as of 2026-06-28, a self-hosted web app — `api/server.py`,
 > documented in `ELI_USER_MANUAL.md`). No cloud, no APIs on the inference path, no hardcoded
-> model. ~194,003 LOC across 434 Python files (`eli/`) (+ `api/server.py`); 227 capabilities (2026-09-08).
+> model. ~193,942 LOC across 434 Python files (`eli/`) (+ `api/server.py`); 227 capabilities (2026-09-08).
 
 ---
 
@@ -62,9 +62,9 @@ is observed-at-runtime rather than read-from-code it is marked *(runtime)*.
 | File | LOC |
 |---|---:|
 | `eli/execution/executor_enhanced.py` | 15905 |
-| `eli/kernel/engine.py` | 15995 |
-| `eli/gui/eli_pro_audio_gui_v2_0.py` | 13110 |
-| `eli/execution/router_enhanced.py` | 8267 |
+| `eli/kernel/engine.py` | 15994 |
+| `eli/gui/eli_pro_audio_gui_v2_0.py` | 13108 |
+| `eli/execution/router_enhanced.py` | 8266 |
 | `eli/runtime/deterministic_grounding_gate.py` | 3823 |
 | `eli/memory/memory.py` | 5668 |
 

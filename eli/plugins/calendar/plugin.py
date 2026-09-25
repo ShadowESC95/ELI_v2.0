@@ -7,7 +7,6 @@ Supports:
 """
 
 import os
-import json
 from datetime import datetime, timedelta
 from pathlib import Path
 from eli.plugins.base import Plugin

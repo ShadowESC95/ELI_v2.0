@@ -14,7 +14,6 @@ import io
 import os
 import re
 import shutil
-import subprocess
 import threading
 import tempfile
 from pathlib import Path

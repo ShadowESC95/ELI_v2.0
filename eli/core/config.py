@@ -18,7 +18,6 @@ from typing import Optional, Dict, Any, List
 import os
 import sys
 import json
-from pathlib import Path
 
 from eli.core.runtime_settings import (
     load_settings as _rs_load,
