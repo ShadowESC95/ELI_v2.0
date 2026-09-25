@@ -104,7 +104,7 @@ def _bad_raw_row(text: str, tags: str = "", kind: str = "", source: str = "", ro
         "live memory audit complete",
         "root db exists:",
         "src db exists:",
-        "weather for wexford",
+        "weather for paris",
         "what time is it assistant:",
         "capability manifest updated",
         "personal memory summary from active local db",

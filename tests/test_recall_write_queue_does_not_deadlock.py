@@ -74,3 +74,20 @@ def test_flush_recall_writes_does_not_deadlock_on_a_nonempty_queue(tmp_path, mon
 
     finished = _run_with_timeout(m.flush_recall_writes, timeout=5.0)
     assert finished, "flush_recall_writes() hung -- the recall-write-queue deadlock is back"
+
+
+def test_queued_recall_writes_are_committed(tmp_path):
+    import sqlite3
+
+    from eli.memory import memory as M
+
+    db = tmp_path / "q.sqlite3"
+    c = sqlite3.connect(db)
+    c.execute("CREATE TABLE t (n INTEGER)")
+    c.commit()
+    c.close()
+    M._enqueue_recall_write(db, lambda conn: conn.execute("INSERT INTO t VALUES (7)"))
+    M.flush_recall_writes()
+    c = sqlite3.connect(db)
+    assert c.execute("SELECT n FROM t").fetchall() == [(7,)]
+    c.close()

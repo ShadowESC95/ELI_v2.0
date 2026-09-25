@@ -1,4 +1,5 @@
 from __future__ import annotations
+from eli.cognition import memory_diag as _memory_diag
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
@@ -403,8 +404,9 @@ def drop_questions_for_facts_already_held(text: str) -> str:
 
 
 def govern_output(text: str, is_grounded: bool = False,
-                  evidence: Optional[str] = None, history=None) -> str:
+                  evidence: Optional[str] = None, history=None, memory_diag=None) -> str:
     result = apply_final_reasoning_contract(text).strip()
+    result = _memory_diag.drop_false_diagnosis(result, memory_diag).strip()
     # Drop an intent question the user has already answered (see
     # drop_repeated_clarification). No-op when no history is supplied, so every
     # existing caller behaves exactly as before.

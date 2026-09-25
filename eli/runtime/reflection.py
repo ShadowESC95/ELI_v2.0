@@ -101,6 +101,10 @@ TOPIC_STOPWORDS = frozenset({
             "crap", "damn", "damned", "bloody", "bollocks", "arse", "ass",
             "bastard", "bugger", "feck", "fecking", "wtf", "christ", "jesus",
             "hell", "goddamn", "piss", "pissed", "sucks", "sucked",
+            # Interjections and laughter are style (tone_analyzer reads them as humour), and vague
+            # determiners aren't subjects: "well x29, haha x27, last x18, high x18" led the topic list.
+            "well", "haha", "hahaha", "hehe", "lol", "lmao", "hmm", "ahh", "yeah", "yep", "nope",
+            "last", "high", "next", "many", "long", "quite", "rather", "kind", "sort", "bit", "lot",
             # Non-expletive intensifiers in the same category — emphasis, not topic.
             "literally", "totally", "absolutely", "completely", "utterly",
             "seriously", "honestly", "basically", "obviously", "definitely",
@@ -150,7 +154,7 @@ def part_of_day(ts: Optional[float] = None) -> str:
     only three bands, `hour < 12` claimed "morning" for every hour after
     midnight, so at 00:21 the context synthesiser told the model -- as
     authoritative fact, under "Do not guess the time or the part of day" --
-    that it was morning, and ELI duly opened with "Morning, Jason." It was
+    that it was morning, and ELI duly opened with "Morning, Alex." It was
     obeying a wrong fact, not hallucinating, which is why the prose in
     context_synthesiser.py must be kept in step with these boundaries.
     """

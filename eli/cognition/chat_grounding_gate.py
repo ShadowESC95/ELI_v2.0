@@ -47,6 +47,9 @@ def is_phatic_turn(user_input: str) -> bool:
     text = str(user_input or "").strip()
     if not text:
         return True
+    from eli.cognition.context_budget import is_recall_question
+    if is_recall_question(text):
+        return False
     try:
         from eli.kernel.engine import _is_brief_phatic_prompt
         if _is_brief_phatic_prompt(text):

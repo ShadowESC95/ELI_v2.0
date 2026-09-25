@@ -113,7 +113,7 @@ def test_named_place_does_not_fall_back_to_local_time():
 
 @pytest.mark.parametrize("text,zone", [
     ("What is the time in shimla, india?", "Asia/Kolkata"),
-    ("what time is it now in Wexford?", "Europe/Dublin"),
+    ("what time is it now in Cork?", "Europe/Dublin"),
     ("what is the current day/date, and current time in ireland?", "Europe/Dublin"),
     ("what time is it in Tokyo?", "Asia/Tokyo"),
     ("what time is it in New York?", "America/New_York"),

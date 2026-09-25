@@ -90,7 +90,7 @@ def test_clean_eli_output_strips_glm_leak():
 
 
 @pytest.mark.parametrize("raw,expected", [
-    ("Good evening, jason. I'm as<image|><image|>", "Good evening, jason. I'm as"),
+    ("Good evening, alex. I'm as<image|><image|>", "Good evening, alex. I'm as"),
     ("waiting for someone to talk to me<image|></think>", "waiting for someone to talk to me"),
     ("new model mounted and<|image|>noise", "new model mounted and"),
     ("OK so far</think>more", "OK so far"),
@@ -125,14 +125,14 @@ def test_stream_clean_chunks_preserves_bpe_spaces():
 
 def test_stream_clean_chunks_aborts_on_image_flood():
     chunks = [
-        {"response": "Good evening, jason. I'm as"},
+        {"response": "Good evening, alex. I'm as"},
         {"response": "<image|>"},
         {"response": "<image|><image|>should never appear"},
     ]
     out = "".join(
         c["response"] for c in GI._stream_clean_chunks(chunks)
     )
-    assert "Good evening, jason. I'm as" in out
+    assert "Good evening, alex. I'm as" in out
     assert "<image" not in out
     assert "should never appear" not in out
 

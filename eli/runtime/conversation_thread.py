@@ -17,8 +17,7 @@ log = get_logger(__name__)
 _route_ctx: Dict[str, str] = {"thread_topic": ""}
 
 _ENTERTAINMENT_RE = re.compile(
-    r"\b(?:the\s+)?(?:walking\s+dead|twd|dead\s+city|neg(?:an)?|maggie|"
-    r"game\s+of\s+thrones|last\s+of\s+us|marvel|mcu|star\s+wars|"
+    r"\b(?:the\s+)?(?:game\s+of\s+thrones|last\s+of\s+us|marvel|mcu|star\s+wars|"
     r"season\s+\d+|episode\s+\d+)\b",
     re.I,
 )
@@ -27,7 +26,10 @@ _SHOW_TITLE_RE = re.compile(
     r"(?:\s+with\s+me|\s+haha|\s+please|\.|,|$)",
     re.I,
 )
-_DEAD_CITY_RE = re.compile(r"\b(?:dead\s+city|walking\s+dead:\s*dead\s+city)\b", re.I)
+# "Blue Harbor season 3", "we're on Blue Harbor episode 6": a capitalised title before season/episode.
+_TITLE_BEFORE_SEASON_RE = re.compile(
+    r"\b((?:[A-Z][\w'’:-]*\s+){0,4}[A-Z][\w'’:-]*)\s+(?:season|episode)\s+\d+")
+_LEADING_VERB_RE = re.compile(r"^(?:Watching|Watched|Watch|Started|Starting|Finished|Finishing)\s+")
 _UNDERSPECIFIED_RE = re.compile(
     r"\b(?:season\s+\d+|episode\s+\d+|reviews?\s+for|the\s+latest\s+episodes?|"
     r"what\s+happened|plot|premiere|release\s+date)\b",
@@ -39,7 +41,7 @@ _GROUNDING_DEMAND_RE = re.compile(
     r"at\s+least\s+(?:come|bring)\s+with|"
     r"getting\s+ahead\s+of\s+yourself|you(?:'re|\s+are)\s+guessing|"
     r"did\s+not\s+fetch|didn't\s+fetch|not\s+what\s+happened|that's\s+wrong|"
-    r"that\s+is\s+wrong|negan(?:'s|\s+is)\s+not\s+dead)\b",
+    r"that\s+is\s+wrong)\b",
     re.I,
 )
 _SEARCH_VERB_RE = re.compile(
@@ -81,21 +83,14 @@ def recent_turns_from_context(context: Any) -> List[Dict[str, str]]:
 def extract_thread_topic(turns: List[Dict[str, str]]) -> str:
     """Best-effort subject of the current conversation thread."""
     blob = " ".join(t["content"] for t in turns[-8:] if t.get("content"))
-    if _DEAD_CITY_RE.search(blob):
-        return "The Walking Dead Dead City"
     m = _SHOW_TITLE_RE.search(blob)
     if m:
         topic = m.group(1).strip(" .?!,\"'")
         if len(topic.split()) <= 8:
             return topic
-    # Named show from entertainment markers
-    for pat in (
-        r"(the walking dead: dead city|dead city)",
-        r"(the walking dead|twd)",
-    ):
-        m2 = re.search(pat, blob, re.I)
-        if m2:
-            return m2.group(1).strip().title()
+    m = _TITLE_BEFORE_SEASON_RE.search(blob)
+    if m:
+        return _LEADING_VERB_RE.sub("", m.group(1)).strip()
     ents = _ENTERTAINMENT_RE.findall(blob)
     if ents:
         return " ".join(dict.fromkeys(str(e).strip() for e in ents[:3]))

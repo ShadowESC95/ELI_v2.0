@@ -48,6 +48,12 @@ def _table_set(db_path: Path) -> set[str]:
     return {str(r[0]) for r in rows}
 
 
+def _columns(db_path: Path) -> dict[str, set[str]]:
+    import sqlite3
+    with sqlite3.connect(db_path) as conn:
+        return {t: {r[1] for r in conn.execute(f'PRAGMA table_info("{t}")')} for t in _table_set(db_path)}
+
+
 def _check_templates_current() -> int:
     """Compare git templates against a fresh init_all_data staging build."""
     import tempfile
@@ -77,6 +83,12 @@ def _check_templates_current() -> int:
                 file=sys.stderr,
             )
             ok = False
+        live_cols, template_cols = _columns(live), _columns(template)
+        for table, cols in sorted(live_cols.items()):
+            gap = sorted(cols - template_cols.get(table, set()))
+            if table in template_cols and gap:
+                print(f"[ERR] {template.name}.{table} missing columns vs live init: {', '.join(gap)}", file=sys.stderr)
+                ok = False
     shutil.rmtree(staging, ignore_errors=True)
     if ok:
         print("[OK] git template DBs match live init_all_data schema")

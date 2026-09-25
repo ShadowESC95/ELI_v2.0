@@ -43,7 +43,14 @@ def _normalize_hit(hit: Dict[str, Any], *, default_source: str) -> Dict[str, Any
         "score": score,
         "text": text,
         "meta": dict(hit),
+        **_row_fields(hit),
     }
+
+
+def _row_fields(row: Dict[str, Any]) -> Dict[str, Any]:
+    """The fields ranking and dating read from the top level of a hit."""
+    return {k: row[k] for k in ("id", "ts", "timestamp", "event_ts", "importance", "weight", "origin", "role")
+            if row.get(k) is not None}
 
 
 def orchestrator_retrieve(
@@ -86,6 +93,7 @@ def orchestrator_retrieve(
         rerank=True,
         use_cache=True,
         verified_only=verified_only,
+        window=retrieval_plan.get("window"),
     )
 
     keyword_hits: List[Dict[str, Any]] = []
@@ -113,6 +121,7 @@ def orchestrator_retrieve(
             "score": 0.85,
             "text": f"{prefix}{text}",
             "meta": dict(h),
+            **_row_fields(h),
         })
 
     return keyword_hits[:kw_limit], semantic_hits[:sem_limit], tr

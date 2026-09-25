@@ -33,19 +33,19 @@ def test_continuity_guard_present_unless_asked():
     assert continuity_guard_block("what are my plans?") is None
 
 
-def test_extract_current_user_plan_galway_pickup():
+def test_extract_current_user_plan_pickup():
     plan = extract_current_user_plan(
-        "i am collecting colin in galway then bringing him back to wexford"
+        "i am collecting sam in limerick then bringing him back to cork"
     )
     assert plan
-    assert "colin" in plan.lower()
-    assert "galway" in plan.lower()
+    assert "sam" in plan.lower()
+    assert "limerick" in plan.lower()
 
 
 def test_strip_focus_and_recalled_projects():
     brief = (
         "USER MODEL: Jay — prefers blunt\n"
-        "Currently focused on: collect Colin Saturday in Wexford.\n"
+        "Currently focused on: collect Sam Saturday in Cork.\n"
         "Interests: GPUs.\n"
         "Goals: ship ELI.\n"
     )
@@ -57,21 +57,21 @@ def test_strip_focus_and_recalled_projects():
     profile = (
         "Name: Jay\n"
         "Recalled past topics (previous sessions — not current request):\n"
-        "  - Collect Colin in Wexford Saturday\n"
+        "  - Collect Sam in Cork Saturday\n"
         "Recalled research areas (previous sessions):\n"
         "  - field theory\n"
         "Preferences:\n"
         "  - blunt\n"
     )
     cleaned = strip_recalled_projects_from_profile_text(profile)
-    assert "Collect Colin" not in cleaned
+    assert "Collect Sam" not in cleaned
     assert "field theory" not in cleaned
     assert "Name: Jay" in cleaned
     assert "blunt" in cleaned
 
 
 def test_travel_schedule_detector():
-    assert looks_like_travel_or_schedule("Collecting Colin in Galway tomorrow")
+    assert looks_like_travel_or_schedule("Collecting Sam in Limerick tomorrow")
     assert not looks_like_travel_or_schedule("Debugging the memory system")
 
 
@@ -90,7 +90,7 @@ def test_travel_stale_faster_than_general_project(tmp_path, monkeypatch):
     PE._insert_user_pattern(
         cur,
         "project.trip",
-        "User is collecting Colin in Galway tomorrow.",
+        "User is collecting Sam in Limerick tomorrow.",
         ts_value=now - 5 * 86400,
     )
     PE._insert_user_pattern(
@@ -105,5 +105,5 @@ def test_travel_stale_faster_than_general_project(tmp_path, monkeypatch):
     monkeypatch.setattr(PM, "AGENT_DB", tmp_path / "a.sqlite3")
     facts, _ = PM._collect_facts()
     blob = " | ".join(facts)
-    assert "Colin" not in blob
+    assert "Sam" not in blob
     assert "debugging the memory" in blob

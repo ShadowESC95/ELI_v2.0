@@ -2736,13 +2736,8 @@ class _GUIEngineAdapter:
             pass
         except Exception as e:
             log.debug(f"[ENGINE-ADAPTER] post_storage failed: {e}")
-        # Weight decay — 1 % of responses (amortised cost)
         try:
-            import random as _rnd
-            if _rnd.random() < 0.01 and hasattr(self.memory, "apply_weight_decay"):
-                decayed = self.memory.apply_weight_decay()
-                if decayed:
-                    log.debug(f"[MEMORY] Weight decay: {decayed} entries aged")
+            self.memory.upkeep_async()
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 

@@ -28,6 +28,9 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 from eli.cognition.context_synthesiser import build_persona_handoff
+from eli.cognition import context_budget as _ctx_budget
+from eli.cognition import evidence_format as _evidence_format
+from eli.core.confidence import confidence_label as _confidence_label
 
 
 from eli.utils.log import get_logger
@@ -919,6 +922,9 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     normalized = re.sub(r"[^a-z0-9' ]+", " ", raw)
     normalized = re.sub(r"\s+", " ", normalized).strip()
     if not normalized:
+        return False
+    # a greeting that asks ELI to remember is a memory request, not small talk
+    if _ctx_budget.is_recall_question(raw):
         return False
     # Strip a trailing direct address ("good afternoon eli" -> "good afternoon") so greetings with
     # the wake name still match the phatic set. Without it "good afternoon eli" was non-phatic,
@@ -3316,10 +3322,6 @@ def _clarifier_norm(text: str) -> str:
 # into CHAT is a misroute rather than a rescue.
 _DEEPEN_WINDOW_SECONDS = float(os.environ.get("ELI_DEEPEN_WINDOW_SECONDS", "300"))
 
-# Tokens reserved for the reply when sizing the evidence budget. max_tokens is a ceiling (~3461 in
-# quick mode) and reserving all of it starved the evidence; a longer reply eats into the 20%
-# headroom the budget already keeps.
-_OUTPUT_RESERVE_TOKENS = int(os.environ.get("ELI_OUTPUT_RESERVE_TOKENS", "1024"))
 
 
 # Actions that ARM the news topic-deepen rule. They must never also be its victims:
@@ -3998,6 +4000,7 @@ class CognitiveEngine:
             log.debug(f"[COGNITIVE] Network socket guard install failed (non-fatal): {_ng_err}")
 
         self.memory = get_memory()
+        self.memory.upkeep_async()
         self._test_mode = _eli_test_mode()
         self.scheduler = None if self._test_mode else get_scheduler()
         self.session_id = str(int(time.time()))
@@ -4349,13 +4352,16 @@ class CognitiveEngine:
             user_id_file.parent.mkdir(parents=True, exist_ok=True)
         except Exception:
             user_id_file = Path.home() / ".eli_user_id"
-        if user_id_file.exists():
-            return user_id_file.read_text(
-                encoding="utf-8", errors="ignore").strip()
         import uuid
-        user_id = str(uuid.uuid4())
-        user_id_file.write_text(user_id, encoding="utf-8")
-        return user_id
+        file_id = user_id_file.read_text(encoding="utf-8", errors="ignore").strip() if user_id_file.exists() else ""
+        owner = file_id or str(uuid.uuid4())
+        try:
+            owner = self.memory.owner_id(owner)
+        except Exception:
+            log.debug("owner id unavailable", exc_info=True)
+        if owner != file_id:
+            user_id_file.write_text(owner, encoding="utf-8")
+        return owner
 
     def _current_provider(self) -> str:
         try:
@@ -6464,6 +6470,11 @@ Answer:"""
         enhanced_system = inject_runtime_facts(enhanced_system)
         return enhanced_system
 
+    def _note_memory_trim(self, before: int, after: int) -> None:
+        diag = getattr(self, "_memory_diag", None)
+        if isinstance(diag, dict):
+            diag.update(context_before=before, context_after=after)
+
     def _get_chat_response(self, prompt: str, memory_context: str = "",
                            reasoning_mode: Optional[str] = None, gen_overrides: Optional[Dict[str, Any]] = None,
                            situation_brief: str = "") -> str:
@@ -6565,25 +6576,20 @@ Answer:"""
                 _max_tok_guard = int(gen.get('max_tokens', 512))
                 _persona_chars = len(_load_persona_text())
                 _query_chars = len(prompt or '')
-                # Rough: 1 token ≈ 3.5 chars; leave 20% headroom
-                _total_char_budget = int(_n_ctx_guard * 3.5 * 0.80)
-                _mem_char_budget = max(
-                    400,  # always allow at least some context
-                    _total_char_budget - _persona_chars - _query_chars - (_max_tok_guard * 4)
-                )
                 _trimmed_mem = _eli_sanitize_identity_context_block(memory_context, prompt)
-                if len(memory_context) > _mem_char_budget:
+                _mem_char_budget = _ctx_budget.memory_char_budget(
+                    _n_ctx_guard, _persona_chars + _query_chars, _max_tok_guard,
+                    wanted_chars=len(_trimmed_mem),
+                    protect_memory=_ctx_budget.is_recall_question(prompt))
+                if len(_trimmed_mem) > _mem_char_budget:
                     log.debug(
                         f"[COGNITIVE] Trimming memory context "
-                        f"{len(memory_context)}→{_mem_char_budget} chars "
+                        f"{len(_trimmed_mem)}→{_mem_char_budget} chars "
                         f"(n_ctx={_n_ctx_guard}, max_tokens={_max_tok_guard})"
                     )
-                    # Prefer keeping the most recent turns (end of string)
-                    _trimmed_mem = memory_context[-_mem_char_budget:]
-                    # Don't cut mid-line
-                    _nl = _trimmed_mem.find('\n')
-                    if _nl > 0:
-                        _trimmed_mem = _trimmed_mem[_nl:]
+                    _before = len(_trimmed_mem)
+                    _trimmed_mem = _ctx_budget.trim_memory_context(_trimmed_mem, _mem_char_budget)
+                    self._note_memory_trim(_before, len(_trimmed_mem))
                 # ─────────────────────────────────────────────────────────────
 
                 enhanced_system = self._build_enhanced_system(
@@ -6857,25 +6863,19 @@ Answer:"""
                 _max_tok_s = int(gen.get('max_tokens', 512))
                 _persona_chars_s = len(_load_persona_text())
                 _query_chars_s = len(prompt or '')
-                _total_char_budget_s = int(_n_ctx * 3.5 * 0.80)
-                # Reserve output realistically. max_tokens is a ceiling: `* 4` reserved ~13.8k chars of a ~29k
-                # budget for a reply that never came and squeezed the fetched evidence down to 685 chars. Cap
-                # the reservation at a realistic reply length; llama.cpp enforces n_ctx anyway.
-                _out_reserve_tok_s = min(_max_tok_s, _OUTPUT_RESERVE_TOKENS)
-                _mem_char_budget_s = max(
-                    400,
-                    _total_char_budget_s - _persona_chars_s - _query_chars_s - (_out_reserve_tok_s * 4)
-                )
                 _trimmed_mem_s = _eli_sanitize_identity_context_block(memory_context, prompt)
-                if len(memory_context) > _mem_char_budget_s:
+                _mem_char_budget_s = _ctx_budget.memory_char_budget(
+                    _n_ctx, _persona_chars_s + _query_chars_s, _max_tok_s,
+                    wanted_chars=len(_trimmed_mem_s),
+                    protect_memory=_ctx_budget.is_recall_question(prompt))
+                if len(_trimmed_mem_s) > _mem_char_budget_s:
                     log.debug(
                         f"[COGNITIVE] Stream: trimming memory context "
-                        f"{len(memory_context)}→{_mem_char_budget_s} chars"
+                        f"{len(_trimmed_mem_s)}→{_mem_char_budget_s} chars"
                     )
-                    _trimmed_mem_s = memory_context[-_mem_char_budget_s:]
-                    _nl_s = _trimmed_mem_s.find('\n')
-                    if _nl_s > 0:
-                        _trimmed_mem_s = _trimmed_mem_s[_nl_s:]
+                    _before = len(_trimmed_mem_s)
+                    _trimmed_mem_s = _ctx_budget.trim_memory_context(_trimmed_mem_s, _mem_char_budget_s)
+                    self._note_memory_trim(_before, len(_trimmed_mem_s))
                 # ──────────────────────────────────────────────────────────
 
                 # Conversational context injection (current session only, last 30 min). (a) Short follow-ups
@@ -7315,6 +7315,7 @@ Answer:"""
                     response,
                     is_grounded=bool(evidence),
                     evidence=evidence if isinstance(evidence, str) else None,
+                    memory_diag=getattr(self, "_memory_diag", None),
                 )
             except Exception:
                 log.debug("[COGNITIVE] output governor skipped", exc_info=True)
@@ -8482,7 +8483,8 @@ Answer:"""
             _gov_hist = _gm().get_recent_conversation(limit=8)
         except Exception:
             log.debug("[GOVERNOR] recent-turn lookup skipped", exc_info=True)
-        response = govern_output(response, is_grounded=evidence_used, history=_gov_hist)
+        response = govern_output(response, is_grounded=evidence_used, history=_gov_hist,
+                                 memory_diag=getattr(self, "_memory_diag", None))
         response = str(response or "").strip()
         # Anti-echo: never serve ELI's previous reply back to the user. Replies get stored and recalled,
         # so on a short turn the model latches onto its own last line. repeat_penalty can't see across
@@ -8687,21 +8689,8 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # Post-response memory maintenance, sampled to spread the cost. Decay is a pure function of a
-        # memory's age and importance, so a missed tick changes nothing. Consolidation deletes rows, so
-        # it runs far more rarely and only merges text that's already byte-identical.
         try:
-            import random as _random
-            _roll = _random.random()
-            if _roll < 0.01:
-                _decayed = self.memory.apply_weight_decay()
-                if _decayed:
-                    log.debug(f"[MEMORY] Weight decay applied to {_decayed} old memories")
-            if _roll < 0.001:
-                _merged = self.memory.consolidate_memories()
-                if _merged.get("removed"):
-                    log.info("[MEMORY] consolidated %d duplicate memories into %d "
-                             "canonical rows", _merged["removed"], _merged["groups"])
+            self.memory.upkeep_async()
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
@@ -9982,16 +9971,8 @@ Answer:"""
         if not confidence_label:
             if score is None:
                 confidence_label = "unmeasured"
-            elif score >= 0.85:
-                confidence_label = "very high"
-            elif score >= 0.70:
-                confidence_label = "high"
-            elif score >= 0.50:
-                confidence_label = "medium"
-            elif score >= 0.30:
-                confidence_label = "low"
             else:
-                confidence_label = "very low"
+                confidence_label = _confidence_label(score)
 
         try:
             intent_action = action or str(((trace or {}).get("intent") or {}).get("action") or "")
@@ -10245,12 +10226,9 @@ Answer:"""
                     except Exception:
                         score_txt = str(score)
 
-                if src and score_txt:
-                    hit_lines.append(f"{i:02d}. [{src} | score={score_txt}] {txt}")
-                elif src:
-                    hit_lines.append(f"{i:02d}. [{src}] {txt}")
-                else:
-                    hit_lines.append(f"{i:02d}. {txt}")
+                _when = _evidence_format.when_label(_evidence_format.row_time(hit)) if isinstance(hit, dict) else ""
+                _tag = " | ".join(x for x in (src, _when, f"score={score_txt}" if score_txt else "") if x)
+                hit_lines.append(f"{i:02d}. [{_tag}] {txt}" if _tag else f"{i:02d}. {txt}")
 
             if hit_lines:
                 blocks.append("Reranked evidence:\n" + "\n".join(hit_lines))
@@ -10267,7 +10245,8 @@ Answer:"""
                     role = "User" if str(turn.get("role", "")).lower() == "user" else "ELI"
                     content = re.sub(r"\s+", " ", str(turn.get("content", "") or "")).strip()
                     if content:
-                        turn_lines.append(f"{role}: {content[:220]}")
+                        _tw = _evidence_format.when_label(_evidence_format.row_time(turn))
+                        turn_lines.append(f"[{_tw}] {role}: {content[:220]}" if _tw else f"{role}: {content[:220]}")
                 except Exception:
                     continue
             if turn_lines:
@@ -11088,6 +11067,7 @@ Answer:"""
         # Request-scoped: the Phase-13 META_DIAGNOSTIC→CHAT veto sets this so the orchestrator
         # path honours it too; reset per request.
         self._eli_phase13_chat_override = False
+        self._memory_diag = None
         _eli_pipeline_trace = str(__import__("os").environ.get("ELI_PIPELINE_TRACE", "")).strip().lower() in {"1", "true", "yes", "on"}
         _eli_pipeline_req = ""
 
@@ -13909,16 +13889,7 @@ Answer:"""
                 
                         _score = max(0.05, min(0.98, round(float(_score), 2)))
                 
-                        if _score >= 0.90:
-                            _label = "very high"
-                        elif _score >= 0.75:
-                            _label = "high"
-                        elif _score >= 0.55:
-                            _label = "medium"
-                        elif _score >= 0.35:
-                            _label = "low"
-                        else:
-                            _label = "very low"
+                        _label = _confidence_label(_score)
                 
                         _lt["aggregated_confidence"] = _score
                         _lt["confidence_label"] = _label

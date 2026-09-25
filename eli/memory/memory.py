@@ -135,6 +135,7 @@ def _flush_recall_writes_locked() -> None:
                         fn(conn)
                     except Exception:
                         log.debug("[MEMORY] recall write callback failed", exc_info=True)
+                conn.commit()
             finally:
                 conn.close()
         except Exception:
@@ -332,6 +333,46 @@ def _migrate_memory_provenance(conn) -> None:
         log.debug("suppressed exception", exc_info=True)
 
 
+# Storage-policy columns (eli/memory/policy.py): event_ts is when it was said (ts is when written),
+# seen_count/last_seen count repeats, last_recalled/recall_count track use, text_key dedupes.
+_POLICY_COLUMNS = [
+    ("event_ts", "REAL"),
+    ("seen_count", "INTEGER DEFAULT 1"),
+    ("last_seen", "REAL"),
+    ("last_recalled", "REAL"),
+    ("recall_count", "INTEGER DEFAULT 0"),
+    ("origin", "TEXT"),
+    ("text_key", "TEXT"),
+]
+
+
+def _ensure_policy_schema(conn) -> None:
+    """Columns, archive table and meta table for the storage policy. Idempotent."""
+    for name, decl in _POLICY_COLUMNS:
+        try:
+            _add_column_if_missing(conn, "memories", name, decl)
+        except Exception:
+            log.debug("[MEMORY] policy column %s not added", name, exc_info=True)
+    try:
+        cols = [r[1] for r in conn.execute("PRAGMA table_info(memories)").fetchall()]
+        decls = ", ".join(f'"{c}"' for c in cols)
+        conn.execute(
+            f'CREATE TABLE IF NOT EXISTS memories_archive ({decls}, '
+            'archived_at REAL, archive_reason TEXT)'
+        )
+        arch = {r[1] for r in conn.execute("PRAGMA table_info(memories_archive)").fetchall()}
+        for c in cols:
+            if c not in arch:
+                conn.execute(f'ALTER TABLE memories_archive ADD COLUMN "{c}"')
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS memory_meta (key TEXT PRIMARY KEY, value TEXT, updated_at REAL)"
+        )
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_text_key ON memories(text_key)")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_origin ON memories(origin)")
+    except Exception:
+        log.debug("[MEMORY] policy tables not created", exc_info=True)
+
+
 def _ensure_memory_indexes(conn) -> None:
     """Create the recall indexes. Called LAST, after every table exists.
 
@@ -425,6 +466,7 @@ def _ensure_memory_schema(conn):
         _add_column_if_missing(conn, "memories", name, decl)
 
     _migrate_memory_provenance(conn)
+    _ensure_policy_schema(conn)
 
     try:
         conn.execute(
@@ -1057,6 +1099,7 @@ def _ensure_full_memory_schema(conn):
         _add_memory_column(conn, "memories", n, d)
 
     _migrate_memory_provenance(conn)
+    _ensure_policy_schema(conn)
 
     try:
         conn.execute("""
@@ -1804,7 +1847,9 @@ class Memory(metaclass=_MemoryMeta):
                      source: str = "user", kind: str = "memory", confidence: float = 1.0,
                      ts: float = None, importance: float = 0.5,
                      verification_status: str = "verified",
-                     provenance_kind: str = "user_verbatim") -> int:
+                     provenance_kind: str = "user_verbatim",
+                     event_ts: Optional[float] = None, origin: str = "",
+                     text_key: str = "") -> int:
         """Internal method to write a memory to a single DB connection."""
         t = (text or "").strip()
         if not t:
@@ -1815,20 +1860,25 @@ class Memory(metaclass=_MemoryMeta):
         if ts is None:
             ts = time.time()
         cols = _memory_table_columns(conn, "memories")
+        row = {
+            "ts": ts, "timestamp": ts, "kind": kind, "text": t, "value": t, "tags": tag_blob,
+            "source": source, "confidence": float(confidence), "weight": 1.0,
+            "importance": float(importance),
+        }
         if "verification_status" in cols and "provenance_kind" in cols:
-            cur = conn.execute(
-                "INSERT INTO memories (ts, timestamp, kind, text, value, tags, source, "
-                "confidence, weight, importance, verification_status, provenance_kind) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (ts, ts, kind, t, t, tag_blob, source, float(confidence), 1.0,
-                 float(importance), verification_status, provenance_kind),
-            )
-        else:
-            cur = conn.execute(
-                "INSERT INTO memories (ts, timestamp, kind, text, value, tags, source, confidence, weight, importance) "
-                "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (ts, ts, kind, t, t, tag_blob, source, float(confidence), 1.0, float(importance)),
-            )
+            row["verification_status"] = verification_status
+            row["provenance_kind"] = provenance_kind
+        if "origin" in cols:
+            row.update({
+                "event_ts": float(event_ts if event_ts else ts), "seen_count": 1,
+                "last_seen": ts, "recall_count": 0, "origin": origin or "",
+                "text_key": text_key or "",
+            })
+        names = list(row)
+        cur = conn.execute(
+            f"INSERT INTO memories ({', '.join(names)}) VALUES ({', '.join('?' * len(names))})",
+            [row[n] for n in names],
+        )
         rowid = cur.lastrowid
         try:
             conn.execute(
@@ -1971,6 +2021,27 @@ class Memory(metaclass=_MemoryMeta):
         )
         return bool(self_fact)
 
+    @staticmethod
+    def _touch_duplicate(conn, text_key: str, origin: str, now: float, importance: float) -> Optional[int]:
+        """If this statement is already stored, count the new sighting and return its id."""
+        if not text_key:
+            return None
+        cols = _memory_table_columns(conn, "memories")
+        if "text_key" not in cols or "seen_count" not in cols:
+            return None
+        row = conn.execute(
+            "SELECT id FROM memories WHERE text_key = ? AND COALESCE(origin, '') = ? "
+            "ORDER BY id ASC LIMIT 1", (text_key, origin or ""),
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            "UPDATE memories SET seen_count = COALESCE(seen_count, 1) + 1, last_seen = ?, timestamp = ?, "
+            "importance = MAX(COALESCE(importance, 0.5), ?), weight = 1.0 WHERE id = ?",
+            (float(now), float(now), float(importance if importance is not None else 0.5), int(row[0])),
+        )
+        return int(row[0])
+
     def store_memory(
         self,
         text: str,
@@ -2037,21 +2108,34 @@ class Memory(metaclass=_MemoryMeta):
         try:
             from eli.runtime.memory_provenance import resolve_write_provenance
             verification_status, provenance_kind = resolve_write_provenance(
-                source=source, kind=kind, tags=tags, metadata=meta,
+                source=source, kind=kind, tags=tags, metadata=meta, text=t,
             )
         except Exception:
             verification_status, provenance_kind = "verified", "user_verbatim"
 
+        from eli.memory import policy as _policy
+        origin = _policy.classify_origin(source, kind, tags, t)
+        _key = _policy.text_key(t)
         ts = time.time()
+        try:
+            event_ts = float(meta.get("event_ts")) if isinstance(meta, dict) and meta.get("event_ts") else None
+        except (TypeError, ValueError):
+            event_ts = None
 
-        # Write to primary
+        # a repeat bumps the existing row's seen_count instead of adding a row
         conn_primary = self._get_connection()
         try:
+            _dup = self._touch_duplicate(conn_primary, _key, origin, ts, importance)
+            if _dup is not None:
+                conn_primary.commit()
+                return {"ok": True, "id": _dup, "deduplicated": True, "importance": importance,
+                        "origin": origin, "vector_indexed": False}
             rowid = self._store_to_db(
                 conn_primary, t, tags, source, kind, confidence, ts,
                 importance=importance,
                 verification_status=verification_status,
                 provenance_kind=provenance_kind,
+                event_ts=event_ts, origin=origin, text_key=_key,
             )
             conn_primary.commit()
         finally:
@@ -2062,7 +2146,8 @@ class Memory(metaclass=_MemoryMeta):
         vector_indexed = False
         try:
             from eli.memory.vector_store import get_vector_store
-            vs = get_vector_store()
+            # tallies stay out of the vector index; keyword search still finds them
+            vs = get_vector_store() if _policy.wants_vector_index(origin) else None
             if vs is not None:
                 vector_indexed = bool(vs.add(
                     t,
@@ -2102,9 +2187,10 @@ class Memory(metaclass=_MemoryMeta):
 
         # Extract entity-relation triples into knowledge graph (fire-and-forget)
         try:
-            from eli.memory.knowledge_graph import get_knowledge_graph
-            kg = get_knowledge_graph()
-            kg.extract_from_memory(t, source=source)
+            if origin != _policy.ORIGIN_TELEMETRY:
+                from eli.memory.knowledge_graph import get_knowledge_graph
+                kg = get_knowledge_graph()
+                kg.extract_from_memory(t, source=source)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
@@ -2116,7 +2202,8 @@ class Memory(metaclass=_MemoryMeta):
                 apply_pragmas(sec_conn, db_path=str(sec_path), synchronous="NORMAL")
                 _ensure_memory_schema(sec_conn)
                 self._store_to_db(sec_conn, t, tags, source, kind, confidence, ts,
-                                   importance=importance)
+                                   importance=importance,
+                                   event_ts=event_ts, origin=origin, text_key=_key)
                 sec_conn.commit()
                 sec_conn.close()
             except Exception as e:
@@ -2576,21 +2663,31 @@ class Memory(metaclass=_MemoryMeta):
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
 
-            # --- Recall frequency learning: boost importance of top recalled memories ---
-            # Queued and flushed in background to keep the read path write-free.
+            # recall resets the forgetting curve and counts the use; importance stays as scored
             try:
                 _boost_ids = [
-                    int(_h["id"]) for _h in out[:3]
+                    int(_h["id"]) for _h in out[:5]
                     if not str(_h.get("id", "")).startswith(("kg:", "sem:", "conv", "vec:"))
                     and _h.get("id") is not None
                 ]
+                _rnow = _now_ts()
+                _rq = q
+                _rn = len(out)
                 for _bid in _boost_ids:
-                    _bid_cap = _bid  # capture for closure
                     _enqueue_recall_write(
                         self.db_path,
-                        lambda c, bid=_bid_cap: c.execute(
-                            "UPDATE memories SET importance = MIN(1.0, COALESCE(importance, 0.5) + 0.02) WHERE id = ?",
-                            (bid,),
+                        lambda c, bid=_bid, now=_rnow: c.execute(
+                            "UPDATE memories SET last_recalled = ?, "
+                            "recall_count = COALESCE(recall_count, 0) + 1, weight = 1.0 WHERE id = ?",
+                            (now, bid),
+                        ),
+                    )
+                    _enqueue_recall_write(
+                        self.db_path,
+                        lambda c, bid=_bid, now=_rnow, query=_rq, cnt=_rn: _insert_payload(
+                            c, "recall_log",
+                            {"ts": now, "timestamp": now, "query": query,
+                             "results_count": cnt, "result_count": cnt, "memory_id": bid},
                         ),
                     )
             except Exception:
@@ -2766,6 +2863,37 @@ class Memory(metaclass=_MemoryMeta):
     # and "rows updated" always equals "rows eligible", hiding whether decay does anything.
     DECAY_MIN_DELTA = 0.005
 
+    def _active_day_gaps(self, conn, days: int = 180) -> List[float]:
+        """Days between consecutive days of use."""
+        try:
+            since = time.time() - days * 86400
+            rows = conn.execute(
+                "SELECT DISTINCT date(COALESCE(timestamp, ts), 'unixepoch') FROM conversation_turns "
+                "WHERE COALESCE(timestamp, ts, 0) > ? AND role = 'user' ORDER BY 1", (since,),
+            ).fetchall()
+            ds = [time.mktime(time.strptime(r[0], "%Y-%m-%d")) for r in rows if r and r[0]]
+            return [(b - a) / 86400.0 for a, b in zip(ds, ds[1:])]
+        except Exception:
+            return []
+
+    def adaptive_half_life(self, conn=None) -> float:
+        """Base half-life in days, from usage unless mem.half_life_days is set."""
+        from eli.memory import policy as _policy
+        try:
+            from eli.core.cognition_tunables import get_tunable as _gt
+            _override = float(_gt("mem.half_life_days"))
+            if _override > 0:
+                return _override
+        except Exception:
+            pass
+        own = conn is None
+        conn = conn or self._get_connection()
+        try:
+            return _policy.adaptive_half_life_days(self._active_day_gaps(conn))
+        finally:
+            if own:
+                conn.close()
+
     def apply_weight_decay(
         self,
         decay_factor: float = 0.98,
@@ -2773,72 +2901,33 @@ class Memory(metaclass=_MemoryMeta):
         older_than_days: int = 7,
         half_life_days: Optional[float] = None,
     ) -> int:
-        """Recompute `weight` as a function of a memory's AGE and importance.
-
-        This used to multiply the stored weight by `decay_factor` on every call,
-        which made the result depend on how many times the function happened to
-        run rather than on how old the memory was. Its one caller fires on ~1% of
-        responses (engine.py, post-response), so on a live 441-memory store the
-        column was still 1.0 on every single row — 174 of them over a week old.
-        `weight` carries 15% of the recall fusion score (scoring.RERANK_W_WEIGHT),
-        so that entire term was a constant and contributed no ranking signal at
-        all.
-
-        It is now an idempotent exponential decay: running it once and running it
-        a thousand times give the same answer, so a stochastic caller is fine and
-        a missed run cannot leave a memory permanently over-weighted.
-
-            weight = 2 ** (-age_days / half_life)
-
-        with the half-life stretched by importance, so recall reinforcement
-        translates into survival. Memories at or above DECAY_PIN_IMPORTANCE are
-        pinned at 1.0 — the previous version also exempted them, and that is worth
-        keeping: an explicitly important fact should not fade just by sitting.
-
-        `decay_factor` is accepted and ignored; it is retained so the existing
-        call sites and tests keep working. Returns the number of rows updated.
-        """
-        base = float(half_life_days if half_life_days is not None
-                     else self.DECAY_HALF_LIFE_DAYS)
-        if base <= 0:
-            base = self.DECAY_HALF_LIFE_DAYS
-        min_weight = max(0.0, min(1.0, float(min_weight)))
-        cutoff_ts = time.time() - (max(0, int(older_than_days)) * 86400)
+        """Set every row's weight from the forgetting curve in eli/memory/policy.py. Idempotent; returns rows changed."""
+        from eli.memory import policy as _policy
         now = time.time()
-
-        def _decayed(ts_value, importance) -> float:
-            """Age + importance -> weight in [min_weight, 1.0]."""
-            try:
-                age_days = max(0.0, (now - float(ts_value or 0.0)) / 86400.0)
-            except (TypeError, ValueError):
-                return 1.0
-            imp = 0.5
-            try:
-                if importance is not None:
-                    imp = max(0.0, min(1.0, float(importance)))
-            except (TypeError, ValueError):
-                imp = 0.5
-            if imp >= self.DECAY_PIN_IMPORTANCE:
-                return 1.0
-            half_life = base * (1.0 + self.DECAY_IMPORTANCE_STRETCH * imp)
-            return max(min_weight, min(1.0, 2.0 ** (-age_days / half_life)))
-
         conn = self._get_connection()
         try:
-            # Registered rather than computed in Python over fetched rows: this
-            # stays one set-based UPDATE, so a store with 100k memories does not
-            # become 100k round trips.
-            conn.create_function("eli_memory_decay", 2, _decayed, deterministic=True)
+            cols = _memory_table_columns(conn, "memories")
+            base = float(half_life_days) if half_life_days else self.adaptive_half_life(conn)
+            floor = max(0.0, min(1.0, float(min_weight)))
+            cutoff_ts = now - (max(0, int(older_than_days)) * 86400)
+
+            def _weight(last_touch, importance, origin, seen, recalls, source, kind, tags, text) -> float:
+                o = origin or _policy.classify_origin(source, kind, tags, text)
+                return max(floor, _policy.strength(
+                    now, last_touch, importance if importance is not None else 0.5, o,
+                    int(seen or 1), int(recalls or 0), base))
+
+            conn.create_function("eli_strength", 9, _weight, deterministic=True)
+            touch = ("MAX(COALESCE(timestamp, ts, 0), COALESCE(event_ts, 0), COALESCE(last_seen, 0), "
+                     "COALESCE(last_recalled, 0))") if "last_seen" in cols else "COALESCE(timestamp, ts, 0)"
+            args = (f"{touch}, COALESCE(importance, 0.5), "
+                    + ("origin, " if "origin" in cols else "NULL, ")
+                    + ("seen_count, recall_count, " if "seen_count" in cols else "1, 0, ")
+                    + "source, kind, tags, COALESCE(text, content, value, '')")
             conn.execute(
-                """
-                UPDATE memories
-                SET weight = eli_memory_decay(
-                        COALESCE(timestamp, ts, 0), COALESCE(importance, 0.5))
-                WHERE COALESCE(timestamp, ts, 0) < ?
-                  AND ABS(COALESCE(weight, 1.0) - eli_memory_decay(
-                        COALESCE(timestamp, ts, 0), COALESCE(importance, 0.5)))
-                      > ?
-                """,
+                f"UPDATE memories SET weight = eli_strength({args}) "
+                f"WHERE {touch} < ? "
+                f"AND ABS(COALESCE(weight, 1.0) - eli_strength({args})) > ?",
                 (cutoff_ts, self.DECAY_MIN_DELTA),
             )
             updated = conn.execute("SELECT changes()").fetchone()[0]
@@ -2850,108 +2939,76 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
+    def _remove_rows(self, conn, rows) -> None:
+        """Delete memory rows with their FTS entries and vector tombstones. `rows` are dicts."""
+        ids = []
+        for r in rows:
+            _fts_delete(conn, r["id"], r.get("text") or "", r.get("tags") or "")
+            ids.append(r["id"])
+        conn.executemany("DELETE FROM memories WHERE id = ?", [(i,) for i in ids])
+        try:
+            from eli.memory.vector_store import get_vector_store
+            _vs = get_vector_store()
+            if _vs is not None and ids:
+                _vs.mark_memories_deleted(ids)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+
     def consolidate_memories(self, dry_run: bool = False) -> Dict[str, Any]:
-        """Fold exact-duplicate memory text down to one canonical row each.
-
-        Reflection used to check "have I stored this already?" with a relevance
-        query instead of an existence query, so the same insight was appended
-        every cycle. That writer was fixed (reflection._already_stored now does an
-        exact match), but nothing ever retired what had already piled up: a live
-        store held 441 memories of which 169 — 38% — were exact-text duplicates in
-        66 groups, one of them repeated 28 times. They are near-identical in
-        importance too, so they crowd recall by sheer count.
-
-        The survivor is the highest-importance row of each group, tie-broken on
-        the lowest id so the choice is stable across runs. It inherits the group's
-        maximum importance and weight and its most recent timestamp — a repeated
-        observation is a reaffirmed one, and should rank as recent.
-
-        `memories_fts` has to be maintained by hand here. The schema declares
-        AFTER INSERT/UPDATE/DELETE triggers, but they are created by a branch that
-        does not run — neither a fresh database nor the live one has a single
-        trigger on `memories`. The index is populated by an explicit INSERT in
-        `_store_memory_row` and nothing in the codebase has ever deleted from it,
-        so dropping rows without the matching FTS5 'delete' would strand index
-        entries pointing at rowids that no longer exist, and keyword recall (now
-        half of hybrid retrieval) would resurrect deleted memories.
-
-        The FAISS index is append-only with no delete, so stale vectors are left
-        alone deliberately: they point at text the survivor still holds, which
-        costs a redundant candidate that RRF fusion collapses, whereas rebuilding
-        the index here would re-embed the whole store on a maintenance tick.
-
-        Returns a summary; with dry_run=True it reports without deleting.
-        """
-        summary: Dict[str, Any] = {
-            "groups": 0, "removed": 0, "scanned": 0, "dry_run": bool(dry_run),
-        }
+        """Merge duplicates: earliest date kept, seen/recall counts summed, latest sighting as timestamp."""
+        from eli.memory import policy as _policy
+        summary: Dict[str, Any] = {"groups": 0, "removed": 0, "scanned": 0, "dry_run": bool(dry_run)}
         conn = self._get_connection()
         try:
-            summary["scanned"] = int(
-                conn.execute("SELECT COUNT(*) FROM memories").fetchone()[0] or 0)
-            groups = conn.execute(
-                """
-                SELECT lower(trim(COALESCE(text, content, value, ''))) AS norm,
-                       COUNT(*) AS n
-                FROM memories
-                WHERE length(trim(COALESCE(text, content, value, ''))) > 0
-                GROUP BY norm
-                HAVING n > 1
-                """
-            ).fetchall()
-            for norm, _n in groups:
-                rows = conn.execute(
-                    """
-                    SELECT id,
-                           COALESCE(importance, 0.5),
-                           COALESCE(weight, 1.0),
-                           COALESCE(timestamp, ts, 0),
-                           COALESCE(tags, ''),
-                           COALESCE(text, '')
-                    FROM memories
-                    WHERE lower(trim(COALESCE(text, content, value, ''))) = ?
-                    ORDER BY COALESCE(importance, 0.5) DESC, id ASC
-                    """,
-                    (norm,),
-                ).fetchall()
-                if len(rows) < 2:
+            cols = _memory_table_columns(conn, "memories")
+            have = "seen_count" in cols
+            sel = ("id, COALESCE(text, content, value, ''), COALESCE(tags, ''), source, kind, "
+                   "COALESCE(importance, 0.5), COALESCE(weight, 1.0), COALESCE(timestamp, ts, 0)")
+            if have:
+                sel += (", COALESCE(event_ts, 0), COALESCE(seen_count, 1), COALESCE(last_seen, 0), "
+                        "COALESCE(recall_count, 0), COALESCE(last_recalled, 0), COALESCE(origin, '')")
+            rows = conn.execute(f"SELECT {sel} FROM memories ORDER BY id ASC").fetchall()
+            summary["scanned"] = len(rows)
+            groups: Dict[tuple, List[dict]] = {}
+            for r in rows:
+                d = {"id": r[0], "text": r[1], "tags": r[2], "source": r[3], "kind": r[4],
+                     "importance": r[5], "weight": r[6], "ts": r[7]}
+                if have:
+                    d.update({"event_ts": r[8], "seen_count": r[9], "last_seen": r[10],
+                              "recall_count": r[11], "last_recalled": r[12], "origin": r[13]})
+                key = _policy.text_key(d["text"])
+                if not key:
                     continue
-                keep_id = rows[0][0]
-                best_importance = max(r[1] for r in rows)
-                best_weight = max(r[2] for r in rows)
-                newest_ts = max(r[3] for r in rows)
+                origin = d.get("origin") or _policy.classify_origin(d["source"], d["kind"], d["tags"], d["text"])
+                groups.setdefault((key, origin), []).append(d)
+            for (_key, origin), members in groups.items():
+                if len(members) < 2:
+                    continue
+                members.sort(key=lambda m: (float(m.get("event_ts") or m["ts"] or 0) or float("inf"), m["id"]))
+                keep, doomed = members[0], members[1:]
+                merged = _policy.merge_group(members)
                 tags: List[str] = []
-                for r in rows:
-                    for tag in str(r[4] or "").split(","):
+                for m in members:
+                    for tag in str(m["tags"] or "").split(","):
                         tag = tag.strip()
                         if tag and tag not in tags:
                             tags.append(tag)
-                doomed = [r[0] for r in rows[1:]]
                 summary["groups"] += 1
                 summary["removed"] += len(doomed)
                 if dry_run:
                     continue
-                merged_tags = ",".join(tags)
-                # FTS5 'delete' must be handed the values the row was INDEXED
-                # with, not the new ones, or the index silently desynchronises.
-                for row in rows[1:]:
-                    _fts_delete(conn, row[0], row[5], row[4])
-                _fts_delete(conn, keep_id, rows[0][5], rows[0][4])
-                conn.execute(
-                    "UPDATE memories SET importance = ?, weight = ?, "
-                    "timestamp = ?, tags = ? WHERE id = ?",
-                    (best_importance, best_weight, newest_ts, merged_tags, keep_id),
-                )
-                _fts_reindex(conn, keep_id, rows[0][5], merged_tags)
-                conn.executemany(
-                    "DELETE FROM memories WHERE id = ?", [(i,) for i in doomed])
-                try:
-                    from eli.memory.vector_store import get_vector_store
-                    _vs = get_vector_store()
-                    if _vs is not None and doomed:
-                        _vs.mark_memories_deleted(doomed)
-                except Exception:
-                    log.debug("suppressed exception", exc_info=True)
+                _fts_delete(conn, keep["id"], keep["text"], keep["tags"])
+                sets = "importance = ?, weight = ?, tags = ?, timestamp = ?"
+                vals: list = [merged["importance"], max(m["weight"] for m in members), ",".join(tags),
+                              merged["last_seen"] or keep["ts"]]
+                if have:
+                    sets += (", seen_count = ?, event_ts = ?, last_seen = ?, recall_count = ?, "
+                             "last_recalled = ?, origin = ?, text_key = ?")
+                    vals += [merged["seen_count"], merged["event_ts"] or keep["ts"], merged["last_seen"],
+                             merged["recall_count"], merged["last_recalled"], origin, _key]
+                conn.execute(f"UPDATE memories SET {sets} WHERE id = ?", vals + [keep["id"]])
+                _fts_reindex(conn, keep["id"], keep["text"], ",".join(tags))
+                self._remove_rows(conn, doomed)
             if not dry_run:
                 if summary["removed"]:
                     summary["fts_rebuilt"] = _fts_rebuild(conn)
@@ -2964,9 +3021,401 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
-    # -----------------------------------------------------------------
-    # Conversation storage / retrieval
-    # -----------------------------------------------------------------
+    def archive_faded(self, dry_run: bool = False) -> Dict[str, Any]:
+        """Move faded, unused, derived rows to memories_archive. Nothing the user said moves."""
+        from eli.memory import policy as _policy
+        out: Dict[str, Any] = {"archived": 0, "dry_run": bool(dry_run)}
+        conn = self._get_connection()
+        try:
+            cols = _memory_table_columns(conn, "memories")
+            if "origin" not in cols:
+                return out
+            rows = conn.execute(
+                "SELECT id, COALESCE(text, content, value, ''), COALESCE(tags, ''), source, kind, "
+                "COALESCE(weight, 1.0), COALESCE(recall_count, 0), COALESCE(importance, 0.5), "
+                "COALESCE(origin, '') FROM memories WHERE COALESCE(weight, 1.0) <= ?",
+                (_policy.ARCHIVE_WEIGHT,),
+            ).fetchall()
+            doomed = []
+            for r in rows:
+                origin = r[8] or _policy.classify_origin(r[3], r[4], r[2], r[1])
+                if _policy.should_archive(origin, r[5], r[6], r[7]):
+                    doomed.append({"id": r[0], "text": r[1], "tags": r[2]})
+            out["archived"] = len(doomed)
+            if dry_run or not doomed:
+                return out
+            names = ", ".join(f'"{c}"' for c in cols)
+            now = time.time()
+            for d in doomed:
+                conn.execute(
+                    f"INSERT INTO memories_archive ({names}, archived_at, archive_reason) "
+                    f"SELECT {names}, ?, ? FROM memories WHERE id = ?",
+                    (now, "faded_unused_derived", d["id"]),
+                )
+            self._remove_rows(conn, doomed)
+            _fts_rebuild(conn)
+            conn.commit()
+            return out
+        except Exception as e:
+            log.debug(f"[MEMORY] archive_faded failed: {e}")
+            out["error"] = str(e)
+            return out
+        finally:
+            conn.close()
+
+    def search_archive(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Keyword search over archived rows (they are out of normal recall, not gone)."""
+        conn = self._get_connection()
+        try:
+            words = [w for w in re.findall(r"\w{3,}", str(query or "").lower())][:6]
+            if not words:
+                return []
+            where = " AND ".join("lower(COALESCE(text, '')) LIKE ?" for _ in words)
+            rows = conn.execute(
+                f"SELECT id, COALESCE(text, ''), origin, archived_at, archive_reason FROM memories_archive "
+                f"WHERE {where} ORDER BY archived_at DESC LIMIT ?",
+                [f"%{w}%" for w in words] + [int(limit)],
+            ).fetchall()
+            return [{"id": r[0], "text": r[1], "origin": r[2], "archived_at": r[3], "reason": r[4]} for r in rows]
+        except Exception:
+            return []
+        finally:
+            conn.close()
+
+    def restore_from_archive(self, ids) -> int:
+        """Put archived rows back into live memory at full strength."""
+        ids = [int(i) for i in (ids or [])]
+        if not ids:
+            return 0
+        conn = self._get_connection()
+        try:
+            cols = _memory_table_columns(conn, "memories")
+            names = ", ".join(f'"{c}"' for c in cols)
+            n = 0
+            for i in ids:
+                cur = conn.execute(
+                    f"INSERT OR IGNORE INTO memories ({names}) SELECT {names} FROM memories_archive WHERE id = ?", (i,))
+                if cur.rowcount:
+                    row = conn.execute("SELECT COALESCE(text, ''), COALESCE(tags, '') FROM memories WHERE id = ?", (i,)).fetchone()
+                    conn.execute("UPDATE memories SET weight = 1.0, last_recalled = ? WHERE id = ?", (time.time(), i))
+                    if row:
+                        _fts_reindex(conn, i, row[0], row[1])
+                    conn.execute("DELETE FROM memories_archive WHERE id = ?", (i,))
+                    n += 1
+            conn.commit()
+            return n
+        except Exception:
+            return 0
+        finally:
+            conn.close()
+
+    def backfill_policy_fields(self) -> Dict[str, Any]:
+        """Label pre-policy rows (origin, key, true event time). Metadata only; backs up the db first."""
+        from eli.memory import policy as _policy
+        from eli.runtime.memory_provenance import resolve_write_provenance
+        out = {"filled": 0, "relabelled": 0, "redated": 0}
+        conn = self._get_connection()
+        try:
+            cols = _memory_table_columns(conn, "memories")
+            if "origin" not in cols:
+                return out
+            todo = conn.execute(
+                "SELECT id, COALESCE(text, content, value, ''), COALESCE(tags, ''), source, kind, "
+                "COALESCE(timestamp, ts, 0), COALESCE(provenance_kind, ''), COALESCE(verification_status, '') "
+                "FROM memories WHERE origin IS NULL OR origin = '' OR text_key IS NULL OR text_key = ''"
+            ).fetchall()
+            if not todo:
+                return out
+            try:
+                bak = Path(str(self.db_path) + ".pre_policy.bak")
+                if not bak.exists():
+                    import shutil as _sh
+                    conn.commit()
+                    _sh.copy2(str(self.db_path), str(bak))
+            except Exception:
+                log.debug("policy backup not taken", exc_info=True)
+            turns = None
+            for (rid, text, tags, source, kind, ts, prov, ver) in todo:
+                origin = _policy.classify_origin(source, kind, tags, text)
+                event_ts = ts
+                if "session_pin" in str(tags) or "memory_recall" in str(tags):
+                    if turns is None:
+                        turns = {}
+                        for c, tt in conn.execute(
+                                "SELECT content, COALESCE(timestamp, ts, 0) FROM conversation_turns WHERE role = 'user' ORDER BY 2 DESC"):
+                            turns[_policy.text_key(c)] = tt
+                    orig = turns.get(_policy.text_key(text))
+                    if orig and orig < ts:
+                        event_ts = orig
+                        out["redated"] += 1
+                sets, vals = "origin = ?, text_key = ?, event_ts = COALESCE(NULLIF(event_ts, 0), ?), " \
+                             "seen_count = COALESCE(seen_count, 1), last_seen = COALESCE(last_seen, ?)", \
+                             [origin, _policy.text_key(text), event_ts, ts]
+                if prov == "user_verbatim" and origin != _policy.ORIGIN_USER:
+                    v, p = resolve_write_provenance(source=source, kind=kind, tags=tags, text=text)
+                    sets += ", verification_status = ?, provenance_kind = ?"
+                    vals += [v, p]
+                    out["relabelled"] += 1
+                if event_ts != ts:
+                    sets = sets.replace("event_ts = COALESCE(NULLIF(event_ts, 0), ?)", "event_ts = ?")
+                conn.execute(f"UPDATE memories SET {sets} WHERE id = ?", vals + [rid])
+                out["filled"] += 1
+            conn.commit()
+            return out
+        except Exception as e:
+            log.debug(f"[MEMORY] backfill_policy_fields failed: {e}")
+            out["error"] = str(e)
+            return out
+        finally:
+            conn.close()
+
+    def _meta_get(self, conn, key: str) -> Optional[str]:
+        try:
+            r = conn.execute("SELECT value FROM memory_meta WHERE key = ?", (key,)).fetchone()
+            return r[0] if r else None
+        except Exception:
+            return None
+
+    def _meta_set(self, conn, key: str, value: str) -> None:
+        conn.execute("INSERT INTO memory_meta (key, value, updated_at) VALUES (?, ?, ?) "
+                     "ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at",
+                     (key, value, time.time()))
+
+    def tidy_learning_tables(self, dry_run: bool = False) -> Dict[str, Any]:
+        """Remove repeated identical belief revisions; cap corroboration at the days the user has used ELI."""
+        out: Dict[str, Any] = {"revisions_removed": 0, "corroboration_capped": 0}
+        conn = self._get_connection()
+        try:
+            from eli.cognition.stance_store import compact_revisions
+            if _eli_table_exists(conn, "belief_revisions"):
+                dup = conn.execute("SELECT COUNT(*) - COUNT(DISTINCT kind || '|' || topic || '|' || old_value || '|' || new_value) "
+                                   "FROM belief_revisions").fetchone()[0]
+                out["revisions_removed"] = int(dup or 0)
+                if not dry_run and dup:
+                    compact_revisions(conn.cursor())
+            if _eli_table_exists(conn, "user_patterns"):
+                days = conn.execute("SELECT COUNT(DISTINCT date(COALESCE(timestamp, ts), 'unixepoch')) "
+                                    "FROM conversation_turns WHERE role = 'user'").fetchone()[0] or 1
+                n = conn.execute("SELECT COUNT(*) FROM user_patterns WHERE COALESCE(corroboration, 1) > ?", (days,)).fetchone()[0]
+                out["corroboration_capped"] = int(n or 0)
+                if not dry_run and n:
+                    conn.execute("UPDATE user_patterns SET corroboration = ? WHERE COALESCE(corroboration, 1) > ?", (days, days))
+            conn.commit()
+        except Exception as e:
+            out["error"] = str(e)
+        finally:
+            conn.close()
+        return out
+
+    def consolidate_semantic(self, dry_run: bool = False) -> Dict[str, Any]:
+        """One row per durable fact: repeats fold into evidence_count, last_seen and up to five quotes."""
+        from eli.runtime.profile_extractor import add_evidence, ensure_profile_tables, split_evidence
+        out = {"facts_before": 0, "facts_after": 0}
+        ensure_profile_tables(self.db_path)
+        conn = self._get_connection()
+        try:
+            if not _eli_table_exists(conn, "semantic"):
+                return out
+            rows = conn.execute("SELECT id, fact, COALESCE(created_at, 0), COALESCE(evidence_count, 1), evidence "
+                                "FROM semantic ORDER BY COALESCE(created_at, 0), id").fetchall()
+            groups: Dict[str, list] = {}
+            for r in rows:
+                groups.setdefault(split_evidence(r[1])[0].lower(), []).append(r)
+            out.update(facts_before=len(rows), facts_after=len(groups))
+            if dry_run or len(groups) == len(rows):
+                return out
+            for label_l, members in groups.items():
+                keep = members[0]
+                label = split_evidence(keep[1])[0]
+                quotes = keep[4]
+                for m in members:
+                    quotes = add_evidence(quotes, split_evidence(m[1])[1])
+                conn.execute("UPDATE semantic SET fact = ?, evidence_count = ?, last_seen = ?, evidence = ? WHERE id = ?",
+                             (label, sum(m[3] for m in members), max(m[2] for m in members), quotes, keep[0]))
+                conn.executemany("DELETE FROM semantic WHERE id = ?", [(m[0],) for m in members[1:]])
+            conn.commit()
+            return out
+        except Exception as e:
+            out["error"] = str(e)
+            return out
+        finally:
+            conn.close()
+
+    def integrity_report(self) -> Dict[str, Any]:
+        """Measured agreement between SQLite, FTS5, the vector index and summaries. No inference."""
+        from eli.memory import policy as _policy
+        conn = self._get_connection()
+        rep: Dict[str, Any] = {}
+        try:
+            q = lambda sql, *a: conn.execute(sql, a).fetchone()[0]
+            ids = {r[0] for r in conn.execute("SELECT id FROM memories")}
+            rep["memories"] = len(ids)
+            rep["archived"] = q("SELECT COUNT(*) FROM memories_archive") if _eli_table_exists(conn, "memories_archive") else 0
+            if _eli_table_exists(conn, "memories_fts_docsize"):
+                fts = {r[0] for r in conn.execute("SELECT id FROM memories_fts_docsize")}
+                rep["fts_indexed"], rep["fts_missing"], rep["fts_orphans"] = len(fts), len(ids - fts), len(fts - ids)
+            cols = _memory_table_columns(conn, "memories")
+            if "text_key" in cols:
+                rep["duplicate_groups"] = q("SELECT COUNT(*) FROM (SELECT 1 FROM memories WHERE text_key <> '' "
+                                            "GROUP BY text_key, origin HAVING COUNT(*) > 1)")
+                rep["unlabelled"] = q("SELECT COUNT(*) FROM memories WHERE origin IS NULL OR origin = ''")
+                embeddable = {r[0] for r in conn.execute("SELECT id, origin FROM memories") if _policy.wants_vector_index(r[1] or "")}
+            else:
+                embeddable = ids
+            try:
+                from eli.memory.vector_store import get_vector_store
+                vs = get_vector_store()
+                if vs is not None:
+                    tomb = set(getattr(vs, "_tombstone_ids", ()) or ())
+                    vec_ids = {int(m["memory_id"]) for m in vs._meta if m.get("memory_id") is not None} - tomb
+                    rep.update(vectors=vs.ntotal, vector_meta=vs.meta_count, vector_orphans=len(vec_ids - ids),
+                               missing_vectors=len(embeddable - vec_ids))
+            except Exception:
+                rep["vectors"] = None
+            if _eli_table_exists(conn, "session_summaries") and _eli_table_exists(conn, "conversation_turns"):
+                sess = {r[0] for r in conn.execute("SELECT DISTINCT session_id FROM conversation_turns")}
+                summ = {r[0] for r in conn.execute("SELECT DISTINCT session_id FROM session_summaries")}
+                rep["sessions"], rep["sessions_without_summary"], rep["summaries_without_session"] = len(sess), len(sess - summ), len(summ - sess)
+            rep["ok"] = not any(rep.get(k) for k in ("fts_missing", "fts_orphans", "vector_orphans", "duplicate_groups", "unlabelled"))
+        except Exception as e:
+            rep["error"] = str(e)
+        finally:
+            conn.close()
+        return rep
+
+    _UUID = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I)
+    _JSON_LISTS = ("identity", "comms_style", "current_focus", "interests", "habits", "goals", "relationship", "sources")
+
+    def owner_id(self, candidate: str) -> str:
+        """The install's stable user id, kept in the database so a reinstall can't change it."""
+        conn = self._get_connection()
+        try:
+            cur = self._meta_get(conn, "owner_id")
+            if not cur:
+                self._meta_set(conn, "owner_id", candidate)
+                conn.commit()
+            return cur or candidate
+        finally:
+            conn.close()
+
+    def merge_user_ids(self) -> Dict[str, Any]:
+        """Fold this install's earlier auto-generated user ids into the owner id. Named ids are untouched."""
+        out: Dict[str, Any] = {"merged_ids": 0, "rows": 0}
+        conn = self._get_connection()
+        try:
+            owner = self._meta_get(conn, "owner_id")
+            if not owner:
+                return out
+            old = set()
+            for table in ("conversation_turns", "conversations", "session_summaries", "emotion_events", "user_model"):
+                if _eli_table_exists(conn, table):
+                    old |= {r[0] for r in conn.execute(f"SELECT DISTINCT user_id FROM {table}") if r[0]}
+            old = {u for u in old if u != owner and self._UUID.match(u)}
+            if not old:
+                return out
+            for table in ("conversation_turns", "conversations", "session_summaries", "emotion_events"):
+                if _eli_table_exists(conn, table):
+                    for u in old:
+                        out["rows"] += conn.execute(f"UPDATE {table} SET user_id = ? WHERE user_id = ?", (owner, u)).rowcount
+            self._merge_user_models(conn, owner, old)
+            out["merged_ids"] = len(old)
+            conn.commit()
+            return out
+        except Exception as e:
+            out["error"] = str(e)
+            return out
+        finally:
+            conn.close()
+
+    def _merge_user_models(self, conn, owner: str, old: set) -> None:
+        if not _eli_table_exists(conn, "user_model"):
+            return
+        import json as _json
+        from eli.memory import policy as _policy
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM user_model WHERE user_id IN (%s)" % ",".join("?" * (len(old) + 1)),
+                            [owner, *old]).fetchall()
+        conn.row_factory = None
+        if not rows:
+            return
+        rows = sorted(rows, key=lambda r: (r["user_id"] != owner, -(r["updated_at"] or 0)))
+        newest = max(rows, key=lambda r: r["updated_at"] or 0)
+        merged = {"user_id": owner, "confidence": max((r["confidence"] or 0) for r in rows),
+                  "updated_at": newest["updated_at"], "ts": newest["ts"],
+                  "dossier": newest["dossier"], "brief": newest["brief"]}
+        for col in self._JSON_LISTS:
+            seen, items = set(), []
+            for r in rows:
+                try:
+                    vals = _json.loads(r[col] or "[]")
+                except (TypeError, ValueError):
+                    vals = []
+                for v in vals if isinstance(vals, list) else []:
+                    k = _policy.text_key(str(v))
+                    if k and k not in seen:
+                        seen.add(k)
+                        items.append(v)
+            merged[col] = _json.dumps(items, ensure_ascii=False)
+        conn.execute("DELETE FROM user_model WHERE user_id IN (%s)" % ",".join("?" * (len(old) + 1)), [owner, *old])
+        conn.execute(f"INSERT INTO user_model ({', '.join(merged)}) VALUES ({', '.join('?' * len(merged))})",
+                     list(merged.values()))
+
+    _upkeep_lock = threading.Lock()
+
+    def upkeep_async(self) -> bool:
+        """Start today's upkeep in the background if it is due and not already running."""
+        if os.environ.get("ELI_TEST_MODE") == "1" or not self.upkeep_due() \
+                or not Memory._upkeep_lock.acquire(blocking=False):
+            return False
+
+        def _run():
+            try:
+                self.run_upkeep()
+            finally:
+                Memory._upkeep_lock.release()
+
+        threading.Thread(target=_run, daemon=True, name="eli-memory-upkeep").start()
+        return True
+
+    def upkeep_due(self) -> bool:
+        """True when upkeep has not run today."""
+        conn = self._get_connection()
+        try:
+            last = self._meta_get(conn, "last_upkeep_day")
+            return last != time.strftime("%Y-%m-%d")
+        finally:
+            conn.close()
+
+    def run_upkeep(self, force: bool = False, dry_run: bool = False) -> Dict[str, Any]:
+        """Once per day: label, merge, decay, archive. Idempotent."""
+        report: Dict[str, Any] = {"ran": False}
+        if not force and not dry_run and not self.upkeep_due():
+            return report
+        report["ran"] = True
+        steps = (
+            ("backfill", lambda: self.backfill_policy_fields()),
+            ("consolidate", lambda: self.consolidate_memories(dry_run=dry_run)),
+            ("decay", lambda: {"updated": self.apply_weight_decay()} if not dry_run else {}),
+            ("archive", lambda: self.archive_faded(dry_run=dry_run)),
+            ("identity", lambda: self.merge_user_ids() if not dry_run else {}),
+            ("learning", lambda: self.tidy_learning_tables(dry_run=dry_run)),
+            ("semantic", lambda: self.consolidate_semantic(dry_run=dry_run)),
+        )
+        for name, fn in steps:
+            try:
+                report[name] = fn()
+            except Exception as e:
+                report[name] = {"error": str(e)}
+        if not dry_run:
+            conn = self._get_connection()
+            try:
+                import json as _json
+                self._meta_set(conn, "last_upkeep_day", time.strftime("%Y-%m-%d"))
+                self._meta_set(conn, "last_upkeep_report", _json.dumps(report, default=str)[:4000])
+                conn.commit()
+            finally:
+                conn.close()
+        return report
 
     def add_conversation_turn(
         self,
@@ -4579,7 +5028,8 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
-    def get_recent_conversation(self, limit=20, session_id=None, user_id=None):
+    def get_recent_conversation(self, limit=20, session_id=None, user_id=None,
+                                since=None, until=None, role=None):
         limit = int(limit) if limit else 20
         conn = self._get_connection()
         try:
@@ -4594,6 +5044,15 @@ class Memory(metaclass=_MemoryMeta):
             if user_id:
                 where.append("user_id = ?")
                 params.append(user_id)
+            if role:
+                where.append("role = ?")
+                params.append(role)
+            if since:
+                where.append("COALESCE(timestamp, ts, 0) >= ?")
+                params.append(float(since))
+            if until:
+                where.append("COALESCE(timestamp, ts, 0) < ?")
+                params.append(float(until))
             # Exclude fragment-guard NOOP entries — they are internal routing
             # events that were stored before the NOOP-suppression fix.
             # Including them in LLM context causes the model to mimic JSON format.

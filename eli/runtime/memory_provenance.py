@@ -23,6 +23,7 @@ PROV_AUTO_EXTRACT = "auto_extract"
 PROV_INFERRED = "inferred"
 PROV_TOOL_OBSERVATION = "tool_observation"
 PROV_SYSTEM = "system_generated"
+PROV_EXTERNAL = "external_news"
 
 _EXCLUDED_FOR_GROUNDING = frozenset({HYPOTHESIS, SYSTEM})
 
@@ -56,6 +57,7 @@ def resolve_write_provenance(
     kind: str = "memory",
     tags: Any = None,
     metadata: Optional[Dict[str, Any]] = None,
+    text: str = "",
 ) -> Tuple[str, str]:
     """Return (verification_status, provenance_kind) for a new memory row."""
     meta = dict(metadata or {})
@@ -63,24 +65,17 @@ def resolve_write_provenance(
         return str(meta["verification_status"]), str(meta["provenance_kind"])
 
     tags_l = _tag_set(tags)
-    src = str(source or "user").strip().lower()
-    knd = str(kind or "memory").strip().lower()
-
     if "user_confirmed" in tags_l or meta.get("user_confirmed"):
         return VERIFIED, PROV_USER_CONFIRMED
     if "auto_extracted" in tags_l or meta.get("auto_extracted"):
         return HYPOTHESIS, PROV_AUTO_EXTRACT
-    if src in {"tool", "executor", "observation"} or "tool_observation" in tags_l:
-        return VERIFIED, PROV_TOOL_OBSERVATION
-    if knd in {"reflection", "session_summary", "awareness", "proactive", "system"}:
-        return SYSTEM, PROV_SYSTEM
-    if src in {"awareness", "reflection", "proactive", "system", "daemon"}:
-        return SYSTEM, PROV_SYSTEM
-    if src == "assistant" or knd == "assistant_insight":
-        return HYPOTHESIS, PROV_INFERRED
-    if src == "user":
-        return VERIFIED, PROV_USER_VERBATIM
-    return VERIFIED, PROV_USER_VERBATIM
+    from eli.memory import policy as _policy
+    return {
+        _policy.ORIGIN_TELEMETRY: (SYSTEM, PROV_SYSTEM),
+        _policy.ORIGIN_NEWS: (SYSTEM, PROV_EXTERNAL),
+        _policy.ORIGIN_ELI: (HYPOTHESIS, PROV_INFERRED),
+        _policy.ORIGIN_TOOL: (VERIFIED, PROV_TOOL_OBSERVATION),
+    }.get(_policy.classify_origin(source, kind, tags, text), (VERIFIED, PROV_USER_VERBATIM))
 
 
 def is_explicit_memory_audit_query(text: str) -> bool:

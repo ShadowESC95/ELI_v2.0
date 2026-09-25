@@ -77,8 +77,8 @@ def test_a_greeting_contributes_no_topics():
 
 
 def test_a_real_message_still_yields_its_subjects():
-    got = topic_words("the router keeps dropping wexford weather requests")
-    assert {"router", "wexford", "weather"} <= got
+    got = topic_words("the router keeps dropping cork weather requests")
+    assert {"router", "cork", "weather"} <= got
     assert "doing" not in got
 
 
@@ -101,7 +101,7 @@ def test_the_stored_pattern_shape_is_the_shape_that_is_read():
     payload = json.dumps({
         "patterns": [
             {"type": "time_habit", "topics": []},
-            {"type": "topic_focus", "topics": ["wexford", "router"]},
+            {"type": "topic_focus", "topics": ["cork", "router"]},
         ],
         "ts": 0,
     })
@@ -116,7 +116,7 @@ def test_the_stored_pattern_shape_is_the_shape_that_is_read():
         if str((p or {}).get("type") or "") == "topic_focus":
             for t in (p or {}).get("topics", []) or []:
                 past.add(str(t).lower())
-    assert past == {"wexford", "router"}
+    assert past == {"cork", "router"}
 
 
 def test_the_daemon_reads_topics_out_of_patterns():
@@ -134,8 +134,8 @@ def test_the_daemon_reads_topics_out_of_patterns():
 
 def test_a_repeat_tick_reports_nothing_as_emerging():
     """Identical topics two ticks running are not a new trend."""
-    cur = {"wexford", "router"}
-    past = {"wexford", "router"}
+    cur = {"cork", "router"}
+    past = {"cork", "router"}
     assert not (cur - past)
 
 
@@ -223,5 +223,5 @@ def test_the_router_agreed_all_along():
 def test_a_substantive_afternoon_sentence_is_not_phatic():
     from eli.kernel.engine import _is_brief_phatic_prompt as phatic
 
-    assert not phatic("what is the weather this afternoon in Wexford")
+    assert not phatic("what is the weather this afternoon in Cork")
     assert not phatic("the sun is not that cheerful and it is only afternoon for 30 minutes")

@@ -14,9 +14,9 @@ from eli.execution.media_runtime import (
 _STREAMING_CASES = [
     ("netflix", "netflix", "Stranger Things"),
     ("net flix", "netflix", "Stranger Things"),
-    ("prime video", "primevideo", "the walking dead"),
-    ("primevideo", "primevideo", "the walking dead"),
-    ("amazon prime", "primevideo", "the walking dead"),
+    ("prime video", "primevideo", "severance"),
+    ("primevideo", "primevideo", "severance"),
+    ("amazon prime", "primevideo", "severance"),
     ("disney+", "disneyplus", "mandalorian"),
     ("disney plus", "disneyplus", "mandalorian"),
     ("disney", "disneyplus", "mandalorian"),

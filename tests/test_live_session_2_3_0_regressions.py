@@ -101,7 +101,7 @@ def test_quoting_the_user_mid_reply_is_still_allowed():
     as your own is the failure."""
     from eli.kernel.engine import _opens_by_echoing
     assert not _opens_by_echoing(
-        "No. You said you were watching the walking dead, so I assumed as much.",
+        "No. You said you were watching severance, so I assumed as much.",
         [_USER_MSG])
 
 
@@ -189,7 +189,7 @@ def test_a_greeting_turn_no_longer_disarms_the_repeat_guard():
     four times with the same paragraph —
 
         "You're not just saying helo — you're testing if I'll catch the typo.
-         Either way, I'm here. What's the real deal, Jason?"
+         Either way, I'm here. What's the real deal, Alex?"
 
     — until the user asked what it was talking about.
 
@@ -199,20 +199,20 @@ def test_a_greeting_turn_no_longer_disarms_the_repeat_guard():
     from eli.kernel.engine import _stream_holding_back_repeats, _RepeatDetected
 
     prior = ["You're not just saying helo — you're testing if I'll catch the typo. "
-             "Either way, I'm here. What's the real deal, Jason?"]
+             "Either way, I'm here. What's the real deal, Alex?"]
     dup = ("You're not just saying hello — you're testing if I'll catch the typo. "
-           "Either way, I'm here. What's the real deal, Jason?")
+           "Either way, I'm here. What's the real deal, Alex?")
     with pytest.raises(_RepeatDetected):
         list(_stream_holding_back_repeats(
             (dup[i:i + 20] for i in range(0, len(dup), 20)), prior, allow_retry=True))
 
 
 def test_a_real_greeting_may_still_recur():
-    """"Morning, Jason." two mornings running is not a fault — the 40-character
+    """"Morning, Alex." two mornings running is not a fault — the 40-character
     floor is what protects it, not a blanket exemption."""
     from eli.kernel.engine import _stream_holding_back_repeats
 
-    greet = "Morning, Jason."
+    greet = "Morning, Alex."
     out = "".join(_stream_holding_back_repeats(
         (greet[i:i + 8] for i in range(0, len(greet), 8)), [greet], allow_retry=True))
     assert out.strip() == greet

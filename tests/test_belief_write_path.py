@@ -46,8 +46,11 @@ def _role(cur):
 
 
 def _establish(cur, times=5, value="User is a physicist"):
-    for _ in range(times):
-        _insert_user_pattern(cur, "identity.role", value, provenance="user_explicit")
+    """Reaffirm on `times` separate days: corroboration counts days of use, not extraction passes."""
+    import time as _t
+    start = _t.time() - times * 86400
+    for i in range(times):
+        _insert_user_pattern(cur, "identity.role", value, ts_value=start + i * 86400, provenance="user_explicit")
 
 
 # ── the migration ────────────────────────────────────────────────────────────

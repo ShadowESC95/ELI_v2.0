@@ -50,6 +50,7 @@ _FOCUS_OPTIONS = {
     "c": "Everyday assistant (notes, files, media)",
     "d": "Mix of everything",
 }
+NONCOMMITTAL_FOCUS = _FOCUS_OPTIONS["d"]
 
 
 def _artifacts_dir() -> Path:

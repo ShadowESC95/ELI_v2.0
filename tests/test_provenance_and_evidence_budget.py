@@ -23,7 +23,7 @@ expectation, and reserving all of it for output starved the evidence budget.
 import pytest
 
 from eli.execution.router_enhanced import route
-from eli.kernel.engine import _OUTPUT_RESERVE_TOKENS
+from eli.cognition.context_budget import memory_char_budget, output_reserve_tokens
 
 
 def _action(text):
@@ -87,49 +87,49 @@ def test_the_original_jargon_route_still_works():
 
 
 # ── 3. the evidence budget ──────────────────────────────────────────────────
-def _mem_budget(n_ctx, max_tok, persona, query, reserve_tokens):
-    total = int(n_ctx * 3.5 * 0.80)
-    return max(400, total - persona - query - (min(max_tok, reserve_tokens) * 4))
+def _old_budget(n_ctx, max_tok, persona, query):
+    """The arithmetic that reserved the whole max_tokens ceiling at 4 chars per token."""
+    return max(400, int(n_ctx * 3.5 * 0.80) - persona - query - max_tok * 4)
 
 
 def test_the_live_turn_would_now_keep_its_evidence():
     """The exact numbers from the log: n_ctx 10384, max_tokens 3461, 6352 chars of
     bus evidence at grounding 0.98, trimmed to 685."""
     n_ctx, max_tok, persona, query, evidence = 10384, 3461, 14500, 93, 6352
-    old = _mem_budget(n_ctx, max_tok, persona, query, max_tok)          # reserve = ceiling
-    new = _mem_budget(n_ctx, max_tok, persona, query, _OUTPUT_RESERVE_TOKENS)
+    old = _old_budget(n_ctx, max_tok, persona, query)
+    new = memory_char_budget(n_ctx, persona + query, max_tok)
     assert old < evidence, "fixture no longer reproduces the bug"
     assert new >= evidence, "evidence still does not fit"
 
 
 def test_reserve_is_a_cap_not_an_increase():
-    """When max_tokens is already small the reservation must not grow — that would
+    """When max_tokens is already small the reservation must not grow: that would
     shrink the evidence budget on short-output modes."""
-    small = 256
-    assert min(small, _OUTPUT_RESERVE_TOKENS) == small
+    assert output_reserve_tokens(256, 12280) == 256
 
 
-def test_reserve_is_sane():
-    assert 256 <= _OUTPUT_RESERVE_TOKENS <= 4096
+def test_reserve_is_derived_from_the_window_not_a_fixed_figure():
+    assert output_reserve_tokens(4096, 4096) < output_reserve_tokens(4096, 32768)
 
 
 def test_budget_never_goes_negative_on_a_huge_persona():
     """The floor must hold even when persona + query exceed the whole budget."""
-    assert _mem_budget(2048, 512, 999_999, 5_000, _OUTPUT_RESERVE_TOKENS) == 400
+    assert memory_char_budget(2048, 999_999 + 5_000, 512) == 400
 
 
 def test_a_bigger_context_yields_a_bigger_evidence_budget():
-    small = _mem_budget(4096, 1024, 6000, 100, _OUTPUT_RESERVE_TOKENS)
-    large = _mem_budget(16384, 1024, 6000, 100, _OUTPUT_RESERVE_TOKENS)
+    small = memory_char_budget(4096, 6100, 1024)
+    large = memory_char_budget(16384, 6100, 1024)
     assert large > small
 
 
-def test_the_shipped_guard_uses_the_capped_reserve():
-    """Assert the call site, not a re-derivation — the arithmetic above is only a
-    model of it."""
+def test_both_shipped_guards_use_the_shared_budget():
+    """Assert the call sites, not a re-derivation."""
     import inspect
     from eli.kernel import engine as eng
 
-    src = inspect.getsource(eng.CognitiveEngine._stream_model_response)
-    assert "_OUTPUT_RESERVE_TOKENS" in src, "the streaming guard still reserves the ceiling"
-    assert "_out_reserve_tok_s * 4" in src
+    for fn in (eng.CognitiveEngine._stream_model_response, eng.CognitiveEngine._get_chat_response):
+        src = inspect.getsource(fn)
+        assert "_ctx_budget.memory_char_budget" in src
+        assert "_ctx_budget.trim_memory_context" in src
+        assert "[-_mem_char_budget" not in src, "tail-slicing drops the best-ranked evidence first"

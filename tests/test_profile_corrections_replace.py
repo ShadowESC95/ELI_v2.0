@@ -128,7 +128,7 @@ def test_reconcile_drops_the_stale_onboarding_snapshot(db):
     cur.execute("""CREATE TABLE IF NOT EXISTS memories
                    (id INTEGER PRIMARY KEY, text TEXT, source TEXT)""")
     cur.execute("INSERT INTO memories(text, source) VALUES (?,?)",
-                ("User's preferred name is jason. User prefers OLD answers. Done.",
+                ("User's preferred name is alex. User prefers OLD answers. Done.",
                  "onboarding_interview"))
     cur.execute("INSERT INTO user_patterns(pattern_type, pattern_data, timestamp, ts) "
                 "VALUES ('preference.style','User prefers OLD answers.',100,100)")

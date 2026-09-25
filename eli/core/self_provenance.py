@@ -50,7 +50,7 @@ MEMORY_KINDS: frozenset = frozenset({
 # writers; on a live machine it was 242 of the 257 memories reaching recall, all statistics, none
 # a fact about anyone. `eli_world` is left out: autonomy notes describe things that happened.
 MEMORY_SOURCES: frozenset = frozenset({
-    "orchestrator", "eli_reflection",
+    "awareness", "eli_reflection", "orchestrator",
 })
 
 # Tag substrings, for rows that are reflections by their tags while carrying a

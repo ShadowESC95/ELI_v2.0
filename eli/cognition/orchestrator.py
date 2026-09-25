@@ -17,6 +17,8 @@ _VALID_ACTIONS = {str(a).strip().upper() for a in (_SUPPORTED_ACTIONS or [])}
 
 
 
+from eli.cognition import memory_diag as _memory_diag
+from eli.cognition import query_planner as _query_planner
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
@@ -882,6 +884,7 @@ class AgentOrchestrator:
         wm.trace["stage_4"] = "planner"
         retrieval_plan = self.planner_agent.plan_retrieval(
             user_input, intent, "", stm, reasoning_mode=reasoning_mode)
+        retrieval_plan["window"] = _query_planner.parse_window(user_input)
         log.debug("[ORCHESTRATOR] Stage 4: Planner → mode=%s %s" % (
             reasoning_mode or "balanced", retrieval_plan))
         _eli_pipe_orch("stage_4", mode=(reasoning_mode or "balanced"))
@@ -962,6 +965,13 @@ class AgentOrchestrator:
             wm.trace["agent_bus_specialists"] = {"error": str(_spec_err)}
             log.debug(f"[ORCHESTRATOR] specialist bus failed (non-fatal): {_spec_err}")
 
+        try:
+            _agg = getattr(wm.bus_result, "aggregated_confidence", None)
+            self.engine._memory_diag = _memory_diag.retrieval_record(
+                len(keyword_hits), len(semantic_hits), len(kg_hits), len(wm.merged_hits),
+                float(_agg) if _agg is not None else None)
+        except Exception:
+            log.debug("memory diagnostics skipped", exc_info=True)
         wm.trace["stage_10"] = "context_assembly"
         wm.assembled_context, wm.final_prompt = self.engine.assemble_precise_context(
             user_input=user_input,
@@ -989,6 +999,9 @@ class AgentOrchestrator:
             )
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+        _diag_block = _memory_diag.block(getattr(self.engine, "_memory_diag", None))
+        if _diag_block:
+            wm.assembled_context = f"{_diag_block}\n\n{wm.assembled_context}".strip()
         log.debug(f"[ORCHESTRATOR] Stage 10: Context Assembly → {len(wm.assembled_context)} chars")
         _eli_pipe_orch("stage_10", assembled_chars=len(wm.assembled_context or ""))
 

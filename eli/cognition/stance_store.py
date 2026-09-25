@@ -240,14 +240,26 @@ def stance_history(cur: sqlite3.Cursor, topic: str, limit: int = 10) -> List[Dic
     } for r in rows]
 
 
+def compact_revisions(cur: sqlite3.Cursor) -> int:
+    """Drop repeats of an identical revision, keeping the first. Returns rows removed."""
+    cur.execute("DELETE FROM belief_revisions WHERE id NOT IN "
+                "(SELECT MIN(id) FROM belief_revisions GROUP BY kind, topic, old_value, new_value)")
+    return cur.rowcount
+
+
 # ── the revision record ───────────────────────────────────────────────────────
 
 def record_revision(cur: sqlite3.Cursor, kind: str, topic: str, old_value: str,
                     new_value: str, reason: str = "",
                     standing_weight: float = 0.0, challenger_weight: float = 0.0,
                     now: Optional[float] = None) -> None:
-    """Append what changed. Never updated, never deleted."""
+    """Append what changed. A revision already on record (same topic, old and new value) is not repeated."""
     try:
+        if cur.execute(
+            "SELECT 1 FROM belief_revisions WHERE kind = ? AND topic = ? AND old_value = ? AND new_value = ? LIMIT 1",
+            (kind, _norm(topic), str(old_value or "")[:900], str(new_value or "")[:900]),
+        ).fetchone():
+            return
         cur.execute(
             "INSERT INTO belief_revisions (kind, topic, old_value, new_value, "
             "  reason, standing_weight, challenger_weight, ts) "

@@ -228,7 +228,7 @@ def test_play_specific_streaming_target_never_falls_through_to_youtube(monkeypat
 
     from eli.execution.executor_enhanced import play_specific
 
-    for target, query in (("netflix", "rick and morty"), ("primevideo", "the walking dead")):
+    for target, query in (("netflix", "rick and morty"), ("primevideo", "severance")):
         result = play_specific(query, target)
         assert "YouTube" not in (result.get("response") or "")
         assert result.get("target") == target
@@ -236,7 +236,7 @@ def test_play_specific_streaming_target_never_falls_through_to_youtube(monkeypat
 
     assert calls == [
         ("netflix", "rick and morty", False),
-        ("primevideo", "the walking dead", False),
+        ("primevideo", "severance", False),
     ]
 
 
@@ -327,10 +327,10 @@ def test_stt_wake_word_still_allows_freeform_chat():
 
 def test_text_route_streaming_play_on_prime_and_netflix():
     """Text chat path — streaming play must route to PLAY_MEDIA (not voice gate)."""
-    prime = route("play the walking dead on prime")
+    prime = route("play severance on prime")
     netflix = route("play the tree body problem on netflix")
     assert prime["action"] == "PLAY_MEDIA"
-    assert prime["args"]["query"] == "the walking dead"
+    assert prime["args"]["query"] == "severance"
     assert prime["args"]["target"] == "primevideo"
     assert netflix["action"] == "PLAY_MEDIA"
     assert netflix["args"]["target"] == "netflix"
@@ -339,8 +339,8 @@ def test_text_route_streaming_play_on_prime_and_netflix():
 def test_stt_streaming_play_with_named_service_is_complete():
     from eli.perception.audio_stt import VoiceGate, _is_potentially_incomplete_media_play
 
-    assert not _is_potentially_incomplete_media_play("play the walking dead on prime")
-    assert not _is_potentially_incomplete_media_play("play the walking dead on prime video")
+    assert not _is_potentially_incomplete_media_play("play severance on prime")
+    assert not _is_potentially_incomplete_media_play("play severance on prime video")
     assert not _is_potentially_incomplete_media_play("play the tree body problem on netflix")
     # Ambiguous play-without-service should still wait for completion.
     assert _is_potentially_incomplete_media_play("play blood runs cold")
@@ -350,9 +350,9 @@ def test_stt_wake_streaming_play_dispatches_immediately():
     from eli.perception.audio_stt import VoiceGate
 
     gate = VoiceGate()
-    state, command, wake = gate.classify("computer play the walking dead on prime")
+    state, command, wake = gate.classify("computer play severance on prime")
     assert state == "dispatch"
-    assert command == "play the walking dead on prime"
+    assert command == "play severance on prime"
     assert wake == "computer"
 
 

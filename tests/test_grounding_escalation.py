@@ -280,5 +280,5 @@ def test_rapport_and_watch_progress_not_web_candidate(monkeypatch):
 
 
 def test_episode_recap_still_web_candidate():
-    q = "what happened in season 3 episode 6 of dead city?"
+    q = "what happened in season 3 episode 6 of blue harbor?"
     assert G.classify_web_candidate(q) is True

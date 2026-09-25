@@ -66,11 +66,12 @@ def retrieve_for_turn(
     rerank: bool = True,
     use_cache: bool = True,
     verified_only: bool = True,
+    window: Optional[tuple] = None,
 ) -> TurnRetrievalResult:
     """Retrieve, optionally deepen, rerank, and dedupe memory evidence for one turn."""
     t0 = time.perf_counter()
     q = (query or "").strip()
-    cache_key = f"{session_id}:{user_id}:{q.lower()[:240]}"
+    cache_key = f"{session_id}:{user_id}:{q.lower()[:240]}:{window}"
     if use_cache:
         cached = _cache_get(cache_key)
         if cached is not None:
@@ -86,9 +87,12 @@ def retrieve_for_turn(
 
     conv_hits: List[Dict[str, Any]] = []
     try:
-        conv_hits = list(
-            mem.search_conversations(q, user_id=user_id, limit=int(conv_limit)) or []
-        )
+        if window:
+            # what the user said inside the period asked about, oldest first (all of the owner's turns)
+            conv_hits = list(mem.get_recent_conversation(
+                limit=max(int(conv_limit) * 3, 24), since=window[0], until=window[1], role="user") or [])
+        else:
+            conv_hits = list(mem.search_conversations(q, user_id=user_id, limit=int(conv_limit)) or [])
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
@@ -127,6 +131,10 @@ def retrieve_for_turn(
                         break
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+
+    if window:
+        from eli.cognition.evidence_format import row_time
+        raw_hits = [h for h in raw_hits if window[0] <= (row_time(h) or 0) < window[1]]
 
     contradictions: List[Dict[str, Any]] = []
     if rerank and raw_hits:

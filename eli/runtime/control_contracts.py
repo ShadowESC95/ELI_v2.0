@@ -56,19 +56,7 @@ CONTROL_ACTIONS = {
 }
 
 
-def _confidence_label_full(score: float) -> str:
-    """Five-bucket confidence label. Replaces the old two-bucket
-    ('very high' >= 0.9 else 'low') template that hid all middle ground."""
-    s = float(score or 0.0)
-    if s >= 0.85:
-        return "very high"
-    if s >= 0.70:
-        return "high"
-    if s >= 0.50:
-        return "medium"
-    if s >= 0.30:
-        return "low"
-    return "very low"
+from eli.core.confidence import confidence_label as _confidence_label_full
 
 _BAD_PATH_RX = (
     re.compile(r"/home/[^/\s'\"`]+/[^\s'\"`]+"),

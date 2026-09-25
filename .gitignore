@@ -221,3 +221,8 @@ blueprints/ELI_USER_MANUAL_#2.pdf
 repomix-output.xml
 repomix-core.xml
 config/voices/
+
+# local run artifacts, never shipped
+/runtime/
+/test_reports/
+models/_download.log

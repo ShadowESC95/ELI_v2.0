@@ -56,7 +56,7 @@ def test_wild_night_bait_after_user_negation():
 def test_wrong_show_when_user_watching_spiderman():
     user = "wrong again, I'm watching the new spider man."
     out = (
-        "Watching The Walking Dead and catching up on Eminem beefs sounds like "
+        "Watching Severance and catching up on chess videos sounds like "
         "my kind of entertainment."
     )
     verdict = validate_user_claims_against_evidence(

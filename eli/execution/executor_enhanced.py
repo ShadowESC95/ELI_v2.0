@@ -1210,6 +1210,13 @@ def _summarize_long_text(content: str, instruction: str = "", *, _depth: int = 0
     return _summarize_long_text(combined, reduce_instruction, _depth=_depth + 1)
 
 
+def _memory_health(mem: Any) -> Dict[str, Any]:
+    try:
+        return mem.integrity_report()
+    except Exception:
+        return {}
+
+
 def _explain_memory_runtime_report() -> Dict[str, Any]:
     import sqlite3
     from eli.memory import (
@@ -1296,11 +1303,13 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
                     text_col = next((c for c in wanted_cols if c in cols), None)
                     if not text_col:
                         continue
+                    # only what the user said counts as evidence about them, never ELI's tallies or news
+                    _mine = " AND COALESCE(origin, 'user_said') = 'user_said'" if "origin" in cols else ""
                     query = (
                         f'SELECT "{text_col}" FROM "{table}" '
-                        f'WHERE lower("{text_col}") LIKE "%name%" '
+                        f'WHERE (lower("{text_col}") LIKE "%name%" '
                         f'OR lower("{text_col}") LIKE "%identity%" '
-                        f'OR lower("{text_col}") LIKE "%preference%" '
+                        f'OR lower("{text_col}") LIKE "%preference%"){_mine} '
                         f'ORDER BY rowid DESC LIMIT ?'
                     )
                     for (value,) in conn.execute(query, (limit,)).fetchall():
@@ -1428,6 +1437,7 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
         'kg': kg,
         'mechanisms': mechanisms,
         'name_guess': name_guess,
+        'health': _memory_health(mem),
         'identity_hits': [
             str((h.get('text') or h.get('content') or '') if isinstance(h, dict) else h).strip()[:160]
             for h in identity_hits[:5]
@@ -1544,6 +1554,11 @@ def _format_memory_runtime(report: Dict[str, Any]) -> str:
     lines.append(f"- DAG: agents/retrieval run on a dependency DAG; the coding agent decomposes tasks via a subtask DAG "
                  f"— module {_present('plan_graph_dag')}.")
 
+    _h = report.get("health") or {}
+    if _h:
+        lines.append("")
+        lines.append("Memory health (measured): " + ", ".join(f"{k}={v}" for k, v in _h.items() if k != "ok")
+                     + f" — {'consistent' if _h.get('ok') else 'needs attention'}.")
     lines.append("")
     lines.append("Index/runtime detail (live):")
     lines.append(f"- FTS5 mirror tables detected: {', '.join(fts_tables) if fts_tables else 'none'}.")
@@ -8760,7 +8775,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         break
 
             if not location:
-                _msg = "I need a location. Try: 'What's the weather in Wexford?'"
+                _msg = "I need a location. Try: 'What's the weather in Paris?'"
                 return {"ok": False, "action": a, "error": "missing_location", "content": _msg, "response": _msg}
 
             # Network gate: weather is a live open-meteo call. Refuse honestly
@@ -15075,13 +15090,8 @@ try:
             return {"ok": False, "stdout": "", "stderr": repr(e), "returncode": -1}
 
     def _eli_self_read_json(path):
-        try:
-            p = _eli_self_Path(path)
-            if not p.exists():
-                return {}
-            return _eli_self_json.loads(p.read_text(encoding="utf-8"))
-        except Exception:
-            return {}
+        from eli.utils.jsonio import read_json_dict
+        return read_json_dict(_eli_self_Path(path))
 
     def _eli_self_split_lines(text, limit=12):
         lines = [x.rstrip() for x in str(text or "").splitlines() if x.strip()]

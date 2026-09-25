@@ -10,9 +10,9 @@ def test_session_travel_chat_skips_hedge():
     out = escalate(
         SimpleNamespace(_synthesize_answer=lambda *a, **k: "x"),
         user_input=(
-            "no dude, his family lives in wexford, he lives in galway, "
-            "i live in wexford too. i am driving from wexford to galway "
-            "to collect him and bring him back down to his family in wexford"
+            "no dude, his family lives in cork, he lives in limerick, "
+            "i live in cork too. i am driving from cork to limerick "
+            "to collect him and bring him back down to his family in cork"
         ),
         intent={"action": "CHAT"},
         bus_result=SimpleNamespace(grounding_confidence=0.26),

@@ -323,7 +323,7 @@ and ELI opens or reports the right thing.
 - "summarise report.pdf" · "analyse data.csv" · "watch my screen" / "stop watching"
 
 ### 🌐 Information
-- "what time is it?" · "what's the date?" · "weather in Wexford"
+- "what time is it?" · "what's the date?" · "weather in Paris"
 - "what's the news?" / "catch me up" → a **synthesised** briefing, not a raw dump
 - "search the web for X" (goes online — ELI tells you) · "gpu status" · "system stats"
 

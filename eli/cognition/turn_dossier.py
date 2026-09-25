@@ -216,7 +216,7 @@ def assemble_turn_dossier(
         )
         brief = (get_user_brief() or "").strip()
         if brief and not asks_about_stored_personal_context(dossier.query):
-            # Unrelated turns must not see "Currently focused on: collect Colin…"
+            # Unrelated turns must not see "Currently focused on: collect Sam…"
             # — that is what made ELI volunteer stale travel plans mid-argument.
             brief = strip_focus_lines_from_brief(brief)
         if brief:

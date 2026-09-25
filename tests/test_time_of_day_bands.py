@@ -1,6 +1,6 @@
 """The stated time bands and the actual ones must never drift apart.
 
-At 00:21 ELI opened with "Morning, Jason." It was not hallucinating: part_of_day()
+At 00:21 ELI opened with "Morning, Alex." It was not hallucinating: part_of_day()
 had only three bands, so `hour < 12` returned "morning" for every hour after
 midnight, and context_synthesiser handed that to the model as authoritative fact
 under "Do not guess the time or the part of day". The prose said the same thing.

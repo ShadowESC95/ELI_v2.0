@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 import sqlite3
 import time
@@ -79,10 +80,18 @@ def ensure_profile_tables(db_path: Path | None = None) -> None:
             fact TEXT,
             tags TEXT,
             confidence REAL DEFAULT 0.8,
-            created_at REAL
+            created_at REAL,
+            evidence_count INTEGER DEFAULT 1,
+            last_seen REAL,
+            evidence TEXT
         )
         """
     )
+    for _col, _decl in (("evidence_count", "INTEGER DEFAULT 1"), ("last_seen", "REAL"), ("evidence", "TEXT")):
+        try:
+            cur.execute(f"ALTER TABLE semantic ADD COLUMN {_col} {_decl}")
+        except sqlite3.OperationalError:
+            pass
 
     cur.execute(
         """
@@ -434,19 +443,19 @@ def _insert_user_pattern(
     ).fetchone()
 
     if exists:
-        # Reaffirmation refreshes recency, so "last active" is the latest mention: an active project
-        # stays fresh and an abandoned one ages out. It also corroborates, so a fact said twenty times
-        # isn't treated like one said once. Provenance only goes up, never down.
+        # Reaffirmation refreshes recency and corroborates once per day of use, not once per extraction
+        # pass (which counted one fact 19,219 times). Provenance only goes up.
         try:
             cur.execute(
                 """
                 UPDATE user_patterns
-                   SET timestamp = ?, ts = ?,
-                       corroboration = COALESCE(corroboration, 1) + 1
+                   SET corroboration = COALESCE(corroboration, 1)
+                         + (date(COALESCE(ts, 0), 'unixepoch', 'localtime') < date(?, 'unixepoch', 'localtime')),
+                       timestamp = ?, ts = ?
                 WHERE lower(COALESCE(pattern_type, '')) = lower(?)
                   AND lower(COALESCE(pattern_data, '')) = lower(?)
                 """,
-                (now, now, pattern_type, pattern_data),
+                (now, now, now, pattern_type, pattern_data),
             )
         except Exception:
             # Pre-migration database without the column — recency alone.
@@ -519,6 +528,21 @@ _SEMANTIC_PATTERN_PREFIXES = ("identity.", "preference.", "project.", "research.
 _SEMANTIC_PATTERN_EXCLUDE = ("preference.session",)
 
 
+_SAID_RE = re.compile(r'\s+Said:\s*"(.*?)"?\s*$', re.S)
+MAX_EVIDENCE_QUOTES = 5
+
+
+def split_evidence(fact: str) -> tuple[str, str]:
+    """('User prefers depth.', 'be more in depth') from 'User prefers depth. Said: "be more in depth"'."""
+    m = _SAID_RE.search(fact or "")
+    return ((fact[:m.start()].strip(), m.group(1).strip()) if m else ((fact or "").strip(), ""))
+
+
+def add_evidence(quotes_json: str | None, quote: str) -> str:
+    quotes = [q for q in json.loads(quotes_json or "[]") if q != quote]
+    return json.dumps(([*quotes, quote] if quote else quotes)[-MAX_EVIDENCE_QUOTES:], ensure_ascii=False)
+
+
 def _promote_to_semantic(
     cur: sqlite3.Cursor,
     pattern_type: str,
@@ -543,16 +567,20 @@ def _promote_to_semantic(
     try:
         if not _table_exists(cur, "semantic"):
             return False
-        already = cur.execute(
-            "SELECT 1 FROM semantic WHERE lower(COALESCE(fact,'')) = lower(?) LIMIT 1",
-            (fact,),
+        # One row per fact; each new utterance of it is evidence on that row, not a new fact.
+        label, quote = split_evidence(fact)
+        row = cur.execute(
+            "SELECT id, evidence FROM semantic WHERE lower(COALESCE(fact,'')) = lower(?) LIMIT 1", (label,),
         ).fetchone()
-        if already:
+        if row:
+            cur.execute("UPDATE semantic SET evidence_count = COALESCE(evidence_count, 1) + ?, last_seen = ?, evidence = ? "
+                        "WHERE id = ?", (1 if quote else 0, float(ts_value), add_evidence(row[1], quote), row[0]))
             return False
         cur.execute(
-            "INSERT INTO semantic (user_id, fact, tags, confidence, created_at) "
-            "VALUES (?, ?, ?, ?, ?)",
-            ("default", fact, f"semantic,user_fact,{ptype}", 0.8, float(ts_value)),
+            "INSERT INTO semantic (user_id, fact, tags, confidence, created_at, evidence_count, last_seen, evidence) "
+            "VALUES (?, ?, ?, ?, ?, 1, ?, ?)",
+            ("default", label, f"semantic,user_fact,{ptype}", 0.8, float(ts_value), float(ts_value),
+             add_evidence(None, quote)),
         )
         return True
     except Exception:

@@ -462,8 +462,9 @@ class ProactiveDaemon:
         try:
             from eli.runtime.user_model import read_user_model
             _um = read_user_model()
-            _goals = _um.get("goals") or []
-            if isinstance(_goals, list) and _goals:
+            from eli.onboarding.interview import NONCOMMITTAL_FOCUS
+            _goals = [g for g in (_um.get("goals") or []) if NONCOMMITTAL_FOCUS.lower() not in str(g).lower()]
+            if _goals:
                 patterns.append({"type": "user_goal",
                                  "suggestion": f"User goal to support: {_goals[0]}"})
         except Exception:

@@ -533,16 +533,7 @@ class DispatchResult:
         return "\n\n".join(p for p in parts if p.strip())
 
 
-def _confidence_label(score: float) -> str:
-    if score >= 0.88:
-        return "very high"
-    if score >= 0.72:
-        return "high"
-    if score >= 0.56:
-        return "moderate"
-    if score >= 0.38:
-        return "low"
-    return "very low"
+from eli.core.confidence import confidence_label as _confidence_label
 
 
 def _query_is_grounded(user_input: str, action: str) -> bool:
