@@ -45,7 +45,13 @@ def _eli_phase10_is_codebase_audit_request(text: str) -> bool:
         "executor_enhanced", "codebase", "code base", "repo", "repository",
     )
 
-    return any(a in s for a in audit_words) and any(c in s for c in code_words)
+    def _has(word: str) -> bool:
+        # "repo" must not match "report", "engine" must not match "engineer".
+        if re.fullmatch(r"[a-z0-9_ ]+", word):
+            return re.search(rf"\b{re.escape(word)}\b", s) is not None
+        return word in s
+
+    return any(_has(a) for a in audit_words) and any(_has(c) for c in code_words)
 
 
 
@@ -1997,7 +2003,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             need_grounding=True,
             task_family="grounded_audit",
         )
-    if _is_corr_q(low):
+    if _is_corr_q(low) and not _is_wallclock_question(low):
         return _mk("CHAT", {"message": raw}, 0.92, matched_by="router.correction_chat", allow_chat_without_evidence=True)
 
     if re.search(r"\b(who are you|what are you|what is your name|what's your name)\b", low) and re.search(

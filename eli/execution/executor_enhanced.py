@@ -3393,49 +3393,6 @@ def _mpv_socket_path() -> str:
     return _cp_sock()
 
 
-def _yt_player_clients() -> list:
-    """yt-dlp YouTube clients to try, in order.
-
-    A googlevideo "HTTP error 403 Forbidden" during playback does not mean the
-    video is unavailable — it means yt-dlp resolved a stream URL that is bound
-    to the client which requested it, and ffmpeg (inside mpv) cannot reproduce
-    that request. The live failure carried `c=ANDROID_VR`, whose URLs are tied
-    to the requesting client and reliably 403 when handed to another fetcher.
-
-    The empty string means "whatever yt-dlp picks by default" and it goes
-    FIRST, deliberately. Measured against live YouTube on yt-dlp 2026.03.17,
-    the default client resolved and fetched (HTTP 206) while web_safari, tv,
-    ios, mweb and web_embedded did not resolve at all — pinning a "preferred"
-    client would have broken working playback for everyone to chase an
-    intermittent failure. So the default path is never altered; the ladder is
-    only ever walked after a 403 has actually happened, and it lists the
-    clients that were observed to resolve.
-
-    Which clients work shifts as YouTube changes, so the order is overridable
-    with ELI_YT_PLAYER_CLIENTS (comma-separated) without touching code. A
-    stale yt-dlp is the other common cause and no client can compensate for
-    it, which is why the failure message says so.
-    """
-    raw = (os.environ.get("ELI_YT_PLAYER_CLIENTS") or "").strip()
-    if raw:
-        return [("" if c.strip().lower() == "default" else c.strip())
-                for c in raw.split(",") if c.strip()]
-    return ["android", "tv", "ios", "mweb", ""]
-
-
-def _yt_is_client_bound_failure(stderr_tail: str) -> bool:
-    """True when the failure is the kind a different client can fix.
-
-    A 403 is worth retrying with another client. "Video unavailable", a
-    geo-block or an empty search result are not — retrying those just burns
-    seconds before the browser fallback the user was always going to get.
-    """
-    low = str(stderr_tail or "").lower()
-    if "empty playlist" in low or "unavailable" in low or "private video" in low:
-        return False
-    return "403" in low or "forbidden" in low
-
-
 def _mpv_alive() -> bool:
     from eli.integrations.media.cross_platform import mpv_alive as _cp_alive
     p = _MEDIA_STATE.get("mpv_sock") or _mpv_socket_path()
@@ -3450,22 +3407,10 @@ def _mpv_ipc(command: list, *, want_response: bool = False):
     return mpv_ipc_send(command, sock_path=p, want_response=want_response)
 
 
-def _mpv_numeric(val: Any) -> bool:
-    """True for real mpv numbers — bool must not count (bool is a int subclass)."""
-    return isinstance(val, (int, float)) and not isinstance(val, bool)
-
-
 def _mpv_load_confirmed(sock_path: str) -> bool:
     """True once mpv has actually opened a stream (not merely spawned)."""
-    from eli.integrations.media.cross_platform import mpv_ipc_send
-    idle = mpv_ipc_send(["get_property", "idle-active"], sock_path=sock_path, want_response=True)
-    if idle is True:
-        return False
-    dur = mpv_ipc_send(["get_property", "duration"], sock_path=sock_path, want_response=True)
-    if _mpv_numeric(dur):
-        return True
-    pos = mpv_ipc_send(["get_property", "time-pos"], sock_path=sock_path, want_response=True)
-    return _mpv_numeric(pos)
+    from eli.integrations.media.youtube_playback import mpv_load_confirmed
+    return mpv_load_confirmed(sock_path)
 
 
 def _prune_mpv_logs(keep: int = 5) -> None:

@@ -108,7 +108,7 @@ def test_gather_multiplier_scales_memory_counts():
     from eli.cognition.agent_bus import BusMemoryAgent
     class _FM:
         db_path = "/tmp/x.sqlite3"
-        def recall_memory(self, q, limit=8): return [{"id": str(i), "text": f"fact {i} research"} for i in range(limit)]
+        def recall_memory(self, q, limit=8, **_kw): return [{"id": str(i), "text": f"fact {i} research"} for i in range(limit)]
         def search_conversations(self, q, user_id=None, limit=5): return []
         def get_recent_conversation(self, limit=6, user_id=None): return []
         def get_session_summaries(self, user_id=None, limit=3): return []

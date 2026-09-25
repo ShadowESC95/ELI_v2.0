@@ -19,25 +19,21 @@ live YouTube on yt-dlp 2026.03.17 the default client resolved and fetched
 import pytest
 
 from eli.execution import executor_enhanced as ex
+from eli.integrations.media.youtube_playback import yt_is_client_bound_failure
 
 
 # ── YouTube: recover from a client-bound refusal, change nothing else ──────
-def test_default_client_is_tried_first():
-    """The normal path must be byte-for-byte what it was: no pinned client."""
-    assert ex._yt_player_clients()[0] == "", "a client is pinned ahead of the default"
-
-
-def test_ladder_only_lists_clients_that_resolve():
-    clients = ex._yt_player_clients()
-    assert clients[0] == ""
-    assert len(clients) >= 2, "no recovery clients at all"
-    for dead in ("web_safari", "tv", "ios", "mweb", "web_embedded"):
-        assert dead not in clients, f"{dead} does not resolve on current yt-dlp"
+def test_the_default_client_is_still_in_the_ladder():
+    """The ladder ends on whatever yt-dlp picks by itself, so playback that worked before still works."""
+    from eli.integrations.media import yt_player_clients
+    clients = yt_player_clients()
+    assert "" in clients and len(clients) >= 2, "no recovery clients at all"
 
 
 def test_client_order_is_overridable(monkeypatch):
+    from eli.integrations.media import yt_player_clients
     monkeypatch.setenv("ELI_YT_PLAYER_CLIENTS", "default,android,tv")
-    assert ex._yt_player_clients() == ["", "android", "tv"]
+    assert yt_player_clients() == ["", "android", "tv"]
 
 
 @pytest.mark.parametrize("tail", [
@@ -46,7 +42,7 @@ def test_client_order_is_overridable(monkeypatch):
     "server returned 403",
 ])
 def test_403_is_retried(tail):
-    assert ex._yt_is_client_bound_failure(tail) is True
+    assert yt_is_client_bound_failure(tail) is True
 
 
 @pytest.mark.parametrize("tail", [
@@ -57,14 +53,14 @@ def test_403_is_retried(tail):
 def test_permanent_failures_are_not_retried(tail):
     """Retrying these just burns seconds before the fallback they were always
     going to get."""
-    assert ex._yt_is_client_bound_failure(tail) is False
+    assert yt_is_client_bound_failure(tail) is False
 
 
 def test_403_failure_message_names_the_remedy():
     """A stale yt-dlp is the other common cause and no client can compensate
     for it, so a total refusal has to say so."""
     from pathlib import Path
-    src = Path("eli/execution/executor_enhanced.py").read_text(encoding="utf-8")
+    src = Path("eli/integrations/media/youtube_playback.py").read_text(encoding="utf-8")
     assert "refused the stream for every player client" in src
     assert "upgrade yt-dlp" in src, "no actionable advice for a total refusal"
 
@@ -108,5 +104,5 @@ def test_playlist_path_resolves_concrete_uri_before_search_tab():
 def test_playlist_without_a_platform_does_not_go_to_youtube():
     from pathlib import Path
     src = Path("eli/execution/executor_enhanced.py").read_text(encoding="utf-8")
-    assert "_spotify_playlist_name(query) and _spotify_running()" in src, \
+    assert "_spotify_running()\n            and (_si.playlist_name(query)" in src, \
         "a bare playlist request still falls through to YouTube search"

@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any, Dict, List, Tuple
 
+from eli.runtime.self_maintenance_config import DEFAULT_ANALYSIS_DAYS
 from eli.utils.log import get_logger
 
 log = get_logger(__name__)
@@ -230,6 +231,7 @@ def maintenance_help_short() -> str:
         "  self fix       — deterministic + LLM patches (guarded apply)\n"
         "  self upgrade   — install update\n"
         "  examine <file> — tiered code scan; confirm to patch named files only\n"
+        f"Analysis window: {DEFAULT_ANALYSIS_DAYS} days.\n"
         'Say "repair playbook" for the full advanced guide.'
     )
 

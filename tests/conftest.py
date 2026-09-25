@@ -109,6 +109,27 @@ def force_persistence_gate():
         yield
 
 
+# Production code writes ELI_* variables straight into os.environ (save_settings pins ELI_MODEL_PATH, for
+# one), which monkeypatch cannot see, so they outlived the test that caused them and skewed later ones.
+@pytest.fixture(autouse=True, scope="function")
+def restore_eli_environment():
+    before = {k: v for k, v in os.environ.items() if k.startswith("ELI_")}
+    yield
+    for k in [k for k in os.environ if k.startswith("ELI_") and k not in before]:
+        os.environ.pop(k, None)
+    for k, v in before.items():
+        if os.environ.get(k) != v:
+            os.environ[k] = v
+    # Path resolvers are lru_cached; a test that pointed them at a temp tree must not decide for the next one.
+    try:
+        from eli.core import paths as _paths
+        for _fn in vars(_paths).values():
+            if hasattr(_fn, "cache_clear"):
+                _fn.cache_clear()
+    except Exception:
+        pass
+
+
 # gguf_inference keeps the loaded model in module globals; a test that runs the real
 # load_model() leaves a Mock there for the whole session. Reset it after every test.
 @pytest.fixture(autouse=True, scope="function")

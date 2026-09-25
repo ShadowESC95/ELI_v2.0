@@ -20,7 +20,7 @@ class _FakeMem:
     db_path = "/tmp/x.sqlite3"
     def __init__(self):
         self.calls = []
-    def recall_memory(self, q, limit=8):
+    def recall_memory(self, q, limit=8, **_kw):
         self.calls.append(q)
         if len(self.calls) == 1:
             return [{"id": "1", "text": "User researches quantum gravity simulations"}]

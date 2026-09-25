@@ -153,3 +153,12 @@ def test_question_rx_distinguishes_asking_from_requesting():
     assert _QUESTION_RX.search("what is on tonight?")
     assert not _QUESTION_RX.search("can you open spotify at 8pm?")
     assert not _QUESTION_RX.search("could you get the news at 7am?")
+
+
+def test_a_report_is_not_a_repo():
+    """'repo' matched inside 'report', so 'broken ... morning report' was routed as a codebase audit."""
+    from eli.execution.router_enhanced import _eli_phase10_is_codebase_audit_request as audit
+    assert not audit("it is broken now anyway. What's the morning report?")
+    assert not audit("is the engineer around, status please")
+    assert audit("audit the repo for missing imports")
+    assert audit("check the router.py for what is wrong")

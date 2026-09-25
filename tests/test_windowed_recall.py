@@ -87,3 +87,20 @@ def test_the_search_reports_what_the_window_did(engine):
     diag = memory_diag.retrieval_record(len(kw), len(sem), 0, len(kw) + len(sem), None, window=tr.window_stats)
     assert "time-bounded to" in memory_diag.block(diag)
     assert "time-bounded to" in memory_diag.explanation(diag)
+
+
+def test_a_deeper_pass_is_not_served_the_shallower_cached_result(engine):
+    """The deepening loop asks the same question with larger limits; a cache keyed on the text alone replayed the first answer."""
+    from eli.memory.retrieval import invalidate_turn_cache, retrieve_for_turn
+    invalidate_turn_cache()
+
+    class _Mem:
+        def recall_memory(self, q, limit=10, **kw):
+            return [{"id": str(i), "text": f"row {i}"} for i in range(limit)]
+        def search_conversations(self, *a, **k): return []
+        def get_recent_conversation(self, *a, **k): return []
+        def get_session_summaries(self, *a, **k): return []
+
+    shallow = retrieve_for_turn(_Mem(), "same question", session_id="s", semantic_limit=4, rerank=False, enable_hop2=False)
+    deep = retrieve_for_turn(_Mem(), "same question", session_id="s", semantic_limit=12, rerank=False, enable_hop2=False)
+    assert len(shallow.semantic_hits) == 4 and len(deep.semantic_hits) == 12

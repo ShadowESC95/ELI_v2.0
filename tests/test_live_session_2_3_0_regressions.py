@@ -179,7 +179,7 @@ def test_the_persona_cap_reuses_the_existing_trimmer():
     import inspect
     from eli.kernel.engine import CognitiveEngine
     src = inspect.getsource(CognitiveEngine._build_persona_handoff_once)
-    assert "_cap_text(brief, self._persona_handoff_budget()" in src
+    assert "self._cap_text(brief, _persona_budget," in src
 
 
 # ── 7. a greeting turn disarmed the repeat guard for the whole reply ──────

@@ -39,7 +39,7 @@ class _Broker:
     def __init__(self):
         self.calls = 0
 
-    def infer(self, prompt, system="", max_tokens=0, temperature=0.0):
+    def infer(self, prompt, system="", max_tokens=0, temperature=0.0, background=False):
         self.calls += 1
         return SUMMARY
 

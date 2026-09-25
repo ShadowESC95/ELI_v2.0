@@ -64,8 +64,11 @@ def test_a_missing_or_corrupt_manifest_is_not_a_match(tmp_path):
 
 # ── capability_inventory.generated.json ─────────────────────────────────────
 @pytest.fixture
-def sync(tmp_path):
+def sync(tmp_path, monkeypatch):
     from eli.runtime.capability_sync import CapabilitySync
+    state = tmp_path / "state"
+    state.mkdir()
+    monkeypatch.setattr(CapabilitySync, "_state_dir", lambda self: state)   # never the real artifacts tree
     return CapabilitySync(repo_root=tmp_path)
 
 

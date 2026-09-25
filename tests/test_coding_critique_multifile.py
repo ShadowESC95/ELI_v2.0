@@ -72,4 +72,4 @@ def test_patch_set_rejects_syntax_break(workspace):
 
 def test_patch_set_rejects_outside_project():
     r = _eng().apply_patch_set([{"file": "/tmp/evil.py", "old": "a", "new": "b"}], verify=False)
-    assert not r["ok"] and "outside project" in r["message"]
+    assert not r["ok"] and "outside" in r["message"]

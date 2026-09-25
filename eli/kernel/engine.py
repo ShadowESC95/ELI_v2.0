@@ -12826,13 +12826,14 @@ Answer:"""
                                 evidence=_synth_evidence,
                                 action=_action_upper,
                                 mode=_direct_mode,
+                                memory_context=bus_memory_context,
                             )
                             _synth_rejected = []
                             if _compact_synth and _compact_synth.strip():
                                 try:
                                     from eli.cognition.output_governor import validate_against_evidence
                                     _verdict = validate_against_evidence(
-                                        _compact_synth, f"{_synth_evidence}\n{_direct_content}",
+                                        _compact_synth, f"{_synth_evidence}\n{_direct_content}\n{bus_memory_context or ''}",
                                         mode="strip_silent")
                                     if _verdict.get("unsafe"):
                                         _synth_rejected = sorted({
@@ -15595,8 +15596,15 @@ Answer:"""
             extra = extra[:cap].rstrip() + "\n[...structured evidence truncated...]"
         return f"{base}\n\n{extra}" if base else extra
 
+    # Actions whose answer is about the user, so the memory retrieved for the turn is evidence too. Runtime and audit
+    # answers are kept off this list on purpose: their compact prompts stay small to avoid overflowing n_ctx.
+    _MEMORY_EVIDENCE_ACTIONS = frozenset({
+        "PERSONAL_MEMORY_SUMMARY", "PERSONAL_MEMORY_DEEP_EXPLAIN", "USER_IDENTITY_SUMMARY", "MEMORY_RECALL",
+    })
+    _MEMORY_EVIDENCE_CHARS = 3500
+
     def _compact_grounded_synthesis(self, user_input: str, evidence: str,
-                                     action: str, mode: str) -> str:
+                                     action: str, mode: str, memory_context: str = "") -> str:
         """Single direct GGUF call on a minimal evidence-only prompt.
 
         Used for non-Quick grounded control actions (RUNTIME_STATUS,
@@ -15659,6 +15667,17 @@ Answer:"""
         if len(ev) > _ev_cap:
             ev = ev[:_ev_cap].rstrip() + "\n[...evidence truncated for length...]"
 
+        # A personal-memory question is answered from the retrieved memory as well as the executor payload; without
+        # it the model, bound to its evidence, truthfully reported knowing almost nothing about a user it had 10k
+        # characters of recall on.
+        _mem_block = ""
+        _mem = str(memory_context or "").strip()
+        if _mem and str(action or "").upper() in self._MEMORY_EVIDENCE_ACTIONS:
+            _mem_block = (
+                "RETRIEVED MEMORY (verified rows from the user's own stored memory; evidence about the USER):\n"
+                + _mem[: self._MEMORY_EVIDENCE_CHARS].rstrip() + "\n\n"
+            )
+
         # Compact voice primer so grounded answers still sound like ELI (dry, nerdy, first-person),
         # not a data terminal, without the full 8k persona that overflowed n_ctx. Character lives in
         # the phrasing only, the EXACT FACTS contract above binds every fact to the evidence. Taken from
@@ -15689,7 +15708,8 @@ Answer:"""
             "name, and capability in your answer MUST be quoted exactly from the evidence "
             "— never invent, alter, round, add, or drop one (no phantom files, no "
             "miscounts). If a fact isn't in the evidence, don't state it. "
-            "Write a clear natural-language answer in your own voice — synthesise the "
+            + ("Facts about the user may also come from the RETRIEVED MEMORY block. " if _mem_block else "")
+            + "Write a clear natural-language answer in your own voice — synthesise the "
             "evidence into a real explanation, do NOT paste the raw report back. "
             "When describing your own pipeline, architecture, agents, or behavior, "
             "speak in first person (I, my, I use, I run — not 'ELI does' or 'ELI uses'). "
@@ -15702,6 +15722,7 @@ Answer:"""
         prompt = (
             f"GROUNDED EVIDENCE (the truth — answer ONLY from this):\n"
             f"{ev}\n\n"
+            f"{_mem_block}"
             f"USER QUESTION:\n{user_input}\n\n"
             f"MODE INSTRUCTION ({mode}):\n{mode_voice}\n\n"
             f"YOUR ANSWER (natural language, evidence-only, no preamble):"

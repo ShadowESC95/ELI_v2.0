@@ -48,7 +48,7 @@ def test_snapshot_one_read_all_keys():
 
 class _FM:
     db_path = "/tmp/x.sqlite3"
-    def recall_memory(self, q, limit=8):
+    def recall_memory(self, q, limit=8, **_kw):
         return [{"id": str(i), "text": f"fact {i} about research"} for i in range(limit)]
     def search_conversations(self, q, user_id=None, limit=5): return []
     def get_recent_conversation(self, limit=6, user_id=None): return []
@@ -58,10 +58,13 @@ class _FM:
 @pytest.mark.parametrize("val", [6, 19])
 def test_memory_agent_honours_live_tunable(val):
     from eli.cognition.agent_bus import BusMemoryAgent
+    from eli.memory.retrieval import invalidate_turn_cache
+    invalidate_turn_cache()   # the per-turn cache would replay the previous parametrisation
     C.set("cog.mem_semantic_recall", val)
     C.set("cog.mem_semantic_shown", val)
     try:
-        with patch("eli.memory.get_memory", return_value=_FM()):
+        with patch("eli.memory.get_memory", return_value=_FM()), \
+                patch("eli.core.model_tier.tier_scale", return_value=1.0):
             r = BusMemoryAgent().run(
                 "tell me everything about my research and projects in depth",
                 {"action": "CHAT"}, "s", "u")

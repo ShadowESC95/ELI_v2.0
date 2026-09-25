@@ -97,7 +97,7 @@ def _yt_env(monkeypatch):
     monkeypatch.setattr(ex, "_set_now_playing", lambda *a, **k: None)
     monkeypatch.setattr(ex, "_mpv_ipc", lambda *a, **k: None)
     opened: list[str] = []
-    monkeypatch.setattr(ex, "_open_in_browser", lambda url: opened.append(url))
+    monkeypatch.setattr(ex, "_open_in_browser", lambda url: opened.append(url) or True)
     monkeypatch.setattr(ex, "_yt_resolve_watch_url", lambda q: "https://youtu.be/stub")
     monkeypatch.setattr(ex, "_yt_mix_url", lambda u: u)
     monkeypatch.setenv("ELI_YT_VERIFY_SECONDS", "0.3")   # keep the test fast
@@ -142,7 +142,7 @@ def test_confirmed_load_is_reported_as_playing(monkeypatch, _yt_env):
     demuxer opened the stream. That, not mere liveness, is what licenses "Playing".
     """
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: _FakeProc(rc=None))
-    monkeypatch.setattr(ex, "_mpv_load_confirmed", lambda _sock: True)
+    monkeypatch.setattr("eli.integrations.media.youtube_playback.mpv_load_confirmed", lambda _sock: True)
 
     result = ex.play_specific("some track", target="youtube")
 
@@ -155,7 +155,7 @@ def test_alive_but_unloaded_mpv_is_not_claimed_as_playing(monkeypatch, _yt_env):
     seconds before it exits. Liveness alone would report that as playing — the original
     defect in slower clothing. Nothing loaded means nothing is claimed."""
     monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: _FakeProc(rc=None))
-    monkeypatch.setattr(ex, "_mpv_load_confirmed", lambda _sock: False)
+    monkeypatch.setattr("eli.integrations.media.youtube_playback.mpv_load_confirmed", lambda _sock: False)
 
     result = ex.play_specific("some track", target="youtube")
 

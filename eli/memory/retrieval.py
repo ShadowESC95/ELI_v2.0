@@ -72,7 +72,10 @@ def retrieve_for_turn(
     """Retrieve, optionally deepen, rerank, and dedupe memory evidence for one turn."""
     t0 = time.perf_counter()
     q = (query or "").strip()
-    cache_key = f"{session_id}:{user_id}:{q.lower()[:240]}:{window}"
+    # Every limit is part of the key: the deepening loop repeats the same query with larger limits,
+    # and must not be handed the shallower result it just had.
+    cache_key = (f"{session_id}:{user_id}:{q.lower()[:240]}:{window}:"
+                 f"{semantic_limit}:{conv_limit}:{recent_limit}:{summary_limit}:{hop2_limit}:{merge_cap}:{verified_only}")
     if use_cache:
         cached = _cache_get(cache_key)
         if cached is not None:

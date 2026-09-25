@@ -52,7 +52,7 @@ def test_deterministic_patch_for_missing_document_topic():
     )
     # After the executor fix is applied, the patch may already be present (returns None).
     # Before apply, it should propose the alias expansion.
-    if patch:
+    if patch and not patch.get("already_applied"):
         assert patch.get("ok") is True
         assert "name" in patch.get("new", "")
         assert patch.get("file") == "eli/execution/executor_enhanced.py"
