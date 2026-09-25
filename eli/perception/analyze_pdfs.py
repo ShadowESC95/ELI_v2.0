@@ -173,29 +173,18 @@ def store_analysis_to_memory(db_path: str | Path, analysis: PDFAnalysis, *,
                              kind_prefix: str = "pdf",
                              tags: Optional[List[str]] = None,
                              meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """
-    Store PDF analysis into the ELI memory DB (entries table).
-    Requires _eli_path_get(brain, "memory_db").MemoryDB.
-    """
-    from eli.memory.habits_memory_db import MemoryDB  # absolute import — tools/analysis has no local memory_db
+    """Store a PDF's preview and text chunks as memories in the database at `db_path`."""
+    from eli.memory.memory import Memory
 
-    tags = tags or []
-    meta = meta or {}
-    meta = dict(meta)
-    meta.update({"pdf": asdict(analysis.doc)})
-
-    db = MemoryDB(db_path)
+    tags = list(tags or []) + ["pdf"]
+    meta = {**(meta or {}), "pdf": asdict(analysis.doc)}
+    mem = Memory(db_path=db_path)
     doc_id = analysis.doc.sha1[:12]
     base_kind = f"{kind_prefix}:{doc_id}"
-
-    # store a summary entry
-    db.add_entry(kind=base_kind, role="system",
-                 content=f"PDF {analysis.doc.path}\nPages read: {analysis.doc.pages}\nChars: {analysis.doc.chars}\n\nPreview:\n{analysis.preview}",
-                 tags=tags + ["pdf", "preview"], meta=meta)
-
-    # store chunks
+    mem.store_memory(
+        f"PDF {analysis.doc.path}\nPages read: {analysis.doc.pages}\nChars: {analysis.doc.chars}\n\nPreview:\n{analysis.preview}",
+        tags=tags + ["preview"], source="tool", kind=base_kind, metadata=meta)
     for idx, ch in enumerate(analysis.chunks):
-        db.add_entry(kind=f"{base_kind}:chunk:{idx+1}", role="system", content=ch,
-                     tags=tags + ["pdf", "chunk"], meta=meta)
+        mem.store_memory(ch, tags=tags + ["chunk"], source="tool", kind=f"{base_kind}:chunk:{idx + 1}", metadata=meta)
 
     return {"ok": True, "doc_id": doc_id, "chunks": len(analysis.chunks)}

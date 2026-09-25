@@ -38,7 +38,7 @@ def _goal_to_proposal(goal) -> Dict[str, Any]:
 
 def _emit_governed_proposal(proposal: Dict[str, Any]) -> Dict[str, Any]:
     try:
-        from eli.runtime import proposal_queue as pq
+        from eli.planning import proposal_queue as pq
     except Exception as exc:
         return {"ok": False, "error": f"proposal_queue import failed: {exc}", "proposal": proposal}
 

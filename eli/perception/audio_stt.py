@@ -853,9 +853,9 @@ def stt_diagnostics() -> dict:
     except Exception as exc:
         out["whisper"] = {"error": repr(exc)}
     try:
-        from eli.perception.wakeword import is_trained, primary_wake_word
+        from eli.perception.wakeword import get_wake_phrases, is_trained
         out["wake_model_trained"] = is_trained()
-        out["wake_phrase"] = primary_wake_word()
+        out["wake_phrase"] = (get_wake_phrases() or [""])[0]
     except Exception as exc:
         out["wake_model_trained"] = False
         out["wake_phrase_error"] = repr(exc)

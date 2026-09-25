@@ -68,12 +68,8 @@ _GUARD_NOISE = {"CRITICAL", "IMPORTANT", "NOTE", "WARNING"}
 def guards(root: Path) -> Set[str]:
     """Named rule bullets in whichever module carries the prompt rule block."""
     found: Set[str] = set()
-    for rel in ("eli/kernel/engine.py",
-                "eli/kernel/stages/prompt_rules.py",
-                "eli/kernel/stages/prompt_assembly.py"):
-        f = root / rel
-        if not f.is_file():
-            continue
+    files = sorted((root / "eli" / "kernel").rglob("*.py")) if (root / "eli" / "kernel").is_dir() else []
+    for f in files:
         for name in _GUARD.findall(f.read_text(encoding="utf-8", errors="replace")):
             name = name.strip()
             if name not in _GUARD_NOISE:
