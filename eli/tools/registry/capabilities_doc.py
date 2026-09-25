@@ -219,6 +219,7 @@ _add("Grounded introspection", "SELF_REPORT", "What ELI has recently done/worked
 # ── Memory & profile ────────────────────────────────────────────────────────
 _add("Memory & profile", "MEMORY_STORE", "Store a durable fact", "“remember that my sister's name is Anna”")
 _add("Memory & profile", "MEMORY_RECALL", "Recall stored facts", "“what do you remember about my car”")
+_add("Memory & profile", "MEMORY_FORGET", "Delete matching memories and everything derived from them, after confirmation", "“forget that my locker is 212”")
 _add("Memory & profile", "PERSONAL_MEMORY_SUMMARY", "Summary of what ELI knows about you", "“what do you know about me”")
 _add("Memory & profile", "PERSONAL_MEMORY_DEEP_EXPLAIN", "Deep, sourced profile explanation", "“explain everything you know about me and where it's stored”")
 _add("Memory & profile", "USER_IDENTITY_SUMMARY", "Who the user is", "“who am I”")

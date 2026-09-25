@@ -601,3 +601,79 @@ def status_evidence(question: str = "", *, db_path: Optional[str | Path] = None)
         "recent_artifacts": artifact_snapshot(artifact_kind, limit=12),
         "runtime_events_db": str(Path(db_path).expanduser().resolve() if db_path else _default_db_path()),
     }
+
+_MIN_HISTORY = 3
+
+
+def action_reliability(action: str, *, days: float = 30.0, half_life_days: float = 7.0,
+                       db_path: Optional[str | Path] = None) -> Dict[str, Any]:
+    """Recency-weighted success rate of an action from its tool_execution events (Beta(1,1) prior)."""
+    now = time.time()
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT COALESCE(ts, timestamp, 0), outcome FROM runtime_events WHERE event_type = 'tool_execution' "
+            "AND action = ? AND COALESCE(ts, timestamp, 0) >= ?", (str(action or "").upper(), now - float(days) * 86400.0)
+        ).fetchall()
+    finally:
+        conn.close()
+    ws = wf = 0.0
+    for ts, outcome in rows:
+        w = 0.5 ** (max(0.0, now - float(ts or 0)) / 86400.0 / float(half_life_days))
+        if outcome == "ok":
+            ws += w
+        else:
+            wf += w
+    return {"action": str(action or "").upper(), "n": len(rows), "p": (ws + 1.0) / (ws + wf + 2.0)}
+
+
+def predict_success(action: str, *, db_path: Optional[str | Path] = None) -> Optional[float]:
+    """Chance the next run succeeds, or None when there is too little history to say."""
+    try:
+        r = action_reliability(action, db_path=db_path)
+    except Exception:
+        return None
+    return round(r["p"], 4) if r["n"] >= _MIN_HISTORY else None
+
+
+def unreliable_actions(*, min_runs: int = 5, below: float = 0.8, limit: int = 5,
+                       db_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
+    since = time.time() - 30 * 86400.0
+    conn = _connect(db_path)
+    try:
+        names = [r[0] for r in conn.execute(
+            "SELECT action FROM runtime_events WHERE event_type = 'tool_execution' AND COALESCE(ts, timestamp, 0) >= ? "
+            "GROUP BY action HAVING COUNT(*) >= ?", (since, int(min_runs))).fetchall()]
+    finally:
+        conn.close()
+    out = [r for r in (action_reliability(n, db_path=db_path) for n in names if n) if r["p"] < below]
+    return sorted(out, key=lambda r: r["p"])[:limit]
+
+
+def calibration_report(*, days: float = 90.0, db_path: Optional[str | Path] = None) -> Dict[str, Any]:
+    """How good the success predictions were: Brier score and predicted-versus-observed by band."""
+    since = time.time() - float(days) * 86400.0
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT payload_json, outcome FROM runtime_events WHERE event_type = 'tool_execution' "
+            "AND COALESCE(ts, timestamp, 0) >= ? AND payload_json LIKE '%\"predicted\"%'", (since,)).fetchall()
+    finally:
+        conn.close()
+    pairs = []
+    for payload, outcome in rows:
+        try:
+            pairs.append((float(json.loads(payload)["predicted"]), 1.0 if outcome == "ok" else 0.0))
+        except Exception:
+            continue
+    if not pairs:
+        return {"n": 0, "brier": None, "bands": []}
+    bands = []
+    for lo, hi in ((0.0, 0.5), (0.5, 0.8), (0.8, 0.95), (0.95, 1.01)):
+        sel = [(p, y) for p, y in pairs if lo <= p < hi]
+        if sel:
+            bands.append({"range": f"{lo:.2f}-{min(hi, 1.0):.2f}", "n": len(sel),
+                          "predicted": round(sum(p for p, _ in sel) / len(sel), 3),
+                          "observed": round(sum(y for _, y in sel) / len(sel), 3)})
+    return {"n": len(pairs), "brier": round(sum((p - y) ** 2 for p, y in pairs) / len(pairs), 4), "bands": bands}
+

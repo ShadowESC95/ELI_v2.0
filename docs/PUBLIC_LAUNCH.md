@@ -46,7 +46,7 @@ chmod +x ELI_Setup.sh && ./ELI_Setup.sh
 
 ## Hacker News / Reddit one-liner
 
-> **ELI v2.4.6.** Local-first AI assistant (~192k LOC, 227 capabilities, GGUF, PySide6 GUI, offline-by-default). Thread-aware web grounding, honest model identity, phatic fast path. https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.12
+> **ELI v2.4.6.** Local-first AI assistant (~192k LOC, 228 capabilities, GGUF, PySide6 GUI, offline-by-default). Thread-aware web grounding, honest model identity, phatic fast path. https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.12
 
 ## What to say it is
 

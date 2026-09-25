@@ -84,3 +84,40 @@ def test_finished_actions_give_active_lessons_a_check(tmp_path, monkeypatch):
     lessons.observe_action("OPEN_APP", False)
     row = sqlite3.connect(db).execute("select checks, helped from lessons where id = ?", (lid,)).fetchone()
     assert row == (1, 1)
+
+
+def test_a_lesson_no_better_than_the_baseline_is_retired(conn):
+    lid = lessons.propose("SCREENSHOT", "t2", ["e"], "check", now=1000.0, conn=conn, baseline=(0.9, 20))
+    for i, ok in enumerate([True, True, False, True]):
+        status = lessons.record_outcome(lid, ok, now=2000.0 + i, conn=conn)
+    assert status == "retired" and "no better than before" in conn.execute("select retired_reason from lessons").fetchone()[0]
+
+
+def test_a_lesson_that_beats_its_baseline_survives(conn):
+    lid = lessons.propose("SCREENSHOT", "t3", ["e"], "check", now=1000.0, conn=conn, baseline=(0.3, 12))
+    for i in range(4):
+        status = lessons.record_outcome(lid, True, now=2000.0 + i, conn=conn)
+    assert status == "active"
+
+
+def test_a_scoped_lesson_applies_only_where_it_was_learned(conn):
+    lessons.propose("OPEN_APP", "t4", ["e"], "check the path exists", now=1000.0, conn=conn, scope=["path"])
+    assert lessons.applicable("OPEN_APP", args={"path": "/x"}, now=1500.0, conn=conn)
+    assert not lessons.applicable("OPEN_APP", args={"name": "code"}, now=1500.0, conn=conn)
+
+
+def test_the_scope_is_the_argument_only_the_failures_share(tmp_path, monkeypatch):
+    from eli.runtime import evidence_ledger as led
+    db = tmp_path / "ledger.sqlite3"
+    monkeypatch.setattr(led, "_default_db_path", lambda: db)
+    for i in range(5):
+        led.record_event("executor_action", action="OPEN_APP", subject=f"f{i}", payload={"args": {"path": f"/mnt/x{i}"}}, outcome="failed", db_path=db, timestamp=1000.0 + i * 20)
+        led.record_event("executor_action", action="OPEN_APP", subject=f"o{i}", payload={"args": {"name": f"app{i}"}}, outcome="ok", db_path=db, timestamp=1500.0 + i * 20)
+    assert lessons.scope_from_history("OPEN_APP", days=10 ** 6) == ["path"]
+
+
+def test_a_lesson_is_checked_on_sibling_actions_too(conn):
+    lid = lessons.propose("SCREENSHOT", "t5", ["e"], "check display", now=1000.0, conn=conn, siblings=["SCREEN_READ_ANALYZE"])
+    for ok in (True, True, True):
+        lessons._record_transfer("SCREEN_READ_ANALYZE", ok, conn=conn)
+    assert lessons.transfers(lid, conn=conn) is True

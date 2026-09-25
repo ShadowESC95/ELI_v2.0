@@ -1,4 +1,4 @@
-> **Updated for v2.4.69.** Gradient orchestrator for all CHAT modes; shared
+> **Updated for v2.4.70.** Gradient orchestrator for all CHAT modes; shared
 > `memory/retrieval.py`; canonical S01–S12 via `pipeline_trace.py`.
 
 # ELI Capability Catalogue — every action & module, what it actually does
@@ -8,8 +8,8 @@
 > conversational summaries of a 193,503-line project (`eli/`, measured 2026-09-25) keep undershooting; this is the
 > persisted, exhaustive map.
 >
-> **Method.** Action list comes from the live `capability_manifest.json` (**227**
-> entries; 186 routable, 205 in the executor's supported list, 210 in either),
+> **Method.** Action list comes from the live `capability_manifest.json` (**228**
+> entries; 187 routable, 206 in the executor's supported list, 211 in either),
 > verified against the `executor_enhanced.py` dispatch. **The always-current,
 > auto-generated action list with activation phrases is
 > `capabilities_and_actions.md`** — this catalogue is the deeper module-level read.
@@ -21,9 +21,9 @@
 
 ---
 
-## Headline finding: 227 is real but aliased
+## Headline finding: 228 is real but aliased
 
-The manifest's 227 entries are honest (*measured* by `capability_sync`, not asserted)
+The manifest's 228 entries are honest (*measured* by `capability_sync`, not asserted)
 but inflated by **alias families** — multiple action names routing to one
 behaviour. Collapsed, there are roughly **~110 distinct capabilities**. Alias
 families are grouped below so the real surface is visible.
@@ -232,7 +232,7 @@ layer that wraps the probabilistic model. Grouped by function:
 ## Self-improvement & code-awareness
 | Module | LOC | Role |
 |---|---|---|
-| `self_improvement.py` | 1512 | Failure logging/clustering, patch generate→verify→apply→**auto-revert**, full patch cycle, plugin-stub gen. |
+| `self_improvement.py` | 1736 | Failure logging/clustering, patch generate→verify→apply→**auto-revert**, full patch cycle, plugin-stub gen. |
 | `code_examiner.py` | 910 | Tiered file error scan (syntax/import → lint → gated LLM) → offer → verified fix. |
 | `code_monitor.py` | 261 | Detects source changes via git diff, classifies by subsystem, summarises for memory/context (ELI is aware of its own code changes). |
 | `capability_sync.py` | 419 | **AST-discovers** the live capability surface, diffs, writes `capability_manifest.json` — this is why the count is *measured*, not asserted. |
@@ -247,7 +247,7 @@ layer that wraps the probabilistic model. Grouped by function:
 ## Awareness & boot
 | Module | LOC | Role |
 |---|---|---|
-| `awareness_boot.py` | 327 | Boots all awareness subsystems at startup, returns an `AwarenessState` the engine queries. |
+| `awareness_boot.py` | 346 | Boots all awareness subsystems at startup, returns an `AwarenessState` the engine queries. |
 | `action_commitment.py` | 182 | Detects when ELI's reply COMMITS to an action (so the pipeline re-runs and actually does it — no fake actions). |
 
 ## Autonomy / operator (governed)
@@ -277,8 +277,8 @@ layer that wraps the probabilistic model. Grouped by function:
 ## Typed pipeline plumbing (evidence/packets)
 | Module | LOC | Role |
 |---|---|---|
-| `evidence_ledger.py` | 603 | Records artifacts/events with signatures; recent generated artifacts; status evidence. |
-| `evidence_arbitration.py` | 193 | Scores competing evidence (stage packets + tool results + goals), dedup-by-fingerprint, keep-max. |
+| `evidence_ledger.py` | 679 | Records artifacts/events with signatures; recent generated artifacts; status evidence. |
+| `evidence_arbitration.py` | 212 | Scores competing evidence (stage packets + tool results + goals), dedup-by-fingerprint, keep-max. |
 | `stage_packet_store.py`, `stage_packets.py`, `pipeline_models.py` | ~177 | The typed packet substrate: route/plan/evidence/generation/output packets flow between stages; this is the plumbing behind "no fake actions". |
 | `background_tasks.py` | 252 | In-process multi-threaded task manager (heavy work → job id → `CHECK_JOB`). |
 | `runtime_policy.py` | 89 | Per-turn budgets/timeouts/context size from runtime snapshot. |
@@ -298,7 +298,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | Module | LOC | Role |
 |---|---|---|
 | `agent_bus.py` | 3517 | 15 specialist agents on a dependency DAG (topological layers) + calibrated weight-free confidence aggregation + per-action agent selection. |
-| `orchestrator.py` | 1122 | Gradient 12-stage pipeline (all CHAT modes): planner → `retrieve_for_turn()` → `dispatch_specialists()` → heuristic rerank → context assembly. Composes the specialist bus; no longer Quick-only bypass. |
+| `orchestrator.py` | 1123 | Gradient 12-stage pipeline (all CHAT modes): planner → `retrieve_for_turn()` → `dispatch_specialists()` → heuristic rerank → context assembly. Composes the specialist bus; no longer Quick-only bypass. |
 | `learning_coordinator.py` | 82 | Stage 12 `finalize_turn()` — store assistant turn, publish meta, `_learn_from_result()`. |
 | `hyde.py` | 69 | Hypothetical-document-embedding query expansion. |
 | `reranker.py` | 157 | Candidate reranking (token overlap + source priority). |
@@ -383,9 +383,9 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | `memory.py` | 5677 | The `Memory` class (69 public methods): semantic store/recall, conversations, habits, failures/improvements, storage policy, upkeep, weight decay, KG bridge, `mark_failure_resolved`, `disable_invalid_habit_rules`. |
 | `knowledge_graph.py` | 643 | Entity/relation graph + multi-hop BFS (`related`) + `context_for_prompt` + extract-from-memory. |
 | `habits_memory_db.py` | 466 | Habit rules/events store + cheap embed/recall. |
-| `retrieval.py` | 209 | Shared turn retrieval (`retrieve_for_turn`) with an 8 s cache, time window and `memory_diag` stats. |
+| `retrieval.py` | 253 | Shared turn retrieval (`retrieve_for_turn`) with an 8 s cache, time window and `memory_diag` stats. |
 | `policy.py` | 118 | Storage policy: origin, dedupe key, forgetting curve, archive rule. |
-| `claims.py` | 206 | Bitemporal claims about the user: valid interval, learned-at, supersession, extraction. |
+| `claims.py` | 266 | Bitemporal claims about the user: valid interval, learned-at, supersession, extraction. |
 | `unified_retrieval.py` | 168 | Orchestrator stages consume `retrieve_for_turn` through it. |
 | `vector_store.py` | 637 | FAISS index (L2, 1/(1+dist) sim) + nomic embedder + keyword fallback + auto-rebuild. |
 | `system_index.py` | 278 | OS app/exe/dir index (the launcher backing — your machine's executables, thousands, indexed live per machine). |
@@ -510,7 +510,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `native_locks.py` | 14 | Process-wide locks for native llama.cpp and FAISS entry points, preventing cross-context heap corruption. |
 | `proposal_adapters.py` | 1 | Re-export shim of `planning/proposal_adapters.py`. |
 | `reflection.py` | 377 | Reflection engine — analyses memories, conversations, and patterns to extract insights. |
-| `lessons.py` | 226 | Expiring, checked lessons from recurring failures (trigger, evidence, predicted outcome, retire when unhelpful). |
+| `lessons.py` | 345 | Expiring, checked lessons from recurring failures (trigger, evidence, predicted outcome, retire when unhelpful). |
 | `relational_facts.py` | 83 | Extract relational facts the user mentions in passing. |
 | `repair_playbook.py` | 243 | ELI repair playbook — decision guide for self-maintenance, code examine, and upgrades. |
 | `report_pipeline.py` | 198 | Multi-stage grounded document pipeline (Report-Builder discipline, chat scale). |
@@ -544,7 +544,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `emotion_timeline.py` | 452 | Emotion timeline — the durable record of how the USER has been feeling. |
 | `evidence_format.py` | 52 | Dates on evidence lines, from each row's own timestamp. |
 | `expression_state.py` | 63 | Live avatar/expression state — the thin bridge that lets ELI's face react in |
-| `memory_diag.py` | 59 | What memory retrieval actually did this turn, from telemetry, so ELI never has to guess why. |
+| `memory_diag.py` | 73 | What memory retrieval actually did this turn, from telemetry, so ELI never has to guess why. |
 | `model_identity.py` | 237 | Model-agnostic identity: chat family + thinking from GGUF metadata. |
 | `model_load_diagnostics.py` | 633 | Say why a GGUF would not load — for ANY model, not a known list of them. |
 | `model_output_tokens.py` | 301 | Canonical special tokens, stop sequences, and persona drift patterns for all GGUF families. |
@@ -569,7 +569,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `portable_intent_contract.py` | 643 | Portable intent rules; hard-blocks document, code and analysis prompts from `PLAY_MEDIA`. |
 | `route_authority.py` | 46 | Thread-local record of which layer decided a route, and the internal prompt prefixes that must never be routed as user text. |
 | `route_contracts.py` | 123 | Small predicates that classify a request (for example `wants_memory_internals`) for the router. |
-| `router_enhanced.py` | 8314 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
+| `router_enhanced.py` | 8325 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
 | `shell_gate.py` | 110 | Centralised shell-command safety gate. |
 
 ## `core/`

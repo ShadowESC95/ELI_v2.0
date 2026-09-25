@@ -15,9 +15,22 @@ _FALSE_DIAGNOSIS = re.compile(
 
 
 def retrieval_record(keyword: int, semantic: int, kg: int, merged: int, confidence: Optional[float],
-                     window: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+                     window: Optional[Dict[str, Any]] = None, searched: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return {"retrieval_ran": True, "keyword": keyword, "semantic": semantic, "kg": kg,
-            "merged": merged, "confidence": confidence, "window": window or {}}
+            "merged": merged, "confidence": confidence, "window": window or {}, "searched": searched or {}}
+
+
+def scope_text(searched: Dict[str, Any]) -> str:
+    """Which stores were searched and what each gave, so "nothing found" is only claimed for that scope."""
+    if not searched:
+        return ""
+    parts = [f"live memory {searched.get('semantic', 0)}"]
+    if searched.get("exact"):
+        parts.append(f"exact codes/phrases {searched['exact']}")
+    parts.append(f"dated claims {searched.get('claims', 0)}")
+    parts.append("archive: not searched (live evidence was sufficient)" if searched.get("archive") is None
+                 else f"archive {searched['archive']}")
+    return "; ".join(parts)
 
 
 def _window_text(window: Dict[str, Any]) -> str:
@@ -34,7 +47,8 @@ def block(diag: Optional[Dict[str, Any]]) -> str:
     conf = f", retrieval confidence {c:.2f} ({confidence_label(c)})" if c is not None else ""
     return (f"Retrieval diagnostics (authoritative): searched keyword={diag['keyword']} "
             f"semantic={diag['semantic']} kg={diag['kg']}, merged {diag['merged']} items{conf}."
-            + (f" Search was {_window_text(diag['window'])}." if diag.get("window") else ""))
+            + (f" Search was {_window_text(diag['window'])}." if diag.get("window") else "")
+            + (f" Scope: {scope_text(diag['searched'])}. Only say nothing is stored for this scope." if diag.get("searched") else ""))
 
 
 def explanation(diag: Dict[str, Any]) -> str:

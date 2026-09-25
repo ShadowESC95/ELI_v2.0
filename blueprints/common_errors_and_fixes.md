@@ -1,6 +1,6 @@
 # ELI — Common Errors & Fixes
 
-> **Updated for v2.4.69 (September 2026).** Primary path: GitHub Releases
+> **Updated for v2.4.70 (September 2026).** Primary path: GitHub Releases
 > (`ELI-Setup-*.exe`, macOS dmg, Linux AppImage, portable `./ELI_Setup.sh`).
 > Wizard core stages hard-fail until nomic + voice + chat model are present.
 > Windows: one desktop ELI + GUI singleton. **Home** tab ≠ Home Assistant.
@@ -58,7 +58,7 @@ that CUDA is impossible.
 **Cause:** Desktop used to pin both `ELI.exe` and `ELI-Server.exe`; post-install could race.
 **Fix (v2.4.23+):** Desktop shortcut is **ELI only**; Server stays in Start Menu. Frozen GUI
 takes a singleton lock — a second launch shows “ELI is already running” and exits.
-Close the extra window; upgrade to 2.4.23+ (current **2.4.69**).
+Close the extra window; upgrade to 2.4.23+ (current **2.4.70**).
 
 ---
 
@@ -286,10 +286,10 @@ The **AppImage** is the easiest path: it bundles its own **Python 3.11**, so Arc
 Python 3.14 (which has no `llama-cpp-python` wheel) is irrelevant, and as of **v2.1.21** it
 bundles every Qt xcb library too. Download and run:
 ```bash
-U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.4.69
-wget "$U/ELI_v2-2.4.69-x86_64.AppImage"
-chmod +x ELI_v2-2.4.69-x86_64.AppImage
-./ELI_v2-2.4.69-x86_64.AppImage
+U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.4.70
+wget "$U/ELI_v2-2.4.70-x86_64.AppImage"
+chmod +x ELI_v2-2.4.70-x86_64.AppImage
+./ELI_v2-2.4.70-x86_64.AppImage
 ```
 **Run it directly** (as above) so it FUSE-mounts in place — `--appimage-extract-and-run`
 unpacks ~4 GB into `/tmp`, which fails with `libz.so.1: file too short` when `/tmp` is a small

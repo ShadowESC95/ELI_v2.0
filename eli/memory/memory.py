@@ -381,6 +381,9 @@ def _ensure_policy_schema(conn) -> None:
             "CREATE TABLE IF NOT EXISTS memory_meta (key TEXT PRIMARY KEY, value TEXT, updated_at REAL)"
         )
         conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_text_key ON memories(text_key)")
+        conn.execute("CREATE TABLE IF NOT EXISTS memory_lineage (child_id INTEGER NOT NULL, parent_id INTEGER NOT NULL, "
+                     "kind TEXT, created_at REAL, PRIMARY KEY (child_id, parent_id))")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_memory_lineage_parent ON memory_lineage(parent_id)")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_memories_origin ON memories(origin)")
     except Exception:
         log.debug("[MEMORY] policy tables not created", exc_info=True)
@@ -3086,14 +3089,16 @@ class Memory(metaclass=_MemoryMeta):
         """Keyword search over archived rows (they are out of normal recall, not gone)."""
         conn = self._get_connection()
         try:
-            words = [w for w in re.findall(r"\w{3,}", str(query or "").lower())][:6]
+            from eli.cognition.scoring import STOPWORDS
+            words = [w for w in re.findall(r"\w{3,}", str(query or "").lower()) if w not in STOPWORDS][:8]
             if not words:
                 return []
-            where = " AND ".join("lower(COALESCE(text, '')) LIKE ?" for _ in words)
+            hits = " + ".join("(lower(COALESCE(text, '')) LIKE ?)" for _ in words)
+            need = max(1, int(round(len(words) * 0.6)))
             rows = conn.execute(
-                f"SELECT id, COALESCE(text, ''), origin, archived_at, archive_reason FROM memories_archive "
-                f"WHERE {where} ORDER BY archived_at DESC LIMIT ?",
-                [f"%{w}%" for w in words] + [int(limit)],
+                f"SELECT id, COALESCE(text, ''), origin, archived_at, archive_reason, ({hits}) AS h FROM memories_archive "
+                f"WHERE ({hits}) >= ? ORDER BY h DESC, archived_at DESC LIMIT ?",
+                [f"%{w}%" for w in words] * 2 + [need, int(limit)],
             ).fetchall()
             return [{"id": r[0], "text": r[1], "origin": r[2], "archived_at": r[3], "reason": r[4]} for r in rows]
         except Exception:
@@ -3128,6 +3133,167 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
+    def link_derivation(self, child_id: int, parent_ids, kind: str = "derived") -> int:
+        """Record that a memory was made from others (a summary, a reflection), so it never counts as independent evidence."""
+        parents = [int(p) for p in (parent_ids or []) if str(p).isdigit() and int(p) != int(child_id)]
+        if not parents:
+            return 0
+        conn = self._get_connection()
+        try:
+            conn.executemany("INSERT OR IGNORE INTO memory_lineage (child_id, parent_id, kind, created_at) VALUES (?,?,?,?)",
+                             [(int(child_id), p, kind, time.time()) for p in parents])
+            conn.commit()
+            return len(parents)
+        except Exception:
+            log.debug("lineage not recorded", exc_info=True)
+            return 0
+        finally:
+            conn.close()
+
+    def lineage_root(self, memory_id: int) -> int:
+        """The original memory this one ultimately comes from (itself when it is original)."""
+        conn = self._get_connection()
+        try:
+            cur, seen = int(memory_id), set()
+            while cur not in seen:
+                seen.add(cur)
+                row = conn.execute("SELECT parent_id FROM memory_lineage WHERE child_id = ? ORDER BY parent_id LIMIT 1", (cur,)).fetchone()
+                if not row:
+                    break
+                cur = int(row[0])
+            return cur
+        except Exception:
+            return int(memory_id)
+        finally:
+            conn.close()
+
+    def independent_sources(self, memory_ids) -> int:
+        """How many separate originals a set of memories rests on: a fact and its summaries are one."""
+        return len({self.lineage_root(i) for i in (memory_ids or [])})
+
+    def forget_candidates(self, query: str, limit: int = 8) -> List[Dict[str, Any]]:
+        """Live memories that match a request to forget something, for the user to confirm."""
+        hits = self.recall_memory(str(query or ""), limit=int(limit), verified_only=False) or []
+        return [{"id": h["id"], "text": str(h.get("text") or h.get("content") or "")[:160]}
+                for h in hits if str(h.get("id", "")).isdigit()]
+
+    def forget(self, ids, *, include_turns: bool = True) -> Dict[str, int]:
+        """Delete memories and everything derived from them: index entries, claims, summaries, profile items, stances, graph."""
+        report: Dict[str, int] = {k: 0 for k in (
+            "memories", "derived", "claims", "recall_log", "semantic", "summaries", "profile", "stances", "graph", "turns", "patterns")}
+        wanted = sorted({int(i) for i in (ids or []) if str(i).isdigit()})
+        if not wanted:
+            return report
+        conn = self._get_connection()
+        try:
+            _ensure_policy_schema(conn)
+            frontier, everyone = list(wanted), set(wanted)
+            while frontier:
+                marks = ",".join("?" * len(frontier))
+                kids = [r[0] for r in conn.execute(f"SELECT child_id FROM memory_lineage WHERE parent_id IN ({marks})", frontier)]
+                frontier = [k for k in kids if k not in everyone]
+                everyone.update(frontier)
+            report["derived"] = len(everyone) - len(wanted)
+            marks = ",".join("?" * len(everyone))
+            rows = [{"id": r[0], "text": r[1] or "", "tags": r[2] or "", "ts": r[3] or 0} for r in conn.execute(
+                f"SELECT id, COALESCE(text, ''), COALESCE(tags, ''), COALESCE(timestamp, ts, 0) FROM memories WHERE id IN ({marks})", sorted(everyone))]
+            report["memories"] = len(rows)
+            if not rows:
+                return report
+            self._remove_rows(conn, rows)
+            from eli.memory import claims as _claims
+            for i in everyone:
+                report["claims"] += _claims.retract_from_memory(conn, i)
+            report["recall_log"] = conn.execute(f"DELETE FROM recall_log WHERE memory_id IN ({marks})", sorted(everyone)).rowcount or 0
+            conn.execute(f"DELETE FROM memory_lineage WHERE child_id IN ({marks}) OR parent_id IN ({marks})", sorted(everyone) * 2)
+            for r in rows:
+                self._forget_derivatives(conn, r["text"], r["ts"], report, include_turns)
+            conn.commit()
+        finally:
+            conn.close()
+        try:
+            from eli.memory.retrieval import invalidate_turn_cache
+            invalidate_turn_cache()
+        except Exception:
+            log.debug("turn cache not cleared", exc_info=True)
+        return report
+
+    @staticmethod
+    def _forget_derivatives(conn, text: str, ts: float, report: Dict[str, int], include_turns: bool) -> None:
+        needle = " ".join(str(text or "").lower().split())[:120]
+        if len(needle) < 6:
+            return
+        tokens = {w for w in re.findall(r"[A-Za-z][\w-]*\d[\w-]*|\b[A-Z][a-z]{3,}\b", str(text or "")) if len(w) >= 4}
+        marks = [t.lower() for t in tokens] or [needle]
+
+        def hit(value) -> bool:
+            low = " ".join(str(value or "").lower().split())
+            return needle in low or any(m in low for m in marks)
+
+        def strict(value) -> bool:
+            low = " ".join(str(value or "").lower().split())
+            return needle in low or sum(m in low for m in marks) >= min(2, len(marks))
+
+        def has(name: str) -> bool:
+            return _eli_table_exists(conn, name)
+
+        if has("semantic"):
+            for rid, fact, evidence in conn.execute("SELECT id, COALESCE(fact, ''), COALESCE(evidence, '[]') FROM semantic").fetchall():
+                try:
+                    quotes = json.loads(evidence or "[]")
+                except Exception:
+                    quotes = []
+                kept = [q for q in quotes if not hit(q)]
+                if len(kept) != len(quotes) or (not quotes and hit(fact)):
+                    report["semantic"] += 1
+                    if kept:
+                        conn.execute("UPDATE semantic SET evidence = ?, evidence_count = ? WHERE id = ?", (json.dumps(kept), len(kept), rid))
+                    else:
+                        conn.execute("DELETE FROM semantic WHERE id = ?", (rid,))
+        if has("session_summaries"):
+            for rid, summ, content in conn.execute("SELECT id, COALESCE(summary, ''), COALESCE(content, '') FROM session_summaries").fetchall():
+                if strict(summ) or strict(content):
+                    conn.execute("DELETE FROM session_summaries WHERE id = ?", (rid,))
+                    report["summaries"] += 1
+        if has("user_model"):
+            for row in conn.execute("SELECT user_id, identity, comms_style, current_focus, interests, habits, goals, relationship, dossier, brief FROM user_model").fetchall():
+                uid, changed, sets = row[0], False, {}
+                for name, val in zip(("identity", "comms_style", "current_focus", "interests", "habits", "goals", "relationship", "dossier", "brief"), row[1:]):
+                    if not val or not hit(val):
+                        continue
+                    try:
+                        items = json.loads(val)
+                        sets[name] = json.dumps([i for i in items if not hit(i)]) if isinstance(items, list) else ""
+                    except Exception:
+                        sets[name] = ""
+                    changed = True
+                if changed:
+                    conn.execute("UPDATE user_model SET " + ", ".join(f"{k} = ?" for k in sets) + " WHERE user_id = ?", [*sets.values(), uid])
+                    report["profile"] += 1
+        for table, cols in (("eli_stances", ("topic", "position")), ("belief_revisions", ("topic", "old_value", "new_value"))):
+            if has(table):
+                for rid, *vals in conn.execute(f"SELECT id, {', '.join(cols)} FROM {table}").fetchall():
+                    if any(hit(v) for v in vals):
+                        conn.execute(f"DELETE FROM {table} WHERE id = ?", (rid,))
+                        report["stances"] += 1
+        if has("user_patterns"):
+            cols = [r[1] for r in conn.execute("PRAGMA table_info(user_patterns)")]
+            col = "pattern_data" if "pattern_data" in cols else None
+            if col:
+                for rid, val in conn.execute(f"SELECT id, {col} FROM user_patterns").fetchall():
+                    if hit(val):
+                        conn.execute("DELETE FROM user_patterns WHERE id = ?", (rid,))
+                        report["patterns"] += 1
+        if has("kg_entities") and ts:
+            low = str(text or "").lower()
+            for eid, name in conn.execute("SELECT id, name FROM kg_entities WHERE ts BETWEEN ? AND ?", (ts - 60, ts + 60)).fetchall():
+                if name and name.lower() in low:
+                    report["graph"] += conn.execute("DELETE FROM kg_relations WHERE subject_id = ? OR object_id = ?", (eid, eid)).rowcount or 0
+                    conn.execute("DELETE FROM kg_entities WHERE id = ?", (eid,))
+        if include_turns and has("conversation_turns"):
+            report["turns"] += conn.execute("DELETE FROM conversation_turns WHERE lower(COALESCE(content, '')) = ? OR lower(COALESCE(content, '')) LIKE ?",
+                                            (needle, f"%{needle}%")).rowcount or 0
+
     def _claims_conn(self):
         from eli.memory import claims as _claims
         conn = self._get_connection()
@@ -3141,7 +3307,8 @@ class Memory(metaclass=_MemoryMeta):
             return []
         conn = self._claims_conn()
         try:
-            ids = _claims.record_from_text(conn, text, source_memory_id=memory_id, when=when)
+            ids = _claims.record_from_text(conn, text, source_memory_id=memory_id, when=when,
+                                           root_id=self.lineage_root(memory_id) if memory_id else None)
             conn.commit()
         finally:
             conn.close()
@@ -3163,6 +3330,24 @@ class Memory(metaclass=_MemoryMeta):
     def claims_current(self):
         from eli.memory import claims as _c
         return self._claims_query(_c.current)
+
+    def claims_disputed(self):
+        from eli.memory import claims as _c
+        return self._claims_query(lambda conn: _c._rows(conn, f"SELECT {_c._COLS} FROM memory_claims WHERE status = 'disputed' ORDER BY id", ()))
+
+    def claim_conflicts(self):
+        from eli.memory import claims as _c
+        return self._claims_query(_c.open_conflicts)
+
+    def resolve_claim_conflict(self, relation: str, value: str) -> int:
+        from eli.memory import claims as _c
+        conn = self._claims_conn()
+        try:
+            n = _c.resolve_conflict(conn, relation, value)
+            conn.commit()
+            return n
+        finally:
+            conn.close()
 
     def claims_during(self, start: float, end: float):
         from eli.memory import claims as _c

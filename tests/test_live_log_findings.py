@@ -101,3 +101,37 @@ def test_a_question_about_runtime_is_not_a_stance():
     assert detect_stance(q, "I do not have the model path in the evidence, so I cannot say which file is loaded right now.") is None
     assert detect_stance("what do you think about machine consciousness and free will?",
                          "I do not believe machine consciousness follows from fluent language alone, whatever the output looks like.") is not None
+
+
+@pytest.mark.parametrize("q,query", [
+    ("forget that my locker number is 212", "my locker number is 212"),
+    ("Please forget what I told you about Priya", "Priya"),
+    ("erase what you know about my old address", "my old address"),
+    ("delete the memory about the garage code", "the garage code"),
+])
+def test_a_request_to_forget_names_what_to_forget(q, query):
+    r = route(q)
+    assert r["action"] == "MEMORY_FORGET" and r["args"]["query"] == query
+
+
+@pytest.mark.parametrize("q", ["forget it", "delete the file notes.txt", "forget everything about me"])
+def test_vague_or_file_requests_are_not_memory_deletions(q):
+    assert route(q)["action"] != "MEMORY_FORGET"
+
+
+def test_forgetting_asks_first_and_deletes_only_on_confirmation(tmp_path, monkeypatch):
+    from eli.execution import executor_enhanced as ex
+    from eli.memory.memory import Memory
+    monkeypatch.setenv("ELI_TEST_MODE", "1")
+    monkeypatch.setattr("eli.memory.vector_store.get_vector_store", lambda: None)
+    mem = Memory(db_path=tmp_path / "user.sqlite3")
+    monkeypatch.setattr("eli.memory.get_memory", lambda *a, **k: mem)
+    monkeypatch.setattr(ex, "_get_memory_path", lambda: tmp_path / "user.sqlite3")
+    rid = mem.store_memory("My locker number at the gym is 212 and the padlock is red", source="user")["id"]
+    ask = ex.execute("MEMORY_FORGET", {"query": "locker number gym"})
+    assert ask["ok"] and rid in [m["id"] for m in ask["matches"]] and "Say yes" in ask["response"]
+    assert mem.recall_memory("locker gym padlock", limit=3)
+    done = ex.execute("MEMORY_FORGET", {"ids": [rid], "confirm": True})
+    assert done["ok"] and "Forgotten" in done["response"]
+    assert not [h for h in mem.recall_memory("locker gym padlock", limit=3) if h.get("id") == rid]
+    assert "nothing" in ex.execute("MEMORY_FORGET", {"query": "zzzz qqqq"})["response"].lower()

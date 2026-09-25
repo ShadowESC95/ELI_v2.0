@@ -974,7 +974,8 @@ class AgentOrchestrator:
             self.engine._memory_diag = _memory_diag.retrieval_record(
                 len(keyword_hits), len(semantic_hits), len(kg_hits), len(wm.merged_hits),
                 float(_agg) if _agg is not None else None,
-                window=getattr(getattr(self.memory_agent, "_last_turn_retrieval", None), "window_stats", None))
+                window=getattr(getattr(self.memory_agent, "_last_turn_retrieval", None), "window_stats", None),
+                searched=getattr(getattr(self.memory_agent, "_last_turn_retrieval", None), "searched", None))
         except Exception:
             log.debug("memory diagnostics skipped", exc_info=True)
         wm.trace["stage_10"] = "context_assembly"

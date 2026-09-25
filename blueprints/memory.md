@@ -1,6 +1,6 @@
 # ELI Memory Subsystem
 
-> **Updated for v2.4.69.** Memory is governed by a storage policy
+> **Updated for v2.4.70.** Memory is governed by a storage policy
 > (`eli/memory/policy.py`): every row has an origin, repeats are merged, weight follows a
 > forgetting curve reinforced by use, and faded derived rows are archived. Recall applies a
 > time window before ranking, and reports what it did. Turn retrieval is shared in
@@ -31,8 +31,8 @@ internals), with live counts for each layer.
 |---|---:|---|
 | `memory.py` | 5,677 | the `Memory` class (69 public methods), schema, `DBPaths`, upkeep, module facade |
 | `policy.py` | 118 | pure storage-policy functions (origin, dedupe key, strength, archive, merge) |
-| `retrieval.py` | 209 | shared turn retrieval (`retrieve_for_turn`), turn cache, time window |
-| `claims.py` | 206 | dated claims about the user: valid-from and valid-to, learned-at, supersession |
+| `retrieval.py` | 253 | shared turn retrieval (`retrieve_for_turn`), turn cache, time window |
+| `claims.py` | 266 | dated claims about the user: valid-from and valid-to, learned-at, supersession |
 | `unified_retrieval.py` | 168 | the orchestrator stages consume `retrieve_for_turn` through it; formats the verified-memory block |
 | `vector_store.py` | 637 | FAISS index, embedder, tombstones |
 | `knowledge_graph.py` | 643 | entity and relation graph |
@@ -102,6 +102,26 @@ claim, and the same value again confirms instead of duplicating. `Memory.claims_
 now", "what held in spring" and "what did you believe on 1 March". Retrieval adds the relevant claims
 to the evidence (a period question gets what held then), and deleting the source memory withdraws its
 claims. Extraction is a small exact set of patterns, not a model call.
+
+### Forgetting, lineage and conflicts
+
+- **Forget.** "forget that my locker is 212" lists the matching memories and asks; on yes (or
+  `confirm forget memories 12 15`) `Memory.forget(ids)` deletes them and everything derived from
+  them: derived rows through `memory_lineage`, index entries and vector tombstones, claims, recall
+  log rows, semantic-fact quotes, session summaries that carry the same content, profile items and
+  briefs, stances and belief revisions, graph entities created with the memory, and the conversation
+  turns. It returns a report of what was removed.
+- **Lineage.** `link_derivation(child, parents)` records that a summary or reflection was made from
+  other memories; `lineage_root` and `independent_sources` mean a fact and its summaries count as
+  one source. A claim's confirmations count distinct roots only.
+- **Conflicts.** A claim that is not the user's own word and contradicts one that is stands beside it
+  as `disputed` (both marked contested) instead of replacing it. `claim_conflicts()` lists them,
+  `claims.conflict_question` phrases the question, and `resolve_claim_conflict` records the answer.
+  Hedged statements ("maybe", "thinking of", "if I") are never claims.
+- **Retrieval scope.** `retrieve_for_turn` returns `searched`: live memory, exact codes and quoted
+  phrases (looked up as written, so an embedding cannot blur "ORCHID-7319"), dated claims, and the
+  archive, which is searched only when live evidence is thin and its hits are labelled. The
+  diagnostics block states that scope, so "nothing stored" is only claimed for what was searched.
 
 ### Daily upkeep
 

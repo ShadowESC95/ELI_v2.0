@@ -1,6 +1,6 @@
 # Blueprint — ELI Full Architecture (ASCII)
 
-> **Updated for v2.4.69.** All CHAT modes → gradient orchestrator; bus composed at S06.
+> **Updated for v2.4.70.** All CHAT modes → gradient orchestrator; bus composed at S06.
 
 The entire system in one drawing, plus the module tree and data layout. Grounded
 in the real source (see `architecture.md` for prose, `diagrams.md` for the
@@ -14,7 +14,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 ╔══════════════════════════════════════════════════════════════════════════════════╗
 ║                                ELI — FULL ARCHITECTURE                             ║
 ║                100% local  ·  offline-by-default  ·  model-agnostic                ║
-║               194,623 LOC · 437 files · desktop GUI + web app server               ║
+║               195,521 LOC · 437 files · desktop GUI + web app server               ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 ┌─ PRESENTATION ────────────────────────────────────────────────────────────────────┐
@@ -62,7 +62,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
         │              └────────────────────────────┬─────────────────────────────────────┘
         ▼                                           ▼
 ┌─ EXECUTION ───────────────────────────────────────────────────────────────────────┐
-│  execution/executor_enhanced.py  205 supported actions · 227 capabilities (186 routable)  │
+│  execution/executor_enhanced.py  206 supported actions · 228 capabilities (187 routable)  │
 │  media_runtime · operator_actions · background_tasks                                │
 │  PLUGINS(10): calendar document_reader media notes pomodoro weather                 │
 │              system_stats tts web web_automation        eli/coding :: CodeAgent     │
@@ -133,7 +133,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 ## C. Module tree (LOC · key files · role)
 
 ```
-eli/  (194,623 LOC, 437 files)  ·  api/server.py  (FastAPI web app + dashboard)
+eli/  (195,521 LOC, 437 files)  ·  api/server.py  (FastAPI web app + dashboard)
 │
 ├── __main__.py ················ entry dispatch (GUI | --headless)
 │
@@ -143,7 +143,7 @@ eli/  (194,623 LOC, 437 files)  ·  api/server.py  (FastAPI web app + dashboard)
 │   ├── pipeline.py · state.py · world_model.py · self_upgrade.py
 │
 ├── execution/         26.3k ─── route → act
-│   ├── executor_enhanced.py   15.8k   205 supported / 227 manifest
+│   ├── executor_enhanced.py   15.8k   206 supported / 228 manifest
 │   ├── router_enhanced.py      8.3k   priority pipeline
 │   ├── execution_planner.py · route_authority.py · route_contracts.py
 │   ├── operator_actions.py · operator_policy.py

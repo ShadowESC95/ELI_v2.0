@@ -1,6 +1,6 @@
 # ELI Runtime Surfaces, Planning, World, Tools & Plugins
 
-> **Updated for v2.4.69.** Stage 12 learning via `learning_coordinator.py`; goal
+> **Updated for v2.4.70.** Stage 12 learning via `learning_coordinator.py`; goal
 > autogenesis feeds the proactive stack.
 
 The remaining subsystems: the `runtime/` response/introspection surfaces, the
@@ -73,6 +73,18 @@ Background cognition + goal/queue machinery:
   times) become lessons with a trigger, evidence, proposed change, predicted outcome and an expiry.
   Each finished action of that kind gives its lessons one check; a lesson is retired when it expires
   unconfirmed or its checks show it does not help, and renewed a few times when they do.
+- **Lessons, checked against the baseline.** A lesson records the action's success rate before it
+  existed and is retired unless later runs beat that rate by a margin. It is scoped to the argument
+  names all its failures shared and is checked on sibling actions with the same failure category,
+  so `transfers()` says whether the advice held elsewhere.
+- **Reliability and calibration** (`evidence_ledger.py`): `action_reliability` and `predict_success`
+  give a recency-weighted success rate per action from the recorded tool runs; each run stores the
+  prediction made before it, and `calibration_report` scores them (Brier score and predicted versus
+  observed by band). The awareness block lists actions that have been failing lately.
+- **Task records** (`goal_store.py`): a task is a goal the scheduler does not tick, carrying
+  constraints, decisions, finished steps, artifacts and open questions. `capture_task_events` reads
+  clear phrasings from the user's messages ("we decided to", "we still need to", "let's work on"),
+  and `task_brief` puts unfinished work into the next session's awareness block.
 - **World events.** `review_completed` eases repair pressure after any review;
   `repair_completed` fires only for a verified repair.
 - `goal_autogenesis.py` (NEW, 2026-06-08) — **closes the autonomy loop**: the goal

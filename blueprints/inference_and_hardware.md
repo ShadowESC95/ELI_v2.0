@@ -1,6 +1,6 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.4.69.** GGUF path is canonical (optional Ollama backend still
+> **Updated for v2.4.70.** GGUF path is canonical (optional Ollama backend still
 > exists as a secondary path). VRAM fit reads `{arch}.block_count` from the GGUF
 > header (model-agnostic) with a size heuristic fallback only when metadata is
 > unreadable. Token budgets scale by reasoning mode via `reasoning_modes.py`.

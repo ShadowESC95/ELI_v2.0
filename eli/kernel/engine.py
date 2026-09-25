@@ -80,6 +80,7 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
     'CHECK_TARGET_STATUS',
     'CLOSE_APP',
     'CONFIRM_PENDING_REMEDIATION',  # apt/mpv install confirm — executor must run, not narrate
+    'MEMORY_FORGET',  # the list of what would be deleted, and the deletion receipt, are the executor's word
     'MEMORY_STORE',  # the executor's verified receipt (row, index) is the confirmation; a model paraphrase took 171s and could deny it
     'CREATE_FILE',  # fs mutation: executor writes + reads back, result is authoritative — never let the heuristic agent profile drop `system` and punt "run touch yourself"
     'DATE',
@@ -12720,7 +12721,7 @@ Answer:"""
                             # More confirmation/status/report actions whose handler already builds a complete
                             # content/response string, checked by reading each. MCP_CALL is the same danger class as
                             # READ_FILE/SHELL_EXEC: it returns a live tool's raw output, which must not be re-narrated.
-                            "ADD_EVENT", "PLUGIN_STATUS", "MEMORY_STORE",
+                            "ADD_EVENT", "PLUGIN_STATUS", "MEMORY_STORE", "MEMORY_FORGET",
                             "GET_WEATHER", "PERSONA_LOCK_SET", "PERSONA_LOCK_CLEAR",
                             "SET_TONE", "CLEAR_TONE", "SET_USER_NAME",
                             "SET_COMMUNICATION_STYLE", "SET_VOICE",
@@ -14982,6 +14983,12 @@ Answer:"""
         return
 
     def _maybe_store_memory(self, text: str, role: str = "user") -> None:
+        if role == "user":
+            try:
+                from eli.planning.goal_store import capture_task_events
+                capture_task_events(text)
+            except Exception:
+                log.debug("task events not captured", exc_info=True)
         # Never store error strings as memories
         _err_patterns = (
             "gguf streaming failed", "gguf error", "model not ready",

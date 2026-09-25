@@ -45,7 +45,12 @@ _PROTECTED_PATCH_PATHS = {
     "eli/runtime/authority_gate.py",      # action allow/check gate
     "eli/execution/route_authority.py",   # routing authority
     "eli/runtime/persistence_gate.py",    # upstream action/persistence gate
+    "eli/runtime/evidence_ledger.py",     # the record calibration and reliability are judged from
+    "eli/runtime/lessons.py",             # decides which lessons survive
+    "eli/runtime/failure_taxonomy.py",    # classifies what failed
 }
+# A candidate may change the code under test, never what tests it or what counts as passing.
+_PROTECTED_PATCH_PREFIXES = ("tests/", "tools/eval/", "conftest.py", "pytest.ini")
 
 
 def is_protected_patch_path(p: Path) -> bool:
@@ -63,7 +68,7 @@ def is_protected_patch_path(p: Path) -> bool:
     protected = _PROTECTED_PATCH_PATHS | {
         x.strip() for x in os.environ.get("ELI_PROTECTED_PATCH_PATHS", "").split(",") if x.strip()
     }
-    return rel in protected
+    return rel in protected or rel.startswith(_PROTECTED_PATCH_PREFIXES)
 
 
 def _patch_root() -> Path:
@@ -240,8 +245,112 @@ def _ensure_failure_tables(conn: sqlite3.Connection) -> None:
         )
         """
     )
+    _ensure_columns(conn, "code_patches", {
+        "hypothesis": "TEXT", "verdict": "TEXT", "results": "TEXT", "cost_s": "REAL", "parent_id": "INTEGER",
+    })
     conn.commit()
 
+
+
+_WORKSPACE_DIRS = ("eli", "api", "tests", "tools", "config")
+_WORKSPACE_FILES = ("pytest.ini", "pyproject.toml", "conftest.py")
+_REPLAYABLE_ACTIONS = frozenset({"DATE", "TIME", "GPU_STATUS", "RUNTIME_STATUS", "MEMORY_STATUS", "MEMORY_STATS",
+                                 "SYSTEM_STATUS", "CPU_USAGE", "LIST_DIR", "EXPLAIN_MEMORY_RUNTIME", "IMAGE_STATUS"})
+
+
+def failure_capsule(action: str, args: Any, result: Any, *, request_id: str = "") -> Dict[str, Any]:
+    """Everything needed to look at a failure again: input, versions, model, error class and the error itself."""
+    from eli.runtime.failure_taxonomy import classify
+    err = ""
+    if isinstance(result, dict):
+        err = str(result.get("error") or result.get("content") or "")[:500]
+    model = ""
+    try:
+        from eli.core.paths import get_paths
+        snap = json.loads((Path(get_paths().artifacts_dir) / "runtime_snapshot.json").read_text(encoding="utf-8"))
+        model = str(snap.get("model_name") or "")
+    except Exception:
+        model = ""
+    try:
+        from importlib.metadata import version
+        eli_version = version("eli-v2.0")
+    except Exception:
+        eli_version = ""
+    return {"action": str(action or "").upper(), "args": args if isinstance(args, dict) else {}, "error": err,
+            "classification": classify(err, command=str(action or "")), "eli_version": eli_version, "model": model,
+            "python": sys.version.split()[0], "request_id": request_id, "captured_at": time.time()}
+
+
+def capsule_reproducer(capsule: Dict[str, Any]) -> Optional[List[str]]:
+    """A command that re-runs the failed action and exits non-zero when it fails again, or None when replay is unsafe."""
+    action = str(capsule.get("action") or "").upper()
+    if action not in _REPLAYABLE_ACTIONS:
+        return None
+    code = ("import json,sys;from eli.execution.executor_enhanced import execute;"
+            f"r=execute({action!r}, json.loads({json.dumps(json.dumps(capsule.get('args') or {}))}));"
+            "sys.exit(0 if isinstance(r, dict) and r.get('ok') else 1)")
+    return [sys.executable, "-c", code]
+
+
+def _make_workspace(root: Path, dest: Path) -> Path:
+    """A working copy of the source tree. Files are hard-linked, so it is instant and costs no space until one is changed."""
+    def link(src: str, dst: str) -> None:
+        try:
+            os.link(src, dst)
+        except OSError:
+            shutil.copy2(src, dst)
+    skip = shutil.ignore_patterns("__pycache__", "*.pyc", ".pytest_cache", "*.eli_bak", "artifacts", "models", "*.gguf")
+    for d in _WORKSPACE_DIRS:
+        if (root / d).is_dir():
+            shutil.copytree(root / d, dest / d, ignore=skip, copy_function=link, symlinks=True)
+    for f in _WORKSPACE_FILES:
+        if (root / f).is_file():
+            link(str(root / f), str(dest / f))
+    return dest
+
+
+def _change_in_workspace(path: Path, old: str, new: str) -> bool:
+    """Replace text in a workspace file without touching the original it is linked to."""
+    text = path.read_text(encoding="utf-8")
+    if old not in text:
+        return False
+    path.unlink()
+    path.write_text(text.replace(old, new, 1), encoding="utf-8")
+    return True
+
+
+def _run_cmd(cmd: List[str], cwd: Path, timeout: float) -> Dict[str, Any]:
+    env = dict(os.environ, PYTHONPATH=str(cwd), ELI_TEST_MODE="1", PYTHONDONTWRITEBYTECODE="1")
+    t0 = time.time()
+    try:
+        proc = subprocess.run(cmd, cwd=str(cwd), env=env, capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:
+        return {"status": "timeout", "seconds": round(time.time() - t0, 1), "failed": []}
+    except Exception as exc:
+        return {"status": "error", "error": str(exc), "seconds": round(time.time() - t0, 1), "failed": []}
+    failed = sorted(set(re.findall(r"^FAILED (\S+)", proc.stdout or "", re.M)))
+    if proc.returncode == 5:
+        status = "no_tests"
+    elif proc.returncode in (0, 1):
+        status = "ok" if proc.returncode == 0 else "failed"
+    else:
+        status = "error"
+    return {"status": status, "returncode": proc.returncode, "seconds": round(time.time() - t0, 1), "failed": failed,
+            "tail": "\n".join((proc.stdout or proc.stderr or "").strip().splitlines()[-4:])}
+
+
+def compare_runs(baseline: Dict[str, Any], candidate: Dict[str, Any]) -> str:
+    """fixed, regression, unchanged or inconclusive. A run that did not really run proves nothing either way."""
+    if baseline["status"] in ("timeout", "error", "no_tests") or candidate["status"] in ("timeout", "error", "no_tests"):
+        return "inconclusive"
+    before, after = set(baseline["failed"]), set(candidate["failed"])
+    if after - before:
+        return "regression"
+    if before - after:
+        return "fixed"
+    if baseline["returncode"] != candidate["returncode"]:
+        return "fixed" if candidate["returncode"] == 0 else "regression"
+    return "unchanged"
 
 class SelfImprovementEngine:
     """
@@ -265,7 +374,12 @@ class SelfImprovementEngine:
         if _re_mock.search(r"<\s*(?:Magic)?Mock\b|(?:Magic)?Mock\s+name=|\bMock\s+id=0x",
                            f"{error} {input_text}"):
             return
-        ctx = context or {}
+        ctx = dict(context or {}) if isinstance(context, dict) else (context or {})
+        if isinstance(ctx, dict) and ctx.get("action") and "capsule" not in ctx:
+            try:
+                ctx["capsule"] = failure_capsule(ctx.get("action"), ctx.get("args"), ctx.get("result") or {"error": error})
+            except Exception:
+                log.debug("failure capsule not built", exc_info=True)
         now = time.time()
         try:
             self.memory.log_failure(input_text, error=error, confidence=confidence, context=ctx)
@@ -396,7 +510,7 @@ class SelfImprovementEngine:
                     if not patch.get("ok"):
                         log.debug(f"[SELF-IMPROVE] Patch generation skipped: {patch.get('error', '?')}")
                         continue
-                    apply_result = self.apply_code_patch(patch)
+                    apply_result = self.apply_autonomously(patch, failure)
                     if apply_result.get("ok"):
                         log.debug(f"[SELF-IMPROVE] Patch applied to {patch.get('file')}: {patch.get('description')}")
                         _patched.append(str(patch.get("file") or "a file"))
@@ -1151,6 +1265,116 @@ class SelfImprovementEngine:
         return {"ok": True, "applied": True, "files": files, "reloaded": reloaded,
                 "message": f"Applied {len(patches)} patch(es) across {len(files)} file(s)"}
 
+    def verify_in_workspace(self, patch: dict, *, tests: Optional[List[str]] = None, reproducer: Optional[List[str]] = None,
+                            timeout: float = 240.0) -> dict:
+        """Test a candidate patch on a copy of the tree, and compare with the same tests on the untouched tree.
+
+        The running install is never modified. fixed = tests that failed before pass now and nothing new fails;
+        regression = something that passed now fails; a timeout, an error or no matching tests is inconclusive.
+        """
+        root = _patch_root()
+        file_str = (patch.get("file") or "").strip()
+        p = (root / file_str).resolve() if not Path(file_str).is_absolute() else Path(file_str).resolve()
+        try:
+            rel = p.relative_to(root).as_posix()
+        except ValueError:
+            return {"verdict": "rejected", "reason": "outside the source tree"}
+        if is_protected_patch_path(p):
+            return {"verdict": "rejected", "reason": f"{rel} is protected: a candidate cannot change its own guardrails or evaluator"}
+        stem = p.stem
+        cmd = reproducer or [sys.executable, "-m", "pytest", "-q", "-p", "no:cacheprovider", "--tb=no", "-rf",
+                             *(tests or ["tests/", "-k", stem])]
+        ws_parent = root / "artifacts" / "self_improve"
+        ws_parent.mkdir(parents=True, exist_ok=True)
+        import tempfile
+        ws = Path(tempfile.mkdtemp(prefix="candidate_", dir=str(ws_parent)))
+        t0 = time.time()
+        try:
+            _make_workspace(root, ws)
+            if not _change_in_workspace(ws / rel, patch.get("old", ""), patch.get("new", "")):
+                return {"verdict": "rejected", "reason": "the text to replace is not in the file"}
+            try:
+                ast.parse((ws / rel).read_text(encoding="utf-8"))
+            except SyntaxError as exc:
+                return {"verdict": "rejected", "reason": f"the candidate does not parse: {exc}"}
+            baseline = _run_cmd(cmd, root, timeout)
+            candidate = _run_cmd(cmd, ws, timeout)
+        finally:
+            shutil.rmtree(ws, ignore_errors=True)
+        return {"verdict": compare_runs(baseline, candidate), "baseline": baseline, "candidate": candidate,
+                "cost_s": round(time.time() - t0, 1)}
+
+    def propose_candidate(self, patch: dict, *, hypothesis: str = "", tests: Optional[List[str]] = None,
+                          reproducer: Optional[List[str]] = None, parent_id: Optional[int] = None) -> dict:
+        """Evaluate a patch in a workspace and keep the result, whether or not it is adopted."""
+        result = self.verify_in_workspace(patch, tests=tests, reproducer=reproducer)
+        status = "verified" if result["verdict"] == "fixed" else "rejected" if result["verdict"] in ("rejected", "regression") else "proposed"
+        conn = self.memory._get_connection()
+        try:
+            _ensure_failure_tables(conn)
+            cur = conn.execute(
+                "INSERT INTO code_patches (file_path, description, old_code, new_code, status, timestamp, failure_ref, "
+                "hypothesis, verdict, results, cost_s, parent_id) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                (str(patch.get("file") or ""), str(patch.get("description") or "")[:300], str(patch.get("old", ""))[:4000],
+                 str(patch.get("new", ""))[:4000], status, time.time(), str(patch.get("failure_ref") or ""),
+                 hypothesis[:400], result["verdict"], json.dumps({k: result.get(k) for k in ("baseline", "candidate", "reason")}, default=str)[:6000],
+                 float(result.get("cost_s") or 0.0), parent_id))
+            conn.commit()
+            result["candidate_id"] = int(cur.lastrowid)
+        finally:
+            conn.close()
+        result["status"] = status
+        return result
+
+    def adopt_candidate(self, candidate_id: int) -> dict:
+        """Apply a verified candidate to the real tree. Nothing else is adopted; a failed adoption is rolled back and recorded."""
+        conn = self.memory._get_connection()
+        try:
+            _ensure_failure_tables(conn)
+            row = conn.execute("SELECT file_path, description, old_code, new_code, status, verdict FROM code_patches WHERE id = ?",
+                               (int(candidate_id),)).fetchone()
+        finally:
+            conn.close()
+        if not row or row[4] != "verified" or row[5] != "fixed":
+            return {"ok": False, "applied": False, "message": "only a candidate that fixed its reproducer with no regression can be adopted"}
+        res = self.apply_code_patch({"file": row[0], "old": row[2], "new": row[3], "description": row[1]}, verify=True)
+        conn = self.memory._get_connection()
+        try:
+            conn.execute("UPDATE code_patches SET status = ? WHERE id = ?", ("adopted" if res.get("applied") else "rolled_back", int(candidate_id)))
+            conn.commit()
+        finally:
+            conn.close()
+        return res
+
+    def apply_autonomously(self, patch: dict, failure: Optional[dict] = None) -> dict:
+        """The self-repair path: a patch goes live only when a copy of the tree shows it fixes something.
+
+        The failure's capsule supplies the reproducer when the action is safe to replay; otherwise the module's own
+        tests are the evidence. Anything short of a demonstrated fix stays in the archive, unapplied.
+        """
+        if os.environ.get("ELI_SELFPATCH_UNPROVEN", "0").strip().lower() in ("1", "true", "yes", "on"):
+            return self.apply_code_patch(patch)
+        capsule = ((failure or {}).get("context") or {}).get("capsule") if isinstance((failure or {}).get("context"), dict) else None
+        reproducer = capsule_reproducer(capsule) if isinstance(capsule, dict) else None
+        cand = self.propose_candidate(patch, hypothesis=str(patch.get("description") or ""), reproducer=reproducer)
+        if cand.get("verdict") == "fixed":
+            return self.adopt_candidate(cand["candidate_id"])
+        return {"ok": False, "applied": False, "candidate_id": cand.get("candidate_id"), "verdict": cand.get("verdict"),
+                "message": f"Candidate not applied: {cand.get('verdict')}"
+                           + (f" ({cand.get('reason')})" if cand.get("reason") else " (no evidence it fixes anything)")}
+
+    def candidate_archive(self, limit: int = 20) -> List[dict]:
+        """Every candidate evaluated, with its verdict and cost, newest first."""
+        conn = self.memory._get_connection()
+        try:
+            _ensure_failure_tables(conn)
+            rows = conn.execute("SELECT id, file_path, description, status, verdict, hypothesis, cost_s, parent_id, timestamp FROM code_patches "
+                                "WHERE verdict IS NOT NULL ORDER BY id DESC LIMIT ?", (int(limit),)).fetchall()
+        finally:
+            conn.close()
+        names = ("id", "file", "description", "status", "verdict", "hypothesis", "cost_s", "parent_id", "timestamp")
+        return [dict(zip(names, r)) for r in rows]
+
     def revert_patch(self, file_path: str) -> dict:
         """Restore the most recent .eli_bak backup for a file."""
         p = Path(file_path)
@@ -1293,7 +1517,7 @@ class SelfImprovementEngine:
                     })
                     continue
 
-                apply_result = self.apply_code_patch(patch)
+                apply_result = self.apply_autonomously(patch, failure)
                 if apply_result.get("applied"):
                     results["patches_applied"] += 1
                     results["details"].append({

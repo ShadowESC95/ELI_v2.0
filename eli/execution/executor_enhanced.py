@@ -661,6 +661,12 @@ def _gpu_status_report() -> Dict[str, Any]:
         ]
         if runtime_snapshot.get("load_mode"):
             lines.append(f"- load mode: {runtime_snapshot.get('load_mode')}")
+        try:
+            _age = max(0.0, time.time() - float(runtime_snapshot.get("ts") or 0))
+            if runtime_snapshot.get("ts"):
+                lines.append(f"- snapshot age: {int(_age)} s" + (" (stale: the model may have been reloaded since)" if _age > 900 else ""))
+        except Exception:
+            log.debug("snapshot age unavailable", exc_info=True)
         _req, _eff = runtime_snapshot.get("requested"), runtime_snapshot.get("effective")
         if isinstance(_req, dict) and isinstance(_eff, dict):
             _fmt = lambda d: (f"ctx={d.get('n_ctx', '?')} gpu_layers={d.get('n_gpu_layers', '?')} "
@@ -2177,8 +2183,9 @@ def _record_tool_execution(action: str, args: Any, result: Any) -> None:
         return
     if not action or action.upper() == "CHAT":
         return
-    from eli.runtime.evidence_ledger import record_event
+    from eli.runtime.evidence_ledger import predict_success, record_event
     ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
+    predicted = predict_success(action)
     text = ""
     if isinstance(result, dict):
         text = str(result.get("response") or result.get("content") or result.get("message") or "")
@@ -2188,10 +2195,15 @@ def _record_tool_execution(action: str, args: Any, result: Any) -> None:
         action=action,
         subject=",".join(sorted(str(k) for k in (args or {}))) if isinstance(args, dict) else "",
         content=text[:200],
-        payload={"ok": ok},
+        payload={"ok": ok, **({"predicted": predicted} if predicted is not None else {})},
         outcome="ok" if ok else "failed",
         severity="info" if ok else "warning",
     )
+    try:
+        from eli.runtime.lessons import observe_action
+        observe_action(action, ok)
+    except Exception:
+        log.debug("lesson observation skipped", exc_info=True)
 
 
 def _maybe_background_code_work(action, args):
@@ -2342,6 +2354,7 @@ SUPPORTED_ACTIONS = [
     'SKIP_YOUTUBE_AD',
     'ANALYZE_PDF_FOLDER',
     'IMAGE_STATUS',
+    'MEMORY_FORGET',
     'LISTEN_FOR_COMMAND',
     'PLUGIN_STATUS',
     'STT_DIAGNOSTICS',
@@ -5665,6 +5678,35 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         return chat(str(msg), model=model)
 
     # Persistent memory
+    if a == "MEMORY_FORGET":
+        from eli.memory import get_memory as _gm_forget
+        _mem_f = _gm_forget(db_path=_get_memory_path())
+        if args.get("confirm") and args.get("ids"):
+            _rep = _mem_f.forget(args.get("ids"))
+            try:
+                from eli.runtime.pending_proposal import clear_pending_proposal
+                clear_pending_proposal()
+            except Exception:
+                log.debug("pending forget not cleared", exc_info=True)
+            _parts = [f"{v} {k}" for k, v in _rep.items() if v]
+            msg = ("Forgotten: " + ", ".join(_parts) + ".") if _rep.get("memories") else "Nothing matched those ids, so nothing was deleted."
+            return {"ok": bool(_rep.get("memories")), "action": a, "report": _rep, "content": msg, "response": msg}
+        query = str(args.get("query") or "").strip()
+        found = _mem_f.forget_candidates(query) if query else []
+        if not found:
+            msg = f"I found nothing stored that matches '{query}', so there is nothing to forget."
+            return {"ok": True, "action": a, "matches": [], "content": msg, "response": msg}
+        ids = [f["id"] for f in found]
+        try:
+            from eli.runtime.pending_proposal import set_pending_proposal
+            set_pending_proposal("confirm forget memories " + " ".join(str(i) for i in ids), summary="forget memories")
+        except Exception:
+            log.debug("pending forget not set", exc_info=True)
+        lines = "\n".join(f"- #{f['id']}: {f['text']}" for f in found)
+        msg = (f"These stored memories match '{query}':\n{lines}\nSay yes to delete them and everything derived from them "
+               f"(summaries, profile items, index entries, claims), or say confirm forget memories with the ids you want gone.")
+        return {"ok": True, "action": a, "matches": found, "content": msg, "response": msg}
+
     if a == "MEMORY_STORE":
         txt = str(args.get("text") or args.get("content") or args.get("message") or "").strip()
         # Remove common prefixes like "memory: " and quotes
@@ -15450,23 +15492,6 @@ try:
 except Exception as _eli_gui_audit_visible_contract_err:
     log.debug(f"[EXECUTOR] GUI_RUNTIME_AUDIT visible result contract failed: {_eli_gui_audit_visible_contract_err}")
 # =============================================================================
-
-# Each finished action gives the lessons that apply to it one check (see eli/runtime/lessons.py).
-try:
-    _execute_before_lessons = execute
-
-    def execute(action, args=None, **kwargs):
-        result = _execute_before_lessons(action, args, **kwargs)
-        try:
-            _name = action.get("action", "") if isinstance(action, dict) else action
-            if isinstance(result, dict) and _name:
-                from eli.runtime.lessons import observe_action as _observe_lessons
-                _observe_lessons(_name, bool(result.get("ok")))
-        except Exception:
-            log.debug("lesson observation skipped", exc_info=True)
-        return result
-except Exception:
-    log.debug("[EXECUTOR] lesson observation not installed", exc_info=True)
 
 # Final execute_action alias sync (ELI_EXECUTOR_FINAL_EXECUTE_ACTION_ALIAS_SYNC_V1): execute_action
 # must expose the same final contract as execute. Several historical wrappers reassigned execute

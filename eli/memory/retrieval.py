@@ -25,6 +25,7 @@ class TurnRetrievalResult:
     elapsed_ms: float = 0.0
     cache_key: str = ""
     window_stats: Dict[str, Any] = field(default_factory=dict)
+    searched: Dict[str, Any] = field(default_factory=dict)
 
 # Per-process turn cache: key → (monotonic_ts, result)
 _TURN_CACHE: Dict[str, tuple[float, TurnRetrievalResult]] = {}
@@ -52,6 +53,37 @@ def invalidate_turn_cache(session_id: str = "") -> None:
             _TURN_CACHE.pop(k, None)
 
 
+_THIN_EVIDENCE = 3
+_EXACT_TOKEN = re.compile(r"[A-Za-z]{2,}-\d{2,}[A-Za-z0-9-]*|\b\d{4,}\b|\"([^\"]{3,60})\"")
+
+
+def _exact_token_hits(mem: Any, query: str, have: List[Dict[str, Any]], verified_only: bool) -> List[Dict[str, Any]]:
+    """Codes, numbers and quoted phrases are looked up as written, so an embedding that blurs them cannot lose them."""
+    seen = {h.get("id") for h in have if h.get("id")}
+    out: List[Dict[str, Any]] = []
+    for m in list(_EXACT_TOKEN.finditer(query or ""))[:3]:
+        token = m.group(1) or m.group(0)
+        try:
+            for h in mem.recall_memory(token, limit=4, verified_only=verified_only) or []:
+                if h.get("id") not in seen and token.lower() in str(h.get("text") or h.get("content") or "").lower():
+                    seen.add(h.get("id"))
+                    out.append(h)
+        except Exception:
+            log.debug("exact token lookup failed", exc_info=True)
+    return out
+
+
+def _archive_hits(mem: Any, query: str) -> List[Dict[str, Any]]:
+    """Faded rows are out of normal recall, not gone: search them only when live evidence is thin, and label them."""
+    try:
+        return [{"id": f"archive:{r['id']}", "text": r["text"], "content": r["text"], "source": "archive", "kind": "archived",
+                 "score": 0.5, "importance": 0.4, "timestamp": r.get("archived_at"), "origin": r.get("origin"),
+                 "verification_status": "verified"} for r in mem.search_archive(query, limit=4)]
+    except Exception:
+        log.debug("archive search failed", exc_info=True)
+        return []
+
+
 def _claim_hits(mem: Any, query: str, window: Optional[tuple]) -> List[Dict[str, Any]]:
     """Dated claims as evidence: what held during the period asked about, else the standing claims the question touches."""
     try:
@@ -60,7 +92,7 @@ def _claim_hits(mem: Any, query: str, window: Optional[tuple]) -> List[Dict[str,
             rows = mem.claims_during(window[0], window[1])
         else:
             words = {w for w in re.findall(r"[a-z]{3,}", (query or "").lower())}
-            rows = [c for c in mem.claims_current()
+            rows = [c for c in (mem.claims_current() + mem.claims_disputed())
                     if words & set(re.findall(r"[a-z]{3,}", f"{c['relation']} {c['value']}".lower()))
                     or re.search(r"\b(?:about me|know about|remember about|my (?:job|work|home|pet))\b", (query or "").lower())]
         return [{"id": f"claim:{c['id']}", "text": _claims.describe(c), "content": _claims.describe(c),
@@ -178,7 +210,18 @@ def retrieve_for_turn(
                   time.strftime("%Y-%m-%d %H:%M", time.localtime(window[1])),
                   len(raw_hits), len(raw_hits) - added, candidates, added, len(conv_hits))
 
-    raw_hits += _claim_hits(mem, q, window)
+    claim_hits = _claim_hits(mem, q, window)
+    exact_hits = _exact_token_hits(mem, q, raw_hits, verified_only)
+    raw_hits += claim_hits + exact_hits
+    searched: Dict[str, Any] = {
+        "semantic": len(raw_hits) - len(claim_hits) - len(exact_hits), "exact": len(exact_hits),
+        "claims": len(claim_hits), "window": bool(window)}
+    if len(raw_hits) - len(claim_hits) < _THIN_EVIDENCE:
+        archived = _archive_hits(mem, q)
+        raw_hits += archived
+        searched["archive"] = len(archived)
+    else:
+        searched["archive"] = None
 
     contradictions: List[Dict[str, Any]] = []
     if rerank and raw_hits:
@@ -203,6 +246,7 @@ def retrieve_for_turn(
         elapsed_ms=elapsed,
         cache_key=cache_key,
         window_stats=window_stats,
+        searched=searched,
     )
     if use_cache and q:
         _TURN_CACHE[cache_key] = (time.monotonic(), result)

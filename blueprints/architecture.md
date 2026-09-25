@@ -1,4 +1,4 @@
-> **Updated for v2.4.69 (September 2026).** Every CHAT turn runs the gradient
+> **Updated for v2.4.70 (September 2026).** Every CHAT turn runs the gradient
 > orchestrator at a depth scaled to the reasoning mode, with the specialist bus composed
 > inside it after shared retrieval (`eli/memory/retrieval.py`). Canonical S01–S12 tracing is in
 > `eli/kernel/pipeline_trace.py`; stage 12 learning runs through `learning_coordinator.py`.
@@ -11,8 +11,8 @@ source tree on 2026-09-25; where something is only true at runtime it is marked 
 > ELI is a **local-first, offline-by-default, model-agnostic** cognitive runtime and
 > assistant GUI, and also a self-hosted web app (`api/server.py`, described in
 > `ELI_USER_MANUAL.md`). No cloud on the inference path, no hardcoded model.
-> **194,623 lines across 437 Python files in `eli/`**, plus `api/server.py` (2,292 lines).
-> 227 capabilities in `capability_manifest.json`, 186 of them routable and 205 in the
+> **195,521 lines across 437 Python files in `eli/`**, plus `api/server.py` (2,292 lines).
+> 228 capabilities in `capability_manifest.json`, 186 of them routable and 205 in the
 > executor's supported list.
 
 ---
@@ -244,8 +244,8 @@ The known weak seam is internal state leaking into spoken output on the plain CH
 
 ## 10. Execution layer (`eli/execution/executor_enhanced.py`)
 
-- `execute(action, args) -> dict`. The executor's supported list holds **205 actions**; the
-  manifest declares **227 capabilities**, of which **186 are routable** and 205 are in the
+- `execute(action, args) -> dict`. The executor's supported list holds **206 actions**; the
+  manifest declares **228 capabilities**, of which **186 are routable** and 206 are in the
   supported list.
 - **Fast path** (`engine.py`): deterministic OS, media, status and job actions (`VOLUME`,
   `MEDIA_CONTROL`, `NEXT_MEDIA`, `OPEN_APP`, `DATE`, `SHELL_EXEC`, `ANALYZE_IMAGE`,
@@ -336,7 +336,12 @@ recent conversation, merged and reranked (§7).
   focus, recurring errors, active project); runs an autonomy tick every 30 minutes.
 - **Self-improvement loop** (`runtime/self_improvement.py`): started at boot, analyses
   failures immediately and then every 24 hours. Repair by the coding agent is opt-in and
-  bounded.
+  bounded. A failure is stored with a capsule (input, versions, model, error class), and a
+  candidate patch is tried on a hard-linked copy of the tree and compared with the same tests on
+  the untouched tree: only a candidate that fixes something and breaks nothing is applied, every
+  candidate stays in the archive (`code_patches`) with its verdict and cost, and the tests, the
+  evaluator and the safety gates cannot be patched by a candidate. `ELI_SELFPATCH_UNPROVEN=1`
+  restores applying without proof.
 - **Habit scheduler** (`planning/habits_scheduler.py`, `habits.py`).
 - **Scheduler** (`kernel/scheduler.py`); **background tasks** (`runtime/background_tasks.py`).
 - **Code monitor** (`runtime/code_monitor.py`); **ambient vision loop**.
@@ -420,7 +425,7 @@ tts_piper/  Piper voice files shipped with the repo
    surface.
 2. **Internal state → spoken output.** The recurring failure class. The grounding gate and
    escalation defend it; they do not close it on the plain CHAT path.
-3. **Swallowed errors.** 162 handlers are a bare `except: pass` and 4,369 catch `Exception`,
+3. **Swallowed errors.** 162 handlers are a bare `except: pass` and 4,392 catch `Exception`,
    most of them logging at debug level. A ratchet test (`tests/claims/test_no_silent_swallow.py`)
    stops the silent count rising.
 4. **Latency versus model size.** On an 8 GB GPU a 24B model at Q5 offloads few layers and

@@ -3264,6 +3264,17 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("WRITE_NOTE", {"text": _note_m2.group(
             1).strip()}, 0.95, matched_by="notes.add_early")
 
+    m = re.match(r"^confirm\s+forget\s+memor(?:y|ies)\s+([\d\s,]+)$", raw.strip(), re.I)
+    if m:
+        ids = [int(x) for x in re.findall(r"\d+", m.group(1))]
+        return _mk("MEMORY_FORGET", {"ids": ids, "confirm": True}, 1.0, matched_by="memory.forget_confirm")
+    m = re.match(
+        r"^(?:please\s+)?(?:forget\s+(?:about\s+|that\s+|what\s+i\s+(?:said|told\s+you)\s+about\s+|everything\s+about\s+)?"
+        r"|(?:delete|erase|remove)\s+(?:the\s+)?(?:memory|memories)\s+(?:about|of|that)\s+"
+        r"|erase\s+what\s+you\s+know\s+about\s+)(.{4,200}?)[.!]?$", raw.strip(), re.I)
+    if m and not re.match(r"^(?:(?:it|this|that|me)$|(?:everything|all)\b)", m.group(1).strip(), re.I):
+        return _mk("MEMORY_FORGET", {"query": m.group(1).strip()}, 0.97, matched_by="memory.forget_request")
+
     # "Please store this fact in memory: X. Then confirm ..." stores X; the trailing request is not part of it.
     m = re.match(
         r"^(?:please\s+)?(?:store|save|record|remember|keep)\s+(?:this|the following|that)?\s*(?:fact|information|detail|note)?\s*"

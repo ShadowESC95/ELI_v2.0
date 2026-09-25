@@ -5,6 +5,25 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List
 
 
+class EvidenceState:
+    """What is known about a piece of evidence. "Nothing found" is only a claim when the search really ran."""
+    FOUND = "found"
+    NOT_FOUND = "inspected, not found"
+    NOT_INSPECTED = "not inspected"
+    INSPECTION_FAILED = "inspection failed"
+    NOT_AVAILABLE = "not available on this machine"
+
+
+def absence_statement(state: str, what: str) -> str:
+    """The honest wording for a missing piece of evidence, by why it is missing."""
+    return {
+        EvidenceState.NOT_FOUND: f"I looked for {what} and found nothing.",
+        EvidenceState.NOT_INSPECTED: f"I have not looked at {what} yet, so I cannot say.",
+        EvidenceState.INSPECTION_FAILED: f"I tried to check {what} but the check failed, so I cannot say.",
+        EvidenceState.NOT_AVAILABLE: f"{what} is not available here.",
+    }.get(state, "")
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 

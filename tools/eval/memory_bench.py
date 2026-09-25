@@ -4,6 +4,8 @@ The scenarios are written for ELI (they are not the official LongMemEval questio
 abilities: extraction, multi-session recall, temporal reasoning, knowledge updates and abstention, plus
 ELI-specific checks for provenance, deletion, destructive merges and self-reinforcing recall.
 
+Scenarios 12-15 cover forgetting, conflicts, exact-code and archive recall.
+
 Everything is deterministic and offline: a temporary database, no model, no vector index.
 
     python -m tools.eval.memory_bench            # print the table
@@ -165,11 +167,54 @@ def chatter_is_not_durable(mem) -> Result:
     return n == 0, f"rows={n}"
 
 
+def forget_propagates(mem) -> Result:
+    rid = _said(mem, "My spare key code is ORCHID-7319 and my sister Priya has a copy")
+    mem.save_session_summary("s1", "u", summary="They shared the key code ORCHID-7319 and Priya", turns_count=2)
+    report = mem.forget([rid])
+    left = _texts(mem.recall_memory("spare key code ORCHID-7319", limit=5))
+    return report["memories"] == 1 and report["claims"] >= 0 and report["summaries"] == 1 and "orchid" not in left, str(report)
+
+
+def conflict_is_surfaced(mem) -> Result:
+    from eli.memory import claims
+    _said(mem, "I live in Berlin with my partner and two cats")
+    c = mem._claims_conn()
+    claims.record(c, "lives_in", "Oslo", origin="eli_said")
+    c.commit()
+    c.close()
+    conflicts = mem.claim_conflicts()
+    return len(conflicts) == 1 and "Which is right" in claims.conflict_question(conflicts[0]), str(conflicts)[:80]
+
+
+def exact_code_recall(mem) -> Result:
+    from eli.memory.retrieval import retrieve_for_turn
+    _said(mem, "The validation lighthouse code is ORCHID-7319 and the fictional bird is a silver kestrel")
+    for i in range(8):
+        _said(mem, f"Note {i}: the lighthouse tour on day {i} was cancelled because of the weather")
+    res = retrieve_for_turn(mem, "what was the code ORCHID-7319 about", use_cache=False, rerank=False)
+    return "silver kestrel" in _texts(res.semantic_hits), _texts(res.semantic_hits)[:80]
+
+
+def archive_recall(mem) -> Result:
+    from eli.memory.retrieval import retrieve_for_turn
+    mem.store_memory("The old warehouse alarm code was ZEBRA-4410 before the refit last year", source="assistant", kind="fact", importance=0.2)
+    c = sqlite3.connect(mem.db_path)
+    c.execute("update memories set timestamp = timestamp - 4000 * 86400, ts = ts - 4000 * 86400, last_seen = last_seen - 4000 * 86400, event_ts = event_ts - 4000 * 86400")
+    c.commit()
+    c.close()
+    mem.apply_weight_decay()
+    archived = mem.archive_faded()["archived"]
+    res = retrieve_for_turn(mem, "what was the old warehouse alarm code", use_cache=False, rerank=False)
+    return archived == 1 and "zebra-4410" in _texts(res.semantic_hits) and res.searched["archive"] == 1, str(res.searched)
+
+
 SCENARIOS: Dict[str, Callable] = {
     "extraction": extraction, "multi_session": multi_session, "temporal_window": temporal_window,
     "explicit_date": explicit_date, "knowledge_update": knowledge_update, "abstention": abstention,
     "provenance": provenance, "deletion": deletion, "no_destructive_merge": no_destructive_merge,
     "no_self_reinforcement": no_self_reinforcement, "chatter_is_not_durable": chatter_is_not_durable,
+    "forget_propagates": forget_propagates, "conflict_is_surfaced": conflict_is_surfaced,
+    "exact_code_recall": exact_code_recall, "archive_recall": archive_recall,
 }
 
 

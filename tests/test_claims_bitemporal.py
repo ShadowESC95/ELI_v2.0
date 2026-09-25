@@ -37,7 +37,9 @@ def test_what_eli_knew_at_a_date(conn):
 
 
 def test_the_same_value_confirms_instead_of_duplicating(conn):
-    claims.record(conn, "work_schedule", "Nights", now=_d("2026-07-01"))
+    claims.record(conn, "work_schedule", "Nights", now=_d("2026-07-01"), root_id=11)
+    claims.record(conn, "work_schedule", "nights", now=_d("2026-07-02"), root_id=11)
+    claims.record(conn, "work_schedule", "nights", now=_d("2026-07-03"), root_id=12)
     rows = claims.history(conn, "work_schedule")
     assert len(rows) == 2 and rows[-1]["confirmations"] == 2
 
@@ -92,3 +94,37 @@ def test_a_period_question_gets_what_held_then(mem):
     c.close()
     hits = _claim_hits(mem, "what was my job schedule then", (now - 120 * 86400, now - 100 * 86400))
     assert len(hits) == 1 and "days" in hits[0]["text"]
+
+
+def test_a_claim_that_is_not_the_users_own_word_is_disputed_not_substituted():
+    conn = sqlite3.connect(":memory:")
+    claims.record(conn, "lives_in", "Berlin", origin="user_said", now=_d("2026-05-01"))
+    claims.record(conn, "lives_in", "Oslo", origin="eli_said", now=_d("2026-06-01"))
+    assert [c["value"] for c in claims.current(conn)] == ["Berlin"]
+    conflict = claims.open_conflicts(conn)[0]
+    assert [c["value"] for c in conflict["disputed"]] == ["Oslo"] and conflict["standing"][0]["contested"] == 1
+    assert "Berlin" in claims.conflict_question(conflict) and "Oslo" in claims.conflict_question(conflict)
+
+
+def test_the_user_settles_a_conflict():
+    conn = sqlite3.connect(":memory:")
+    claims.record(conn, "lives_in", "Berlin", origin="user_said", now=_d("2026-05-01"))
+    claims.record(conn, "lives_in", "Oslo", origin="eli_said", now=_d("2026-06-01"))
+    claims.resolve_conflict(conn, "lives_in", "Oslo", now=_d("2026-06-05"))
+    assert [c["value"] for c in claims.current(conn)] == ["Oslo"] and claims.open_conflicts(conn) == []
+    assert [c["status"] for c in claims.history(conn, "lives_in")] == ["superseded", "current"]
+
+
+def test_hedged_and_hypothetical_statements_are_not_claims():
+    for t in ("maybe I will work nights", "I might move to Berlin next year", "I am thinking of working at Acme Corp", "what if I work nights"):
+        assert claims.extract(t) == []
+
+
+def test_a_disputed_claim_reaches_the_evidence_marked(mem):
+    mem.store_memory("I live in Berlin these days with my partner", source="user")
+    c = mem._claims_conn()
+    claims.record(c, "lives_in", "Oslo", origin="eli_said")
+    c.commit()
+    c.close()
+    text = " ".join(h["text"] for h in _claim_hits(mem, "where do I live, what do you know about me", None))
+    assert "Berlin" in text and "DISPUTED" in text

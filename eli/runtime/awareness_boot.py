@@ -76,7 +76,26 @@ class AwarenessState:
             parts.append(f"  Recent capability changes: {self.capability_delta_summary}")
         if self.code_report_has_changes:
             parts.append(f"  Recent code changes: {self.code_report_summary}")
+        parts.append(self._reliability_line())
+        try:
+            from eli.planning.goal_store import task_brief
+            parts.append(task_brief())
+        except Exception:
+            log.debug("task brief unavailable", exc_info=True)
         return "\n".join(p for p in parts if p)
+
+    @staticmethod
+    def _reliability_line() -> str:
+        """Actions that have been failing lately, from measured runs, so ELI does not promise what it has not delivered."""
+        try:
+            from eli.runtime.evidence_ledger import unreliable_actions
+            bad = unreliable_actions()
+            if bad:
+                return "  Unreliable lately (measured): " + ", ".join(
+                    f"{b['action']} ({b['p']:.0%} of {b['n']} runs)" for b in bad)
+        except Exception:
+            log.debug("reliability line unavailable", exc_info=True)
+        return ""
 
     def _live_self_model(self) -> str:
         """One-line live self-model — agents, capabilities, stores, model, world-room —

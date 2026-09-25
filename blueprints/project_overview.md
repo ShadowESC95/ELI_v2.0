@@ -1,6 +1,6 @@
 # ELI — Full Project Breakdown & Assessment
 
-> **Updated for v2.4.69 (September 2026).** Every CHAT mode runs the gradient
+> **Updated for v2.4.70 (September 2026).** Every CHAT mode runs the gradient
 > orchestrator, retrieval is shared in `eli/memory/retrieval.py`, memory is governed by a
 > storage policy (`eli/memory/policy.py`), and the S01–S12 pipeline is traced canonically.
 > Installers are CI-launch-tested and published on
@@ -35,8 +35,8 @@ in-process from the desktop GUI.
 
 ## 2. Scale and shape
 
-**194,623 lines across 437 Python files** in `eli/`, plus `api/server.py` (2,292 lines with
-an embedded dashboard) and **522 test files** under `tests/`.
+**195,521 lines across 437 Python files** in `eli/`, plus `api/server.py` (2,292 lines with
+an embedded dashboard) and **526 test files** under `tests/`.
 
 | Subsystem | Lines | Files | Role |
 |---|---:|---:|---|
@@ -68,8 +68,8 @@ an embedded dashboard) and **522 test files** under `tests/`.
   calculation is shared by the loader and the startup dialog; the fit priority
   (balanced, max GPU, max context) is a setting.
 - **Routing**: `execution/router_enhanced.py` is regex-first with an LLM-intent fallback
-  and an explicit priority pipeline, resolving to one of **227 manifest capabilities**
-  (186 routable, 205 in the executor's supported list, 210 in either). The full reference
+  and an explicit priority pipeline, resolving to one of **228 manifest capabilities**
+  (187 routable, 206 in the executor's supported list, 211 in either). The full reference
   with activation phrases is `capabilities_and_actions.md`.
 - **Orchestration**: `kernel/engine.py` runs the gradient orchestrator for all CHAT modes
   (Quick is light, Expert is deep); `dispatch_specialists()` composes the 15-agent
@@ -106,12 +106,12 @@ an embedded dashboard) and **522 test files** under `tests/`.
    app allowlists.
 4. **Breadth, integrated.** Vision, voice, OS control, memory, knowledge graph, plugins and
    self-training in one pipeline.
-5. **A large safety net.** 12,399 tests are collected; the structural tests catch broken
+5. **A large safety net.** 12,489 tests are collected; the structural tests catch broken
    imports, stale action lists and unpinned routes.
 
 ## 5. Where it is weak (measured)
 
-1. **Swallowed errors.** 4,369 handlers catch `Exception` (most log at debug level), 5 are
+1. **Swallowed errors.** 4,392 handlers catch `Exception` (most log at debug level), 5 are
    bare `except:`, and 162 are a lone `pass`. A ratchet test
    (`tests/claims/test_no_silent_swallow.py`) stops the silent count rising.
 2. **Large files.** The executor is an action ladder and the engine a long orchestration

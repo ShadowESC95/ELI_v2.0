@@ -103,7 +103,7 @@ but real.
 
 ## 5. Testing strategy (two layers + the gaps)
 
-**Layer 1 — code correctness:** **522 pytest files, 12,399 tests collected, all passing on the release run** — routing patterns, contracts, executor gates, memory, kernel,
+**Layer 1 — code correctness:** **526 pytest files, 12,489 tests collected, all passing on the release run** — routing patterns, contracts, executor gates, memory, kernel,
 perception/voice, packaging. About 14 minutes for the full run; run on every change.
 
 **Layer 2 — behavioural eval:** `tools/eval/` (see `tools/eval/README.md`) drives the
