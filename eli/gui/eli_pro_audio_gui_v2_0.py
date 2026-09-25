@@ -10585,7 +10585,10 @@ class EliMainWindow(QMainWindow):
                 from eli.core.runtime_settings import load_settings as _rs_load, save_settings as _rs_save
                 _s = dict(_rs_load() or {})
                 _s["n_ctx"] = _canonical_ctx        # user's chosen ctx, preserved
-                _s["n_gpu_layers"] = _canonical_layers   # user's choice, preserved
+                _s["n_gpu_layers"] = _canonical_layers
+                # Only a value the operator pinned counts as theirs; the tuner's own number must not
+                # come back next launch as a pin.
+                _s["n_gpu_layers_source"] = "user" if _user_pinned_layers else "tuner"
                 # Record the model and ctx this pin was measured at, so a swap or ctx change can invalidate it.
                 _s["n_gpu_layers_model"] = _this_model
                 _s["n_gpu_layers_ctx"] = _canonical_ctx
@@ -12436,6 +12439,9 @@ class EliMainWindow(QMainWindow):
             "n_ctx": int(self.n_ctx_input.value()),
             "n_threads": int(self.n_threads_input.value()),
             "n_gpu_layers": int(self.n_gpu_layers_input.value()),
+            "n_gpu_layers_source": (
+                "user" if int(self.n_gpu_layers_input.value()) != int(existing.get("n_gpu_layers") or 0)
+                else str(existing.get("n_gpu_layers_source") or "")),
             "batch_size": int(self.batch_size_input.value()),
             "max_tokens": int(self.max_tokens_input.value()),
             "temperature": float(self.temperature_input.value()),

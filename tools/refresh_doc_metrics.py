@@ -13,13 +13,14 @@ import ast
 import json
 import re
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SKIP_PARTS = ("/.venv/", "/models/", "/.claude/", "/node_modules/", "/build/", "/clearbuild/")
 
 # Current release — keep in sync with pyproject.toml.
-VERSION = "2.4.67"
+VERSION = "2.4.68"
 VERSION_TAG = f"v{VERSION}"
 
 
@@ -65,7 +66,7 @@ def _capability_stats() -> dict:
 
 def _test_stats() -> dict:
     proc = subprocess.run(
-        ["python3", "-m", "pytest", "--collect-only", "-q"],
+        [sys.executable, "-m", "pytest", "--collect-only", "-q", "-p", "no:cacheprovider"],
         cwd=ROOT, capture_output=True, text=True, timeout=120,
     )
     m = re.search(r"(\d[\d,]*)\s+tests collected", proc.stdout + proc.stderr)
@@ -326,7 +327,7 @@ def refresh_file(path: Path, replacements: list[tuple[str, str]]) -> bool:
     for old, new in replacements:
         if old == new:
             continue
-        # An old version string can be a prefix of the current one (2.4.6 vs 2.4.67), so only
+        # An old version string can be a prefix of the current one (2.4.6 vs 2.4.68), so only
         # replace it where it is not followed by another digit.
         text = re.sub(re.escape(old) + r"(?![0-9])", lambda _m, _n=new: _n, text)
     if path.suffix == ".md":

@@ -1825,6 +1825,12 @@ def _clamp_fit_to_ram_budget(
             layers = 99 if real >= total else real
             continue
 
+        # With any layer on the GPU the spill is weights only, so ctx and batch cannot change it,
+        # and the weights are memory-mapped, so a shortfall is paged from disk rather than fatal.
+        # Shrinking ctx here only threw away the operator's context for nothing.
+        if real > 0:
+            break
+
         moved = False
         if priority == FIT_PRIORITY_MAX_GPU and ctx > min_ctx:
             ctx = max(min_ctx, ctx - ctx_grain)
@@ -1834,10 +1840,6 @@ def _clamp_fit_to_ram_budget(
             moved = True
         elif ctx > min_ctx:
             ctx = max(min_ctx, ctx - ctx_grain)
-            moved = True
-        elif real > 0:
-            real = max(0, real - step)
-            layers = 99 if real >= total else real
             moved = True
         if not moved:
             break

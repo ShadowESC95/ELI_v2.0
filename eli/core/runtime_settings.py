@@ -114,6 +114,7 @@ DEFAULTS: Dict[str, Any] = {
     # sensible slice of a 15.66GB model on 8GB and crippling for a 4GB model whose 32 layers all fit.
     # Empty means unknown provenance, treated as not pinned for this model.
     "n_gpu_layers_model": "",
+    "n_gpu_layers_source": "",
     "n_threads": max(1, os.cpu_count() or 8),
     "batch_size": 512,
     # Fraction of available RAM for model weights + KV (startup dialog, 10–75%).
@@ -278,6 +279,18 @@ def pinned_gpu_layers_for_model(model_path, settings=None, current_ctx=None):
         return None
     if pin < 0 or pin >= ALL_GPU_LAYERS_MIN:
         return pin
+    # A count the tuner wrote is a measurement, not the operator's choice. Treating it as a pin
+    # made one low reading (RAM briefly short) cap every later launch. Older files carry no
+    # source, so a pin identical to the tuner's mirror is taken to be the tuner's.
+    source = str(s.get("n_gpu_layers_source") or "").strip().lower()
+    if source == "tuner":
+        return None
+    if not source:
+        try:
+            if int(s.get("hw_profile_n_gpu_layers") or 0) == pin:
+                return None
+        except Exception:
+            pass
     recorded = model_identity_key(s.get("n_gpu_layers_model"))
     current = model_identity_key(model_path)
     if not (recorded and current and recorded == current):
