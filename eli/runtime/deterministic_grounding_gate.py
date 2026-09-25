@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import importlib
 import json
 import re
@@ -12,9 +11,8 @@ import subprocess
 import logging as _swlog_logging
 _SWLOG = _swlog_logging.getLogger(__name__)
 
-import sys
 from pathlib import Path
-from typing import Any, Mapping
+from typing import Any
 
 try:
     from eli.core.paths import canonical_root
@@ -446,26 +444,35 @@ def _eli_memory_internals_v2() -> str:
     user_counts = _eli_count_rows_v2(paths["user_db"])
     agent_counts = _eli_count_rows_v2(paths["agent_db"])
 
-    def table_block(title: str, db: _EliPath, counts: dict[str, int]) -> list[str]:
+    from eli.memory.memory import AGENT_OWNED_TABLES
+
+    def table_block(title: str, db: _EliPath, counts: dict[str, int], keys: tuple) -> list[str]:
         out = [f"## {title}", f"path: {db}", f"exists: {db.exists()}", ""]
-        for k in ("memories", "memories_fts", "conversation_turns", "conversations", "observations", "recall_log", "habits", "habit_rules", "habit_events", "failures", "improvements", "kg_entities", "kg_relations"):
+        for k in keys:
             if k in counts:
                 out.append(f"- {k}: {counts[k]}")
         return out
+
+    user_keys = ("memories", "memories_archive", "semantic", "conversation_turns", "conversations", "observations",
+                 "recall_log", "habits", "habit_rules", "habit_events", "kg_entities", "kg_relations")
+    turns, kept = user_counts.get("conversation_turns", 0), user_counts.get("memories", 0)
 
     lines = [
         "Memory internals report:",
         "",
         "## Practical layers",
-        "1. SQLite durable store: long-term facts, conversation turns, observations, recall logs, habits, failures, improvements.",
-        "2. FTS/vector retrieval: SQLite FTS tables plus FAISS/nomic embeddings for semantic recall.",
-        "3. Cognition assembly: memory/context agents collect evidence, then the engine assembles a prompt for GGUF or deterministic response surfaces.",
+        "## Two memory layers (not a dump of every interaction)",
+        f"1. Conversation history: {turns} turns kept in order in conversation_turns. Broad and chronological; this is what date questions search.",
+        f"2. Distilled memory: {kept} memories plus semantic facts. Only what the persistence gate and storage policy judge worth keeping is written here, tagged by origin (user_said, eli_said, telemetry, news, tool), deduplicated, and faded by a forgetting curve; faded derived rows move to memories_archive.",
+        "Recall combines both: a time window is applied first when the question names a period, then keyword, semantic and knowledge-graph ranking.",
+        "Retrieval: SQLite FTS plus FAISS embeddings. Cognition assembly: memory agents collect evidence and the engine builds the prompt or a deterministic response surface.",
+        f"Self-improvement records ({', '.join(AGENT_OWNED_TABLES)}) are stored only in agent.sqlite3; user.sqlite3 holds empty copies of those tables that nothing writes.",
         "",
     ]
 
-    lines.extend(table_block("user.sqlite3", paths["user_db"], user_counts))
+    lines.extend(table_block("user.sqlite3", paths["user_db"], user_counts, user_keys))
     lines.append("")
-    lines.extend(table_block("agent.sqlite3", paths["agent_db"], agent_counts))
+    lines.extend(table_block("agent.sqlite3", paths["agent_db"], agent_counts, AGENT_OWNED_TABLES))
     lines.append("")
     lines.extend([
         "## Vector store",

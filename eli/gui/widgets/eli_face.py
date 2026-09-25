@@ -16,9 +16,7 @@ import logging
 import math
 import random
 
-from eli.gui.qt_compat import (
-    Qt, QTimer, QWidget, QPainter, QPen, QBrush, QColor,
-)
+from eli.gui.qt_compat import QTimer, QWidget, QPainter, QPen, QBrush, QColor
 
 log = logging.getLogger(__name__)
 

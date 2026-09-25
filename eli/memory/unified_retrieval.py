@@ -6,7 +6,7 @@ Orchestrator keyword/semantic stages consume this module instead of parallel
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from eli.memory.retrieval import TurnRetrievalResult, retrieve_for_turn
 from eli.runtime.memory_provenance import is_explicit_memory_audit_query

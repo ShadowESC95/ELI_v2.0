@@ -10749,7 +10749,6 @@ Answer:"""
         recent_turns: Optional[Any] = None,
     ):
         """Wrap a live token stream with anti-repeat enforcement and one retry."""
-        from types import SimpleNamespace
 
         _recent_eli: List[str] = []
         _recent_user: List[str] = []
@@ -15371,7 +15370,7 @@ Answer:"""
         try:
             from eli.runtime.self_improvement import get_self_improvement
             get_self_improvement().start_self_improvement_loop(interval_hours=24)
-            log.debug("[COGNITIVE] Self-improvement loop started")
+            log.debug("[COGNITIVE] Self-improvement loop scheduled (analyses now, then every 24h)")
         except Exception as e:
             log.debug(f"[COGNITIVE] Self-improvement loop failed to start: {e}")
 

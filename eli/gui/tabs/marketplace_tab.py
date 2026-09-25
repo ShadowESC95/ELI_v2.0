@@ -23,10 +23,28 @@ import json
 from typing import Any, Dict, List, Optional
 
 from eli.gui.panels._qt import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QTableWidget,
-    QTableWidgetItem, QTextEdit, QLineEdit, QComboBox, QTabWidget, QSplitter,
-    QAbstractItemView, QHeaderView, QMessageBox, QDialog, QFormLayout,
-    QProgressBar, QInputDialog, Qt, QThread, QObject, pyqtSignal,
+    QWidget,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
+    QTextEdit,
+    QLineEdit,
+    QComboBox,
+    QTabWidget,
+    QSplitter,
+    QAbstractItemView,
+    QHeaderView,
+    QMessageBox,
+    QDialog,
+    QProgressBar,
+    QInputDialog,
+    Qt,
+    QThread,
+    QObject,
+    pyqtSignal,
 )
 from eli.utils.log import get_logger
 

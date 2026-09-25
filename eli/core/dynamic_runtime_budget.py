@@ -6,7 +6,7 @@ import json
 import os
 import re
 import subprocess
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from eli.utils.log import get_logger
 

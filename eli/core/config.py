@@ -14,7 +14,7 @@ Canonical key mapping (legacy -> canonical):
   n_batch          -> batch_size
 """
 
-from typing import Optional, Dict, Any, List
+from typing import Optional
 import os
 import sys
 import json
@@ -25,7 +25,12 @@ from eli.core.runtime_settings import (
     _settings_file as _rs_file,
     DEFAULT_N_CTX as _DEFAULT_N_CTX,
 )
-from eli.core.paths import config_dir, gguf_models_dir, models_dir as _paths_models_dir, project_root, resolve_runtime_path
+from eli.core.paths import (
+    gguf_models_dir,
+    models_dir as _paths_models_dir,
+    project_root,
+    resolve_runtime_path,
+)
 from eli.utils.log import get_logger
 
 log = get_logger(__name__)

@@ -9,7 +9,7 @@ they load.
 from __future__ import annotations
 
 import re
-from typing import FrozenSet, Iterable, Optional, Sequence, Tuple
+from typing import Optional, Tuple
 
 # ── Turn-boundary / role tokens stripped from user-visible output ────────────
 # Keep in sync with universal + family stop lists below.

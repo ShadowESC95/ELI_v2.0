@@ -19,10 +19,10 @@ import itertools
 import re
 import symtable
 from dataclasses import dataclass, field
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 from eli.coding.sandbox import run_code, RunResult
-from eli.coding.bug_memory import classify_bug, BugDiagnosis, BugClass
+from eli.coding.bug_memory import classify_bug, BugDiagnosis
 from eli.utils.log import get_logger
 
 log = get_logger(__name__)

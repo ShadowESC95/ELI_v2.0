@@ -38,7 +38,7 @@ below rather than lost in a merge.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Iterable, List, Sequence, Tuple
+from typing import Any, Iterable, List, Tuple
 
 # ── memories ───────────────────────────────────────────────────────────────
 # Kinds that are ELI's own output rather than something learned about the user.

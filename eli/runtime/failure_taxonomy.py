@@ -28,7 +28,7 @@ when nothing matched, not the answer to everything.
 from __future__ import annotations
 
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, Tuple
 
 # ── categories ────────────────────────────────────────────────────────────────
 RESOURCE = "resource"            # out of memory, VRAM, disk, file handles

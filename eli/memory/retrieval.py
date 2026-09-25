@@ -23,6 +23,7 @@ class TurnRetrievalResult:
     contradictions: List[Dict[str, Any]] = field(default_factory=list)
     elapsed_ms: float = 0.0
     cache_key: str = ""
+    window_stats: Dict[str, Any] = field(default_factory=dict)
 
 # Per-process turn cache: key → (monotonic_ts, result)
 _TURN_CACHE: Dict[str, tuple[float, TurnRetrievalResult]] = {}
@@ -132,9 +133,26 @@ def retrieve_for_turn(
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
+    window_stats: Dict[str, Any] = {}
     if window:
         from eli.cognition.evidence_format import row_time
+        candidates = len(raw_hits)
+        added = 0
+        try:
+            seen = {h.get("id") for h in raw_hits if h.get("id")}
+            timed = [h for h in mem.memories_between(window[0], window[1], limit=max(int(merge_cap), 24),
+                                                     verified_only=verified_only) if h["id"] not in seen]
+            raw_hits += timed
+            added = len(timed)
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         raw_hits = [h for h in raw_hits if window[0] <= (row_time(h) or 0) < window[1]]
+        window_stats = {"since": window[0], "until": window[1], "candidates": candidates,
+                        "added_by_time": added, "in_window": len(raw_hits), "turns": len(conv_hits)}
+        log.debug("[RETRIEVAL] time window %s..%s: %d in window (%d of %d semantic candidates + %d found by time), %d turns",
+                  time.strftime("%Y-%m-%d %H:%M", time.localtime(window[0])),
+                  time.strftime("%Y-%m-%d %H:%M", time.localtime(window[1])),
+                  len(raw_hits), len(raw_hits) - added, candidates, added, len(conv_hits))
 
     contradictions: List[Dict[str, Any]] = []
     if rerank and raw_hits:
@@ -158,6 +176,7 @@ def retrieve_for_turn(
         contradictions=contradictions,
         elapsed_ms=elapsed,
         cache_key=cache_key,
+        window_stats=window_stats,
     )
     if use_cache and q:
         _TURN_CACHE[cache_key] = (time.monotonic(), result)

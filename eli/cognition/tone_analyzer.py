@@ -33,7 +33,7 @@ from __future__ import annotations
 import re
 import time
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 log = logging.getLogger(__name__)
 

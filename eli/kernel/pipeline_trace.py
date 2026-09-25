@@ -5,7 +5,7 @@ LEARNING + STATE UPDATE from ``pipeline.py`` STEPS, not an ad-hoc sub-label.
 """
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from eli.utils.log import get_logger
 

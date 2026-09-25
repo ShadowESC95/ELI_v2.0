@@ -215,7 +215,6 @@ def store_blocker() -> str | None:
     Returns None when everything is writable, which is the normal case.
     """
     import logging
-    import os
     from pathlib import Path
     _log = logging.getLogger("eli.init_data")
     try:

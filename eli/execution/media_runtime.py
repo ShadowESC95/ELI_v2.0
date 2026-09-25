@@ -219,18 +219,13 @@ def youtube_play(query: str) -> str:
     if not q:
         return "Say what to play."
 
-    from eli.integrations.media.media_deps import (
-        missing_youtube_tools,
-        path_env_for_subprocess,
-        yt_dlp_available,
-    )
+    from eli.integrations.media.media_deps import missing_youtube_tools
     _missing = missing_youtube_tools()
     if _missing:
         names = " and ".join(_missing)
         return f"{names} {'is' if len(_missing) == 1 else 'are'} not installed; cannot play YouTube locally."
 
     from eli.integrations.media.youtube_playback import attempt_youtube_mpv
-    from eli.integrations.media.cross_platform import mpv_socket_path
 
     sock = _mpv_socket()
     try:

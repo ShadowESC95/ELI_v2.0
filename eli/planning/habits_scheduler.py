@@ -6,8 +6,8 @@ import time
 import threading
 import re
 import sqlite3  # added to catch OperationalError
-from datetime import datetime, timedelta
-from typing import List, Dict
+from datetime import datetime
+from typing import Dict
 from eli.memory import get_memory
 
 

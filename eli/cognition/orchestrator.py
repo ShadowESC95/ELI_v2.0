@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any, Dict, Generator, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from eli.execution.executor_enhanced import execute as execute_action
 from eli.execution.executor_enhanced import SUPPORTED_ACTIONS as _SUPPORTED_ACTIONS
@@ -967,7 +967,8 @@ class AgentOrchestrator:
             _agg = getattr(wm.bus_result, "aggregated_confidence", None)
             self.engine._memory_diag = _memory_diag.retrieval_record(
                 len(keyword_hits), len(semantic_hits), len(kg_hits), len(wm.merged_hits),
-                float(_agg) if _agg is not None else None)
+                float(_agg) if _agg is not None else None,
+                window=getattr(getattr(self.memory_agent, "_last_turn_retrieval", None), "window_stats", None))
         except Exception:
             log.debug("memory diagnostics skipped", exc_info=True)
         wm.trace["stage_10"] = "context_assembly"

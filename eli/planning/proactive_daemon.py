@@ -24,7 +24,7 @@ _SWLOG = _swlog_logging.getLogger(__name__)
 import sqlite3
 from pathlib import Path
 from datetime import datetime
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 import threading
 import queue
 from eli.core.paths import get_paths
@@ -961,7 +961,7 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                         _gt = safe_goal_tick(limit=3)
                         _st = safe_scheduler_tick(limit=3, cooldown_sec=60)
                         log.debug(
-                            "[PROACTIVE] autonomy tick: code_changed=%s goal_ok=%s sched_ok=%s",
+                            "[PROACTIVE] autonomy tick: source files changed since last check=%s goal_ok=%s sched_ok=%s",
                             (_at.get("code_monitor") or {}).get("has_changes"),
                             _gt.get("ok"), _st.get("ok"))
                     except Exception as _auto_err:

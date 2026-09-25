@@ -22,7 +22,7 @@ import logging
 import threading
 from typing import Any, Dict, List
 
-from eli.gui.qt_compat import Qt, pyqtSignal
+from eli.gui.qt_compat import pyqtSignal
 from eli.gui.qt_compat import (
     QCheckBox,
     QComboBox,

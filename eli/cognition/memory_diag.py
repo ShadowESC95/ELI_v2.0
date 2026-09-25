@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import re
+import time
 from typing import Any, Dict, Optional
 
 from eli.core.confidence import confidence_label
@@ -13,9 +14,17 @@ _FALSE_DIAGNOSIS = re.compile(
     r"|i (?:lied|was lying))")
 
 
-def retrieval_record(keyword: int, semantic: int, kg: int, merged: int, confidence: Optional[float]) -> Dict[str, Any]:
+def retrieval_record(keyword: int, semantic: int, kg: int, merged: int, confidence: Optional[float],
+                     window: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     return {"retrieval_ran": True, "keyword": keyword, "semantic": semantic, "kg": kg,
-            "merged": merged, "confidence": confidence}
+            "merged": merged, "confidence": confidence, "window": window or {}}
+
+
+def _window_text(window: Dict[str, Any]) -> str:
+    day = lambda t: time.strftime("%Y-%m-%d", time.localtime(t))
+    return (f"time-bounded to {day(window['since'])}..{day(window['until'])}: "
+            f"{window['in_window']} memories ({window['added_by_time']} found by date alone, the rest from "
+            f"{window['candidates']} topic matches) and {window['turns']} of your turns fall inside it")
 
 
 def block(diag: Optional[Dict[str, Any]]) -> str:
@@ -24,12 +33,15 @@ def block(diag: Optional[Dict[str, Any]]) -> str:
     c = diag.get("confidence")
     conf = f", retrieval confidence {c:.2f} ({confidence_label(c)})" if c is not None else ""
     return (f"Retrieval diagnostics (authoritative): searched keyword={diag['keyword']} "
-            f"semantic={diag['semantic']} kg={diag['kg']}, merged {diag['merged']} items{conf}.")
+            f"semantic={diag['semantic']} kg={diag['kg']}, merged {diag['merged']} items{conf}."
+            + (f" Search was {_window_text(diag['window'])}." if diag.get("window") else ""))
 
 
 def explanation(diag: Dict[str, Any]) -> str:
     """The true account of a memory search, in plain words."""
     said = f"I searched my stored memories ({diag['merged']} items found"
+    if diag.get("window"):
+        said += f", {_window_text(diag['window'])}"
     c = diag.get("confidence")
     said += f", confidence {confidence_label(c)})" if c is not None else ")"
     before, after = diag.get("context_before"), diag.get("context_after")

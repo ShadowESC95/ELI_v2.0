@@ -15,7 +15,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 from eli.memory import get_agent_memory
 from eli.cognition.inference_broker import get_broker
-from eli.memory import get_memory, Memory
+from eli.memory import Memory
 
 
 from eli.utils.log import get_logger

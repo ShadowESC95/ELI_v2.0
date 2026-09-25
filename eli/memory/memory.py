@@ -237,6 +237,10 @@ _KNOWN_TABLES: frozenset = frozenset({
     "agent_dispatches", "proactive_insights",
 })
 
+# Written by the self-improvement engine and the proactive daemon on agent.sqlite3. Both databases are created
+# from one schema, so user.sqlite3 carries empty copies of these; reports must read them from the agent database.
+AGENT_OWNED_TABLES = ("improvements", "failures", "corrections", "capability_proposals", "error_tracking")
+
 _IDENTIFIER_RE = _re_sql.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
 
 
@@ -3182,10 +3186,16 @@ class Memory(metaclass=_MemoryMeta):
                      (key, value, time.time()))
 
     def tidy_learning_tables(self, dry_run: bool = False) -> Dict[str, Any]:
-        """Remove repeated identical belief revisions; cap corroboration at the days the user has used ELI."""
-        out: Dict[str, Any] = {"revisions_removed": 0, "corroboration_capped": 0}
+        """Drop repeated belief revisions and ledger copies of replay rows; cap corroboration at the days the user has used ELI."""
+        out: Dict[str, Any] = {"revisions_removed": 0, "corroboration_capped": 0, "replay_mirrors_removed": 0}
         conn = self._get_connection()
         try:
+            if _eli_table_exists(conn, "runtime_events"):
+                n = conn.execute("SELECT COUNT(*) FROM runtime_events WHERE source = 'memory.log_learning_event'").fetchone()[0]
+                out["replay_mirrors_removed"] = int(n or 0)
+                if not dry_run and n:
+                    conn.execute("DELETE FROM runtime_events WHERE source = 'memory.log_learning_event'")
+                    conn.commit()
             from eli.cognition.stance_store import compact_revisions
             if _eli_table_exists(conn, "belief_revisions"):
                 dup = conn.execute("SELECT COUNT(*) - COUNT(DISTINCT kind || '|' || topic || '|' || old_value || '|' || new_value) "
@@ -3193,7 +3203,7 @@ class Memory(metaclass=_MemoryMeta):
                 out["revisions_removed"] = int(dup or 0)
                 if not dry_run and dup:
                     compact_revisions(conn.cursor())
-            if _eli_table_exists(conn, "user_patterns"):
+            if _eli_table_exists(conn, "user_patterns") and "corroboration" in _memory_table_columns(conn, "user_patterns"):
                 days = conn.execute("SELECT COUNT(DISTINCT date(COALESCE(timestamp, ts), 'unixepoch')) "
                                     "FROM conversation_turns WHERE role = 'user'").fetchone()[0] or 1
                 n = conn.execute("SELECT COUNT(*) FROM user_patterns WHERE COALESCE(corroboration, 1) > ?", (days,)).fetchone()[0]
@@ -3902,6 +3912,28 @@ class Memory(metaclass=_MemoryMeta):
     # Recent memories and statistics (added for GUI)
     # -----------------------------------------------------------------
 
+    def memories_between(self, since: float, until: float, limit: int = 40,
+                         verified_only: bool = True) -> List[Dict[str, Any]]:
+        """Memories whose event time falls in [since, until), strongest first: the time filter comes before any ranking."""
+        from eli.core.self_provenance import memory_exclusion_sql
+        from eli.runtime.memory_provenance import verification_filter_sql
+        conn = self._get_connection()
+        try:
+            cols = _memory_table_columns(conn, "memories")
+            when = "COALESCE(event_ts, timestamp, ts, 0)" if "event_ts" in cols else "COALESCE(timestamp, ts, 0)"
+            imp = "COALESCE(importance, 0.5)" if "importance" in cols else "0.5"
+            skip, skip_params = memory_exclusion_sql(cols, alias="")
+            ver, ver_params = verification_filter_sql(cols, alias="", verified_only=verified_only)
+            rows = conn.execute(
+                f"SELECT id, {when}, COALESCE(text, content, ''), COALESCE(tags, ''), COALESCE(weight, 1.0), {imp} "
+                f"FROM memories WHERE {when} >= ? AND {when} < ?{skip}{ver} "
+                f"ORDER BY {imp} * COALESCE(weight, 1.0) DESC, {when} DESC LIMIT ?",
+                (float(since), float(until), *skip_params, *ver_params, int(limit))).fetchall()
+            return [{"id": r[0], "ts": r[1], "timestamp": r[1], "event_ts": r[1], "text": r[2], "tags": r[3],
+                     "weight": r[4], "importance": r[5], "_source": "window"} for r in rows]
+        finally:
+            conn.close()
+
     def get_recent_memories(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Return the most recent memory entries, ordered by timestamp descending."""
         conn = self._get_connection()
@@ -4316,7 +4348,6 @@ class Memory(metaclass=_MemoryMeta):
         return None
 
     def _eli_backfill_habit_tables(self, conn):
-        import json as _json
         import time as _time
 
         has_events = self._eli_habit_table_exists(conn, "habit_events")
@@ -4623,27 +4654,6 @@ class Memory(metaclass=_MemoryMeta):
         try:
             rid = _insert_payload(conn, "learning_replay", payload)
             conn.commit()
-            try:
-                from eli.runtime.evidence_ledger import record_event as _eli_record_event
-                _eli_record_event(
-                    "learning_replay",
-                    source="memory.log_learning_event",
-                    action=action,
-                    subject=event_type,
-                    content=input_text or output_text,
-                    payload={
-                        "input_text": input_text,
-                        "output_text": output_text,
-                        "metadata": metadata or {},
-                    },
-                    outcome=outcome,
-                    confidence=None,
-                    reusable=True,
-                    db_path=self.db_path,
-                    timestamp=now,
-                )
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
             return int(rid or 0)
         finally:
             conn.close()
@@ -5479,7 +5489,6 @@ def _eli_persist_loaded_vector_store(rows_for_meta=None):
 
     Uses canonical vector_store paths instead of constructing repo paths here.
     """
-    import pickle
 
     try:
         import faiss

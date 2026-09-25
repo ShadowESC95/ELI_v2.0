@@ -19,7 +19,7 @@ from .image_engine.visual_core import (
 )
 
 
-from eli.tools.image_engine.runtime_paths import image_outputs_dir, image_logs_dir
+from eli.tools.image_engine.runtime_paths import image_outputs_dir
 SCENE_CHOICES = ["auto", "portrait", "landscape", "poster", "abstract", "emblem", "product", "cityscape", "space"]
 STYLE_CHOICES = ["auto", "balanced", "cinematic", "minimal", "luxury", "neon", "fantasy"]
 PALETTE_CHOICES = ["auto", *sorted(PALETTES.keys())]

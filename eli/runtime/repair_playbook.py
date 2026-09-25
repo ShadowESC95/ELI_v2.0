@@ -6,7 +6,7 @@ Consumed by SELF_REPAIR_PLAYBOOK (executor) and maintenance help surfaces.
 from __future__ import annotations
 
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Tuple
 
 from eli.utils.log import get_logger
 

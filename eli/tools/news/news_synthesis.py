@@ -24,7 +24,7 @@ import json
 import sqlite3
 import time
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from eli.utils.log import get_logger
 
@@ -397,7 +397,6 @@ def _derive_interest_terms(user_id=None, limit: int = 8) -> list:
     No hardcoded topics — per-user, per-machine.
     """
     import re as _re
-    from collections import Counter
 
     try:
         from eli.kernel.state import load_user_profile

@@ -11,7 +11,7 @@ Plugins are automatically discovered in the `eli.plugins` package.
 import importlib
 import pkgutil
 import inspect
-from typing import Dict, Any, Callable, List, Optional
+from typing import Dict, Any, Callable, Optional
 
 
 from eli.utils.log import get_logger

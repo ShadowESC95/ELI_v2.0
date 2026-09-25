@@ -61,3 +61,29 @@ def test_turns_from_earlier_user_ids_are_still_found(engine):
     q = "what was i watching the past week"
     _, sem, _ = orchestrator_retrieve(engine, q, q, _plan(q))
     assert any("dune" in h["text"] for h in sem)
+
+
+def test_the_date_filter_finds_memories_the_topic_search_cannot(engine):
+    mem = engine.memory
+    now = time.time()
+    mem.store_memory("Booked the flat viewing for Thursday afternoon", kind="note", tags="", importance=0.7)
+    c = sqlite3.connect(mem.db_path)
+    c.execute("update memories set event_ts=?, timestamp=?, ts=? where text like 'Booked the flat%'",
+              (now - 4 * DAY, now - 4 * DAY, now - 4 * DAY))
+    c.commit()
+    c.close()
+    q = "past week?"
+    assert not mem.recall_memory(q, limit=12), "the topic search alone must not reach it"
+    kw, sem, tr = orchestrator_retrieve(engine, q, q, _plan(q))
+    assert "flat viewing" in " ".join(h["text"] for h in kw + sem)
+    stats = tr.window_stats
+    assert stats["added_by_time"] >= 1 and stats["in_window"] >= 1
+
+
+def test_the_search_reports_what_the_window_did(engine):
+    from eli.cognition import memory_diag
+    q = "what was going on with me over the past week?"
+    kw, sem, tr = orchestrator_retrieve(engine, q, q, _plan(q))
+    diag = memory_diag.retrieval_record(len(kw), len(sem), 0, len(kw) + len(sem), None, window=tr.window_stats)
+    assert "time-bounded to" in memory_diag.block(diag)
+    assert "time-bounded to" in memory_diag.explanation(diag)

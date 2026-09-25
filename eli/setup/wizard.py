@@ -5,16 +5,14 @@ import os
 import subprocess
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Dict, List, Optional
 
 # Single Qt binding policy lives in eli.gui.qt_compat (PySide6 → PyQt6 → PyQt5 →
 # headless stubs). Importing through the shim avoids a broken hard dependency on
 # PyQt6 when only PySide6 is installed (the shipped, LGPL-safe binding).
 from eli.gui.qt_compat import (
-    Qt,
     QThread,
     pyqtSignal,
-    QDesktopServices,
     QApplication,
     QDialog,
     QHBoxLayout,
@@ -23,7 +21,6 @@ from eli.gui.qt_compat import (
     QPushButton,
     QProgressBar,
     QVBoxLayout,
-    QWidget,
 )
 
 from eli.setup.status import (

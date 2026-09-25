@@ -15,7 +15,7 @@ import subprocess
 import sys
 import time
 from pathlib import Path
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 log = logging.getLogger(__name__)

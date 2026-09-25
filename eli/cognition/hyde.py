@@ -4,7 +4,7 @@ Generates a hypothetical answer to a query, then uses that answer's
 embedding to search the vector store. Improves recall for vague queries.
 """
 from __future__ import annotations
-from typing import List, Optional
+from typing import List
 
 
 

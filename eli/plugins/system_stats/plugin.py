@@ -62,7 +62,7 @@ class SystemStatsPlugin(Plugin):
         }
 
     def _fallback_stats(self) -> dict:
-        import subprocess, re
+        import subprocess
         try:
             out = subprocess.check_output(["free", "-m"], text=True)
             lines = out.strip().splitlines()

@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import difflib
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 from eli.utils.log import get_logger
 

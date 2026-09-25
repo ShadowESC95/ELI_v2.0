@@ -18,7 +18,7 @@ Layers:
 """
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
 
 from eli.utils.log import get_logger
 
@@ -27,7 +27,6 @@ log = get_logger(__name__)
 from eli.runtime.self_maintenance_config import (
     ANALYSIS_MIN_CLUSTER,
     DEFAULT_ANALYSIS_DAYS,
-    PATCH_MIN_CLUSTER,
     USER_PATCH_MIN_CLUSTER,
 )
 

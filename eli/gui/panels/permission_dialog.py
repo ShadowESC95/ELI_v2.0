@@ -22,8 +22,17 @@ import threading
 from typing import Any, Dict
 
 from eli.gui.panels._qt import (
-    QDialog, QVBoxLayout, QHBoxLayout, QLabel, QPushButton, QFrame, Qt,
-    QObject, QThread, QApplication, pyqtSignal, QMetaObject, Q_ARG, Slot,
+    QDialog,
+    QVBoxLayout,
+    QHBoxLayout,
+    QLabel,
+    QPushButton,
+    QFrame,
+    Qt,
+    QObject,
+    QThread,
+    QApplication,
+    pyqtSignal,
 )
 from eli.plugins.permissions import ALLOW_ALWAYS, ALLOW_ONCE, DENY_ONCE, DENY_ALWAYS
 

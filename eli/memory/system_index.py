@@ -10,7 +10,7 @@ ELI will query this before falling back to gtk‑launch or direct commands.
 import os
 import sqlite3
 from pathlib import Path
-from typing import List, Dict, Optional, Any
+from typing import Dict, Optional, Any
 
 DB_PATH = Path(os.environ.get("ELI_SYSTEM_INDEX", str(Path(os.environ.get("ELI_DB_DIR", "artifacts/db")) / "system_index.sqlite3")))
 

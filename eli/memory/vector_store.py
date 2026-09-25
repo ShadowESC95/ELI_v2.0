@@ -1,5 +1,5 @@
 from __future__ import annotations
-import os, pickle, threading
+import os, threading
 from typing import Any, Dict, List, Optional
 
 from eli.core.paths import project_root as _project_root

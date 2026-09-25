@@ -13,7 +13,7 @@ import hashlib
 import json
 import re
 import threading
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 
 from . import gguf_inference
 

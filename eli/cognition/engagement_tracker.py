@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 import time
 from collections import deque
-from typing import Deque, Dict, List, Optional, Tuple
+from typing import Deque, Dict, List, Tuple
 
 
 _DEEP_KEYWORDS = frozenset({

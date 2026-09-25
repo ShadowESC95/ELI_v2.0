@@ -1,7 +1,7 @@
 from __future__ import annotations
 import threading
 import time as _time
-from typing import Optional, Dict, Any
+from typing import Optional, Any
 
 
 from eli.utils.log import get_logger

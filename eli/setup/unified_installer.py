@@ -28,7 +28,6 @@ from eli.gui.qt_compat import (
 from eli.setup.install_backend import (
     InstallProgress,
     install_script_path,
-    parse_install_line,
     python3_available,
     run_install_streaming,
 )

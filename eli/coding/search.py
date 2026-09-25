@@ -14,7 +14,7 @@ from __future__ import annotations
 import difflib
 import math
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Dict, List, Optional
 
 from eli.coding.planner import Plan, implement

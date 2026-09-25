@@ -11,7 +11,7 @@ a model — exactly like `eli.coding.agent`.
 from __future__ import annotations
 
 import re
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List
 
 from eli.coding.restricted_exec import run_restricted
 

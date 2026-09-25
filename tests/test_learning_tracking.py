@@ -23,7 +23,7 @@ def test_user_turn_updates_profile_patterns_and_replay_buffer(tmp_path):
     assert _count(db, "conversation_turns") == 1
     assert _count(db, "learning_replay") == 1
     assert _count(db, "user_patterns") >= 1
-    assert _count(db, "runtime_events") >= 2
+    assert _count(db, "runtime_events") == 1, "the turn is in the ledger once; the replay row is not mirrored"
 
 
 def test_app_command_updates_habit_tables_and_replay_buffer(tmp_path):

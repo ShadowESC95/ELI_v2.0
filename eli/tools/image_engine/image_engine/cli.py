@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from .contracts import EngineConfig, JobRequest
+from .contracts import EngineConfig
 from .service import ImageEngine
 from . import visual_core as core
 

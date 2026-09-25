@@ -17,7 +17,12 @@ from . import visual_core as core
 
 
 
-from eli.tools.image_engine.runtime_paths import image_outputs_dir, image_logs_dir, image_jobs_dir, image_index_db, image_engine_root
+from eli.tools.image_engine.runtime_paths import (
+    image_outputs_dir,
+    image_logs_dir,
+    image_jobs_dir,
+    image_index_db,
+)
 def _normalise_runtime_paths(config):
     """
     Convert legacy source-local image-engine paths into per-user artifact paths.

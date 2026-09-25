@@ -4,7 +4,7 @@ import os
 import re
 import sqlite3
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 
 from eli.utils.log import get_logger

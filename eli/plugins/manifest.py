@@ -24,7 +24,7 @@ import ast
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List
 
 from eli.plugins.permissions import ALL_CAPABILITIES, describe, risk_of
 
