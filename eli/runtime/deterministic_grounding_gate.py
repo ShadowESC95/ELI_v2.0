@@ -55,33 +55,6 @@ def _read_json(path: Path) -> dict[str, Any]:
         return {}
 
 
-def _run(cmd: list[str], timeout: int = 5) -> tuple[int, str, str]:
-    try:
-        p = subprocess.run(
-            cmd,
-            cwd=str(PROJECT_ROOT),
-            text=True,
-            capture_output=True,
-            timeout=timeout,
-        )
-        return p.returncode, p.stdout.strip(), p.stderr.strip()
-    except Exception as e:
-        return 999, "", f"{type(e).__name__}: {e}"
-
-
-def _db_count(db: Path, table: str) -> str:
-    if not db.exists():
-        return "missing"
-    try:
-        con = sqlite3.connect(str(db))
-        try:
-            return str(con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0])
-        finally:
-            con.close()
-    except Exception as e:
-        return f"error:{type(e).__name__}"
-
-
 def _artifacts_dir() -> Path:
     """Where the runtime snapshot is actually written.
 
@@ -101,316 +74,6 @@ def _artifacts_dir() -> Path:
 
 def _runtime_snapshot() -> dict[str, Any]:
     return _read_json(_artifacts_dir() / "runtime_snapshot.json")
-
-
-def _settings() -> dict[str, Any]:
-    for rel in ("config/settings.json", "settings.json", "artifacts/runtime/settings.json"):
-        p = PROJECT_ROOT / rel
-        if p.exists():
-            return _read_json(p)
-    return {}
-
-
-def _gpu_line() -> str:
-    rc, out, err = _run([
-        "nvidia-smi",
-        "--query-gpu=name,memory.total,memory.free,driver_version",
-        "--format=csv,noheader,nounits",
-    ])
-    if rc == 0 and out:
-        return out.splitlines()[0]
-    # Cross-vendor fallback: this evidence line feeds grounded answers about the machine's GPU and
-    # said "unavailable" on every AMD/Intel/Apple machine, and on NVIDIA with a driver hiccup,
-    # although hardware_profile.detect_hardware() already knows the card.
-    try:
-        from eli.core.hardware_profile import detect_hardware
-        hw = detect_hardware()
-        if hw.has_gpu:
-            note = " (estimated)" if hw.gpu_detection_uncertain else ""
-            return f"{hw.gpu_name}{note}, {hw.total_vram_mb} MiB total (live query unavailable: {err or 'nvidia-smi failed'})"
-    except Exception:
-        _SWLOG.debug("suppressed exception", exc_info=True)
-    return f"unavailable ({err or 'nvidia-smi failed'})"
-
-
-def _runtime_report() -> str:
-    snap = _runtime_snapshot()
-    settings = _settings()
-    configured = {
-        k: settings.get(k)
-        for k in ("provider", "model_path", "n_ctx", "n_gpu_layers", "n_threads", "batch_size", "max_tokens")
-        if k in settings
-    }
-    effective = {k: snap.get(k, "unknown") for k in ("n_ctx", "n_gpu_layers", "n_threads", "n_batch")}
-    return json.dumps(
-        {
-            "surface": "runtime_evidence",
-            "project_root": str(PROJECT_ROOT),
-            "python": sys.version.split()[0],
-            "platform": sys.platform,
-            "configured": configured,
-            "effective": effective,
-            "gpu": _gpu_line(),
-        },
-        ensure_ascii=False,
-        default=str,
-        indent=2,
-    )
-
-
-def _import_audit() -> str:
-    modules = {}
-    for mod in IMPORT_TARGETS:
-        try:
-            importlib.import_module(mod)
-            modules[mod] = {"ok": True}
-        except Exception as e:
-            modules[mod] = {"ok": False, "error": f"{type(e).__name__}: {e}"}
-
-    return json.dumps(
-        {"surface": "import_audit_evidence", "modules": modules},
-        ensure_ascii=False,
-        default=str,
-        indent=2,
-    )
-
-
-def _gui_runtime_audit() -> str:
-    path = PROJECT_ROOT / "eli" / "gui" / "eli_pro_audio_gui_v2_0.py"
-    lines = ["GUI runtime audit: deterministic file inspection", ""]
-    lines.append(f"file: {path}")
-    lines.append(f"exists: {path.exists()}")
-
-    if not path.exists():
-        lines.append("status: FAIL — GUI file missing")
-        return "\n".join(lines)
-
-    text = path.read_text(encoding="utf-8", errors="replace")
-    lines.append(f"bytes: {path.stat().st_size}")
-    lines.append(f"lines: {text.count(chr(10)) + 1}")
-
-    try:
-        ast.parse(text, filename=str(path))
-        lines.append("python_ast: OK")
-    except SyntaxError as e:
-        lines.append(f"python_ast: FAIL line={e.lineno} msg={e.msg}")
-
-    required = [
-        "CognitiveEngine",
-        "chat_response_signal",
-        "PATH1 -> CognitiveEngine.process",
-        "runtime_snapshot",
-        "apply_recommended_setup",
-    ]
-
-    lines.append("")
-    lines.append("required hook scan:")
-    split = text.splitlines()
-    for needle in required:
-        hits = [i + 1 for i, line in enumerate(split) if needle in line]
-        lines.append(f"- {needle}: {hits[:12] if hits else 'missing'}")
-
-    lines.append("")
-    lines.append("known suspicious marker scan:")
-    for needle in [
-        "_eli_gui_clean_response_20260502",
-        "fallback also returned no visible output",
-        "PATH1 -> CognitiveEngine.process",
-    ]:
-        hits = [i + 1 for i, line in enumerate(split) if needle in line]
-        lines.append(f"- {needle}: {hits[:12] if hits else 'not found'}")
-
-    return "\n".join(lines)
-
-
-def _memory_report() -> str:
-    user_db = PROJECT_ROOT / "artifacts" / "db" / "user.sqlite3"
-    agent_db = PROJECT_ROOT / "artifacts" / "db" / "agent.sqlite3"
-    vec = PROJECT_ROOT / "artifacts" / "vectors" / "index.faiss"
-    meta = PROJECT_ROOT / "artifacts" / "vectors" / "meta.pkl"
-
-    lines = ["Memory runtime report: deterministic", ""]
-    lines.append(f"user_db: {user_db} exists={user_db.exists()}")
-    for t in ("memories", "conversation_turns", "observations", "recall_log", "habits", "improvements"):
-        lines.append(f"- user.{t}: {_db_count(user_db, t)}")
-
-    lines.append("")
-    lines.append(f"agent_db: {agent_db} exists={agent_db.exists()}")
-    for t in ("memories", "conversation_turns", "observations", "recall_log", "habits", "improvements", "failures"):
-        lines.append(f"- agent.{t}: {_db_count(agent_db, t)}")
-
-    lines.append("")
-    lines.append(f"faiss_index: {vec} exists={vec.exists()}")
-    lines.append(f"faiss_meta: {meta} exists={meta.exists()}")
-    return "\n".join(lines)
-
-
-def _cognition_report() -> str:
-    files = [
-        "eli/kernel/engine.py",
-        "eli/execution/router_enhanced.py",
-        "eli/execution/executor_enhanced.py",
-        "eli/cognition/agent_bus.py",
-        "eli/cognition/inference_broker.py",
-        "eli/cognition/output_governor.py",
-        "eli/cognition/context_synthesiser.py",
-        "eli/memory/memory.py",
-        "eli/memory/vector_store.py",
-        "eli/gui/eli_pro_audio_gui_v2_0.py",
-    ]
-
-    lines = ["Cognition pipeline report: deterministic", ""]
-    for rel in files:
-        p = PROJECT_ROOT / rel
-        n = p.read_text(encoding="utf-8", errors="replace").count(chr(10)) + 1 if p.exists() else 0
-        lines.append(f"- {rel}: exists={p.exists()} lines={n}")
-
-    lines.append("")
-    lines.append("Pipeline:")
-    lines.append("1. GUI/STT receives text.")
-    lines.append("2. Router parses action/confidence/meta.")
-    lines.append("3. Deterministic truth/audit actions return direct evidence.")
-    lines.append("4. AgentBus may gather optional support evidence.")
-    lines.append("5. GGUF synthesis is allowed for chat/synthesis, not for raw truth claims.")
-    lines.append("6. Output governance sanitises response.")
-    lines.append("7. Memory/session state is persisted.")
-    return "\n".join(lines)
-
-
-def _self_improve_report() -> str:
-    agent_db = PROJECT_ROOT / "artifacts" / "db" / "agent.sqlite3"
-    lines = ["Self-improvement cycle: deterministic report", ""]
-    lines.append(f"agent_db: {agent_db} exists={agent_db.exists()}")
-
-    if not agent_db.exists():
-        lines.append("No agent DB found; no improvement cycle could run.")
-        return "\n".join(lines)
-
-    try:
-        con = sqlite3.connect(str(agent_db))
-        cur = con.cursor()
-
-        failures = []
-        improvements = []
-
-        try:
-            failures = cur.execute(
-                "SELECT COALESCE(user_input,''), COALESCE(error,''), COALESCE(ts,timestamp,'') "
-                "FROM failures ORDER BY id DESC LIMIT 8"
-            ).fetchall()
-        except Exception:
-            _SWLOG.debug("suppressed exception", exc_info=True)
-
-        try:
-            improvements = cur.execute(
-                "SELECT COALESCE(category,''), COALESCE(description,''), COALESCE(status,''), COALESCE(ts,timestamp,'') "
-                "FROM improvements ORDER BY id DESC LIMIT 8"
-            ).fetchall()
-        except Exception:
-            _SWLOG.debug("suppressed exception", exc_info=True)
-
-        con.close()
-
-        lines.append(f"recent_failures: {len(failures)}")
-        for ui, err, ts in failures:
-            lines.append(f"- [{ts}] {str(ui)[:100]} -> {str(err)[:120]}")
-
-        lines.append("")
-        lines.append(f"recent_improvements: {len(improvements)}")
-        for cat, desc, status, ts in improvements:
-            lines.append(f"- [{status or 'pending'}] {cat}: {str(desc)[:160]} ({ts})")
-
-        lines.append("")
-        lines.append("code_changes_applied: 0")
-        lines.append("This report path does not silently patch files. It reports evidence only.")
-    except Exception as e:
-        lines.append(f"error reading improvement DB: {type(e).__name__}: {e}")
-
-    return "\n".join(lines)
-
-
-
-def _full_runtime_audit_report() -> str:
-    lines = ["Full runtime audit: deterministic", ""]
-
-    lines.append(_runtime_report())
-    lines.append("")
-    lines.append("Compile check:")
-
-    files = [
-        "eli/runtime/deterministic_grounding_gate.py",
-        "eli/runtime/generated_script_guard.py",
-        "eli/kernel/engine.py",
-        "eli/execution/router_enhanced.py",
-        "eli/execution/executor_enhanced.py",
-        "eli/gui/eli_pro_audio_gui_v2_0.py",
-    ]
-
-    rc, out, err = _run([sys.executable, "-m", "py_compile", *files], timeout=30)
-    lines.append(f"- py_compile_rc: {rc}")
-    if out:
-        lines.append(f"- stdout: {out[:1000]}")
-    if err:
-        lines.append(f"- stderr: {err[:2000]}")
-
-    lines.append("")
-    lines.append(_import_audit())
-
-    lines.append("")
-    lines.append("Generated-script artifacts:")
-    scripts = PROJECT_ROOT / "artifacts" / "scripts"
-    spam = list(scripts.glob("Generate_only_the_requested_source_code._Do_not_include_markdown_commentary_unle*.sh")) if scripts.exists() else []
-    invalid = PROJECT_ROOT / "artifacts" / "scripts" / "invalid"
-    lines.append(f"- live_spam_scripts: {len(spam)}")
-    lines.append(f"- invalid_quarantine_exists: {invalid.exists()}")
-
-    lines.append("")
-    lines.append("Known architectural flags:")
-    for rel in (
-        "eli/kernel/engine.py",
-        "eli/execution/router_enhanced.py",
-        "eli/execution/executor_enhanced.py",
-        "eli/gui/eli_pro_audio_gui_v2_0.py",
-    ):
-        path = PROJECT_ROOT / rel
-        if not path.exists():
-            lines.append(f"- {rel}: missing")
-            continue
-        txt = path.read_text(encoding="utf-8", errors="replace")
-        lines.append(
-            f"- {rel}: wrappers={txt.count('wrapped')} "
-            f"monkey_patch_markers={txt.lower().count('wrapper')} "
-            f"broad_except={txt.count('except Exception')}"
-        )
-
-    return "\n".join(lines)
-
-
-def render_action(action: str, args: Mapping[str, Any] | None = None, user_input: str = "") -> str:
-    a = str(action or "").upper()
-
-    if a in {"SELF_REPORT", "RESOLVE_RUNTIME_PATHS"}:
-        return _runtime_report()
-    if a == "RUNTIME_AUDIT":
-        return _full_runtime_audit_report()
-    if a == "IMPORT_AUDIT":
-        return _import_audit()
-    if a == "GUI_RUNTIME_AUDIT":
-        return _gui_runtime_audit()
-    if a == "EXPLAIN_MEMORY_RUNTIME":
-        return _memory_report()
-    if a == "EXPLAIN_COGNITION_RUNTIME":
-        return _cognition_report()
-    if a == "EXPLAIN_LAST_RESPONSE":
-        return (
-            "Last-response audit: deterministic guard active.\n\n"
-            "If no trace packet exists, the correct answer is 'no grounded trace captured', "
-            "not an invented confidence report."
-        )
-    if a in {"SELF_IMPROVE", "SELF_ANALYZE"}:
-        return _self_improve_report()
-
-    return f"Deterministic action {a} has no renderer."
 
 
 def _route_text(text: str) -> dict[str, Any] | None:
@@ -1044,7 +707,7 @@ def _eli_failure_analysis_v2() -> str:
     )
 
 
-def render_action(action: str, args: _EliMapping[str, _EliAny] | None = None, user_input: str = "", mode_label: str = "") -> str:  # type: ignore[override]
+def _render_v2(action: str, args: _EliMapping[str, _EliAny] | None = None, user_input: str = "", mode_label: str = "") -> str:
     a = str(action or "").upper()
     text = str(user_input or "")
 
@@ -1088,25 +751,17 @@ def render_action(action: str, args: _EliMapping[str, _EliAny] | None = None, us
     if a in {"SELF_ANALYZE", "SELF_IMPROVE"}:
         return _eli_failure_analysis_v2()
 
-    # fall back to older renderer if present
-    try:
-        return _ORIGINAL_RENDER_ACTION_FOR_RESPONSE_SURFACE(action, args or {}, user_input)  # type: ignore[name-defined]
-    except Exception:
-        return json.dumps(
-            {
-                "surface": "missing_deterministic_renderer",
-                "action": a,
-            },
-            ensure_ascii=False,
-            default=str,
-            indent=2,
-        )
+    return json.dumps(
+        {
+            "surface": "missing_deterministic_renderer",
+            "action": a,
+        },
+        ensure_ascii=False,
+        default=str,
+        indent=2,
+    )
 
 
-try:
-    _ORIGINAL_RENDER_ACTION_FOR_RESPONSE_SURFACE = globals().get("render_action")
-except Exception:
-    _ORIGINAL_RENDER_ACTION_FOR_RESPONSE_SURFACE = None
 
 
 
@@ -2364,15 +2019,13 @@ def _eli_v9_self_report(user_input: object, mode_label: str = "") -> str:
     )
 
 
-_ELI_V9_PREVIOUS_RENDER_ACTION = globals().get("render_action")
-
-
-def render_action(
+def _render_v9(
+    prev,
     action: str,
     args: _EliV9Mapping[str, _EliV9Any] | None = None,
     user_input: str = "",
     mode_label: str = "",
-) -> str:  # type: ignore[override]
+) -> str:
     a = str(action or "").upper()
     args = args or {}
 
@@ -2391,22 +2044,11 @@ def render_action(
             or "which functions" in low
             or "memory system works" in low
         ):
-            if callable(_ELI_V9_PREVIOUS_RENDER_ACTION):
-                try:
-                    return _ELI_V9_PREVIOUS_RENDER_ACTION(a, args, user_input, mode_label=mode_label)
-                except TypeError:
-                    return _ELI_V9_PREVIOUS_RENDER_ACTION(a, args, user_input)
-            return "Memory internals renderer unavailable."
+            return prev(a, args, user_input, mode_label=mode_label)
 
         return _eli_personal_memory_answer_v2(mode_label=mode_label)
 
-    if callable(_ELI_V9_PREVIOUS_RENDER_ACTION):
-        try:
-            return _ELI_V9_PREVIOUS_RENDER_ACTION(a, args, user_input, mode_label=mode_label)
-        except TypeError:
-            return _ELI_V9_PREVIOUS_RENDER_ACTION(a, args, user_input)
-
-    return ""
+    return prev(a, args, user_input, mode_label=mode_label)
 
 # Dynamic profile clause extractor v10: recovers durable user-preference clauses from noisy rows
 # without keeping prompt/image/runtime wrappers.
@@ -2768,10 +2410,7 @@ def _eli_v11_strip_identity_facts(lines: list[str]) -> list[str]:
     return out
 
 
-_ELI_V11_PREVIOUS_RENDER_ACTION = globals().get("render_action")
-
-
-def render_action(action, args=None, user_input="", mode_label=""):  # type: ignore[override]
+def _render_v11(prev, action, args=None, user_input="", mode_label=""):
     a = str(action or "").upper()
     args = args or {}
 
@@ -2804,14 +2443,7 @@ def render_action(action, args=None, user_input="", mode_label=""):  # type: ign
             or "which functions" in low
             or "memory system works" in low
         ):
-            if callable(_ELI_V11_PREVIOUS_RENDER_ACTION):
-                try:
-                    rendered = _ELI_V11_PREVIOUS_RENDER_ACTION(a, args, user_input, mode_label=mode_label)
-                except TypeError:
-                    rendered = _ELI_V11_PREVIOUS_RENDER_ACTION(a, args, user_input)
-            else:
-                rendered = "Memory internals renderer unavailable."
-            return _eli_v11_redact_user_identity(rendered)
+            return _eli_v11_redact_user_identity(prev(a, args, user_input, mode_label=mode_label))
 
         try:
             rendered = _eli_v10_personal_memory_answer(mode_label=mode_label)  # type: ignore[name-defined]
@@ -2857,14 +2489,7 @@ def render_action(action, args=None, user_input="", mode_label=""):  # type: ign
         return _eli_v11_redact_user_identity(rendered)
 
     # Everything else: delegate, then redact.
-    if callable(_ELI_V11_PREVIOUS_RENDER_ACTION):
-        try:
-            rendered = _ELI_V11_PREVIOUS_RENDER_ACTION(a, args, user_input, mode_label=mode_label)
-        except TypeError:
-            rendered = _ELI_V11_PREVIOUS_RENDER_ACTION(a, args, user_input)
-        return _eli_v11_redact_user_identity(rendered)
-
-    return ""
+    return _eli_v11_redact_user_identity(prev(a, args, user_input, mode_label=mode_label))
 
 
 _ELI_V11_PREVIOUS_INSTALL = globals().get("install")
@@ -3096,22 +2721,13 @@ def _eli_v12_identity_answer(mode_label: str = "") -> str:
     ))
 
 
-_ELI_V12_PREVIOUS_RENDER_ACTION = globals().get("render_action")
-
-
-def _eli_v12_render_surface(action: str, args=None, user_input="", mode_label="") -> str:
+def _render_v12(prev, action: str, args=None, user_input="", mode_label="") -> str:
     a = str(action or "").upper()
     args = args or {}
 
     if a == "SELF_REPORT":
         if _eli_v12_is_runtime_question(user_input):
-            if callable(_ELI_V12_PREVIOUS_RENDER_ACTION):
-                try:
-                    evidence = _ELI_V12_PREVIOUS_RENDER_ACTION(a, args, user_input, mode_label=mode_label)
-                except TypeError:
-                    evidence = _ELI_V12_PREVIOUS_RENDER_ACTION(a, args, user_input)
-            else:
-                evidence = "Runtime evidence unavailable."
+            evidence = prev(a, args, user_input, mode_label=mode_label)
 
             return _eli_v12_redact(json.dumps(
                 {
@@ -3129,18 +2745,7 @@ def _eli_v12_render_surface(action: str, args=None, user_input="", mode_label=""
 
         return _eli_v12_identity_answer(mode_label)
 
-    if callable(_ELI_V12_PREVIOUS_RENDER_ACTION):
-        try:
-            rendered = _ELI_V12_PREVIOUS_RENDER_ACTION(a, args, user_input, mode_label=mode_label)
-        except TypeError:
-            rendered = _ELI_V12_PREVIOUS_RENDER_ACTION(a, args, user_input)
-        return _eli_v12_redact(rendered)
-
-    return ""
-
-
-def render_action(action, args=None, user_input="", mode_label=""):  # type: ignore[override]
-    return _eli_v12_render_surface(str(action or "").upper(), args or {}, user_input, mode_label)
+    return _eli_v12_redact(prev(a, args, user_input, mode_label=mode_label))
 
 
 def _eli_v12_forced_self_report_from_chat(text: object) -> bool:
@@ -3162,9 +2767,6 @@ _ELI_V12_PREVIOUS_INSTALL = globals().get("install")
 # surfaces aren't handed to the model.
 
 import re as _eli_v13_re
-
-
-_ELI_V13_PREVIOUS_RENDER_ACTION = globals().get("render_action")
 
 
 def _eli_v13_safe_redact(text: object) -> str:
@@ -3203,14 +2805,11 @@ def _eli_v13_safe_redact(text: object) -> str:
 
 
 def _eli_v13_previous_self_report(user_input: str, mode_label: str) -> str:
-    if callable(_ELI_V13_PREVIOUS_RENDER_ACTION):
-        try:
-            return str(_ELI_V13_PREVIOUS_RENDER_ACTION("SELF_REPORT", {}, user_input, mode_label=mode_label))
-        except TypeError:
-            return str(_ELI_V13_PREVIOUS_RENDER_ACTION("SELF_REPORT", {}, user_input))
-        except Exception as e:
-            return f"Runtime evidence unavailable: {type(e).__name__}: {e}"
-    return "Runtime evidence unavailable: no previous render_action."
+    """SELF_REPORT as rendered by the layers below v13."""
+    try:
+        return str(_RENDER_BELOW_V13("SELF_REPORT", {}, user_input, mode_label=mode_label))
+    except Exception as e:
+        return f"Runtime evidence unavailable: {type(e).__name__}: {e}"
 
 
 def _eli_v13_extract_runtime_block(text: str) -> str:
@@ -3335,7 +2934,7 @@ def _eli_v13_forced_identity_question(text: object) -> bool:
     )
 
 
-def _eli_v13_render_action(action, args=None, user_input="", mode_label="") -> str:
+def _render_v13(prev, action, args=None, user_input="", mode_label="") -> str:
     a = str(action or "").upper()
     args = args or {}
     text = str(user_input or "")
@@ -3345,18 +2944,7 @@ def _eli_v13_render_action(action, args=None, user_input="", mode_label="") -> s
             return _eli_v13_runtime_answer(text, str(mode_label or ""))
         return _eli_v13_identity_answer(str(mode_label or ""))
 
-    if callable(_ELI_V13_PREVIOUS_RENDER_ACTION):
-        try:
-            out = _ELI_V13_PREVIOUS_RENDER_ACTION(a, args, text, mode_label=mode_label)
-        except TypeError:
-            out = _ELI_V13_PREVIOUS_RENDER_ACTION(a, args, text)
-        return _eli_v13_safe_redact(out)
-
-    return ""
-
-
-def render_action(action, args=None, user_input="", mode_label=""):  # type: ignore[override]
-    return _eli_v13_render_action(action, args or {}, user_input, mode_label)
+    return _eli_v13_safe_redact(prev(a, args, text, mode_label=mode_label))
 
 
 _ELI_V13_SURFACE_ACTIONS = set(globals().get("_ELI_V12_SURFACE_ACTIONS", set())) | {
@@ -3702,11 +3290,8 @@ def _eli_v14_bad_self_report_output(text: object) -> bool:
     )
 
 
-_ELI_V14_PREVIOUS_RENDER_ACTION = globals().get("render_action")
-
-
-def render_action(action, args=None, user_input="", mode_label=""):  # type: ignore[override]
-    a = str(action or "").upper()
+def _render_v14(prev, action, args=None, user_input="", mode_label=""):
+    a = str(action or "").upper().strip()
     text = str(user_input or "")
 
     if a == "SELF_REPORT" or _eli_v14_identity_question(text):
@@ -3716,24 +3301,16 @@ def render_action(action, args=None, user_input="", mode_label=""):  # type: ign
             return _eli_v14_persona_runtime_answer(str(mode_label or ""))
         return _eli_v14_identity_answer(str(mode_label or ""))
 
-    if callable(_ELI_V14_PREVIOUS_RENDER_ACTION):
-        try:
-            return _eli_v14_redact(_ELI_V14_PREVIOUS_RENDER_ACTION(a, args or {}, text, mode_label=mode_label))
-        except TypeError:
-            return _eli_v14_redact(_ELI_V14_PREVIOUS_RENDER_ACTION(a, args or {}, text))
-        except Exception as e:
-            return _eli_v14_redact(json.dumps(
-                {
-                    "surface": "render_action_failed",
-                    "action": a,
-                    "error": f"{type(e).__name__}: {e}",
-                },
-                ensure_ascii=False,
-                default=str,
-                indent=2,
-            ))
-
-    return ""
+    try:
+        rendered = prev(a, args or {}, text, mode_label=mode_label)
+    except Exception as e:
+        rendered = json.dumps(
+            {"surface": "render_action_failed", "action": a, "error": f"{type(e).__name__}: {e}"},
+            ensure_ascii=False,
+            default=str,
+            indent=2,
+        )
+    return _eli_v14_redact(rendered)
 
 
 _ELI_V14_SURFACE_ACTIONS = {
@@ -3764,60 +3341,20 @@ def install(CognitiveEngine):  # type: ignore[override]
     return CognitiveEngine
 
 
-# Deterministic grounding policy engine (ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1): an immutable
-# engine that replaces the stacked render_action overrides.
-try:
-    if not globals().get("_ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1"):
-        _ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1 = True
-        from dataclasses import dataclass as _eli_dg_dataclass
-        from typing import Callable as _eli_dg_Callable
+# ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1: render_action is one explicit, ordered pipeline. Each layer takes
+# the renderer below it as its first argument and either answers for itself or delegates and post-processes.
+# Innermost first: the response-surface renderer (which falls back to the original), then the v9 personal-memory
+# layer, v11 identity redaction, v12 runtime evidence, v13 safe redaction and v14 identity/runtime answers.
+def _stack(layer, below):
+    def render(action, args=None, user_input="", mode_label=""):
+        return layer(below, action, args, user_input, mode_label)
+    return render
 
-        _ELI_DG_POLICY_FALLBACK_RENDER = globals().get("_ELI_V14_PREVIOUS_RENDER_ACTION") or globals().get("render_action")
 
-        @_eli_dg_dataclass(frozen=True)
-        class _EliDeterministicGroundingPolicyEngine:
-            surface_actions: frozenset[str]
-            fallback_render: _eli_dg_Callable | None
+_ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1 = True      # read by the frontier and identity status reports
+_RENDER_BELOW_V13 = _stack(_render_v12, _stack(_render_v11, _stack(_render_v9, _render_v2)))
+_RENDER_PIPELINE = _stack(_render_v14, _stack(_render_v13, _RENDER_BELOW_V13))
 
-            def render(self, action, args=None, user_input="", mode_label="") -> str:
-                a = str(action or "").upper().strip()
-                text = str(user_input or "")
 
-                if a == "SELF_REPORT" or _eli_v14_identity_question(text):
-                    if _eli_v14_runtime_question(text):
-                        if _eli_v14_is_quick(str(mode_label or "")):
-                            return _eli_v14_quick_runtime_answer()
-                        return _eli_v14_persona_runtime_answer(str(mode_label or ""))
-                    return _eli_v14_identity_answer(str(mode_label or ""))
-
-                if callable(self.fallback_render):
-                    try:
-                        rendered = self.fallback_render(a, args or {}, text, mode_label=mode_label)
-                    except TypeError:
-                        rendered = self.fallback_render(a, args or {}, text)
-                    except Exception as e:
-                        rendered = json.dumps(
-                            {
-                                "surface": "render_action_failed",
-                                "action": a,
-                                "error": f"{type(e).__name__}: {e}",
-                            },
-                            ensure_ascii=False,
-                            default=str,
-                            indent=2,
-                        )
-                    return _eli_v14_redact(rendered)
-
-                return ""
-
-        _ELI_DG_POLICY_ENGINE = _EliDeterministicGroundingPolicyEngine(
-            surface_actions=frozenset(_ELI_V14_SURFACE_ACTIONS),
-            fallback_render=_ELI_DG_POLICY_FALLBACK_RENDER,
-        )
-
-        def render_action(action, args=None, user_input="", mode_label=""):  # type: ignore[override]
-            return _ELI_DG_POLICY_ENGINE.render(action, args=args, user_input=user_input, mode_label=mode_label)
-
-        log.debug("[GROUNDING] immutable policy engine installed")
-except Exception as _eli_dg_policy_engine_err:
-    log.debug(f"[GROUNDING] immutable policy engine install failed: {_eli_dg_policy_engine_err}")
+def render_action(action, args=None, user_input="", mode_label=""):
+    return _RENDER_PIPELINE(action, args, user_input, mode_label)

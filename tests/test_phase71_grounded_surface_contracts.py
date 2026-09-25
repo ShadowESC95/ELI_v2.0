@@ -135,4 +135,15 @@ def test_phase71_grounding_gate_uses_immutable_policy_engine():
     from eli.runtime import deterministic_grounding_gate as gate
 
     assert getattr(gate, "_ELI_DETERMINISTIC_GROUNDING_POLICY_ENGINE_V1", False) is True
-    assert hasattr(gate, "_ELI_DG_POLICY_ENGINE")
+    assert callable(gate._RENDER_PIPELINE)
+    import inspect
+    assert "globals().get(\"render_action\")" not in inspect.getsource(gate), "layers are composed explicitly, not captured"
+
+
+def test_render_action_is_one_ordered_pipeline_and_unknown_actions_say_so():
+    import json
+    from eli.runtime import deterministic_grounding_gate as gate
+
+    out = json.loads(gate.render_action("NO_SUCH_ACTION_XYZ", {}, "hi", mode_label="quick"))
+    assert out == {"surface": "missing_deterministic_renderer", "action": "NO_SUCH_ACTION_XYZ"}
+    assert not [n for n in dir(gate) if n.endswith("_PREVIOUS_RENDER_ACTION")]

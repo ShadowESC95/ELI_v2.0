@@ -62,7 +62,6 @@ from pathlib import Path
 import uvicorn
 
 from eli.kernel.engine import get_engine
-from eli.memory.memory import get_memory
 
 # Bearer-token gate. Enforced ONLY when ELI_API_TOKEN is set — which the launcher does
 # automatically when binding beyond loopback (--lan). Loopback (default) runs tokenless
