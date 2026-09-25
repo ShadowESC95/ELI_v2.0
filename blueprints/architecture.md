@@ -1,4 +1,4 @@
-> **Updated for v2.4.70 (September 2026).** Every CHAT turn runs the gradient
+> **Updated for v2.4.71 (September 2026).** Every CHAT turn runs the gradient
 > orchestrator at a depth scaled to the reasoning mode, with the specialist bus composed
 > inside it after shared retrieval (`eli/memory/retrieval.py`). Canonical S01–S12 tracing is in
 > `eli/kernel/pipeline_trace.py`; stage 12 learning runs through `learning_coordinator.py`.

@@ -1,6 +1,6 @@
 # Adaptive Inference Governor — Status and Remaining Plan
 
-> **Updated for v2.4.70.** Most of the gaps this plan identified in June are closed; the two
+> **Updated for v2.4.71.** Most of the gaps this plan identified in June are closed; the two
 > that need a governor (throughput-aware think decision and per-call wall-time projection)
 > are still open. Status per gap below; no governor code exists yet.
 

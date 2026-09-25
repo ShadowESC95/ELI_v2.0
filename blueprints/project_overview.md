@@ -1,6 +1,6 @@
 # ELI — Full Project Breakdown & Assessment
 
-> **Updated for v2.4.70 (September 2026).** Every CHAT mode runs the gradient
+> **Updated for v2.4.71 (September 2026).** Every CHAT mode runs the gradient
 > orchestrator, retrieval is shared in `eli/memory/retrieval.py`, memory is governed by a
 > storage policy (`eli/memory/policy.py`), and the S01–S12 pipeline is traced canonically.
 > Installers are CI-launch-tested and published on

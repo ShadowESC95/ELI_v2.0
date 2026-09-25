@@ -1,14 +1,14 @@
 # ELI v2.0 — Commands & Installers Reference
 
-> **Updated for v2.4.70 (September 2026).** One hardware-aware GUI wizard. Prebuilt installers on
-> [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.70). Full beginner map:
+> **Updated for v2.4.71 (September 2026).** One hardware-aware GUI wizard. Prebuilt installers on
+> [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.71). Full beginner map:
 > `first time Installation/INSTALLATION_GUIDE.md`.
 
 
 *Every install path and command in one place. Copy-paste ready. Run everything from
 inside the ELI folder unless noted.*
 
-Canonical version: **2.4.70**. Best-tested platform: **Linux x86_64 + NVIDIA**. Windows,
+Canonical version: **2.4.71**. Best-tested platform: **Linux x86_64 + NVIDIA**. Windows,
 macOS, AMD, Intel Arc, and Apple Silicon ship supported paths; Iris Xe / ≤8 GB use CPU policy.
 
 ---
@@ -18,8 +18,8 @@ macOS, AMD, Intel Arc, and Apple Silicon ship supported paths; Iris Xe / ≤8 
 ### From a downloaded portable release
 
 ```bash
-tar -xzf ELI_v2-2.4.70-linux-portable.tar.gz
-cd ELI_v2-2.4.70-linux-portable
+tar -xzf ELI_v2-2.4.71-linux-portable.tar.gz
+cd ELI_v2-2.4.71-linux-portable
 chmod +x ELI_Setup.sh
 ./ELI_Setup.sh
 ```
@@ -44,8 +44,8 @@ cd ELI_v2.0
 ### Linux AppImage
 
 ```bash
-chmod +x ELI_v2-2.4.70-x86_64.AppImage
-./ELI_v2-2.4.70-x86_64.AppImage
+chmod +x ELI_v2-2.4.71-x86_64.AppImage
+./ELI_v2-2.4.71-x86_64.AppImage
 ```
 
 ### Compatibility aliases (not separate installers)
@@ -211,7 +211,7 @@ bash build_packages.sh wheel appimage windows-lean   # pick targets
 
 ```powershell
 bash build_packages.sh windows-lean
-powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1 -Version 2.4.70
+powershell -ExecutionPolicy Bypass -File packaging/windows/build-windows.ps1 -Version 2.4.71
 ```
 
 A signed/notarized macOS `.dmg` must be built on a Mac. Large model/voice binaries ship

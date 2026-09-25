@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-09-25T19:12:42",
-  "total": 227,
+  "generated_at": "2026-09-25T22:40:05",
+  "total": 228,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -913,6 +913,15 @@
     },
     {
       "action": "MEDIA_CONTROL",
+      "source": "executor+router",
+      "active": true,
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true
+    },
+    {
+      "action": "MEMORY_FORGET",
       "source": "executor+router",
       "active": true,
       "plugin": null,
