@@ -19,16 +19,16 @@ The stages, roughly in order:
 
 | File | LOC | Stage |
 |---|---|---|
-| `dataset_builder.py` | 558 | turn ELI's logged turns/corrections into supervised examples |
-| `dataset_filters.py` | 154 | quality gates (`is_bad_response`, `row_is_reviewed`) |
-| `export_trainable_dataset.py` | 168 | export reviewed rows → trainable JSONL |
-| `merge_reviewed_datasets.py` | 135 | merge reviewed dataset shards |
-| `bootstrap_phi3_base.py` | 245 | one-time download of the trainable HF Phi-3 base |
-| `base_model_resolver.py` | 185 | locate/validate the trainable base (vs an adapter) |
-| `training_preflight.py` | 142 | check peft/transformers/datasets present + target ready |
-| `lora_trainer_guard.py` | 571 | `TrainerTarget` plans (paths, base_family) + guard checks |
-| `lora_trainer.py` | 840 | device selection, QLoRA, chat-template prompts, PEFT loop |
-| `lora_eval.py` | 491 | eval harness (score vs expected/forbidden, inspect adapter) |
+| `dataset_builder.py` | 552 | turn ELI's logged turns/corrections into supervised examples |
+| `dataset_filters.py` | 148 | quality gates (`is_bad_response`, `row_is_reviewed`) |
+| `export_trainable_dataset.py` | 162 | export reviewed rows → trainable JSONL |
+| `merge_reviewed_datasets.py` | 129 | merge reviewed dataset shards |
+| `bootstrap_phi3_base.py` | 239 | one-time download of the trainable HF Phi-3 base |
+| `base_model_resolver.py` | 251 | locate/validate the trainable base (vs an adapter) |
+| `training_preflight.py` | 136 | check peft/transformers/datasets present + target ready |
+| `lora_trainer_guard.py` | 630 | `TrainerTarget` plans (paths, base_family) + guard checks |
+| `lora_trainer.py` | 834 | device selection, QLoRA, chat-template prompts, PEFT loop |
+| `lora_eval.py` | 485 | eval harness (score vs expected/forbidden, inspect adapter) |
 | `target_registry.py` | 266 | operator-declared training targets, any model family |
 | `review_queue.py` | 270 | the human review gate: triage, approve/edit, write trainable rows |
 

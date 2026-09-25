@@ -48,7 +48,7 @@ flowchart TD
 |---|---|---|
 | `eli_pro_audio_gui_v2_0.py` | 12.1k | the main window + most app logic (god-file) |
 | `labs_tab.py` | 5.7k | scientific workspace tab |
-| `app.py` | 817 | launcher / first-boot auto-tune / entry `main()` |
+| `app.py` | 831 | launcher / first-boot auto-tune / entry `main()` |
 | `panels/startup.py` | 1305 |
 | `panels/settings.py` | 733 | settings dialog incl. Plugins + Marketplace sub-tabs |
 | `tabs/training_tab.py` | 841 | Labs ▸ Training — the LoRA wizard |

@@ -213,57 +213,57 @@ layer that wraps the probabilistic model. Grouped by function:
 ## Grounding & anti-confabulation
 | Module | LOC | Role |
 |---|---|---|
-| `deterministic_grounding_gate.py` | 4301 | Renders control/status answers directly from live runtime (bypasses the model). 7 stacked `render_action` layers + an immutable policy engine (the active chain; one dead v10 fragment removed this session). |
-| `grounding_escalation.py` | 528 | When a **checkable factual** question is poorly grounded by the bus, escalates through agent tiers instead of letting the model confabulate (the "Eminem's real name" failure class). |
+| `deterministic_grounding_gate.py` | 3823 | Renders control/status answers directly from live runtime (bypasses the model). 7 stacked `render_action` layers + an immutable policy engine (the active chain; one dead v10 fragment removed this session). |
+| `grounding_escalation.py` | 699 | When a **checkable factual** question is poorly grounded by the bus, escalates through agent tiers instead of letting the model confabulate (the "Eminem's real name" failure class). |
 | `diagnostic_patterns.py` | 112 | Regexes that catch vague/dynamic status confabulation ("currently processing updates…") and image-status fabrication. |
-| `control_contracts.py` | 1045 | Control-action evidence contract: build evidence → validate the model's output doesn't violate it → finalise. |
+| `control_contracts.py` | 1232 | Control-action evidence contract: build evidence → validate the model's output doesn't violate it → finalise. |
 | `contracts/grounded_control.py`, `contracts/runtime_status.py` | (in `contracts/`) | Runtime-status question detection, live-evidence build, repair/validate. |
-| `persistence_gate.py` | 188 | Gates what gets stored — refuses to persist internal dumps / error-pattern noise as memory. |
+| `persistence_gate.py` | 183 | Gates what gets stored — refuses to persist internal dumps / error-pattern noise as memory. |
 
 ## Self-honesty / introspection / self-reporting
 | Module | LOC | Role |
 |---|---|---|
-| `live_introspection.py` | 730 | Live runtime snapshot, last trace, stored user name, mines user-fact candidates, agents-for-action, build_report. |
-| `deterministic_introspection.py` | 573 | The engine's live diagnostic dispatcher (`handle_diagnostic_action`) — deterministic answers for RUNTIME_STATUS / EXPLAIN_* / IMPORT_AUDIT. |
-| `truth_report.py` | 301 | Runtime truth report (git, nvidia, GGUF runtime, import health). |
-| `frontier_status.py` | 423 | Full cross-system status matrix (runtime/memory/awareness/proactive/image/world/chatflow). |
+| `live_introspection.py` | 738 | Live runtime snapshot, last trace, stored user name, mines user-fact candidates, agents-for-action, build_report. |
+| `deterministic_introspection.py` | 591 | The engine's live diagnostic dispatcher (`handle_diagnostic_action`) — deterministic answers for RUNTIME_STATUS / EXPLAIN_* / IMPORT_AUDIT. |
+| `truth_report.py` | 436 | Runtime truth report (git, nvidia, GGUF runtime, import health). |
+| `frontier_status.py` | 433 | Full cross-system status matrix (runtime/memory/awareness/proactive/image/world/chatflow). |
 | `eli_identity_audit.py` | 416 | Identity-classification audit (source inventory, contract counts, capability matrix). |
-| `reasoning_status.py` | 201 | Current reasoning-mode reporting. |
+| `reasoning_status.py` | 200 | Current reasoning-mode reporting. |
 | `experimental_inventory.py` | 146 | Inventory of experimental projects. |
 
 ## Self-improvement & code-awareness
 | Module | LOC | Role |
 |---|---|---|
-| `self_improvement.py` | 1296 | Failure logging/clustering, patch generate→verify→apply→**auto-revert**, full patch cycle, plugin-stub gen. |
-| `code_examiner.py` | 802 | Tiered file error scan (syntax/import → lint → gated LLM) → offer → verified fix. |
+| `self_improvement.py` | 1500 | Failure logging/clustering, patch generate→verify→apply→**auto-revert**, full patch cycle, plugin-stub gen. |
+| `code_examiner.py` | 910 | Tiered file error scan (syntax/import → lint → gated LLM) → offer → verified fix. |
 | `code_monitor.py` | 262 | Detects source changes via git diff, classifies by subsystem, summarises for memory/context (ELI is aware of its own code changes). |
-| `capability_sync.py` | 392 | **AST-discovers** the live capability surface, diffs, writes `capability_manifest.json` — this is why the count is *measured*, not asserted. |
-| `generated_script_guard.py` | 1082 | Validates LLM-generated scripts, **quarantines invalid ones**, and ships vetted canned scripts for known patterns (GPU-watch, redshift, etc.). |
+| `capability_sync.py` | 419 | **AST-discovers** the live capability surface, diffs, writes `capability_manifest.json` — this is why the count is *measured*, not asserted. |
+| `generated_script_guard.py` | 1084 | Validates LLM-generated scripts, **quarantines invalid ones**, and ships vetted canned scripts for known patterns (GPU-watch, redshift, etc.). |
 | `repair_policy.py` | 23 | Policy line: proposal layers vs source-mutation layers. |
 
 ## Self-healing remediation
 | Module | LOC | Role |
 |---|---|---|
-| `grounded_remediation.py` | 1605 | Diagnoses failures (missing app/path/browser) → builds an apt/snap/flatpak repair plan → offers → **executes** (sudo terminal, lock-handling, verify). |
+| `grounded_remediation.py` | 1718 | Diagnoses failures (missing app/path/browser) → builds an apt/snap/flatpak repair plan → offers → **executes** (sudo terminal, lock-handling, verify). |
 | `incident_log.py` | 21 | Writes incident records. |
 
 ## Awareness & boot
 | Module | LOC | Role |
 |---|---|---|
-| `awareness_boot.py` | 297 | Boots all awareness subsystems at startup, returns an `AwarenessState` the engine queries. |
-| `action_commitment.py` | 168 | Detects when ELI's reply COMMITS to an action (so the pipeline re-runs and actually does it — no fake actions). |
+| `awareness_boot.py` | 327 | Boots all awareness subsystems at startup, returns an `AwarenessState` the engine queries. |
+| `action_commitment.py` | 182 | Detects when ELI's reply COMMITS to an action (so the pipeline re-runs and actually does it — no fake actions). |
 
 ## Autonomy / operator (governed)
 | Module | LOC | Role |
 |---|---|---|
 | `operator_state.py`, `operator_feed.py`, `operator_feed_normalized.py` | ~220 | Operator console state: proposals, goals, self-model status, event feed. |
-| `pending_proposal.py` | 142 | Pending-proposal state (extract/set/clear). |
+| `pending_proposal.py` | 155 | Pending-proposal state (extract/set/clear). |
 | `approval_engine.py` | 103 | Who may propose / evaluate a proposal record (governance). |
 
 ## Response surfaces & governance
 | Module | LOC | Role |
 |---|---|---|
-| `user_visible_response_surface.py` | 336 | Installs the engine's user-visible response surface (runtime/identity/name-source formatting + streaming coercion). |
+| `user_visible_response_surface.py` | 368 | Installs the engine's user-visible response surface (runtime/identity/name-source formatting + streaming coercion). |
 | `visible_output.py`, `visible_text.py` | ~150 | Central visible-output contract; stringify/sanitise streamed output. |
 | `response_policy.py`, `response_contracts.py` | ~160 | Classify response mode; per-action contracts. |
 | `final_response_assembly.py`, `final_response_provider.py`, `fastpath_responder.py` | ~175 | Assemble the final prompt; per-action generation decoration; fastpath context. |
@@ -271,20 +271,20 @@ layer that wraps the probabilistic model. Grouped by function:
 ## Personal-memory surfaces
 | Module | LOC | Role |
 |---|---|---|
-| `personal_memory_surface.py` | 431 | "Is this a personal-memory query" + surface builder. |
-| `personal_memory_clean_response.py` | 314 | Clean "what do you know about me" report (reset-aware, poison-filtered, dynamic-fact aging). |
-| `personal_memory_deep_response.py` | 453 | Deep memory-internals explain (schema/tables/functions) + routing-fault explain. |
-| `profile_extractor.py` | 740 | Extracts user facts from turns (role/interests/field/"remember that I…"), writes user_patterns + LLM session summaries; recency refresh. |
+| `personal_memory_surface.py` | 452 | "Is this a personal-memory query" + surface builder. |
+| `personal_memory_clean_response.py` | 338 | Clean "what do you know about me" report (reset-aware, poison-filtered, dynamic-fact aging). |
+| `personal_memory_deep_response.py` | 450 | Deep memory-internals explain (schema/tables/functions) + routing-fault explain. |
+| `profile_extractor.py` | 1517 | Extracts user facts from turns (role/interests/field/"remember that I…"), writes user_patterns + LLM session summaries; recency refresh. |
 | `identity_validation.py` | ~180 | Validate identity candidates. |
 
 ## Typed pipeline plumbing (evidence/packets)
 | Module | LOC | Role |
 |---|---|---|
-| `evidence_ledger.py` | 595 | Records artifacts/events with signatures; recent generated artifacts; status evidence. |
-| `evidence_arbitration.py` | 195 | Scores competing evidence (stage packets + tool results + goals), dedup-by-fingerprint, keep-max. |
+| `evidence_ledger.py` | 603 | Records artifacts/events with signatures; recent generated artifacts; status evidence. |
+| `evidence_arbitration.py` | 193 | Scores competing evidence (stage packets + tool results + goals), dedup-by-fingerprint, keep-max. |
 | `stage_packet_store.py`, `stage_packets.py`, `pipeline_models.py`, `retrieval_packets.py`, `typed_stage_bridge.py`, `packet_native_downstream.py`, `single_pass_authority.py`, `tool_result_*` | ~700 | The typed packet substrate: route/plan/evidence/generation/output packets flow between stages; this is the plumbing behind "no fake actions". |
-| `background_tasks.py` | 253 | In-process multi-threaded task manager (heavy work → job id → `CHECK_JOB`). |
-| `runtime_policy.py` | 76 | Per-turn budgets/timeouts/context size from runtime snapshot. |
+| `background_tasks.py` | 252 | In-process multi-threaded task manager (heavy work → job id → `CHECK_JOB`). |
+| `runtime_policy.py` | 89 | Per-turn budgets/timeouts/context size from runtime snapshot. |
 
 ## Security
 | Module | LOC | Role |
@@ -300,54 +300,54 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## Orchestration & agents
 | Module | LOC | Role |
 |---|---|---|
-| `agent_bus.py` | 3276 | 15 specialist agents on a dependency DAG (topological layers) + calibrated weight-free confidence aggregation + per-action agent selection. |
-| `orchestrator.py` | 928 | Gradient 12-stage pipeline (all CHAT modes): planner → `retrieve_for_turn()` → `dispatch_specialists()` → heuristic rerank → context assembly. Composes the specialist bus; no longer Quick-only bypass. |
+| `agent_bus.py` | 3517 | 15 specialist agents on a dependency DAG (topological layers) + calibrated weight-free confidence aggregation + per-action agent selection. |
+| `orchestrator.py` | 1117 | Gradient 12-stage pipeline (all CHAT modes): planner → `retrieve_for_turn()` → `dispatch_specialists()` → heuristic rerank → context assembly. Composes the specialist bus; no longer Quick-only bypass. |
 | `retrieval.py` | ~150 | Shared turn retrieval + 8 s cache — single owner for bus and orchestrator memory search. |
 | `learning_coordinator.py` | ~80 | Stage 12 `finalize_turn()` — store assistant turn, publish meta, `_learn_from_result()`. |
 | `pipeline_trace.py` | ~85 | Canonical S01–S12 names + `log_pipeline_stage()` observability. |
 | `hyde.py` | 69 | Hypothetical-document-embedding query expansion. |
-| `reranker.py` | 79 | Candidate reranking (token overlap + source priority). |
-| `introspection_agent.py` | 173 | Wraps introspection for the bus (pipeline/memory/runtime/audit). |
-| `llm_intent.py` | 251 | LLM intent parsing fallback (GGUF, cached). |
+| `reranker.py` | 157 | Candidate reranking (token overlap + source priority). |
+| `introspection_agent.py` | 164 | Wraps introspection for the bus (pipeline/memory/runtime/audit). |
+| `llm_intent.py` | 245 | LLM intent parsing fallback (GGUF, cached). |
 
 ## Inference
 | Module | LOC | Role |
 |---|---|---|
-| `gguf_inference.py` | 2803 | Model-agnostic GGUF inference: model resolution (no baked model), family-aware chat templating, graceful GPU-layer fallback, streaming, output cleaning, token budgeting. |
-| `inference_broker.py` | 215 | Thin GGUF broker (`infer`) used by agents/coding/patching. |
+| `gguf_inference.py` | 3234 | Model-agnostic GGUF inference: model resolution (no baked model), family-aware chat templating, graceful GPU-layer fallback, streaming, output cleaning, token budgeting. |
+| `inference_broker.py` | 217 | Thin GGUF broker (`infer`) used by agents/coding/patching. |
 
 ## Reasoning & engagement
 | Module | LOC | Role |
 |---|---|---|
-| `reasoning_modes.py` | 631 | The 5 modes — canonicalisation, per-mode private system instruction, execution contract (samples/branches/stages + dynamic token budget), reasoning-leak stripping. |
+| `reasoning_modes.py` | 671 | The 5 modes — canonicalisation, per-mode private system instruction, execution contract (samples/branches/stages + dynamic token budget), reasoning-leak stripping. |
 | `engagement_tracker.py` | 249 | Session depth tracking → **auto-escalates reasoning mode** (Quick→Normal→Advanced→Research) as a conversation deepens; session narrative. |
-| `working_memory.py` | 325 | Turn-scoped pinned facts (pin/absorb/evict/persist/restore). |
+| `working_memory.py` | 387 | Turn-scoped pinned facts (pin/absorb/evict/persist/restore). |
 
 ## Context & grounding
 | Module | LOC | Role |
 |---|---|---|
-| `context_synthesiser.py` | 567 | Builds the precise prompt context: persona handoff, turns block, vector block, live-runtime brief, budgeting. |
-| `grounded_status.py` | 654 | Identity + memory-inventory rendered directly from profile/DBs (direct grounded answers). |
+| `context_synthesiser.py` | 756 | Builds the precise prompt context: persona handoff, turns block, vector block, live-runtime brief, budgeting. |
+| `grounded_status.py` | 648 | Identity + memory-inventory rendered directly from profile/DBs (direct grounded answers). |
 
 ## Persona (the living voice)
 | Module | LOC | Role |
 |---|---|---|
 | `persona.py` | 375 | Canonical persona authority — base + auto sections, preferences, compose/refresh. |
-| `persona_updater.py` | 746 | Re-derives the persona overlay from memory/reflection/habits/runtime patterns; KG population; stale-fact aging. |
+| `persona_updater.py` | 748 | Re-derives the persona overlay from memory/reflection/habits/runtime patterns; KG population; stale-fact aging. |
 | `persona_hygiene.py` | 131 | Cleans/dedups/prunes the auto-persona. |
 | `persona_status.py`, `persona_values.py` | ~108 | Persona status report; values store. |
 
 ## Output governance (consolidated this session)
 | Module | LOC | Role |
 |---|---|---|
-| `output_governor.py` | 1311 | **Canonical** governance: sanitize, role-prefix/identity-drift repair, self↔user confusion repair, style cleanup, confabulation detection, quality scoring, memory-worthiness, GGUF-artifact cleaning (`clean_gguf_artifacts`), evidence validation. |
+| `output_governor.py` | 1681 | **Canonical** governance: sanitize, role-prefix/identity-drift repair, self↔user confusion repair, style cleanup, confabulation detection, quality scoring, memory-worthiness, GGUF-artifact cleaning (`clean_gguf_artifacts`), evidence validation. |
 | `response_governance.py`, `response_sanitizer.py` | 28+14 | **Re-export shims** → output_governor (kept for back-compat). |
-| `tone_analyzer.py` | 373 | Analyses recent user turns → tone preferences ELI adapts to over time. |
+| `tone_analyzer.py` | 371 | Analyses recent user turns → tone preferences ELI adapts to over time. |
 
 ## Profile
 | Module | LOC | Role |
 |---|---|---|
-| `user_info_builder.py` | 755 | The living, versioned user profile: multi-source gather, noise filter, categorise, hash, diff-on-change. |
+| `user_info_builder.py` | 752 | The living, versioned user profile: multi-source gather, noise filter, categorise, hash, diff-on-change. |
 
 ---
 
@@ -357,28 +357,28 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | Module | LOC | Role |
 |---|---|---|
 | `engine.py` | 15240 | `CognitiveEngine` — the conductor: persona, generation settings, the 5 `_run_*` reasoning passes, grounding overrides, synthesis prompt build + the context-bloat cap, fragment/placeholder guards, dispatch gate to bus vs orchestrator, startup loops (reflection/habit/scheduler/self-improve/proactive). |
-| `world_model.py` | 252 | Symbolic self-model: Identity/Runtime/Memory/Goal/Capability states + snapshot/merge. |
-| `state.py` | 367 | User/runtime state + profile (active user id, name, profile text). |
-| `self_upgrade.py` | 535 | Self-upgrade orchestrator (git pull, pip, rebuild FAISS/KG, manifest, system index). |
+| `world_model.py` | 278 | Symbolic self-model: Identity/Runtime/Memory/Goal/Capability states + snapshot/merge. |
+| `state.py` | 371 | User/runtime state + profile (active user id, name, profile text). |
+| `self_upgrade.py` | 576 | Self-upgrade orchestrator (git pull, pip, rebuild FAISS/KG, manifest, system index). |
 | `scheduler.py` | 74 | Kernel thread-pool/timer scheduler (generic). |
 | `pipeline.py` | ~150 | Pipeline step description. |
 
 ## `core/` (paths, settings, hardware, safety) — 6.6k LOC
 | Module | LOC | Role |
 |---|---|---|
-| `runtime_settings.py` | 1135 | Canonical settings.json load/save, legacy-key migration, portable-path healing/sanitising. |
-| `hardware_profile.py` | 1302 | Auto-detect GPU/VRAM/RAM → fit ctx/gpu_layers/batch (KV-cache + compute-buffer reserve); model discovery; hardware authority enforcement. |
+| `runtime_settings.py` | 1276 | Canonical settings.json load/save, legacy-key migration, portable-path healing/sanitising. |
+| `hardware_profile.py` | 2780 | Auto-detect GPU/VRAM/RAM → fit ctx/gpu_layers/batch (KV-cache + compute-buffer reserve); model discovery; hardware authority enforcement. |
 | `paths.py` | 601 | Single-source-of-truth path resolution (data/config/cache/db/models/voices…). |
-| `startup_hardware_optimizer.py` | 655 | Boot-time hardware optimiser (GPU select, layer/ctx allocation, mode presets). |
+| `startup_hardware_optimizer.py` | 877 | Boot-time hardware optimiser (GPU select, layer/ctx allocation, mode presets). |
 | `config.py` | 350 | Thin config shim over runtime_settings (canonical key mapping). |
-| `model_download.py` | 674 | Curated GGUF catalogue + VRAM-based recommend + download. |
-| `dag.py` | 474 | **Generic DAG engine** (Kahn topo-order, parallel layers, critical path) — shared by the agent bus + coding engine. |
-| `dynamic_runtime_budget.py` | 215 | Per-boot runtime budget derivation. |
-| `netguard.py` | 451 | **Offline-by-default** socket-level network gate (fail-closed) + `guarded_urlopen`/`http_get_json`. |
-| `memory_reset.py` | 329 | Factory-reset of memory/identity (scrub names, clear DBs, backup). |
-| `cognition_tunables.py` | 269 | User-tunable knowledge-gathering limits + synthesis cap registry (GUI-surfaced). |
-| `grounding.py` | 147 | `is_grounded_query` classifier. |
-| `crisis_guard.py` | 111 | STT-robust self-harm detector + persona steering directive. |
+| `model_download.py` | 673 | Curated GGUF catalogue + VRAM-based recommend + download. |
+| `dag.py` | 470 | **Generic DAG engine** (Kahn topo-order, parallel layers, critical path) — shared by the agent bus + coding engine. |
+| `dynamic_runtime_budget.py` | 271 | Per-boot runtime budget derivation. |
+| `netguard.py` | 586 | **Offline-by-default** socket-level network gate (fail-closed) + `guarded_urlopen`/`http_get_json`. |
+| `memory_reset.py` | 333 | Factory-reset of memory/identity (scrub names, clear DBs, backup). |
+| `cognition_tunables.py` | 273 | User-tunable knowledge-gathering limits + synthesis cap registry (GUI-surfaced). |
+| `grounding.py` | 146 | `is_grounded_query` classifier. |
+| `crisis_guard.py` | 113 | STT-robust self-harm detector + persona steering directive. |
 | `portable_paths.py`, `db_paths.py`, `legacy_paths.py`, `architecture_contracts.py` | small | path helpers, ownership map. |
 
 ## `memory/` — 7.0k LOC
@@ -386,29 +386,29 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 |---|---|---|
 | `memory.py` | 4734 | The `Memory` god-class (~50 methods): semantic store/recall, conversations, habits, failures/improvements, weight decay, KG bridge, `mark_failure_resolved`, `disable_invalid_habit_rules`. |
 | `knowledge_graph.py` | 643 | Entity/relation graph + multi-hop BFS (`related`) + `context_for_prompt` + extract-from-memory. |
-| `habits_memory_db.py` | 470 | Habit rules/events store + cheap embed/recall. |
-| `vector_store.py` | 430 | FAISS index (L2, 1/(1+dist) sim) + nomic embedder + keyword fallback + auto-rebuild. |
-| `system_index.py` | 278 | OS app/exe/dir index (the launcher backing — your machine's executables, thousands, indexed live per machine). |
+| `habits_memory_db.py` | 466 | Habit rules/events store + cheap embed/recall. |
+| `vector_store.py` | 637 | FAISS index (L2, 1/(1+dist) sim) + nomic embedder + keyword fallback + auto-rebuild. |
+| `system_index.py` | 281 | OS app/exe/dir index (the launcher backing — your machine's executables, thousands, indexed live per machine). |
 | `memory_truth.py`, `memory_adapter.py` | small | inspection/compat/session helpers. |
 
 ## `perception/` — 6.8k LOC
 | Module | LOC | Role |
 |---|---|---|
-| `audio_stt.py` | 1978 | faster-whisper STT + VoiceGate (wake-word, debounce, incomplete-command wait), self-echo suppression, output ducking, per-user voice profile bias. |
-| `vision.py` | 692 | Local GGUF VL (Moondream fast / primary), hot-swap with text model, CPU-pinned CLIP, OCR. |
-| `tts_router.py` | 1128 | Piper/espeak TTS, voice selection, unspeakable-fragment guard. |
+| `audio_stt.py` | 2472 | faster-whisper STT + VoiceGate (wake-word, debounce, incomplete-command wait), self-echo suppression, output ducking, per-user voice profile bias. |
+| `vision.py` | 698 | Local GGUF VL (Moondream fast / primary), hot-swap with text model, CPU-pinned CLIP, OCR. |
+| `tts_router.py` | 1221 | Piper/espeak TTS, voice selection, unspeakable-fragment guard. |
 | `os_controller.py` | 573 | Screenshot/volume/keys/mouse/clipboard + `gaze_click`. |
-| `screen_locator.py` | 410 | OCR (tesseract) → locate a named UI element on screen. |
+| `screen_locator.py` | 497 | OCR (tesseract) → locate a named UI element on screen. |
 | `gaze_engine.py` | 358 | MediaPipe face-gaze + calibration mapper + One-Euro smoothing → `latest_gaze.json` @10Hz. |
 | `local_whisper_stt.py`, `ambient_vision.py`, `analyze_{pdfs,image,mesh,csv}.py`, `log_rotation.py`, `voice_worker*.py` | ~1.2k | Whisper backend; ambient glances; file analysers; log rotation; voice workers. |
 
 ## `planning/` (autonomy, habits, proactive) — 3.9k LOC
 | Module | LOC | Role |
 |---|---|---|
-| `proactive_daemon.py` | 1459 | Background 10-min loop: pattern/code analysis, habit detect+offer, morning report, error tracking. |
-| `autonomy_scheduler.py` | 212 | Policy-gated (observe/proposal/goal-driven) goal scheduler w/ cooldown + attention queue. |
-| `habits.py` | 344 | Habit detection (timestamp→HH:MM clustering), offer/pending state, disabled-by-default. |
-| `habits_scheduler.py` | 152 | Fires active habits at their time (self-heals legacy rows, once-per-minute dedupe). |
+| `proactive_daemon.py` | 1517 | Background 10-min loop: pattern/code analysis, habit detect+offer, morning report, error tracking. |
+| `autonomy_scheduler.py` | 334 | Policy-gated (observe/proposal/goal-driven) goal scheduler w/ cooldown + attention queue. |
+| `habits.py` | 339 | Habit detection (timestamp→HH:MM clustering), offer/pending state, disabled-by-default. |
+| `habits_scheduler.py` | 148 | Fires active habits at their time (self-heals legacy rows, once-per-minute dedupe). |
 | `goal_store.py`, `goal_models.py`, `goal_tick.py`, `operator_goal_actions.py` | ~400 | Mission goals (priority/cadence/risk/constraints/success-criteria) → governed proposals. |
 | `attention_queue.py`, `proposal_queue.py`, `proposal_*.py`, `jobqueue*.py`, `autonomy_controller.py` | ~900 | Attention ranking; proposal queue/archive; job queue; safe autonomy ticks. |
 
@@ -417,7 +417,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 |---|---|---|
 | `agent.py` | 215 | `CodeAgent.solve` — composes the loop; broker-backed generator; full provenance. |
 | `bug_memory.py` | 340 | Bug classification + (signature→fix) long-term SQLite memory w/ fuzzy recall. |
-| `verification.py` | 310 | Gate ladder (syntax→exec→tests) + weighted scoring + test synthesis. |
+| `verification.py` | 353 | Gate ladder (syntax→exec→tests) + weighted scoring + test synthesis. |
 | `sandbox.py` | 227 | Bounded isolated execution (scrubbed env, CPU limit, timeout). |
 | `search.py` | 176 | UCB1 tree search over a temperature-ladder beam. |
 | `plan_graph.py` | 164 | Subtask DAG decompose + topological solve + compose. |
@@ -426,10 +426,10 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `learning/` (real LoRA self-training) — 3.3k LOC
 | Module | LOC | Role |
 |---|---|---|
-| `lora_trainer.py` | 656 | Real torch/PEFT/transformers `Trainer` LoRA run. |
-| `lora_trainer_guard.py` | 571 | `TrainerTarget` plans + safety validation. |
-| `dataset_builder.py` | 558 | Build supervised dataset from logged turns/corrections (PII-redacted, deduped). |
-| `lora_eval.py` | 491 | Adapter eval suite. |
+| `lora_trainer.py` | 834 | Real torch/PEFT/transformers `Trainer` LoRA run. |
+| `lora_trainer_guard.py` | 630 | `TrainerTarget` plans + safety validation. |
+| `dataset_builder.py` | 552 | Build supervised dataset from logged turns/corrections (PII-redacted, deduped). |
+| `lora_eval.py` | 485 | Adapter eval suite. |
 | `bootstrap_phi3_base.py`, `base_model_resolver.py`, `dataset_filters.py`, `export_trainable_dataset.py`, `merge_reviewed_datasets.py`, `training_preflight.py` | ~1.4k | Trainable base download/resolve, quality gates, export/merge, preflight. |
 
 ## `contracts/`, `integrations/`, `system/`, `utils/`, `cli/`
@@ -455,9 +455,9 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `gui/` (PySide6 desktop) — ~20.3k LOC
 | Module | LOC | Role |
 |---|---|---|
-| `eli_pro_audio_gui_v2_0.py` | 12605 | Main window: 13 tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
-| `labs_tab.py` | 5694 | Labs workspace: Notebook, Memory browser, Jupyter launcher, Calculator(+constants), Physics tables, **Report Builder** (evidence-grounded docs), File-Chat, Workspaces, Sim-IDE. |
-| `app.py` | 817 | Launcher / first-boot auto-tune / `main()`. |
+| `eli_pro_audio_gui_v2_0.py` | 13110 | Main window: 13 tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
+| `labs_tab.py` | 5744 | Labs workspace: Notebook, Memory browser, Jupyter launcher, Calculator(+constants), Physics tables, **Report Builder** (evidence-grounded docs), File-Chat, Workspaces, Sim-IDE. |
+| `app.py` | 831 | Launcher / first-boot auto-tune / `main()`. |
 | `panels/startup.py` | 1305 |
 | `panels/settings.py` | 723 | Advanced Settings (Agents/Models/**Cognition**/Plugins/Self-Upgrade). |
 | `docks/operator_console_dock.py` | 303 | Governed operator console (proposals/goals/policy/attention). |

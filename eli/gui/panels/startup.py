@@ -323,17 +323,8 @@ class StartupModelSelectionDialog(QDialog):
 
         self.gguf_combo = QComboBox()
         self.gguf_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
-        try:
-            from eli.core.model_download import _as_gib
-        except Exception:
-            _as_gib = lambda gb: float(gb or 0) * 1_000_000_000 / (1024 ** 3)
         for m in self._models:
-            # GiB (binary) so the figure matches what the OS file managers show.
-            label = (
-                f"[{m.get('source', '?')}] {m.get('name', 'model')} "
-                f"({_as_gib(m.get('size_gb', 0.0)):.2f} GiB)"
-            )
-            self.gguf_combo.addItem(label, str(m.get("path") or ""))
+            self.gguf_combo.addItem(self._model_label(m), str(m.get("path") or ""))
         form.addRow("GGUF models", self.gguf_combo)
 
         self.model_path_input = QLineEdit(current_model_path or "")
@@ -1063,6 +1054,15 @@ class StartupModelSelectionDialog(QDialog):
         if is_ollama:
             self._auto_load_ollama_models()
 
+    @staticmethod
+    def _model_label(m: Dict[str, Any]) -> str:
+        """'[source] name (x.xx GiB)': binary GiB so it matches what file managers show."""
+        try:
+            from eli.core.model_download import _as_gib
+        except Exception:
+            _as_gib = lambda gb: float(gb or 0) * 1_000_000_000 / (1024 ** 3)
+        return f"[{m.get('source', '?')}] {m.get('name', 'model')} ({_as_gib(m.get('size_gb', 0.0)):.2f} GiB)"
+
     def _sync_model_path_from_combo(self):
         if self.selected_provider() == "ollama":
             return
@@ -1090,6 +1090,12 @@ class StartupModelSelectionDialog(QDialog):
                         break
                 except Exception:
                     continue
+        if idx < 0 and Path(target).is_file():
+            # a saved path outside the scanned folders: list it, so the dropdown never shows a model
+            # other than the one that will load
+            self.gguf_combo.addItem(self._model_label(
+                {"source": "custom", "name": Path(target).name, "size_gb": Path(target).stat().st_size / 1e9}), target)
+            idx = self.gguf_combo.count() - 1
         if idx >= 0:
             self.gguf_combo.setCurrentIndex(idx)
         self.model_path_input.setText(target)

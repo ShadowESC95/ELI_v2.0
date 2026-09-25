@@ -21,7 +21,7 @@ and **nothing leaves your device unless you explicitly allow it.**
 Here's the part most "AI assistants" can't say: it's *yours*. A fully local,
 embodied desktop AI you actually own — **227 capabilities** (210 routable or executor-backed
 by voice or text), a 14-agent reasoning bus, persistent memory, and full
-voice/vision/gaze control, in ~190,338 lines of Python in `eli/`. One machine, your data, no landlord. (The
+voice/vision/gaze control, in ~194,003 lines of Python in `eli/`. One machine, your data, no landlord. (The
 capability count is read live from the manifest each boot, so it grows as ELI
 does. Auto-generated action reference: `capabilities_and_actions.md`.)
 

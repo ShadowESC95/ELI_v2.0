@@ -283,6 +283,40 @@ def build_replacements() -> list[tuple[str, str]]:
     return pairs
 
 
+_TOTAL_LINES = re.compile(r"(?<![\d,])\d{3},\d{3}(?=(?:\*\*)? (?:LOC|lines))")
+_TOTAL_FILES = re.compile(r"(?<![\d,])\d{3}(?=(?:\*\*)? (?:Python files|modules|files)\b)")
+_ROW = re.compile(r"^(\| `)([\w/.]+\.py)(` \| )([\d,]+)( \|)", re.M)
+# Living docs only: logs, diffs and comparisons are dated snapshots whose numbers must stay as written.
+_LIVING = {"architecture.md", "architecture_ascii.md", "project_overview.md", "what_eli_is.md",
+           "what_eli_can_do.md", "ARCHITECTURE_MAP.md", "README.md"}
+_NOT_ELI_TOTAL = re.compile(r"v3|sibling|Tracked Python|tests?/|swallow", re.I)
+
+
+def _refresh_totals(text: str, loc: dict) -> str:
+    """Totals for eli/ by pattern, so they can't go stale waiting on last release's literal."""
+    out = []
+    for line in text.split("\n"):
+        if not _NOT_ELI_TOTAL.search(line) and re.search(r"`eli/?`|eli/|Python|LOC", line):
+            line = _TOTAL_LINES.sub(f"{loc['loc']:,}", line)
+            line = _TOTAL_FILES.sub(str(loc["py_files"]), line)
+        out.append(line)
+    return "\n".join(out)
+
+
+def _refresh_file_rows(text: str) -> str:
+    """'| `path.py` | 4301 |' rows carry the file's real line count."""
+    def _row(m: "re.Match[str]") -> str:
+        name = m.group(2)
+        cands = [ROOT / name] if "/" in name else list((ROOT / "eli").rglob(name))
+        if len(cands) != 1 or not cands[0].is_file():
+            return m.group(0)
+        with open(cands[0], encoding="utf-8", errors="replace") as fh:
+            n = sum(1 for _ in fh)
+        return f"{m.group(1)}{name}{m.group(3)}{n:,}{m.group(5)}" if "," in m.group(4) else \
+            f"{m.group(1)}{name}{m.group(3)}{n}{m.group(5)}"
+    return _ROW.sub(_row, text)
+
+
 def refresh_file(path: Path, replacements: list[tuple[str, str]]) -> bool:
     if any(s in str(path) for s in SKIP_PARTS):
         return False
@@ -295,6 +329,11 @@ def refresh_file(path: Path, replacements: list[tuple[str, str]]) -> bool:
         if old == new:
             continue
         text = text.replace(old, new)
+    if path.suffix == ".md":
+        if path.name in _LIVING:
+            text = _refresh_totals(text, _loc_stats())
+        if "SILENT_EXCEPTION" not in path.name and path.name in _LIVING | {"capability_catalogue.md", "learning.md", "memory.md", "perception.md", "gui.md"}:      # there the column is a handler count, not lines
+            text = _refresh_file_rows(text)
     if text != orig:
         path.write_text(text, encoding="utf-8")
         return True
