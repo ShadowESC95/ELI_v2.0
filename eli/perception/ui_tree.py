@@ -30,7 +30,11 @@ plus extras), so nothing downstream needs to know which strategy answered.
 from __future__ import annotations
 
 import difflib
+import json
+import os
 import re
+import subprocess
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from eli.utils.log import get_logger
@@ -61,9 +65,56 @@ def _norm(text: str) -> str:
     return re.sub(r"\s+", " ", str(text or "").strip().lower())
 
 
+# A bundled Python (the AppImage) cannot load the distro's PyGObject: its `_gi` extension is built for the system
+# interpreter, and mixing them fails with a circular import. The system interpreter can read this same file, so the
+# work is done there and the result comes back as JSON.
+_SYSTEM_PYTHON = "/usr/bin/python3"
+_INPROC_ENV = "ELI_UI_TREE_INPROC"
+_HELPER = r"""
+import json, os, sys
+sys.path.insert(0, os.environ["ELI_UI_ROOT"])
+from eli.perception import ui_tree as u
+a = json.loads(sys.argv[1])
+if a["op"] == "probe":
+    r = {"available": u.available(), "reason": u.unavailable_reason()}
+elif a["op"] == "find":
+    r = u.public_matches(u.find(a["query"], actionable_only=a["actionable_only"], max_matches=a["max_matches"], min_score=a["min_score"]))
+else:
+    boxes = u.find(a["text"], actionable_only=False, max_matches=20, min_score=0.5)
+    want = (a.get("cx"), a.get("cy"))
+    boxes = [b for b in boxes if b.get("role") == a.get("role")] or boxes
+    boxes.sort(key=lambda b: abs(b.get("cx", 0) - (want[0] or 0)) + abs(b.get("cy", 0) - (want[1] or 0)))
+    r = u.invoke(boxes[0]) if boxes else {"ok": False, "error": "the widget is no longer there"}
+print("" + json.dumps(r))
+"""
+_system_probe: Optional[bool] = None
+
+
+def _via_system_python(payload: Dict[str, Any], timeout: float = 20.0) -> Any:
+    if os.environ.get(_INPROC_ENV) or not os.path.exists(_SYSTEM_PYTHON):
+        return None
+    env = dict(os.environ, **{_INPROC_ENV: "1", "ELI_UI_ROOT": str(Path(__file__).resolve().parents[2])})
+    try:
+        proc = subprocess.run([_SYSTEM_PYTHON, "-c", _HELPER, json.dumps(payload)], env=env, capture_output=True,
+                              text=True, timeout=timeout)
+        marker = proc.stdout.rfind("\x1e")
+        return json.loads(proc.stdout[marker + 1:]) if marker >= 0 else None
+    except Exception:
+        log.debug("ui_tree: system-python helper failed", exc_info=True)
+        return None
+
+
+def _system_available() -> bool:
+    global _system_probe
+    if _system_probe is None:
+        res = _via_system_python({"op": "probe"})
+        _system_probe = bool(isinstance(res, dict) and res.get("available"))
+    return _system_probe
+
+
 def available() -> bool:
     """True when the AT-SPI stack can actually be used on this machine."""
-    return _atspi() is not None
+    return _atspi() is not None or _system_available()
 
 
 def unavailable_reason() -> str:
@@ -217,7 +268,11 @@ def find(query: str, *, actionable_only: bool = True, max_matches: int = 8,
     """
     atspi = _atspi()
     if atspi is None:
-        return []
+        if not _system_available():
+            return []
+        res = _via_system_python({"op": "find", "query": query, "actionable_only": actionable_only,
+                                  "max_matches": max_matches, "min_score": min_score})
+        return [dict(b, _via="system-python") for b in res] if isinstance(res, list) else []
     q = _norm(query)
     if not q:
         return []
@@ -253,6 +308,10 @@ def invoke(box: Box) -> Dict[str, Any]:
     `do_action` targets the widget itself and tells us whether it ran.
     """
     node = box.get("_node") if isinstance(box, dict) else None
+    if node is None and isinstance(box, dict) and box.get("_via") == "system-python":
+        res = _via_system_python({"op": "invoke", "text": box.get("text"), "role": box.get("role"),
+                                  "cx": box.get("cx"), "cy": box.get("cy")})
+        return res if isinstance(res, dict) else {"ok": False, "error": "the accessibility helper did not answer"}
     if node is None:
         return {"ok": False, "error": "no accessible node on this match"}
     try:

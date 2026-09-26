@@ -25,7 +25,7 @@ subsystem, and OS control. All local, no APIs, no third-party accounts.
 | `gaze_engine.py` | 358 |
 | `log_rotation.py` | 224 | log housekeeping |
 | `analyze_pdfs/image/mesh/csv.py` | ~600 | file-type analysers |
-| `ambient_vision.py` | 206 | periodic screen glances (off by default) |
+| `ambient_vision.py` | 238 | periodic screen glances (off by default) |
 | `local_whisper_stt.py` | 335 |
 | `voice_worker_streaming.py` | small | streaming voice worker |
 

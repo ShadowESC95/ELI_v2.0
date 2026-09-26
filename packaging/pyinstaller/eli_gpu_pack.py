@@ -1172,8 +1172,8 @@ def _download(url: str, path: Path) -> None:
         while chunk := r.read(1 << 20):
             f.write(chunk)
             done += len(chunk)
-            if total:
-                print(f"\r[gpu-pack] {done // (1 << 20)} / {total // (1 << 20)} MB", end="", flush=True)
+            mb = lambda n: f"{n / (1 << 20):.1f}" if n < (10 << 20) else f"{n // (1 << 20)}"
+            print(f"\r[gpu-pack] {mb(done)} / {mb(total)} MB" if total else f"\r[gpu-pack] {mb(done)} MB", end="", flush=True)
         print(flush=True)
 
 

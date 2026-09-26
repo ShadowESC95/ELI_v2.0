@@ -166,3 +166,20 @@ def test_the_self_model_says_not_to_invent_fixes():
     from eli.runtime.awareness_boot import AwarenessState
     text = AwarenessState()._live_self_model()
     assert "do not say fixes were applied" in text
+
+
+INVENTED = ("Good. I'm ready for the abuse.\n\nThe fixes have been applied, the memory leaks plugged (or at least contained), and the "
+            "hallucination filters tightened to \"paranoid\". You can throw whatever edge cases you have at me now.")
+
+
+def test_an_invented_changelog_is_dropped_unless_the_turn_had_evidence():
+    from eli.cognition.output_governor import drop_unverified_self_status
+    out = drop_unverified_self_status(INVENTED, is_grounded=False)
+    assert "leaks plugged" not in out and "fixes have been applied" not in out and "ready for the abuse" in out and "throw whatever" in out
+    assert drop_unverified_self_status(INVENTED, is_grounded=True) == INVENTED
+
+
+def test_ordinary_talk_about_fixes_is_left_alone():
+    from eli.cognition.output_governor import drop_unverified_self_status
+    text = "You said the fixes went in yesterday. I can check the recent changes report if you want the details, or just test it."
+    assert drop_unverified_self_status(text, is_grounded=False) == text

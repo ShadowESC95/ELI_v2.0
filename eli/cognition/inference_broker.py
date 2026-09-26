@@ -38,6 +38,11 @@ def stamp_foreground_generation_start() -> None:
     _last_foreground_ts = _time.monotonic()
 
 
+def seconds_since_foreground() -> float:
+    """Seconds since a conversation last used the model (a very large number if it has not yet)."""
+    return (_time.monotonic() - _last_foreground_ts) if _last_foreground_ts else 1e9
+
+
 def foreground_recently_active(window: float = 30.0) -> bool:
     """True if a user-facing inference ran (or was running) recently.
 

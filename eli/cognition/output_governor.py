@@ -274,11 +274,24 @@ _SELF_MECHANISM_CLAIM = re.compile(
 )
 
 
+# ELI saying what was changed in itself ("the fixes have been applied, the leaks plugged, the filters tightened") on the
+# strength of being told fixes happened. Without a recent-changes record or other evidence it has no such knowledge.
+_SELF_CHANGE_CLAIM = re.compile(
+    r"(?i)(?:"
+    r"\b(?:fixes|patches|updates|changes|upgrades)\b[^.?!]{0,40}?\b(?:have\s+been|has\s+been|were|are|got)\s+"
+    r"(?:applied|installed|deployed|made|merged|rolled\s+out)\b"
+    r"|\bleaks?\b[^.?!]{0,30}?\b(?:plugged|patched|fixed|closed|contained)\b"
+    r"|\bfilters?\b[^.?!]{0,30}?\btightened\b"
+    r"|\bi(?:'ve|\s+have)\s+been\s+(?:patched|fixed|upgraded|updated|repaired)\b"
+    r")"
+)
+
+
 def claims_unverified_self_status(text: str) -> bool:
     """True when the reply asserts ELI's own operational health or runtime state."""
     body = str(text or "")
     return bool(_SELF_STATUS_CLAIM.search(body) or _SELF_RUNTIME_CLAIM.search(body)
-                or _SELF_MECHANISM_CLAIM.search(body))
+                or _SELF_MECHANISM_CLAIM.search(body) or _SELF_CHANGE_CLAIM.search(body))
 
 
 def defers_own_diagnostic_to_user(text: str) -> bool:
@@ -301,7 +314,7 @@ def drop_unverified_self_status(text: str, *, is_grounded: bool = False) -> str:
     kept = [
         s for s in _SENTENCE_PARTS.findall(body)
         if not (_SELF_STATUS_CLAIM.search(s) or _SELF_DIAGNOSTIC_DEFLECTION.search(s)
-                or _SELF_RUNTIME_CLAIM.search(s) or _SELF_MECHANISM_CLAIM.search(s))
+                or _SELF_RUNTIME_CLAIM.search(s) or _SELF_MECHANISM_CLAIM.search(s) or _SELF_CHANGE_CLAIM.search(s))
     ]
     stripped = re.sub(r"\s{2,}", " ", "".join(kept))
     stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()

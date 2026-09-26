@@ -84,6 +84,36 @@ def _llm_busy() -> bool:
         return False
 
 
+_LARGE_MODEL_GB = 8.0
+_LARGE_MODEL_IDLE_S = 900.0
+
+
+def _swap_is_expensive() -> bool:
+    """True when a glance would unload and reload a large chat model, as it does unless the vision model runs beside it."""
+    try:
+        if bool(_cfg("vision_fast_no_swap", False)):
+            return False
+        import json
+        from pathlib import Path
+        from eli.core.paths import get_paths
+        snap = json.loads((Path(get_paths().artifacts_dir) / "runtime_snapshot.json").read_text(encoding="utf-8"))
+        path = Path(str(snap.get("model_path") or ""))
+        return path.is_file() and path.stat().st_size / (1024 ** 3) > _LARGE_MODEL_GB
+    except Exception:
+        return False
+
+
+def _too_soon_after_conversation() -> bool:
+    """A glance that reloads a big model waits for a quiet spell, so it never lands just before the next message."""
+    try:
+        from eli.cognition.inference_broker import seconds_since_foreground
+        import os
+        idle = float(os.environ.get("ELI_AMBIENT_LARGE_MODEL_IDLE_S", _LARGE_MODEL_IDLE_S))
+        return _swap_is_expensive() and seconds_since_foreground() < idle
+    except Exception:
+        return False
+
+
 def _store_glance(text: str) -> None:
     if not text:
         return
@@ -160,6 +190,8 @@ def _run() -> None:
             if now - last_glance >= _interval():
                 if _llm_busy():
                     _state["last_skip_reason"] = "text model busy (conversation active)"
+                elif _too_soon_after_conversation():
+                    _state["last_skip_reason"] = "a glance would reload the large chat model; waiting for a quiet spell"
                 else:
                     _do_glance()
                     last_glance = time.time()

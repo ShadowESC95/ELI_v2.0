@@ -154,3 +154,20 @@ Each phase is independently shippable.
   unconditionally no-think; OPEN_REASONING keeps thinking with a budget above `slow`.
 - **Non-goals:** changing model selection, the agent set, persona content or the grounding
   contract; removing `ELI_MODEL_THINK`.
+
+## 8. Mixture-of-experts models on a small GPU
+
+`eli/core/moe_offload.py`. A mixture-of-experts model uses a few experts per token, and the experts are
+most of the file. Splitting such a model by layers puts mostly idle experts on the GPU. With the offload
+on, every layer's attention and shared weights go to the GPU and the expert tensors stay in system
+memory (llama.cpp's tensor buffer override, applied to the model parameters while the model is built,
+because llama-cpp-python does not expose it).
+
+- Measured on an RTX 2060 SUPER (8 GB), Qwen3.6-35B-A3B Q4_K_M, 1,500-token prompt: 8 GPU layers gave
+  71 tok/s prompt and 8.3 tok/s generation; all layers with experts in RAM gave 125 tok/s and 21.8 tok/s.
+  Load time fell from 63 s to 5 s. Through `load_model` the same model went from 10.7 to 20.8 tok/s.
+- When: the model is MoE (`GGUFModelProfile.is_moe`), it would not fit in free VRAM, and available RAM
+  covers about three quarters of the expert weights. Otherwise the ordinary layer split is used.
+- Switch: setting `moe_expert_offload` or env `ELI_MOE_EXPERT_OFFLOAD` = `auto` (default), `on`, `off`.
+  `ELI_MOE_EXPERT_FRACTION` adjusts the assumed expert share of the file (default 0.90).
+- The live runtime snapshot carries `moe_expert_offload`.

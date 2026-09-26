@@ -962,6 +962,15 @@ def load_model(force_reload: bool = False):
         )
         effective_n_gpu_layers = 0
 
+    _moe = None
+    if effective_n_gpu_layers > 0:
+        from eli.core import moe_offload as _moe_offload
+        _moe = _moe_offload.plan_for_load(str(model_path), gpu_offload_supported)
+        if _moe:
+            log.debug(f"[GGUF] MoE expert offload: experts (~{_moe['experts_gb']} GB) stay in RAM, "
+                      f"all {_moe['layers']} layers on the GPU")
+            effective_n_gpu_layers = int(_moe['layers']) + 1 if _moe['layers'] else 999
+
     kwargs = {
         "model_path": str(model_path),
         "n_ctx": int(n_ctx),
@@ -1041,9 +1050,16 @@ def load_model(force_reload: bool = False):
     except Exception:
         log.debug("[GGUF] pre-load RSS capture skipped", exc_info=True)
 
+    def _new_llama(kw):
+        if not _moe:
+            return Llama(**kw)
+        from eli.core import moe_offload as _moe_offload
+        with _moe_offload.expert_offload_params():
+            return Llama(**kw)
+
     try:
         with _cap_log() as _load_log:
-            _llm = Llama(**kwargs)
+            _llm = _new_llama(kwargs)
     except TypeError as e:
         _msg = str(e)
         _popped = False
@@ -1061,7 +1077,7 @@ def load_model(force_reload: bool = False):
         if _popped:
             try:
                 with _cap_log() as _load_log:
-                    _llm = Llama(**kwargs)
+                    _llm = _new_llama(kwargs)
             except Exception as _retry_err:
                 raise _model_load_error(
                     _retry_err, _load_log, effective_n_gpu_layers) from _retry_err
@@ -1080,7 +1096,7 @@ def load_model(force_reload: bool = False):
             globals()["Llama"] = _il.import_module("llama_cpp").Llama
             try:
                 with _cap_log() as _load_log:
-                    _llm = globals()["Llama"](**kwargs)
+                    _llm = _new_llama(kwargs)
                 log.warning(
                     "[GGUF] loaded on the bundled runtime after the GPU pack "
                     "could not read this model. Generation will be slower; "
@@ -1103,6 +1119,7 @@ def load_model(force_reload: bool = False):
         "n_batch": int(n_batch),
         "model_path": str(model_path),
         "load_mode": "GPU" if int(effective_n_gpu_layers) > 0 else "CPU",
+        "moe_expert_offload": bool(_moe),
     }
     globals()["_live_runtime_params"] = {
         "provider": "gguf",
@@ -1117,6 +1134,7 @@ def load_model(force_reload: bool = False):
         "tensor_split": kwargs.get("tensor_split"),
         "main_gpu": kwargs.get("main_gpu"),
         "load_mode": "GPU" if int(effective_n_gpu_layers) > 0 else "CPU",
+        "moe_expert_offload": bool(_moe),
         "loaded": True,
         "pid": os.getpid(),
         "ts": _time.time(),
@@ -1279,6 +1297,16 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
         full_prompt = _fit_prompt
     last_exc = None
     bg = is_background_inference()
+    if bg:
+        # Background work does not start while a conversation is live or has just finished: it would take the
+        # single model the next message needs, and prompt evaluation cannot be interrupted once begun.
+        try:
+            from eli.cognition.inference_broker import foreground_recently_active
+            if float(os.environ.get("ELI_BG_DEFER_WINDOW", "30")) > 0 and foreground_recently_active(
+                    float(os.environ.get("ELI_BG_DEFER_WINDOW", "30"))):
+                return iter(()) if stream else {"choices": [{"text": ""}]}
+        except Exception:
+            _SWLOG.debug("background deferral check failed", exc_info=True)
     # Every generation carries a cooperative abort: it yields at the next token when
     # shutdown is signalled (so teardown never blocks on a long native call) and, for
     # background work, when a foreground turn announces priority on the shared lock.

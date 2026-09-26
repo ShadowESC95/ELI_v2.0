@@ -308,8 +308,8 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## Inference
 | Module | LOC | Role |
 |---|---|---|
-| `gguf_inference.py` | 3234 | Model-agnostic GGUF inference: model resolution (no baked model), family-aware chat templating, graceful GPU-layer fallback, streaming, output cleaning, token budgeting. |
-| `inference_broker.py` | 217 | Thin GGUF broker (`infer`) used by agents/coding/patching. |
+| `gguf_inference.py` | 3262 | Model-agnostic GGUF inference: model resolution (no baked model), family-aware chat templating, graceful GPU-layer fallback, streaming, output cleaning, token budgeting. |
+| `inference_broker.py` | 222 | Thin GGUF broker (`infer`) used by agents/coding/patching. |
 
 ## Reasoning & engagement
 | Module | LOC | Role |
@@ -335,7 +335,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## Output governance (consolidated this session)
 | Module | LOC | Role |
 |---|---|---|
-| `output_governor.py` | 1681 | **Canonical** governance: sanitize, role-prefix/identity-drift repair, self↔user confusion repair, style cleanup, confabulation detection, quality scoring, memory-worthiness, GGUF-artifact cleaning (`clean_gguf_artifacts`), evidence validation. |
+| `output_governor.py` | 1694 | **Canonical** governance: sanitize, role-prefix/identity-drift repair, self↔user confusion repair, style cleanup, confabulation detection, quality scoring, memory-worthiness, GGUF-artifact cleaning (`clean_gguf_artifacts`), evidence validation. |
 | `response_governance.py`, `response_sanitizer.py` | 28+14 | **Re-export shims** → output_governor (kept for back-compat). |
 | `tone_analyzer.py` | 371 | Analyses recent user turns → tone preferences ELI adapts to over time. |
 
@@ -601,7 +601,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `screen_analysis.py` | 194 | Local screen analysis — depth modes, memory recall, research context. |
 | `tts_xtts.py` | 394 | Voice cloning backend (Coqui XTTS-v2). |
 | `ui_ground.py` | 322 | Optional UI grounding backends — 100% local by default. |
-| `ui_tree.py` | 294 | Accessibility-tree UI targeting (Linux / AT-SPI). |
+| `ui_tree.py` | 353 | Accessibility-tree UI targeting (Linux / AT-SPI). |
 | `voice_fx.py` | 252 | Character-voice effects layer. |
 | `voice_profile.py` | 417 | Voice profile + prosody — the foundation for tone/emotion detection. |
 | `voice_worker_streaming.py` | 61 | Stream-aware voice worker for ELI. |
