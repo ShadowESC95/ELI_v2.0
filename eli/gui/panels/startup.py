@@ -471,6 +471,24 @@ class StartupModelSelectionDialog(QDialog):
         )
         form.addRow("Compute mode", self.compute_mode_combo)
 
+        self.moe_offload_combo = QComboBox()
+        self.moe_offload_combo.addItem("Auto — only when a mixture-of-experts model does not fit the GPU", "auto")
+        self.moe_offload_combo.addItem("On — experts in RAM, all layers on the GPU", "on")
+        self.moe_offload_combo.addItem("Off — split by layers", "off")
+        self.moe_offload_combo.setToolTip(
+            "Mixture-of-experts models only. Keeps the expert weights in system memory and the rest on the GPU, "
+            "which is usually much faster on a small card. Needs RAM for the experts."
+        )
+        try:
+            from eli.core.runtime_settings import load_settings as _ls_moe
+            _moe_saved = str((_ls_moe() or {}).get("moe_expert_offload") or "auto").lower()
+            _moe_i = self.moe_offload_combo.findData(_moe_saved)
+            if _moe_i >= 0:
+                self.moe_offload_combo.setCurrentIndex(_moe_i)
+        except Exception:
+            log.debug("moe_expert_offload preselect failed", exc_info=True)
+        form.addRow("Expert offload (MoE)", self.moe_offload_combo)
+
         from eli.core.hardware_profile import (
             RAM_BUDGET_PERCENT_DEFAULT,
             RAM_BUDGET_PERCENT_MAX,
@@ -646,6 +664,13 @@ class StartupModelSelectionDialog(QDialog):
                 _rs_cm(**_cm_updates)
             except Exception:
                 log.debug("compute_mode persist failed", exc_info=True)
+            _moe_mode = str(self.moe_offload_combo.currentData() or "auto")
+            os.environ["ELI_MOE_EXPERT_OFFLOAD"] = _moe_mode
+            try:
+                from eli.core.runtime_settings import update_settings as _rs_moe
+                _rs_moe(moe_expert_offload=_moe_mode)
+            except Exception:
+                log.debug("moe_expert_offload persist failed", exc_info=True)
             if int(self.model_train_ctx_spin.value()) > 0:
                 os.environ["ELI_MODEL_TRAIN_CTX"] = str(int(self.model_train_ctx_spin.value()))
             else:

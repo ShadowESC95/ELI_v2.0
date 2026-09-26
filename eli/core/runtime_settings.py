@@ -110,6 +110,7 @@ DEFAULTS: Dict[str, Any] = {
     # auto | gpu | cpu — operator choice from the startup dialog. CPU forces
     # zero GPU layers; GPU tries offload when a backend is present.
     "compute_mode": "auto",
+    "moe_expert_offload": "auto",
     # Which model the pinned n_gpu_layers was chosen for. A layer count is absolute: 7 layers is a
     # sensible slice of a 15.66GB model on 8GB and crippling for a 4GB model whose 32 layers all fit.
     # Empty means unknown provenance, treated as not pinned for this model.

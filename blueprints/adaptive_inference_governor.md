@@ -168,6 +168,6 @@ because llama-cpp-python does not expose it).
   Load time fell from 63 s to 5 s. Through `load_model` the same model went from 10.7 to 20.8 tok/s.
 - When: the model is MoE (`GGUFModelProfile.is_moe`), it would not fit in free VRAM, and available RAM
   covers about three quarters of the expert weights. Otherwise the ordinary layer split is used.
-- Switch: setting `moe_expert_offload` or env `ELI_MOE_EXPERT_OFFLOAD` = `auto` (default), `on`, `off`.
+- Switch: the "Expert offload (MoE)" choice in the startup dialog, the setting `moe_expert_offload` or env `ELI_MOE_EXPERT_OFFLOAD` = `auto` (default), `on`, `off`.
   `ELI_MOE_EXPERT_FRACTION` adjusts the assumed expert share of the file (default 0.90).
 - The live runtime snapshot carries `moe_expert_offload`.
