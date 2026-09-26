@@ -1,6 +1,6 @@
 # ELI — Full Project Breakdown & Assessment
 
-> **Updated for v2.4.71 (September 2026).** Every CHAT mode runs the gradient
+> **Updated for v2.4.72 (September 2026).** Every CHAT mode runs the gradient
 > orchestrator, retrieval is shared in `eli/memory/retrieval.py`, memory is governed by a
 > storage policy (`eli/memory/policy.py`), and the S01–S12 pipeline is traced canonically.
 > Installers are CI-launch-tested and published on
@@ -35,7 +35,7 @@ in-process from the desktop GUI.
 
 ## 2. Scale and shape
 
-**195,521 lines across 437 Python files** in `eli/`, plus `api/server.py` (2,292 lines with
+**195,582 lines across 437 Python files** in `eli/`, plus `api/server.py` (2,292 lines with
 an embedded dashboard) and **526 test files** under `tests/`.
 
 | Subsystem | Lines | Files | Role |
@@ -106,7 +106,7 @@ an embedded dashboard) and **526 test files** under `tests/`.
    app allowlists.
 4. **Breadth, integrated.** Vision, voice, OS control, memory, knowledge graph, plugins and
    self-training in one pipeline.
-5. **A large safety net.** 12,489 tests are collected; the structural tests catch broken
+5. **A large safety net.** 12,496 tests are collected; the structural tests catch broken
    imports, stale action lists and unpinned routes.
 
 ## 5. Where it is weak (measured)

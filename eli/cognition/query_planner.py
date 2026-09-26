@@ -81,6 +81,22 @@ def _explicit_window(low: str, n: datetime) -> Optional[Window]:
     return None
 
 
+_RECALL_CUE = re.compile(
+    r"\b(?:what|when|which|who|how\s+(?:many|much|long|often)|did\s+(?:i|we|you)|do\s+you\s+(?:remember|recall)|remember|recall|"
+    r"tell\s+me|show\s+me|list|summari[sz]e|remind\s+me|earlier|before|back\s+then)\b", re.I)
+
+
+def asks_about_the_past(text: str) -> bool:
+    """A question or request to recall, as opposed to a statement that happens to say "today" or "last night"."""
+    t = str(text or "")
+    return "?" in t or bool(_RECALL_CUE.search(t))
+
+
+def plan_window(text: str, now: Optional[float] = None) -> Optional[Window]:
+    """The period a recall question is about. A plain statement gets no window, so it cannot narrow retrieval."""
+    return parse_window(text, now) if asks_about_the_past(text) else None
+
+
 def parse_window(text: str, now: Optional[float] = None) -> Optional[Window]:
     """(start, end) epoch seconds for the period a question refers to, or None if it names none."""
     low = str(text or "").lower()

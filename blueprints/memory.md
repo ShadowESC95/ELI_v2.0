@@ -1,6 +1,6 @@
 # ELI Memory Subsystem
 
-> **Updated for v2.4.71.** Memory is governed by a storage policy
+> **Updated for v2.4.72.** Memory is governed by a storage policy
 > (`eli/memory/policy.py`): every row has an origin, repeats are merged, weight follows a
 > forgetting curve reinforced by use, and faded derived rows are archived. Recall applies a
 > time window before ranking, and reports what it did. Turn retrieval is shared in
@@ -212,6 +212,8 @@ budgets.
   hits outside the window are dropped, and the user's turns inside the window are read from
   `conversation_turns`. The result carries `window_stats` (candidates, added by date, in
   window, turns) and the orchestrator logs and reports it (`memory_diag`).
+- **Only questions get a window.** `plan_window` applies a period only to a question or recall request, so a
+  statement that says "last night" or "today" cannot narrow retrieval to that period.
 - **Explicit dates.** `parse_window` reads ISO dates ("2026-03-03"), "3 March", "March 3rd 2025",
   ranges ("between 1 May and 10 May"), "in June 2025" and "during 2024" as well as relative periods.
   A date with no year is its latest past occurrence.

@@ -882,7 +882,7 @@ class AgentOrchestrator:
         wm.trace["stage_4"] = "planner"
         retrieval_plan = self.planner_agent.plan_retrieval(
             user_input, intent, "", stm, reasoning_mode=reasoning_mode)
-        retrieval_plan["window"] = _query_planner.parse_window(user_input)
+        retrieval_plan["window"] = _query_planner.plan_window(user_input)
         log.debug("[ORCHESTRATOR] Stage 4: Planner → mode=%s %s" % (
             reasoning_mode or "balanced", retrieval_plan))
         _eli_pipe_orch("stage_4", mode=(reasoning_mode or "balanced"))

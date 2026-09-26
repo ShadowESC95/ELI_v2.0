@@ -145,6 +145,21 @@ def normalize_args(args: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
+_IMPERATIVE = frozenset("""open play pause resume stop set turn show tell make create write run check search find send call remind add remove
+delete take start launch close read list get give do look describe explain generate fetch download install update mute unmute
+skip next previous volume save store remember forget schedule cancel switch enable disable analyze analyse examine fix improve""".split())
+
+
+def is_plain_statement(text: str) -> bool:
+    """Conversation, not a command: no question, no leading action verb. Nothing for an intent model to resolve."""
+    t = " ".join(str(text or "").split())
+    if len(t.split()) < 6 or "?" in t:
+        return False
+    first = re.sub(r"^(?:please|hey|eli|ok|okay|so|well|and|but)[,\s]+", "", t.lower())
+    words = re.findall(r"[a-z']+", first)
+    return bool(words) and words[0] not in _IMPERATIVE and not re.search(r"\bplease\b", t, re.I)
+
+
 def parse_with_llm(text: str) -> Dict[str, Any]:
     """Resolve a free-text request to one of ELI's real actions, or CHAT.
 

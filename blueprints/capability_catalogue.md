@@ -1,4 +1,4 @@
-> **Updated for v2.4.71.** Gradient orchestrator for all CHAT modes; shared
+> **Updated for v2.4.72.** Gradient orchestrator for all CHAT modes; shared
 > `memory/retrieval.py`; canonical S01–S12 via `pipeline_trace.py`.
 
 # ELI Capability Catalogue — every action & module, what it actually does
@@ -247,7 +247,7 @@ layer that wraps the probabilistic model. Grouped by function:
 ## Awareness & boot
 | Module | LOC | Role |
 |---|---|---|
-| `awareness_boot.py` | 346 | Boots all awareness subsystems at startup, returns an `AwarenessState` the engine queries. |
+| `awareness_boot.py` | 367 | Boots all awareness subsystems at startup, returns an `AwarenessState` the engine queries. |
 | `action_commitment.py` | 182 | Detects when ELI's reply COMMITS to an action (so the pipeline re-runs and actually does it — no fake actions). |
 
 ## Autonomy / operator (governed)
@@ -303,7 +303,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | `hyde.py` | 69 | Hypothetical-document-embedding query expansion. |
 | `reranker.py` | 157 | Candidate reranking (token overlap + source priority). |
 | `introspection_agent.py` | 164 | Wraps introspection for the bus (pipeline/memory/runtime/audit). |
-| `llm_intent.py` | 245 | LLM intent parsing fallback (GGUF, cached). |
+| `llm_intent.py` | 260 | LLM intent parsing fallback (GGUF, cached). |
 
 ## Inference
 | Module | LOC | Role |
@@ -539,7 +539,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `belief.py` | 239 | Belief revision — what ELI holds, how strongly, and what it takes to change it. |
 | `chat_grounding_gate.py` | 157 | Fail-closed CHAT gate — skip LLM when user-fact grounding is required but absent. |
 | `context_budget.py` | 128 | Sizing and trimming the memory block that goes into a prompt. |
-| `correction_patterns.py` | 221 | Shared patterns for user correction / dispute turns. |
+| `correction_patterns.py` | 224 | Shared patterns for user correction / dispute turns. |
 | `emotion_palette.py` | 254 | Emotion / tone palette — the shared taxonomy ELI expresses through. |
 | `emotion_timeline.py` | 452 | Emotion timeline — the durable record of how the USER has been feeling. |
 | `evidence_format.py` | 52 | Dates on evidence lines, from each row's own timestamp. |
@@ -549,7 +549,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `model_load_diagnostics.py` | 633 | Say why a GGUF would not load — for ANY model, not a known list of them. |
 | `model_output_tokens.py` | 301 | Canonical special tokens, stop sequences, and persona drift patterns for all GGUF families. |
 | `personal_context_gate.py` | 118 | Gate when past-session plans/projects may enter the persona handoff. |
-| `query_planner.py` | 145 | Deterministic query planning: the time window a question asks about. |
+| `query_planner.py` | 161 | Deterministic query planning: the time window a question asks about. |
 | `scoring.py` | 116 | Canonical scoring + confidence primitives for ELI. |
 | `stance_capture.py` | 151 | Notice when ELI has taken a position, so it survives the conversation. |
 | `stance_store.py` | 288 | Persistence for beliefs — ELI's own positions, and the record of revisions. |

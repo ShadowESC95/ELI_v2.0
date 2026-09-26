@@ -1,6 +1,6 @@
 # ELI Coding Agent (`eli/coding/`)
 
-> **Updated for v2.4.71.** Invoked via `CODE_SOLVE` / `GENERATE_SCRIPT`; separate
+> **Updated for v2.4.72.** Invoked via `CODE_SOLVE` / `GENERATE_SCRIPT`; separate
 > from the 15-agent chat bus (its own pipeline: plan → search → verify → repair).
 
 A self-contained, **additive** subsystem that lifts ELI's code generation,

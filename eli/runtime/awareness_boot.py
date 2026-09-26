@@ -85,6 +85,22 @@ class AwarenessState:
         return "\n".join(p for p in parts if p)
 
     @staticmethod
+    def _running_version() -> str:
+        try:
+            import re as _re
+            from eli.core.paths import project_root
+            m = _re.search(r'^version\s*=\s*"([^"]+)"', (project_root() / "pyproject.toml").read_text(encoding="utf-8"), _re.M)
+            if m:
+                return m.group(1)
+        except Exception:
+            log.debug("pyproject version unreadable", exc_info=True)
+        try:
+            from importlib.metadata import version
+            return version("eli-v2.0")
+        except Exception:
+            return ""
+
+    @staticmethod
     def _reliability_line() -> str:
         """Actions that have been failing lately, from measured runs, so ELI does not promise what it has not delivered."""
         try:
@@ -118,7 +134,12 @@ class AwarenessState:
                 bits.append(f"running '{_P(str(_m)).name}'")
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+        ver = self._running_version()
+        if ver:
+            bits.append(f"version {ver}")
         head = "[Live self-model: " + ", ".join(bits) + "]" if bits else "[Live self-model: ready]"
+        head += (" You have no record of what specific fixes were made to you unless they are listed under recent code changes"
+                 " or in evidence: do not say fixes were applied, or what they were, on the strength of being told so.")
         # Current symbolic-world room, if the world model is active (cheap dict read).
         try:
             from eli.world.local_world_bridge import get_world_state

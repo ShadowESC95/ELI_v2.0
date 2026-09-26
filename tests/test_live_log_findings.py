@@ -135,3 +135,34 @@ def test_forgetting_asks_first_and_deletes_only_on_confirmation(tmp_path, monkey
     assert done["ok"] and "Forgotten" in done["response"]
     assert not [h for h in mem.recall_memory("locker gym padlock", limit=3) if h.get("id") == rid]
     assert "nothing" in ex.execute("MEMORY_FORGET", {"query": "zzzz qqqq"})["response"].lower()
+
+
+CHATTER_TURN = "Couldn't of said it better myself. I am only awake n hour go or so, too many sleeping pills last night haha"
+CORRECTING_TURN = ("Nah, sleeping pills and alcohol are the classic combo haha. No the splitting headache and watching TWD was a few "
+                   "days ago (I was going through withdrawls). Plan for today is give you a proper test flight!")
+
+
+def test_a_statement_that_says_last_night_does_not_narrow_retrieval_to_last_night():
+    from eli.cognition.query_planner import plan_window
+    assert plan_window(CHATTER_TURN) is None and plan_window(CORRECTING_TURN) is None
+    assert plan_window("what did I say last night about the code") is not None
+    assert plan_window("Did we talk about the lease yesterday") is not None
+
+
+def test_no_the_x_was_earlier_is_a_correction_of_the_last_answer():
+    from eli.cognition.correction_patterns import is_answer_correction
+    assert is_answer_correction(CORRECTING_TURN)
+    assert not is_answer_correction("Nah, sleeping pills and alcohol are the classic combo haha")
+
+
+def test_plain_conversation_never_reaches_the_intent_model():
+    from eli.cognition.llm_intent import is_plain_statement
+    assert is_plain_statement(CHATTER_TURN) and is_plain_statement(CORRECTING_TURN)
+    for q in ("open spotify and play something upbeat please", "what is the date today?", "play some jazz for me now", "pause"):
+        assert not is_plain_statement(q)
+
+
+def test_the_self_model_says_not_to_invent_fixes():
+    from eli.runtime.awareness_boot import AwarenessState
+    text = AwarenessState()._live_self_model()
+    assert "do not say fixes were applied" in text
