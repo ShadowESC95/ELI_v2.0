@@ -125,21 +125,34 @@ def rerank_candidates(query: str, candidates: Iterable[Dict[str, Any]], limit: i
         if source in ("vector", "fts", "like"):
             source_bonus += 0.05
 
-        score = (
-            overlap * _W_OVERLAP
-            + importance * _W_IMPORTANCE
+        rrf = _as_float(c.get("rrf_score", 0.0), 0.0)
+        channels = c.get("_channels") or []
+
+        # Importance and recency are real quality signals, but on their own (0.20 + 0.10, plus
+        # 0.15 for weight) they can equal or beat the overlap term's full weight (0.45) — a
+        # memory saved with "please remember this" (importance 0.98) was outranking memories
+        # that actually matched a vague "summarize the week" query, because it had nothing to
+        # do with the query but was maximally important and recent. One incidental shared word
+        # ("...in what kind of memory" matching a query about "check your memory logs") is not
+        # a real topical match — it cleared an `overlap > 0` gate that was tried first and did
+        # nothing, so this needs an actual minimum, not just non-zero. Gate the importance/
+        # weight/recency credit on some sign a retriever found this genuinely related to THIS
+        # query — real lexical overlap, or at least a retrieval channel hit — not just that it
+        # is generally salient.
+        relevance_gate = 1.0 if overlap >= 0.2 else (0.55 if (rrf or channels) else 0.2)
+        quality = (
+            importance * _W_IMPORTANCE
             + min(weight, 2.0) / 2.0 * _W_WEIGHT
             + recency * _W_RECENCY
-            + source_bonus
         )
+        score = overlap * _W_OVERLAP + relevance_gate * quality + source_bonus
 
         # Retrieval agreement: rrf_score already says how highly each retriever ranked this and
         # whether more than one found it. Content signals above still decide ordering; this tips
         # ties toward documents both channels agreed on.
-        rrf = _as_float(c.get("rrf_score", 0.0), 0.0)
         if rrf:
             score += min(rrf, 0.05) * 2.0          # bounded: never dominates overlap
-            if len(c.get("_channels") or []) > 1:
+            if len(channels) > 1:
                 score += 0.05                       # found by keyword AND vector
 
         row = dict(c)

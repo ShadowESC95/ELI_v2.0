@@ -301,7 +301,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | `orchestrator.py` | 1123 | Gradient 12-stage pipeline (all CHAT modes): planner → `retrieve_for_turn()` → `dispatch_specialists()` → heuristic rerank → context assembly. Composes the specialist bus; no longer Quick-only bypass. |
 | `learning_coordinator.py` | 82 | Stage 12 `finalize_turn()` — store assistant turn, publish meta, `_learn_from_result()`. |
 | `hyde.py` | 69 | Hypothetical-document-embedding query expansion. |
-| `reranker.py` | 157 | Candidate reranking (token overlap + source priority). |
+| `reranker.py` | 170 | Candidate reranking (token overlap + source priority). |
 | `introspection_agent.py` | 164 | Wraps introspection for the bus (pipeline/memory/runtime/audit). |
 | `llm_intent.py` | 260 | LLM intent parsing fallback (GGUF, cached). |
 

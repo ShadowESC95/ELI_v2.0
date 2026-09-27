@@ -314,6 +314,17 @@ regresses one fails the suite.
      `vector_store` tightens the candidate pool but is not a relevance oracle.
   5. **No shared delete-and-tombstone helper** (above).
 
+`eli/cognition/reranker.py`'s heuristic reranker weighs overlap 0.45, importance 0.20, weight
+0.15, recency 0.10. Importance and recency alone (0.45 combined) could match the overlap term's
+full weight, so a memory saved with "please remember this" (importance near 1.0) could outrank a
+memory that actually matches a vague query, on nothing but being generally important and recent —
+proven against a live database, where a stored test code beat memories that were actually about
+the asked-for week. The importance/weight/recency term is now gated: full credit only above a
+real overlap floor (0.2), a reduced share when a retriever found the candidate at all but overlap
+is weak or incidental (a single shared word in a long memory no longer counts as "on topic"), and
+the smallest share when neither applies. `tests/test_reranker_importance_does_not_override_relevance.py`
+pins this.
+
 ## Recent-history window
 
 The user-facing tunable `cog.mem_recent_turns` (Settings ▸ Cognition; default 24, maximum 80)
