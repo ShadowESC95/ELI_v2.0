@@ -110,6 +110,14 @@ def is_persona_self_knowledge_query(user_input: Any) -> bool:
         low,
     ):
         return False
+    # "be more in depth" / "go deeper" only count here as short nudges continuing a self-description
+    # ELI just gave — a full new sentence that happens to say "in depth" ("give me an in depth
+    # response about how you're doing") is a fresh question, not a nudge, and has no "yourself" in it.
+    if len(low.split()) <= 8 and re.search(
+        r"\b(?:be (?:more )?(?:in depth|detailed|specific)|(?:go |be )?(?:more )?(?:in depth|deeper))\b",
+        low,
+    ):
+        return True
     return bool(
         re.search(
             r"\b(?:what (?:else )?(?:do you )?know (?:about|of) yourself|"
@@ -117,8 +125,6 @@ def is_persona_self_knowledge_query(user_input: Any) -> bool:
             r"what (?:else )?can you tell me about yourself|"
             r"tell me more about yourself|"
             r"describe yourself|"
-            r"be (?:more )?(?:in depth|detailed|specific)|"
-            r"(?:go |be )?(?:more )?(?:in depth|deeper)|"
             r"what are you(?:\s|$))\b",
             low,
         )
@@ -134,9 +140,13 @@ def is_persona_self_knowledge_query(user_input: Any) -> bool:
 
 
 def is_identity_depth_followup(user_input: Any) -> bool:
-    """Short depth/elaboration requests after an identity answer — stay conversational."""
+    """Short depth/elaboration requests after an identity answer — stay conversational.
+
+    Length-gated: a full new sentence that happens to contain "in depth" ("give me an in
+    depth response about X") is a fresh question, not a two-word nudge like "go deeper".
+    """
     low = re.sub(r"\s+", " ", str(user_input or "").strip().lower())
-    if not low:
+    if not low or len(low.split()) > 8:
         return False
     if re.search(r"\b(?:reasoning modes?|all modes|every mode)\b", low):
         return False

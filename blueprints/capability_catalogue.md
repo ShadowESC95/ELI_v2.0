@@ -215,7 +215,7 @@ layer that wraps the probabilistic model. Grouped by function:
 | `deterministic_grounding_gate.py` | 3367 | Renders control/status answers directly from live runtime (bypasses the model). One ordered `render_action` pipeline of layers composed by `_stack`; an unhandled action returns a `missing_deterministic_renderer` surface. |
 | `grounding_escalation.py` | 698 | When a **checkable factual** question is poorly grounded by the bus, escalates through agent tiers instead of letting the model confabulate (the "Eminem's real name" failure class). |
 | `diagnostic_patterns.py` | 112 | Regexes that catch vague/dynamic status confabulation ("currently processing updates…") and image-status fabrication. |
-| `control_contracts.py` | 1232 | Control-action evidence contract: build evidence → validate the model's output doesn't violate it → finalise. |
+| `control_contracts.py` | 1242 | Control-action evidence contract: build evidence → validate the model's output doesn't violate it → finalise. |
 | `persistence_gate.py` | 204 | Gates what gets stored — refuses to persist internal dumps / error-pattern noise as memory. |
 
 ## Self-honesty / introspection / self-reporting
@@ -363,7 +363,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | Module | LOC | Role |
 |---|---|---|
 | `runtime_settings.py` | 1290 | Canonical settings.json load/save, legacy-key migration, portable-path healing/sanitising. |
-| `hardware_profile.py` | 2782 | Auto-detect GPU/VRAM/RAM → fit ctx/gpu_layers/batch (KV-cache + compute-buffer reserve); model discovery; hardware authority enforcement. |
+| `hardware_profile.py` | 2799 | Auto-detect GPU/VRAM/RAM → fit ctx/gpu_layers/batch (KV-cache + compute-buffer reserve); model discovery; hardware authority enforcement. |
 | `paths.py` | 768 | Single-source-of-truth path resolution (data/config/cache/db/models/voices…). |
 | `startup_hardware_optimizer.py` | 877 | Boot-time hardware optimiser (GPU select, layer/ctx allocation, mode presets). |
 | `config.py` | 357 | Thin config shim over runtime_settings (canonical key mapping). |
@@ -456,7 +456,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `gui/` (PySide6 desktop) — 27.4k lines
 | Module | LOC | Role |
 |---|---|---|
-| `eli_pro_audio_gui_v2_0.py` | 13113 | Main window: 13 top-level tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
+| `eli_pro_audio_gui_v2_0.py` | 13140 | Main window: 13 top-level tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
 | `labs_tab.py` | 5744 | Labs workspace: Notebook, Memory browser, Jupyter launcher, Calculator(+constants), Physics tables, **Report Builder** (evidence-grounded docs), File-Chat, Workspaces, Sim-IDE. |
 | `app.py` | 827 | Launcher / first-boot auto-tune / `main()`. |
 | `panels/startup.py` | 1974 | StartupModelSelectionDialog, FirstBootWizard, HardwareTuningDock. |
@@ -569,7 +569,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `portable_intent_contract.py` | 643 | Portable intent rules; hard-blocks document, code and analysis prompts from `PLAY_MEDIA`. |
 | `route_authority.py` | 46 | Thread-local record of which layer decided a route, and the internal prompt prefixes that must never be routed as user text. |
 | `route_contracts.py` | 123 | Small predicates that classify a request (for example `wants_memory_internals`) for the router. |
-| `router_enhanced.py` | 8325 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
+| `router_enhanced.py` | 8334 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
 | `shell_gate.py` | 110 | Centralised shell-command safety gate. |
 
 ## `core/`

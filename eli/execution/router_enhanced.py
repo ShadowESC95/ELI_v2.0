@@ -6851,12 +6851,21 @@ def _eli_phase38_followup_passthrough_contract(raw):
             allow_chat_without_evidence=False,
         )
 
-    if _re.search(
-        r"\b(?:be (?:more )?(?:in depth|detailed|specific)|"
-        r"(?:go |be )?(?:more )?(?:in depth|deeper)|"
-        r"what else(?:\s+can you tell me)?)\b",
-        low,
-    ) and not _re.search(r"\b(?:reasoning modes?|all modes|every mode)\b", low):
+    # This is for short nudges ("be more in depth", "go deeper") that continue whatever ELI just
+    # said. A full new sentence that happens to contain "in depth" is a fresh question, not a
+    # continuation — "give me an in depth response about X" was matching here and getting the
+    # quick, evidence-free follow-up treatment instead of a real answer. Gate it on brevity, the
+    # same signal the literal short_contextual set above already relies on.
+    if (
+        len(low.split()) <= 8
+        and _re.search(
+            r"\b(?:be (?:more )?(?:in depth|detailed|specific)|"
+            r"(?:go |be )?(?:more )?(?:in depth|deeper)|"
+            r"what else(?:\s+can you tell me)?)\b",
+            low,
+        )
+        and not _re.search(r"\b(?:reasoning modes?|all modes|every mode)\b", low)
+    ):
         return _mk(
             "CHAT",
             {"message": str(raw or "")},

@@ -968,6 +968,19 @@ class LocalModelManager:
                 f"effective_layers={effective_n_gpu_layers} "
                 f"offload_supported={gpu_offload_supported}",
             )
+            # This dialog builds its own Llama(...) below instead of going through
+            # gguf_inference.load_model() — the MoE plan has to be computed here too, or a
+            # mixture-of-experts model loaded from the startup dialog never gets it.
+            _moe_gui = None
+            if effective_n_gpu_layers > 0:
+                try:
+                    from eli.core import moe_offload as _moe_offload_gui
+                    _moe_gui = _moe_offload_gui.plan_for_load(str(path_obj), gpu_offload_supported)
+                    if _moe_gui:
+                        log.debug(f"[GUI] MoE expert offload: experts (~{_moe_gui['experts_gb']} GB) stay "
+                                  f"in RAM, all {_moe_gui['layers']} layers on the GPU")
+                except Exception:
+                    log.debug("[GUI] MoE plan lookup failed", exc_info=True)
             print(f"   GPU-layer load parameter: {effective_n_gpu_layers}")
             if (
                 requested_n_gpu_layers > 0
@@ -1451,11 +1464,14 @@ class LocalModelManager:
                         # Never call an unproven config "verified" — that line is
                         # what made the 2.2.9 crash look like a checked launch.
                         log.debug(f"[GUI][LOAD] proceeding unproven ({_why})")
+                _cand_gpu_layers = int(_cand["n_gpu_layers"])
+                if _moe_gui and _cand_gpu_layers > 0:
+                    _cand_gpu_layers = int(_moe_gui["layers"]) + 1 if _moe_gui["layers"] else 999
                 llama_kwargs: Dict[str, Any] = dict(
                     model_path=str(path_obj),
                     n_ctx=int(_cand["n_ctx"]),
                     n_threads=int(n_threads),
-                    n_gpu_layers=int(_cand["n_gpu_layers"]),
+                    n_gpu_layers=_cand_gpu_layers,
                     n_batch=int(_cand["n_batch"]),
                     use_mmap=bool(use_mmap),
                     use_mlock=bool(use_mlock),
@@ -1476,16 +1492,26 @@ class LocalModelManager:
                     is_retryable_load_failure as _retryable,
                 )
                 _harden()
+
+                def _build_llama(kw):
+                    if not _moe_gui or _cand_gpu_layers <= 0:
+                        return Llama(**kw)
+                    from eli.core import moe_offload as _moe_offload_gui2
+                    with _moe_offload_gui2.expert_offload_params():
+                        return Llama(**kw)
+
                 _attempt_log: list = []
                 try:
                     with _cap_log() as _attempt_log:
                         try:
-                            self.model = Llama(**llama_kwargs)
+                            self.model = _build_llama(llama_kwargs)
                         except TypeError:
                             llama_kwargs.pop("cache_type_k", None)
                             llama_kwargs.pop("cache_type_v", None)
-                            self.model = Llama(**llama_kwargs)
+                            self.model = _build_llama(llama_kwargs)
                     _applied = dict(_cand)
+                    _applied["n_gpu_layers"] = _cand_gpu_layers
+                    _applied["moe_expert_offload"] = bool(_moe_gui)
                     break
                 except Exception as _attempt_err:
                     self.model = None
@@ -1553,6 +1579,7 @@ class LocalModelManager:
                     "requested_n_gpu_layers": int(requested_n_gpu_layers),
                     "gpu_offload_supported": gpu_offload_supported,
                     "load_mode": "GPU" if int(self.n_gpu_layers) > 0 else "CPU",
+                    "moe_expert_offload": bool(_moe_gui),
                     "live_inference_memory": record_load_memory(
                         self.model, pre_load_rss_bytes=_pre_load_rss
                     ),

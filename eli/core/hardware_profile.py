@@ -2365,6 +2365,23 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"{_CUDA_OVERHEAD_MB}MB CUDA overhead, "
             f"~{_kv_cache_mb(1024, total_layers, quant=kv_q):.0f}MB per 1k ctx)"
         )
+        # This line is the conservative layer split before MoE offload gets a say — the loader
+        # (and the GUI's own loader) push it to all layers with the experts kept in RAM when the
+        # model is MoE and won't otherwise fit, so the panel would otherwise show 9/52 right above
+        # a load that actually uses all 52.
+        try:
+            from eli.core import moe_offload as _moe_hw
+            _moe_plan = _moe_hw.plan(
+                chosen["path"], chosen["size_gb"],
+                free_vram_mb=int(hw.free_vram_mb), available_ram_gb=float(hw.available_ram_gb),
+            )
+            if _moe_plan:
+                rec.reasoning.append(
+                    f"Mixture-of-experts — expert offload will push all {_moe_plan['layers']} "
+                    f"layers onto the GPU and keep ~{_moe_plan['experts_gb']}GB of experts in RAM"
+                )
+        except Exception:
+            pass
     else:
         if hw.has_gpu and hw.gpu_integrated and not _backend_ready:
             _igpu_kind = integrated_gpu_label(hw.gpu_name, hw.gpu_vendor)
