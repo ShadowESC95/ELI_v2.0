@@ -190,3 +190,14 @@ final answer) against 6,000–7,700-token prompts each, and MoE's prompt-process
 smaller than its generation gain (~2x) — doubling generation speed does not halve a turn dominated
 by two large, mostly-prompt-bound calls. Shrinking that prompt and the two-pass shape is separate,
 unaddressed work.
+
+The footnote explaining the bump wasn't enough — the "HW Profile (recommended)" number itself, in
+`hardware_profile.recommend()`, still showed the pre-offload layer count, and that number is also
+what gets saved as the canonical pin (`hw_profile_n_gpu_layers`) other load paths read back. MoE is
+now decided before the recommendation is built, so `rec.n_gpu_layers` — the number this panel
+shows and the number that gets pinned — is the one that actually loads, with one reasoning line
+explaining why, not a separate figure with no visible link to it. This exposed a second bug: the
+VRAM-headroom check that sizes batch was reading "all layers on GPU" as "the full model is in
+VRAM," which is false under MoE (most of it is in RAM) — it would have computed a large phantom
+deficit and needlessly crushed the batch size. It now sizes off the plan's actual resident-on-GPU
+figure when MoE applies.

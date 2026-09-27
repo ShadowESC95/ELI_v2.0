@@ -122,11 +122,17 @@ def rerank_candidates(query: str, candidates: Iterable[Dict[str, Any]], limit: i
         source_bonus = 0.0
         if source in ("semantic", "knowledge_graph", "kg"):
             source_bonus += 0.15
-        if source in ("vector", "fts", "like"):
+        if source in ("vector", "fts", "like", "window"):
             source_bonus += 0.05
 
         rrf = _as_float(c.get("rrf_score", 0.0), 0.0)
         channels = c.get("_channels") or []
+        # memories_between() (the explicit date/time-window path a question like "what happened
+        # in the past 7 days" goes through) tags its rows _source="window" and sets neither
+        # _channels nor rrf_score — those only exist on keyword/semantic hits. Being inside the
+        # exact window the user asked about IS the relevance signal for this candidate; it must
+        # not be treated as "no retriever vouched for this" and crushed by the gate below.
+        _window_sourced = source == "window"
 
         # Importance and recency are real quality signals, but on their own (0.20 + 0.10, plus
         # 0.15 for weight) they can equal or beat the overlap term's full weight (0.45) — a
@@ -139,7 +145,9 @@ def rerank_candidates(query: str, candidates: Iterable[Dict[str, Any]], limit: i
         # weight/recency credit on some sign a retriever found this genuinely related to THIS
         # query — real lexical overlap, or at least a retrieval channel hit — not just that it
         # is generally salient.
-        relevance_gate = 1.0 if overlap >= 0.2 else (0.55 if (rrf or channels) else 0.2)
+        relevance_gate = (
+            1.0 if (overlap >= 0.2 or _window_sourced) else (0.55 if (rrf or channels) else 0.2)
+        )
         quality = (
             importance * _W_IMPORTANCE
             + min(weight, 2.0) / 2.0 * _W_WEIGHT

@@ -371,12 +371,21 @@ def _eli_shell_prepass(user_text: str):
     except Exception:
         _SWLOG.debug("suppressed exception", exc_info=True)
     # Timestamp investigation — run real clock diagnostics, never fake bash in CHAT.
+    # "check memory, logs, timestamps, etc., summarise everything" was matching this: "timestamp"
+    # was just the last item in a list of things to check as part of a broad memory-recall
+    # request, not a complaint about the clock itself. A real timestamp complaint is not also
+    # asking for a discussion summary over a day range.
     _low = _re.sub(r"\s+", " ", text.lower())
-    if _re.search(
+    _broad_memory_request = bool(_re.search(
+        r"\b(?:summaris|summariz|discuss(?:ed|ing|ion)?|past\s+\d+\s+days?|last\s+\d+\s+days?|"
+        r"what have we|memory,?\s*logs?)\b",
+        _low,
+    ))
+    if not _broad_memory_request and (_re.search(
         r"\b(?:dig(?:\s+in)?to|look(?:ing)?\s+(?:into|at)|check|investigate|trace|examine|fix)"
         r".{0,60}\btimestamp",
         _low,
-    ) or _re.search(r"\btimestamp.{0,40}\b(?:dig|check|investigate|trace|fix)\b", _low):
+    ) or _re.search(r"\btimestamp.{0,40}\b(?:dig|check|investigate|trace|fix)\b", _low)):
         return {
             "action": "TIMESTAMP_DIAG",
             "args": {},

@@ -301,7 +301,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | `orchestrator.py` | 1123 | Gradient 12-stage pipeline (all CHAT modes): planner → `retrieve_for_turn()` → `dispatch_specialists()` → heuristic rerank → context assembly. Composes the specialist bus; no longer Quick-only bypass. |
 | `learning_coordinator.py` | 82 | Stage 12 `finalize_turn()` — store assistant turn, publish meta, `_learn_from_result()`. |
 | `hyde.py` | 69 | Hypothetical-document-embedding query expansion. |
-| `reranker.py` | 170 | Candidate reranking (token overlap + source priority). |
+| `reranker.py` | 178 | Candidate reranking (token overlap + source priority). |
 | `introspection_agent.py` | 164 | Wraps introspection for the bus (pipeline/memory/runtime/audit). |
 | `llm_intent.py` | 260 | LLM intent parsing fallback (GGUF, cached). |
 
@@ -363,7 +363,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | Module | LOC | Role |
 |---|---|---|
 | `runtime_settings.py` | 1290 | Canonical settings.json load/save, legacy-key migration, portable-path healing/sanitising. |
-| `hardware_profile.py` | 2799 | Auto-detect GPU/VRAM/RAM → fit ctx/gpu_layers/batch (KV-cache + compute-buffer reserve); model discovery; hardware authority enforcement. |
+| `hardware_profile.py` | 2818 | Auto-detect GPU/VRAM/RAM → fit ctx/gpu_layers/batch (KV-cache + compute-buffer reserve); model discovery; hardware authority enforcement. |
 | `paths.py` | 768 | Single-source-of-truth path resolution (data/config/cache/db/models/voices…). |
 | `startup_hardware_optimizer.py` | 877 | Boot-time hardware optimiser (GPU select, layer/ctx allocation, mode presets). |
 | `config.py` | 357 | Thin config shim over runtime_settings (canonical key mapping). |
@@ -569,7 +569,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `portable_intent_contract.py` | 643 | Portable intent rules; hard-blocks document, code and analysis prompts from `PLAY_MEDIA`. |
 | `route_authority.py` | 46 | Thread-local record of which layer decided a route, and the internal prompt prefixes that must never be routed as user text. |
 | `route_contracts.py` | 123 | Small predicates that classify a request (for example `wants_memory_internals`) for the router. |
-| `router_enhanced.py` | 8334 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
+| `router_enhanced.py` | 8343 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
 | `shell_gate.py` | 110 | Centralised shell-command safety gate. |
 
 ## `core/`

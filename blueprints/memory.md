@@ -322,8 +322,14 @@ proven against a live database, where a stored test code beat memories that were
 the asked-for week. The importance/weight/recency term is now gated: full credit only above a
 real overlap floor (0.2), a reduced share when a retriever found the candidate at all but overlap
 is weak or incidental (a single shared word in a long memory no longer counts as "on topic"), and
-the smallest share when neither applies. `tests/test_reranker_importance_does_not_override_relevance.py`
-pins this.
+the smallest share when neither applies. That gate had a blind spot: a date-range question ("what
+have we discussed the past 7 days") is answered largely by `memories_between()`, a separate lookup
+that matches by timestamp, not by the keyword/semantic retrievers, so its rows carry neither a
+lexical-overlap score nor the "a retriever found this" channel markers the gate checked for — it
+read that as "nobody vouched for this" and crushed those rows to a fifth of their score, exactly
+the rows a "past week" question needs most. Being inside the exact window asked about is now its
+own relevance signal, gated to full credit like a real overlap match.
+`tests/test_reranker_importance_does_not_override_relevance.py` pins both.
 
 ## Recent-history window
 

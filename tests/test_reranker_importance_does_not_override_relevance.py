@@ -51,3 +51,17 @@ def test_zero_signal_candidates_are_dampened_hardest():
     out = rerank_candidates(QUERY, [IMPORTANT_BUT_OFF_TOPIC, OFF_TOPIC_NO_SIGNAL], limit=8)
     scored = {o["text"]: o["rerank_score"] for o in out}
     assert scored[IMPORTANT_BUT_OFF_TOPIC["text"]] > scored[OFF_TOPIC_NO_SIGNAL["text"]]
+
+
+def test_window_sourced_memories_are_not_crushed_by_the_overlap_gate():
+    # memories_between() (the explicit date/time-window path "what happened in the past 7 days"
+    # goes through) tags rows _source="window" and sets neither _channels nor rrf_score. The
+    # relevance gate added above was treating that as "no retriever vouched for this" and
+    # crushing these to near-zero — exactly the candidates a "past week" question needs most.
+    window_hit = {
+        "text": "Session: 4 turns. Recent: how are you today; sleeping pills last night",
+        "importance": 0.6, "weight": 1.0, "ts": time.time() - 2 * 86400, "_source": "window",
+    }
+    out = rerank_candidates("what have we been discussing the past 7 days",
+                             [window_hit, IMPORTANT_BUT_OFF_TOPIC], limit=5)
+    assert out[0]["text"] == window_hit["text"]

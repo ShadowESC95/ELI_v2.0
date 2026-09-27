@@ -2348,7 +2348,37 @@ def recommend(hw: Optional[HardwareProfile] = None,
 
     total_layers = layers_for_model(chosen["path"], chosen["size_gb"])
     _full_offload = chosen_layers >= total_layers  # 99 >= actual layer count → all layers on GPU
-    if _full_offload:
+
+    # The loader (and the GUI's own loader) push a mixture-of-experts model to every layer, with
+    # the experts kept in RAM, whenever it wouldn't otherwise fit — regardless of the conservative
+    # per-layer split computed above. That must be decided BEFORE the recommendation is built, so
+    # the number this panel shows (rec.n_gpu_layers, also what gets saved as the canonical pin) is
+    # the one that actually loads — not the pre-MoE figure with a footnote explaining the real one
+    # printed somewhere else on screen with no visible connection between them.
+    _moe_plan = None
+    _pre_moe_layers = chosen_layers
+    if chosen_layers > 0 and not _full_offload:
+        try:
+            from eli.core import moe_offload as _moe_hw
+            _moe_plan = _moe_hw.plan(
+                chosen["path"], chosen["size_gb"],
+                free_vram_mb=int(hw.free_vram_mb), available_ram_gb=float(hw.available_ram_gb),
+            )
+        except Exception:
+            _moe_plan = None
+        if _moe_plan:
+            chosen_layers = total_layers
+            rec.n_gpu_layers = int(total_layers)
+            _full_offload = True
+
+    if _full_offload and _moe_plan:
+        rec.reasoning.append(
+            f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB), mixture-of-experts — a plain "
+            f"layer split would only fit {_pre_moe_layers}/{total_layers} layers on the GPU, but "
+            f"expert offload puts all {total_layers} on it and keeps ~{_moe_plan['experts_gb']}GB "
+            f"of experts in RAM instead. This is what actually loads."
+        )
+    elif _full_offload:
         rec.reasoning.append(
             f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — "
             f"all layers on GPU (free VRAM sufficient)"
@@ -2365,23 +2395,6 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"{_CUDA_OVERHEAD_MB}MB CUDA overhead, "
             f"~{_kv_cache_mb(1024, total_layers, quant=kv_q):.0f}MB per 1k ctx)"
         )
-        # This line is the conservative layer split before MoE offload gets a say — the loader
-        # (and the GUI's own loader) push it to all layers with the experts kept in RAM when the
-        # model is MoE and won't otherwise fit, so the panel would otherwise show 9/52 right above
-        # a load that actually uses all 52.
-        try:
-            from eli.core import moe_offload as _moe_hw
-            _moe_plan = _moe_hw.plan(
-                chosen["path"], chosen["size_gb"],
-                free_vram_mb=int(hw.free_vram_mb), available_ram_gb=float(hw.available_ram_gb),
-            )
-            if _moe_plan:
-                rec.reasoning.append(
-                    f"Mixture-of-experts — expert offload will push all {_moe_plan['layers']} "
-                    f"layers onto the GPU and keep ~{_moe_plan['experts_gb']}GB of experts in RAM"
-                )
-        except Exception:
-            pass
     else:
         if hw.has_gpu and hw.gpu_integrated and not _backend_ready:
             _igpu_kind = integrated_gpu_label(hw.gpu_name, hw.gpu_vendor)
@@ -2418,9 +2431,15 @@ def recommend(hw: Optional[HardwareProfile] = None,
     # beyond model + KV. On 8 GB cards with full offload and long ctx that leaves too little for
     # batch=512 (about 750 MB needed on 7B models, empirically).
     if hw.has_gpu and hw.free_vram_mb > 0 and chosen_layers > 0 and rec.batch_size > 128:
-        _offload_f = min(1.0, chosen_layers / max(1, total_layers))
         _kv_at_ctx = _kv_cache_mb(rec.n_ctx, total_layers, quant=kv_q)
-        _gpu_model_for_batch = chosen["size_gb"] * 1024.0 * _offload_f
+        if _moe_plan:
+            # chosen_layers reads "all of them" here, but most of that is expert tensors kept in
+            # RAM — sizing the compute-headroom check off the full model would see a huge deficit
+            # that isn't real and needlessly crush the batch size.
+            _gpu_model_for_batch = float(_moe_plan["resident_gb"]) * 1024.0
+        else:
+            _offload_f = min(1.0, chosen_layers / max(1, total_layers))
+            _gpu_model_for_batch = chosen["size_gb"] * 1024.0 * _offload_f
         _compute_headroom = (hw.free_vram_mb
                              - _gpu_model_for_batch
                              - _kv_at_ctx
