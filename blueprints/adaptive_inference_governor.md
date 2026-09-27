@@ -178,3 +178,15 @@ because llama-cpp-python does not expose it).
 path — it does not go through `gguf_inference.load_model()`. The MoE expert-offload hook (section 8)
 is wired into that loader too now; before this it was saved by the toggle but never reached the
 actual load, so the setting did nothing when a model was loaded from the startup dialog.
+
+Measured against a live session (Qwen3.6-35B-A3B, ctx=13000, batch=512, RTX 2060 SUPER): 7 GPU
+layers without offload gave 6.5 tok/s; the offload's 41 layers (one past the model's 40 blocks —
+llama.cpp's own "all layers" convention, not an error) with experts in RAM gave 13.3 tok/s. Real,
+but the console printed the pre-offload layer count ("GPU-layer load parameter: 7") before a later
+line showed the actual loaded count ("gpu_layers=41") with no explanation connecting them — fixed,
+the first line now says when and by how much MoE will raise it. The bigger cost per chat turn is
+architectural, not this: chain-of-thought runs two full model calls (a private scratchpad, then the
+final answer) against 6,000–7,700-token prompts each, and MoE's prompt-processing gain (~1.75x) is
+smaller than its generation gain (~2x) — doubling generation speed does not halve a turn dominated
+by two large, mostly-prompt-bound calls. Shrinking that prompt and the two-pass shape is separate,
+unaddressed work.

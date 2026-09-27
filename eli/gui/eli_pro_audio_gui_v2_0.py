@@ -981,7 +981,12 @@ class LocalModelManager:
                                   f"in RAM, all {_moe_gui['layers']} layers on the GPU")
                 except Exception:
                     log.debug("[GUI] MoE plan lookup failed", exc_info=True)
-            print(f"   GPU-layer load parameter: {effective_n_gpu_layers}")
+            if _moe_gui:
+                print(f"   GPU-layer load parameter: {effective_n_gpu_layers} "
+                      f"(MoE expert offload will raise this to all {_moe_gui['layers']} layers; "
+                      f"~{_moe_gui['experts_gb']}GB of experts stay in RAM)")
+            else:
+                print(f"   GPU-layer load parameter: {effective_n_gpu_layers}")
             if (
                 requested_n_gpu_layers > 0
                 and effective_n_gpu_layers == 0
