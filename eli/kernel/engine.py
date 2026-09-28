@@ -1365,6 +1365,35 @@ _ELI_PHASE19_GROUNDED_FOLLOWUP_ACTIONS = {
     "PERSONAL_MEMORY_DEEP_EXPLAIN",
     "ROUTING_FAULT_EXPLAIN",
     "NAME_SOURCE_AUDIT",
+    # These synthesise from live evidence the same way RUNTIME_AUDIT/RUNTIME_STATUS do (same
+    # `_publish_last_response_meta(grounded=True, evidence_used=True)` call site), but were left
+    # out of this set — a challenge like "and you think the maths checks out??" after GPU_STATUS
+    # correctly explained requested-vs-effective layers fell through to plain CHAT instead of
+    # re-running the grounded action, and the model confabulated a different, wrong number.
+    "GPU_STATUS",
+    "CPU_USAGE",
+    "RAM_USAGE",
+    "SYSTEM_STATS",
+    "MEMORY_STATUS",
+    "COGNITION_STATUS",
+    "REASONING_MODE_STATUS",
+    "HARDWARE_PROFILE",
+    "AWARENESS_STATUS",
+    "FRONTIER_STATUS",
+    "ORCHESTRATION_STATUS",
+    "LORA_STATUS",
+    "PROACTIVE_STATUS",
+    "PERSONA_LOCK_STATUS",
+    "POMODORO_STATUS",
+    "HABIT_STATUS",
+    "GAZE_STATUS",
+    "TIMESTAMP_DIAG",
+    "ELI_IDENTITY_AUDIT",
+    "FILE_AUDIT",
+    "CODEBASE_GRAPH",
+    "AUTOPILOT_DEBUG",
+    "MCP_STATUS",
+    "STT_DIAGNOSTICS",
 }
 
 _ELI_PHASE19_DETAIL_FOLLOWUP_RX = re.compile(
@@ -1394,6 +1423,15 @@ _ELI_PHASE19_CHALLENGE_FOLLOWUP_RX = re.compile(
     r"|check\s+that\s+again"
     r"|double[-\s]?check\s+that"
     r"|look\s+again"
+    # Skeptical challenges to a number/claim ELI just gave — without one of these, "and you
+    # think the maths checks out??" fell through to plain CHAT instead of re-running the
+    # grounded action, and the model confabulated a completely different wrong answer rather
+    # than re-deriving from the real evidence it had just correctly reported.
+    r"|you\s+(?:really\s+)?think\s+(?:that|this|the)\b[^.?!]{0,60}\b(?:checks?\s+out|"
+    r"(?:is\s+)?(?:right|correct|true|makes?\s+sense|adds?\s+up)\b)"
+    r"|are\s+you\s+sure(?:\s+about\s+that)?\b"
+    r"|you\s+sure\s+about\s+that\b"
+    r"|does\s+that\s+(?:actually\s+)?make\s+sense\b"
     r")\b",
     re.IGNORECASE,
 )

@@ -202,6 +202,27 @@ and runs `NEWS_FETCH` again instead of falling through to web-escalation hedge.
 
 ---
 
+## Challenging a grounded answer must re-check it, not confabulate a new one
+
+After a grounded action (`RUNTIME_AUDIT`, `RUNTIME_STATUS`, `GPU_STATUS`, `MEMORY_STATUS`, and
+~20 other status/diagnostic actions), a detail or challenge follow-up must rebind to the *same*
+action for a fresh evidence pull, not fall through to open `CHAT` — that lets the model
+free-associate over whatever it remembers saying, and a skeptical push ("you sure about that?")
+can make it retract a correct answer and invent a wrong one instead
+(`_eli_phase19_rebind_grounded_followup` in `engine.py`). Two ways this can silently not fire:
+
+- the follow-up's wording doesn't match `_ELI_PHASE19_CHALLENGE_FOLLOWUP_RX` / `..._DETAIL_...RX`
+  ("and you think the maths checks out??" wasn't covered until it was reproduced live — GPU_STATUS
+  correctly explained requested-vs-effective GPU layers, then confabulated a different, wrong
+  breakdown when challenged in exactly this phrasing);
+- the prior action isn't in `_ELI_PHASE19_GROUNDED_FOLLOWUP_ACTIONS` — `GPU_STATUS` and most of its
+  sibling status/diagnostic actions were missing from this set entirely, despite publishing
+  `grounded=True, evidence_used=True` through the identical `_publish_last_response_meta` call site
+  as the actions that were already covered.
+
+`tests/test_phase19_grounded_followup_truth_lock.py` pins both the regex and the action set
+against the live failure.
+
 ## History is not discarded before the budgeter sees it
 
 The old memory-evidence module capped recent-history pulls silently; it was removed and shared

@@ -93,3 +93,36 @@ def test_phase19_output_governor_rejects_fake_mutation_claims():
     )
     assert verdict["unsafe"] is True
     assert any(v["kind"] == "unsupported_mutation_claim" for v in verdict["violations"])
+
+
+class _GpuStatusEngine:
+    # From a live session: GPU_STATUS correctly explained requested vs effective GPU layers,
+    # then "and you think the maths checks out??" fell through to plain CHAT and the model
+    # confabulated a different, wrong explanation instead of re-running the grounded action.
+    _last_request_meta = {
+        "request_id": "req-gpu-1",
+        "route_action": "GPU_STATUS",
+        "result_action": "GPU_STATUS",
+        "action": "GPU_STATUS",
+        "evidence_used": True,
+        "grounded": True,
+    }
+
+
+def test_a_skeptical_challenge_rebinds_to_the_prior_grounded_action():
+    result = _eli_phase19_rebind_grounded_followup(
+        _GpuStatusEngine(),
+        "And you think the maths checks out??",
+        _chat_intent(),
+    )
+    assert result["action"] == "GPU_STATUS"
+    assert result["meta"]["grounded_followup_kind"] == "challenge"
+    assert result["meta"]["allow_chat_without_evidence"] is False
+
+
+def test_are_you_sure_also_rebinds():
+    result = _eli_phase19_rebind_grounded_followup(
+        _GpuStatusEngine(), "are you sure about that?", _chat_intent(),
+    )
+    assert result["action"] == "GPU_STATUS"
+    assert result["meta"]["grounded_followup_kind"] == "challenge"
