@@ -321,7 +321,8 @@ def _conversational_opener(question: str, live: Dict[str, Any]) -> str:
         or int(live.get("inference_components_bytes") or 0)
         or int(live.get("rss_bytes") or 0)
     )
-    headline_gb = headline_bytes / (1024 ** 3)
+    from eli.core.mem_units import bytes_to_gib
+    headline_gb = bytes_to_gib(headline_bytes)
     mode = str(live.get("load_mode") or "CPU")
     n_ctx = int(live.get("n_ctx_live") or live.get("n_ctx") or 0)
 
@@ -394,10 +395,11 @@ def format_inference_footprint_report(
 
     try:
         import psutil
+        from eli.core.mem_units import bytes_to_gib
         vm = psutil.virtual_memory()
         lines.append(
             f"- whole-machine RAM: {vm.percent:.0f}% used "
-            f"({vm.used / (1024 ** 3):.2f} GB / {vm.total / (1024 ** 3):.2f} GB)"
+            f"({bytes_to_gib(vm.used):.2f} GB / {bytes_to_gib(vm.total):.2f} GB)"
         )
     except Exception:
         log.debug("psutil unavailable for system RAM line", exc_info=True)

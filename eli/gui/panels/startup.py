@@ -23,6 +23,8 @@ from eli.gui.panels._qt import (
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
+from eli.core.mem_units import file_size_gib, dir_size_gib, bytes_to_gib
+
 try:
     from eli.core.paths import get_paths as _get_paths
     _MODELS_DIR = _get_paths().models_dir
@@ -755,7 +757,7 @@ class StartupModelSelectionDialog(QDialog):
                                 "name": _sp.name,
                                 "path": str(_sp),
                                 "size_bytes": _sz,
-                                "size_gb": _sz / 1e9,
+                                "size_gb": bytes_to_gib(_sz),
                             }]
                     except Exception:
                         log.debug("suppressed exception", exc_info=True)
@@ -906,7 +908,7 @@ class StartupModelSelectionDialog(QDialog):
             if _model_path and Path(_model_path).is_file():
                 try:
                     _mp = Path(_model_path)
-                    _size_gb = _mp.stat().st_size / 1e9
+                    _size_gb = file_size_gib(_mp)
                     _ctx = int(self.ctx_window_spin.value()) or auto_ctx_target(
                         str(_mp), _size_gb, free_vram_mb=_hw.free_vram_mb,
                         available_ram_gb=_hw.available_ram_gb,
@@ -1084,12 +1086,12 @@ class StartupModelSelectionDialog(QDialog):
 
     @staticmethod
     def _model_label(m: Dict[str, Any]) -> str:
-        """'[source] name (x.xx GiB)': binary GiB so it matches what file managers show."""
-        try:
-            from eli.core.model_download import _as_gib
-        except Exception:
-            _as_gib = lambda gb: float(gb or 0) * 1_000_000_000 / (1024 ** 3)
-        return f"[{m.get('source', '?')}] {m.get('name', 'model')} ({_as_gib(m.get('size_gb', 0.0)):.2f} GiB)"
+        """'[source] name (x.xx GiB)'. `size_gb` here is already binary GiB — every
+        discovery path (discover_gguf_models, hardware_profile.discover_models, the
+        custom-path branches in this file) computes it via mem_units now. Do not run
+        it through model_download._as_gib(), which expects a decimal-GB *catalog*
+        estimate and would double-convert an already-binary figure."""
+        return f"[{m.get('source', '?')}] {m.get('name', 'model')} ({float(m.get('size_gb', 0.0) or 0.0):.2f} GiB)"
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -1135,7 +1137,7 @@ class StartupModelSelectionDialog(QDialog):
             # a saved path outside the scanned folders: list it, so the dropdown never shows a model
             # other than the one that will load
             self.gguf_combo.addItem(self._model_label(
-                {"source": "custom", "name": Path(target).name, "size_gb": Path(target).stat().st_size / 1e9}), target)
+                {"source": "custom", "name": Path(target).name, "size_gb": file_size_gib(target)}), target)
             idx = self.gguf_combo.count() - 1
         if idx >= 0:
             self.gguf_combo.setCurrentIndex(idx)
@@ -1622,7 +1624,7 @@ class FirstBootWizard(QDialog):
                         "name": sp.name,
                         "path": str(sp),
                         "size_bytes": sz,
-                        "size_gb": sz / 1e9,
+                        "size_gb": bytes_to_gib(sz),
                     }]
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
@@ -1822,7 +1824,7 @@ class FirstBootWizard(QDialog):
                 _hw = detect_hardware()
                 _sz_gb = float(res.get("size_gib_actual") or 0)
                 if not _sz_gb and path:
-                    _sz_gb = Path(path).stat().st_size / 1e9
+                    _sz_gb = file_size_gib(path)
                 if _hw.has_gpu and _hw.total_vram_mb > 0 and _sz_gb > 0:
                     _vram_gb = _hw.total_vram_mb / 1024.0
                     if _sz_gb * 1.1 > _vram_gb:
@@ -1836,7 +1838,7 @@ class FirstBootWizard(QDialog):
                         "name": Path(path).name,
                         "path": path,
                         "size_bytes": Path(path).stat().st_size,
-                        "size_gb": Path(path).stat().st_size / 1e9,
+                        "size_gb": file_size_gib(path),
                     }]
                     _layers = recommend(_hw, _probe).n_gpu_layers
                     if _layers == 0:

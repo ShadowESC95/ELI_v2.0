@@ -71,7 +71,19 @@ def _install_stubs():
             setattr(m, a, MagicMock(name=a))
         return m
 
+    # Use real PySide6 when installed — the stub's `import *` only exposes _QT_ATTRS,
+    # so GUI modules doing `from PySide6.QtWidgets import *` lost names like QCheckBox.
+    import os as _os_qt
+    _os_qt.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    try:
+        import PySide6  # noqa: F401
+        _real_pyside6 = True
+    except ImportError:
+        _real_pyside6 = False
+
     for _pkg in ("PySide6", "PyQt6", "PyQt5"):
+        if _pkg == "PySide6" and _real_pyside6:
+            continue
         _core = _make_qtcore()
         _widgets = MagicMock(name=f"{_pkg}.QtWidgets")
         _gui = MagicMock(name=f"{_pkg}.QtGui")

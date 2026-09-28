@@ -199,9 +199,10 @@ def aux_status(key: str = "embedder") -> Dict[str, Any]:
     }
     if present:
         try:
+            from eli.core.mem_units import file_size_gib
             nbytes = path.stat().st_size
             out["size_mib"] = round(nbytes / (1024 * 1024), 1)
-            out["size_gib_actual"] = round(_as_gib(nbytes / 1e9), 2)
+            out["size_gib_actual"] = round(file_size_gib(path), 2)
         except Exception:
             pass
     return out
@@ -212,10 +213,12 @@ _GIB = 1024 ** 3
 
 
 def _as_gib(size_gb_decimal: Any) -> float:
-    """Convert a decimal-GB figure (bytes/1e9, as catalog estimates and
-    discover_models use) to binary GiB, so every displayed size matches what the
-    OS file managers report (they show 1024³-based GiB). Display-only — internal
-    size_gb stays decimal because hardware_profile's layer thresholds key off it."""
+    """Convert a decimal-GB figure (bytes/1e9, as this file's curated download catalog
+    estimates — matching what HuggingFace/download managers show) to binary GiB, so a
+    displayed size matches what OS file managers report (1024³-based). Catalog-only:
+    hardware_profile.discover_models() and moe_offload.py now both compute size_gb as
+    binary GiB directly (mem_units.file_size_gib) — do not run a live-measured size
+    through this function, it would double-convert."""
     try:
         return float(size_gb_decimal) * 1_000_000_000 / _GIB
     except Exception:

@@ -529,7 +529,8 @@ def recommend_model_setup(models, sysinfo, ollama_models=None):
                     size_bytes = int(m.get("size_bytes") or p.stat().st_size)
                 except Exception:
                     size_bytes = int(p.stat().st_size)
-                size_gb = float(m.get("size_gb") or (size_bytes / 1e9))
+                from eli.core.mem_units import bytes_to_gib
+                size_gb = float(m.get("size_gb") or bytes_to_gib(size_bytes))
                 normalized.append({
                     "name": str(m.get("name") or p.name),
                     "path": str(p.resolve()),
@@ -596,10 +597,8 @@ def discover_gguf_models(base_dirs: Optional[List[Path]] = None) -> List[Dict[st
                 if key in seen:
                     continue
                 seen.add(key)
-                try:
-                    size_gb = path.stat().st_size / (1024 ** 3)
-                except Exception:
-                    size_gb = 0.0
+                from eli.core.mem_units import file_size_gib
+                size_gb = file_size_gib(path)
                 family = 'unknown'
                 name_low = path.name.lower()
                 draft_only = False
@@ -658,9 +657,10 @@ def detect_system_capabilities() -> Dict[str, Any]:
     }
     try:
         import psutil
+        from eli.core.mem_units import bytes_to_gib
         vm = psutil.virtual_memory()
-        info['total_ram_gb'] = vm.total / (1024 ** 3)
-        info['available_ram_gb'] = vm.available / (1024 ** 3)
+        info['total_ram_gb'] = bytes_to_gib(vm.total)
+        info['available_ram_gb'] = bytes_to_gib(vm.available)
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     try:
@@ -886,8 +886,9 @@ class LocalModelManager:
             if not path_obj.exists():
                 self.load_error = f"Model not found: {path_obj}"
                 return False
+            from eli.core.mem_units import file_size_gib
             print(f"🔄 Loading model: {path_obj.name}")
-            print(f"   Size: {path_obj.stat().st_size / (1024**3):.2f} GB")
+            print(f"   Size: {file_size_gib(path_obj):.2f} GB")
             self.fitted_gpu_layers = 0
             try:
                 from eli.core.hardware_profile import detect_hardware as _hw_load
@@ -1066,7 +1067,8 @@ class LocalModelManager:
                     cpu_ctx_ceiling_from_ram as _sf_ram_ceil,
                 )
                 from eli.core.hardware_profile import unified_fit_config as _sf_fit
-                _sf_model_gb = path_obj.stat().st_size / (1024 ** 3)
+                from eli.core.mem_units import file_size_gib as _sf_file_gib
+                _sf_model_gb = _sf_file_gib(path_obj)
                 _sf_train = int(_sf_train_ctx(str(path_obj)))
                 _sf_igpu = bool(getattr(self, "gpu_integrated", False))
                 _sf_min_batch = int(_sf_os.environ.get("ELI_MIN_BATCH", "128") or "128")
@@ -8406,11 +8408,12 @@ class EliMainWindow(QMainWindow):
         }
         try:
             import psutil
+            from eli.core.mem_units import bytes_to_gib
             vm = psutil.virtual_memory()
             stats["cpu_percent"] = float(psutil.cpu_percent(interval=None))
-            stats["ram_total_gb"] = vm.total / (1024 ** 3)
-            stats["ram_used_gb"] = vm.used / (1024 ** 3)
-            stats["ram_free_gb"] = vm.available / (1024 ** 3)
+            stats["ram_total_gb"] = bytes_to_gib(vm.total)
+            stats["ram_used_gb"] = bytes_to_gib(vm.used)
+            stats["ram_free_gb"] = bytes_to_gib(vm.available)
             stats["ram_percent"] = float(vm.percent)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
@@ -10456,11 +10459,12 @@ class EliMainWindow(QMainWindow):
                 _user_pinned_batch = int(self.batch_size_input.value())
             except Exception:
                 _user_pinned_batch = 0
+            from eli.core.mem_units import bytes_to_gib
             rec = _hp_recommend(hw, [{
                 "name": model_file.name,
                 "path": str(model_file),
                 "size_bytes": size_bytes,
-                "size_gb": size_bytes / 1e9,
+                "size_gb": bytes_to_gib(size_bytes),
             }], user_ctx=_user_pinned_ctx)
 
             # Runtime CUDA/backend may be unavailable even if VRAM probe reports

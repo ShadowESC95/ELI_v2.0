@@ -1,5 +1,6 @@
 from __future__ import annotations
-import os, threading
+import os, sys, threading
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from eli.core.paths import project_root as _project_root
@@ -7,6 +8,53 @@ from eli.core.paths import project_root as _project_root
 
 from eli.utils.log import get_logger
 log = get_logger(__name__)
+
+_EMBEDDER_REL = ('models', 'embeddings', 'nomic-embed-text-v1.5.Q4_K_M.gguf')
+
+
+def resolve_embedder_path() -> str:
+    """Where the vector-store embedder GGUF actually is, honouring overrides and frozen builds.
+
+    Single source of truth for both loading it (_init_embedder) and reserving RAM for it
+    before it loads (embedder_footprint_gib) — two call sites disagreeing on the path would
+    make the reservation silently measure the wrong file.
+    """
+    env_embed = os.getenv('ELI_EMBED_MODEL_PATH', '').strip()
+    if env_embed:
+        return str(Path(env_embed).expanduser().resolve())
+    _models_dir = Path(os.getenv('ELI_MODELS_DIR', str(_project_root() / 'models')))
+    # Search several roots so a frozen build (PyInstaller/AppImage) finds the bundled
+    # embedder when the writable data-dir copy is absent. Without this the packaged app
+    # fell back to keyword-only recall ("Embed model not found").
+    _roots = [_project_root(), _models_dir.parent]
+    _meipass = getattr(sys, '_MEIPASS', '')
+    if _meipass:
+        _roots.append(Path(_meipass))
+    if getattr(sys, 'frozen', False):
+        _roots.append(Path(sys.executable).resolve().parent)
+    for _root in _roots:
+        _cand = _root.joinpath(*_EMBEDDER_REL)
+        if _cand.exists():
+            return str(_cand.resolve())
+    return str((_project_root() / Path(*_EMBEDDER_REL)).resolve())
+
+
+def embedder_footprint_gib() -> float:
+    """On-disk size of the vector-store embedder, as a RAM-reservation proxy.
+
+    Like whisper, this loads once at startup (n_gpu_layers=0, always CPU/RAM) and stays
+    resident all session. Reserved explicitly so a hardware-capacity check that runs
+    before the embedder exists yet (the startup dialog's tuning pass) doesn't overcommit
+    the RAM it's about to take.
+    """
+    try:
+        from eli.core.mem_units import file_size_gib
+        path = resolve_embedder_path()
+        if path and os.path.exists(path):
+            return file_size_gib(path)
+    except Exception:
+        pass
+    return 0.0
 
 try:
     from eli.runtime.native_locks import FAISS_IO_LOCK, LLAMA_CPP_NATIVE_LOCK
@@ -281,35 +329,10 @@ class VectorStore:
 
     def _init_embedder(self) -> None:
         try:
-            import os
-            from pathlib import Path
             from llama_cpp import Llama
-            import sys as _sys
-            _models_dir = Path(os.getenv('ELI_MODELS_DIR', str(_project_root() / 'models')))
-            env_embed = os.getenv('ELI_EMBED_MODEL_PATH', '').strip()
-            _EMB_REL = ('models', 'embeddings', 'nomic-embed-text-v1.5.Q4_K_M.gguf')
-            if env_embed:
-                _model_path = str(Path(env_embed).expanduser().resolve())
-            else:
-                # Search several roots so a frozen build (PyInstaller/AppImage) finds the bundled
-                # embedder when the writable data-dir copy is absent. Without this the packaged app
-                # fell back to keyword-only recall ("Embed model not found").
-                _roots = [_project_root(), _models_dir.parent]
-                _meipass = getattr(_sys, '_MEIPASS', '')
-                if _meipass:
-                    _roots.append(Path(_meipass))
-                if getattr(_sys, 'frozen', False):
-                    _roots.append(Path(_sys.executable).resolve().parent)
-                _model_path = ''
-                for _root in _roots:
-                    _cand = _root.joinpath(*_EMB_REL)
-                    if _cand.exists():
-                        _model_path = str(_cand.resolve())
-                        break
-                if not _model_path:
-                    _model_path = str((_project_root() / Path(*_EMB_REL)).resolve())
-            if not os.path.exists(_model_path):
-                raise FileNotFoundError('Embed model not found: ' + _model_path)
+            _model_path = resolve_embedder_path()
+            if not _model_path or not os.path.exists(_model_path):
+                raise FileNotFoundError('Embed model not found: ' + str(_model_path))
             _llm = Llama(
                 model_path=_model_path,
                 embedding=True,

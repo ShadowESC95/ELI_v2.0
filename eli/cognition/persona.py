@@ -23,12 +23,11 @@ _PERSONA_FILE = Path(
     os.environ.get("ELI_PERSONA_FILE", str(_PERSONA_DIR / "persona.txt"))
 ).expanduser().resolve()
 def _default_persona_auto_file() -> Path:
-    # The auto overlay is WRITTEN at runtime. Anchor it on the canonical
-    # env-honoring root — the module dir is inside the read-only bundle in
-    # frozen builds (identical to the module dir in source installs).
+    # Delegate to paths.persona_auto_path() instead of re-deriving project_root() here —
+    # duplicating it meant its ELI_PERSONA_AUTO_PATH override never reached this, the real write path.
     try:
-        from eli.core.paths import project_root
-        return Path(project_root()) / "eli" / "cognition" / "persona.auto.txt"
+        from eli.core.paths import persona_auto_path
+        return persona_auto_path()
     except Exception:
         return _PERSONA_DIR / "persona.auto.txt"
 

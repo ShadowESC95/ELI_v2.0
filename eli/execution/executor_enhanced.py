@@ -11472,9 +11472,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "RAM_USAGE":
         try:
             import psutil
+            from eli.core.mem_units import bytes_to_gib
             vm = psutil.virtual_memory()
-            used_gb = vm.used / (1024 ** 3)
-            total_gb = vm.total / (1024 ** 3)
+            used_gb = bytes_to_gib(vm.used)
+            total_gb = bytes_to_gib(vm.total)
             msg = f"RAM usage: {vm.percent:.1f}%  ({used_gb:.1f} GB used / {total_gb:.1f} GB total)"
             return {"ok": True, "action": a, "percent": vm.percent,
                     "used_gb": round(used_gb, 2), "total_gb": round(total_gb, 2),
@@ -11489,13 +11490,14 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "SYSTEM_STATS":
         try:
             import psutil, platform as _platform
+            from eli.core.mem_units import bytes_to_gib
             cpu_pct = psutil.cpu_percent(interval=0.5)
             vm = psutil.virtual_memory()
             disk = psutil.disk_usage("/")
-            used_ram = vm.used / (1024 ** 3)
-            total_ram = vm.total / (1024 ** 3)
-            used_disk = disk.used / (1024 ** 3)
-            total_disk = disk.total / (1024 ** 3)
+            used_ram = bytes_to_gib(vm.used)
+            total_ram = bytes_to_gib(vm.total)
+            used_disk = bytes_to_gib(disk.used)
+            total_disk = bytes_to_gib(disk.total)
             lines = [
                 f"System: {_platform.system()} {_platform.release()}",
                 f"CPU:    {cpu_pct:.1f}%  ({psutil.cpu_count()} cores)",

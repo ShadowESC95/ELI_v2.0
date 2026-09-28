@@ -77,6 +77,30 @@ def whisper_cache_ready(
     return False
 
 
+def resident_footprint_gib() -> float:
+    """On-disk size of the cached whisper model, as a RAM-reservation proxy.
+
+    Whisper loads once at startup and stays resident for the whole session (CPU or GPU
+    depending on device). A hardware-capacity check run before it loads — the startup
+    dialog's tuning pass, before the engine and its support models exist — undercounts
+    what's actually committed unless this is reserved explicitly rather than relying on
+    load order. 0.0 if the cache isn't there yet (nothing to reserve for).
+    """
+    try:
+        model = _env("ELI_WHISPER_MODEL", "small.en")
+        root = Path(_resolve_model_dir(_env("ELI_WHISPER_MODEL_DIR", "models/whisper")))
+        from eli.core.mem_units import dir_size_gib
+        direct = root / model
+        if direct.exists():
+            return dir_size_gib(direct)
+        hub = root / _whisper_hub_dir(model)
+        if hub.is_dir():
+            return dir_size_gib(hub)
+    except Exception:
+        pass
+    return 0.0
+
+
 def whisper_status() -> dict:
     """Lightweight STT runtime snapshot — does not load the model."""
     try:

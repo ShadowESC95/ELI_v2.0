@@ -66,10 +66,11 @@ def run(cmd: List[str]) -> str:
 def _integrated_vram_estimate() -> tuple[int, int]:
     """Shared-memory VRAM budget for iGPU / APU / Apple unified-memory systems."""
     from eli.core.hardware_profile import _estimate_integrated_vram_mb
+    from eli.core.mem_units import bytes_to_gib
     ram_gb = detect_ram_gb()
     try:
         import psutil
-        avail_gb = psutil.virtual_memory().available / 1e9
+        avail_gb = bytes_to_gib(psutil.virtual_memory().available)
     except Exception:
         avail_gb = ram_gb * 0.5
     return _estimate_integrated_vram_mb(ram_gb, avail_gb)
@@ -78,9 +79,13 @@ def _integrated_vram_estimate() -> tuple[int, int]:
 def detect_ram_gb() -> float:
     # psutil is cross-platform (Linux/macOS/Windows) and already a dependency —
     # prefer it so RAM is detected correctly off-Linux instead of defaulting to 8.
+    # Binary GiB throughout — matches hardware_profile.py's HardwareProfile.ram_gb and
+    # every model-size figure (mem_units.py), so this file's own standalone reasoning
+    # print doesn't show a different total for the same machine.
+    from eli.core.mem_units import bytes_to_gib
     try:
         import psutil
-        return round(psutil.virtual_memory().total / 1e9, 2)
+        return round(bytes_to_gib(psutil.virtual_memory().total), 2)
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     try:
@@ -95,9 +100,10 @@ def detect_ram_gb() -> float:
 
 def detect_available_ram_gb() -> float:
     """Currently free RAM — the binding budget for CPU-only inference."""
+    from eli.core.mem_units import bytes_to_gib
     try:
         import psutil
-        return round(psutil.virtual_memory().available / 1e9, 2)
+        return round(bytes_to_gib(psutil.virtual_memory().available), 2)
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     try:
@@ -342,10 +348,8 @@ def find_model(settings: Dict[str, Any]) -> str:
 
 
 def size_gb(path: str) -> float:
-    try:
-        return round(Path(path).stat().st_size / (1024 ** 3), 2)
-    except Exception:
-        return 0.0
+    from eli.core.mem_units import file_size_gib
+    return round(file_size_gib(path), 2)
 
 
 _TRAIN_CTX_CACHE: dict = {}

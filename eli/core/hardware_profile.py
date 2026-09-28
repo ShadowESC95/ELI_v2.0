@@ -40,6 +40,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from eli.utils.log import get_logger
+from eli.core import mem_units
 
 log = get_logger(__name__)
 from typing import Any, Dict, List, Optional
@@ -1184,12 +1185,15 @@ def _detect_hardware_impl() -> HardwareProfile:
     hw = HardwareProfile()
     hw.cpu_threads = multiprocessing.cpu_count()
 
-    # RAM total + available
+    # RAM total + available — binary GiB, matching free_vram_mb/total_vram_mb below and
+    # every model-size figure (mem_units.py): the psutil path used to divide by decimal
+    # 1e9 while this same function's /proc/meminfo fallback already divided by binary
+    # 1_048_576, so which branch ran changed the number for identical physical RAM.
     try:
         import psutil
         vm = psutil.virtual_memory()
-        hw.ram_gb = vm.total / 1e9
-        hw.available_ram_gb = vm.available / 1e9
+        hw.ram_gb = mem_units.bytes_to_gib(vm.total)
+        hw.available_ram_gb = mem_units.bytes_to_gib(vm.available)
     except Exception:
         try:
             with open("/proc/meminfo") as f:
@@ -1200,6 +1204,25 @@ def _detect_hardware_impl() -> HardwareProfile:
                         hw.available_ram_gb = int(line.split()[1]) / 1_048_576
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+
+    # Reserve room for ELI's own always-on support models — the STT model and the
+    # memory/RAG embedder — both load once at startup and stay resident all session,
+    # independent of whichever chat model the user picks. A capacity check that runs
+    # before them (the startup dialog's tuning pass fires before the engine and its
+    # embedder exist) would otherwise size the chat model, and an MoE model's expert
+    # split, off RAM that's about to be spoken for. If they've already loaded by the
+    # time this runs, `available` above already reflects it and this double-reserves
+    # a few hundred MB — the safe direction of error (conservative, never overcommits).
+    try:
+        from eli.perception.local_whisper_stt import resident_footprint_gib as _whisper_gib
+        hw.available_ram_gb = max(0.0, hw.available_ram_gb - _whisper_gib())
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    try:
+        from eli.memory.vector_store import embedder_footprint_gib as _embedder_gib
+        hw.available_ram_gb = max(0.0, hw.available_ram_gb - _embedder_gib())
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
 
     # FREE VRAM — critical for GPU layer counts. Display server, browser,
     # games, etc all consume VRAM before ELI launches. Total VRAM
@@ -1558,7 +1581,7 @@ def discover_models(models_dir: Optional[Path] = None,
             "name": f.name,
             "path": str(f.resolve()),
             "size_bytes": size,
-            "size_gb": size / 1e9,
+            "size_gb": mem_units.bytes_to_gib(size),
         })
     return out
 

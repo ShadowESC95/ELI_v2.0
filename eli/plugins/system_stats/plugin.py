@@ -23,13 +23,14 @@ class SystemStatsPlugin(Plugin):
     def system_stats(self, args: dict) -> dict:
         if not _HAS_PSUTIL:
             return self._fallback_stats()
+        from eli.core.mem_units import bytes_to_gib
         cpu = _psutil.cpu_percent(interval=0.5)
         mem = _psutil.virtual_memory()
         disk = _psutil.disk_usage("/")
         msg = (
             f"CPU: {cpu:.1f}%  |  "
-            f"RAM: {mem.percent:.1f}% ({mem.used/1e9:.1f}/{mem.total/1e9:.1f} GB)  |  "
-            f"Disk: {disk.percent:.1f}% ({disk.used/1e9:.0f}/{disk.total/1e9:.0f} GB)"
+            f"RAM: {mem.percent:.1f}% ({bytes_to_gib(mem.used):.1f}/{bytes_to_gib(mem.total):.1f} GB)  |  "
+            f"Disk: {disk.percent:.1f}% ({bytes_to_gib(disk.used):.0f}/{bytes_to_gib(disk.total):.0f} GB)"
         )
         return {
             "ok": True, "content": msg, "response": msg,
@@ -50,11 +51,12 @@ class SystemStatsPlugin(Plugin):
     def ram_usage(self, args: dict) -> dict:
         if not _HAS_PSUTIL:
             return self._fallback_stats()
+        from eli.core.mem_units import bytes_to_gib
         mem = _psutil.virtual_memory()
         swap = _psutil.swap_memory()
         msg = (
-            f"RAM: {mem.used/1e9:.1f}/{mem.total/1e9:.1f} GB ({mem.percent:.1f}%)  |  "
-            f"Swap: {swap.used/1e9:.1f}/{swap.total/1e9:.1f} GB ({swap.percent:.1f}%)"
+            f"RAM: {bytes_to_gib(mem.used):.1f}/{bytes_to_gib(mem.total):.1f} GB ({mem.percent:.1f}%)  |  "
+            f"Swap: {bytes_to_gib(swap.used):.1f}/{bytes_to_gib(swap.total):.1f} GB ({swap.percent:.1f}%)"
         )
         return {
             "ok": True, "content": msg, "response": msg,

@@ -63,9 +63,10 @@ def _detect_hardware() -> dict:
     }
     try:
         import psutil
+        from eli.core.mem_units import bytes_to_gib
         vm = psutil.virtual_memory()
-        hw["total_ram_gb"] = vm.total / 1e9
-        hw["available_ram_gb"] = vm.available / 1e9
+        hw["total_ram_gb"] = bytes_to_gib(vm.total)
+        hw["available_ram_gb"] = bytes_to_gib(vm.available)
     except Exception:
         try:
             with open("/proc/meminfo") as f:
@@ -99,7 +100,8 @@ def _detect_hardware() -> dict:
 
 
 def _model_size_category(size_bytes: int) -> str:
-    gb = size_bytes / 1e9
+    from eli.core.mem_units import bytes_to_gib
+    gb = bytes_to_gib(size_bytes)
     if gb < 1.5:  return "tiny"
     if gb < 3.0:  return "small"
     if gb < 6.0:  return "medium"
@@ -134,13 +136,14 @@ def _auto_tune(model_path: Path, hw: dict) -> dict:
             total_vram_mb=int(hw.get("vram_total_mb", 0)),
             vram_gb=float(hw.get("vram_mb", 0)) / 1024.0,
         )
+        from eli.core.mem_units import file_size_gib
         rec = _canonical_recommend(
             hw=canon_hw,
             models=[{
                 "name": model_path.name,
                 "path": str(model_path),
                 "size_bytes": model_path.stat().st_size,
-                "size_gb": model_path.stat().st_size / 1e9,
+                "size_gb": file_size_gib(model_path),
             }],
         )
         return {
@@ -158,8 +161,9 @@ def _auto_tune(model_path: Path, hw: dict) -> dict:
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     # Legacy fallback (used only if canonical helper unavailable):
+    from eli.core.mem_units import bytes_to_gib
     size_bytes     = model_path.stat().st_size
-    size_gb        = size_bytes / 1e9
+    size_gb        = bytes_to_gib(size_bytes)
     free_vram_mb   = hw["vram_mb"]          # free VRAM at startup
     cpu_cores      = hw["cpu_cores"]
     avail_ram_gb   = hw.get("available_ram_gb", hw.get("total_ram_gb", 8.0))
@@ -245,8 +249,9 @@ def _print_header():
 def _pick_model(models: list[Path]) -> Path:
     print("\n  Available Models")
     print("  " + "─" * 54)
+    from eli.core.mem_units import bytes_to_gib
     for i, m in enumerate(models):
-        gb   = m.stat().st_size / 1e9
+        gb   = bytes_to_gib(m.stat().st_size)
         cat  = _model_size_category(m.stat().st_size)
         print(f"  [{i+1}]  {m.name}")
         print(f"        {gb:.2f} GB  ·  {cat}")
@@ -265,8 +270,9 @@ def _pick_model(models: list[Path]) -> Path:
 
 def _confirm_params(model_path: Path, params: dict, hw: dict) -> dict:
     """Show auto-tuned params, let user edit any."""
+    from eli.core.mem_units import bytes_to_gib
     cat = _model_size_category(model_path.stat().st_size)
-    gb  = model_path.stat().st_size / 1e9
+    gb  = bytes_to_gib(model_path.stat().st_size)
     print(f"\n  Selected:  {model_path.name}")
     print(f"\n  Hardware:  {hw.get('gpu_name','CPU')}  ·  "
           f"VRAM {hw['vram_mb']} MB  ·  RAM {hw['total_ram_gb']:.1f} GB  ·  "

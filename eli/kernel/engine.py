@@ -6157,18 +6157,6 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # Live self-model: inject ELI's current agents, capabilities, model and world room, read
-        # fresh each turn, so its self-knowledge tracks the code. Private context: used for
-        # accuracy, narrated only when asked.
-        try:
-            _aw = getattr(self, "_awareness", None)
-            if _aw is not None:
-                _sm = _aw.context_block()
-                if _sm and _sm.strip():
-                    situation_brief = (_sm.strip() + "\n\n" + (situation_brief or "")).strip()
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
         persona = self._compact_persona() if compact else _load_persona_text()
         reasoning_instruction = self._reasoning_mode_instruction(
             reasoning_mode)

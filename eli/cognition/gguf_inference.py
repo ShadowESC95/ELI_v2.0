@@ -865,7 +865,8 @@ def load_model(force_reload: bool = False):
                 and _sf_eugl(_hw)
             )
             if _mp and os.path.exists(str(_mp)):
-                _mgb = os.path.getsize(str(_mp)) / (1024 ** 3)
+                from eli.core.mem_units import file_size_gib as _fsg
+                _mgb = _fsg(_mp)
                 _frac = float(os.environ.get("ELI_CTX_FRACTION", "0.9") or "0.9")
                 _want = max(2048, (int(int(_sf_tc(str(_mp))) * _frac) // 2048) * 2048)
                 _min_batch = int(os.environ.get("ELI_MIN_BATCH", "128") or "128")

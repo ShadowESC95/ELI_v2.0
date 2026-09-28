@@ -30,6 +30,9 @@ def _project_root() -> Path:
 
 def _artifacts_dir() -> Path:
     """The artifacts dir the loader actually writes to (honours the override)."""
+    override = os.environ.get("ELI_ARTIFACTS_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
     try:
         from eli.core.paths import get_paths as _gp
         return Path(_gp().artifacts_dir)

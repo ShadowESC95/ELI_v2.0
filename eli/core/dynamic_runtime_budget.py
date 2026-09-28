@@ -52,10 +52,13 @@ def detect_gpu() -> tuple[str, int, int]:
 
 def detect_ram_gb() -> float:
     # psutil is cross-platform and already a dependency — prefer it so RAM is
-    # detected correctly off-Linux instead of defaulting to 8.
+    # detected correctly off-Linux instead of defaulting to 8. Binary GiB, matching
+    # model_size_gb() below — both feed the same budget calc downstream, so a decimal
+    # RAM figure against a binary model-size figure would misjudge the fit.
+    from eli.core.mem_units import bytes_to_gib
     try:
         import psutil
-        return psutil.virtual_memory().total / 1e9
+        return bytes_to_gib(psutil.virtual_memory().total)
     except Exception:
         pass
     try:
@@ -69,10 +72,8 @@ def detect_ram_gb() -> float:
 
 
 def model_size_gb(model_path: str | Path) -> float:
-    try:
-        return Path(model_path).stat().st_size / (1024 ** 3)
-    except Exception:
-        return 0.0
+    from eli.core.mem_units import file_size_gib
+    return file_size_gib(model_path)
 
 
 def _round_ctx(x: int) -> int:

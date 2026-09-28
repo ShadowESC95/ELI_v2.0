@@ -78,17 +78,17 @@ def plan(model_path: Optional[str], model_size_gb: float, *, free_vram_mb: int, 
 def plan_for_load(model_path: str, gpu_supported: Optional[bool]) -> Optional[Dict[str, Any]]:
     """The plan at load time, from live memory."""
     try:
-        from pathlib import Path
+        from eli.core import mem_units
         if gpu_supported is False:
             return None
         from eli.core.hardware_profile import get_live_gpu_telemetry
         free = int(get_live_gpu_telemetry().get("free_mb") or 0)
         try:
             import psutil
-            ram_gb = psutil.virtual_memory().available / (1024 ** 3)
+            ram_gb = mem_units.bytes_to_gib(psutil.virtual_memory().available)
         except Exception:
             ram_gb = 0.0
-        return plan(model_path, Path(model_path).stat().st_size / (1024 ** 3), free_vram_mb=free, available_ram_gb=ram_gb)
+        return plan(model_path, mem_units.file_size_gib(model_path), free_vram_mb=free, available_ram_gb=ram_gb)
     except Exception:
         log.debug("moe: load plan unavailable", exc_info=True)
         return None

@@ -5695,6 +5695,14 @@ class Memory(metaclass=_MemoryMeta):
                 "INSERT INTO semantic (user_id, fact, tags, confidence, created_at) VALUES (?, ?, ?, ?, ?)",
                 ("default", fact, tags, confidence, time.time()))
             conn.commit()
+            # KG extraction so this fact is recallable for ANY query, not just identity
+            # ones (recall_memory only reads `semantic` for those). Was unreachable —
+            # sat after a finally whose try/except both already returned.
+            try:
+                from eli.memory.knowledge_graph import get_knowledge_graph
+                get_knowledge_graph().extract_from_memory(fact, source="user")
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
             return True
         except Exception:
             # Was a bare `pass`: a tier nothing wrote, failing silently when it did.
@@ -5702,14 +5710,6 @@ class Memory(metaclass=_MemoryMeta):
             return False
         finally:
             conn.close()
-        # Also extract entity/relation triples into the KG so semantic facts are
-        # recallable for ANY query (recall_memory only reads the `semantic` table
-        # for identity queries; the KG is consulted for all queries).
-        try:
-            from eli.memory.knowledge_graph import get_knowledge_graph
-            get_knowledge_graph().extract_from_memory(str(fact or ""), source="user")
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
 
     def recall_semantic(self, query="", limit=10):
         """Recall user facts from semantic table."""

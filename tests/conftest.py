@@ -34,6 +34,16 @@ os.environ["ELI_DB_DIR"]    = str(ROOT / "artifacts" / "_pytest" / "db")
 # change ANY of ELI's stores — the DB must stay a clean slate for a fresh download.
 os.environ["ELI_AGENT_DB"]  = str(ROOT / "artifacts" / "_pytest" / "db" / "agent.sqlite3")
 
+# persona_auto_path()/notebook_dir() had no override at all — a full test run once
+# replaced the real persona.auto.txt with fixture content. Pin both to the sandbox.
+os.environ["ELI_PERSONA_AUTO_PATH"] = str(ROOT / "artifacts" / "_pytest" / "persona.auto.txt")
+os.environ["ELI_NOTEBOOK_DIR"]      = str(ROOT / "artifacts" / "_pytest" / "eli_notebook")
+
+# storage.WORLD_DIR is frozen at import time, so this must be set before that module
+# ever loads — a full-suite run once wrote real events into the actual world state.
+os.environ["ELI_WORLD_DIR"] = str(ROOT / "artifacts" / "_pytest" / "world")
+os.environ["ELI_LAST_TRACE_PATH"] = str(ROOT / "artifacts" / "_pytest" / "last_trace.json")
+
 # Hard isolation guard: fail LOUDLY at collection if any canonical store still resolves
 # to the real artifacts/db tree. This makes "no test can change memory" an enforced
 # invariant, not just configuration that a future refactor could silently break.
@@ -48,14 +58,46 @@ def _assert_db_isolated() -> None:
                 f"TEST ISOLATION BREACH: {_name} DB resolves to {_resolved}, "
                 f"outside the throwaway {_safe}. A test could pollute the real "
                 f"database. Check eli.core.paths overrides in conftest.")
+    _persona_resolved = Path(_p.persona_auto_path()).resolve()
+    if _safe not in _persona_resolved.parents:
+        raise RuntimeError(
+            f"TEST ISOLATION BREACH: persona_auto_path() resolves to "
+            f"{_persona_resolved}, outside the throwaway {_safe}. A test could "
+            f"overwrite the real persona overlay. Check eli.core.paths overrides "
+            f"in conftest.")
+    _notebook_resolved = Path(_p.notebook_dir()).resolve()
+    if _safe not in _notebook_resolved.parents:
+        raise RuntimeError(
+            f"TEST ISOLATION BREACH: notebook_dir() resolves to "
+            f"{_notebook_resolved}, outside the throwaway {_safe}. Check "
+            f"eli.core.paths overrides in conftest.")
+    # persona.py used to duplicate persona_auto_path()'s resolution, so the check above
+    # passed while its own write constant still pointed at the real file. Check it directly.
+    from eli.cognition import persona as _persona_mod
+    _persona_file_resolved = Path(_persona_mod._PERSONA_AUTO_FILE).resolve()
+    if _safe not in _persona_file_resolved.parents:
+        raise RuntimeError(
+            f"TEST ISOLATION BREACH: eli.cognition.persona._PERSONA_AUTO_FILE resolves to "
+            f"{_persona_file_resolved}, outside the throwaway {_safe}. A test could "
+            f"overwrite the real persona overlay. Check eli.cognition.persona / "
+            f"eli.core.paths overrides in conftest.")
+    # WORLD_DIR is frozen at import time — check the module constant, not a fresh call.
+    from eli.world.persistence import storage as _world_storage_mod
+    _world_dir_resolved = Path(_world_storage_mod.WORLD_DIR).resolve()
+    if _safe not in _world_dir_resolved.parents:
+        raise RuntimeError(
+            f"TEST ISOLATION BREACH: eli.world.persistence.storage.WORLD_DIR resolves to "
+            f"{_world_dir_resolved}, outside the throwaway {_safe}. A test could write real "
+            f"autonomy-engine events into the actual world state. Check ELI_WORLD_DIR is set "
+            f"before this module is first imported.")
 _assert_db_isolated()
 
 @pytest.fixture(autouse=True, scope="session")
 def mock_heavy_imports():
     with patch.dict(sys.modules, {
         "llama_cpp": MagicMock(), "llama_cpp.llama_cpp": MagicMock(),
-        "PySide6": MagicMock(), "PySide6.QtWidgets": MagicMock(),
-        "PySide6.QtCore": MagicMock(), "PySide6.QtGui": MagicMock(),
+        # PySide6 not re-stubbed here — root conftest.py already installs a real
+        # working stub/real binding; a bare MagicMock() broke `import *` (no Signal).
         "faster_whisper": MagicMock(), "sounddevice": MagicMock(),
         "soundfile": MagicMock(), "piper": MagicMock(), "onnxruntime": MagicMock(),
         "faiss": MagicMock(), "torch": MagicMock(), "diffusers": MagicMock(),

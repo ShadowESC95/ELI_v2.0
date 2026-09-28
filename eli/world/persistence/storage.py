@@ -25,7 +25,13 @@ def _world_dir() -> Path:
     Relative Path("artifacts/world") would fail silently when cwd is not
     the project root, causing load() to create a default state with
     room="core_room" every time, overriding the persisted room placement.
+
+    Override: ELI_WORLD_DIR — without it a test run writes real autonomy-engine
+    events into the actual eli_world_state.json/events.jsonl/actions.jsonl.
     """
+    override = os.environ.get("ELI_WORLD_DIR")
+    if override:
+        return Path(override).expanduser().resolve()
     try:
         from eli.core.paths import get_paths as _gp
         return Path(_gp().artifacts_dir) / "world"

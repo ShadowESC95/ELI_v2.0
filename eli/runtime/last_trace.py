@@ -16,7 +16,11 @@ _SESSION_PID = os.getpid()
 
 
 def trace_path() -> Path:
-    p = Path(get_paths().artifacts_dir) / "runtime" / "last_trace.json"
+    # data_dir() only honours ELI_DATA_DIR (unset in tests) — override directly.
+    override = os.environ.get("ELI_LAST_TRACE_PATH")
+    p = Path(override).expanduser().resolve() if override else (
+        Path(get_paths().artifacts_dir) / "runtime" / "last_trace.json"
+    )
     p.parent.mkdir(parents=True, exist_ok=True)
     return p
 
