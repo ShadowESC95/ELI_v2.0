@@ -1192,6 +1192,61 @@ def _is_brief_phatic_prompt(text: str) -> bool:
     return False
 
 
+_EVIDENCE_BLOCK_STARTS = ("--- SITUATION BRIEF", "--- CONVERSATION HISTORY")
+_EVIDENCE_BLOCK_ENDS = ("--- END HISTORY ---", "--- END BRIEF ---")
+
+
+def _truncate_system_prompt_preserving_evidence(enhanced_system: str, sys_budget: int) -> str:
+    """Cuts an oversized system prompt down to sys_budget chars.
+
+    A blind head+tail character slice assumes the retrieved memory (the SITUATION
+    BRIEF / CONVERSATION HISTORY blocks _build_enhanced_system writes) sits at the
+    tail. It doesn't — it sits between the persona head and the closing RESPONSE
+    DISCIPLINE rules. On a heavily-retrieved turn a blind slice can cut the head
+    off mid-brief and keep only boilerplate as the "tail", so the model never sees
+    a single retrieved memory and truthfully (from what it was shown) reports none
+    exist. Keep the evidence block whole first; only shrink the persona/rules
+    around it, and only eat into the evidence itself as a last resort.
+    """
+    if len(enhanced_system) <= sys_budget:
+        return enhanced_system
+    starts = [i for i in (enhanced_system.find(m) for m in _EVIDENCE_BLOCK_STARTS) if i != -1]
+    ends = [i + len(m) for m, i in
+            ((m, enhanced_system.rfind(m)) for m in _EVIDENCE_BLOCK_ENDS) if i != -1]
+    e_start = min(starts) if starts else None
+    e_end = max(ends) if ends else None
+    if e_start is None or e_end is None or e_end <= e_start:
+        head = max(200, int(sys_budget * 0.5))
+        tail = max(200, sys_budget - head)
+        return (
+            enhanced_system[:head].rstrip()
+            + "\n\n…[context trimmed to fit the model]…\n\n"
+            + enhanced_system[-tail:].lstrip()
+        )
+    head_region = enhanced_system[:e_start]
+    evidence_region = enhanced_system[e_start:e_end]
+    tail_region = enhanced_system[e_end:]
+    head_floor = min(len(head_region), max(600, int(sys_budget * 0.15)))
+    tail_floor = min(len(tail_region), max(600, int(sys_budget * 0.15)))
+    evidence_room = max(200, sys_budget - head_floor - tail_floor)
+    if len(evidence_region) > evidence_room:
+        e_head = max(100, int(evidence_room * 0.6))
+        e_tail = max(100, evidence_room - e_head)
+        evidence_region = (
+            evidence_region[:e_head].rstrip()
+            + "\n\n…[evidence trimmed to fit the model]…\n\n"
+            + evidence_region[-e_tail:].lstrip()
+        )
+    leftover = max(0, sys_budget - len(evidence_region) - head_floor - tail_floor)
+    head_keep = min(len(head_region), head_floor + leftover // 2)
+    tail_keep = min(len(tail_region), tail_floor + (leftover - leftover // 2))
+    if len(head_region) > head_keep:
+        head_region = head_region[:head_keep].rstrip() + "\n\n…[persona/rules trimmed to fit]…\n\n"
+    if len(tail_region) > tail_keep:
+        tail_region = "\n\n…[closing rules trimmed to fit]…\n\n" + tail_region[-tail_keep:].lstrip()
+    return head_region + evidence_region + tail_region
+
+
 def _phatic_time_authority_block() -> str:
     """Wall-clock anchor for greetings — prevents 'night here' timezone confabulation."""
     try:
@@ -6731,20 +6786,15 @@ Answer:"""
                         _prompt_budget = max(200, min(len(prompt), _max_prompt_chars // 4))
                         _sys_budget = max(200, _max_prompt_chars - _prompt_budget)
                         if len(enhanced_system) > _sys_budget:
-                            # Keep the persona head (voice + hard constraints) and the grounded-evidence tail (appended
-                            # last), drop the bulky middle (profile, scaffolding, memory dump) that bloats the prompt
-                            # without being the answer.
-                            _head = max(200, int(_sys_budget * 0.5))
-                            _tail = max(200, _sys_budget - _head)
-                            enhanced_system = (
-                                enhanced_system[:_head].rstrip()
-                                + "\n\n…[context trimmed to fit the model]…\n\n"
-                                + enhanced_system[-_tail:].lstrip()
-                            )
+                            # The retrieved-memory evidence (SITUATION BRIEF / CONVERSATION HISTORY)
+                            # sits between the persona head and the closing rules, not at the tail —
+                            # keep it whole and shrink the persona/rules around it instead.
+                            enhanced_system = _truncate_system_prompt_preserving_evidence(
+                                enhanced_system, _sys_budget)
                         prompt = prompt[-_prompt_budget:]
                         log.debug(
     f"[COGNITIVE] Prompt capped to {_max_prompt_chars}chars "
-    f"(head+tail; n_ctx={_n_ctx_pf1}, qcap={_qcap})")
+    f"(evidence-preserving; n_ctx={_n_ctx_pf1}, qcap={_qcap})")
 
                     # Re-fit the answer budget to the prompt actually being sent. The earlier estimate floored at
                     # 128 and ran before truncation, so a big prompt got cut and the answer stayed capped at 128.
@@ -6779,7 +6829,8 @@ Answer:"""
                     if len(enhanced_system) + len(prompt) > _max_prompt_chars2:
                         _sys_budget2 = min(len(enhanced_system), _max_prompt_chars2 // 2)
                         _prompt_budget2 = _max_prompt_chars2 - _sys_budget2
-                        enhanced_system = enhanced_system[-_sys_budget2:]
+                        enhanced_system = _truncate_system_prompt_preserving_evidence(
+                            enhanced_system, _sys_budget2)
                         prompt = prompt[-_prompt_budget2:]
                         log.debug(
     f"[COGNITIVE] Direct GGUF overflow: truncated to fit n_ctx={_n_ctx_pf2}")
@@ -10168,9 +10219,20 @@ Answer:"""
         finally:
             self._orchestrator_active = False
 
-        if not stream:
-            # Every non-streamed orchestrated turn exits here; publish its meta so the badge and
-            # last_trace.json are not left stale.
+        import types as _types
+        _result_is_generator = isinstance(result, (_types.GeneratorType,)) or hasattr(result, '__next__')
+
+        if not stream or not _result_is_generator:
+            # Every non-streamed orchestrated turn exits here — publish its meta so the badge and
+            # last_trace.json are not left stale. The GUI always calls process(..., stream=True)
+            # regardless of reasoning mode (eli_pro_audio_gui_v2_0.py's generate_worker), but a
+            # chain-of-thought/tree-of-thoughts turn runs its passes as discrete non-streaming GGUF
+            # calls and the orchestrator returns a plain dict/string, not a generator, even though
+            # stream=True was requested. That combination — stream requested, non-generator result —
+            # fell through both branches below untouched: not `if not stream` (stream was True) and
+            # not the generator branch (result wasn't one), so `_publish_orchestrator_turn_meta` was
+            # never called and the confidence/grounding badge stayed on whatever the last phatic or
+            # quick turn had written, sometimes for the rest of the session.
             try:
                 _txt = ""
                 if isinstance(result, dict):
@@ -10186,8 +10248,7 @@ Answer:"""
                 log.debug(f"[COGNITIVE] orchestrator meta publish failed: {_meta_err}")
             return result
 
-        import types as _types
-        if isinstance(result, (_types.GeneratorType,)) or hasattr(result, '__next__'):
+        if _result_is_generator:
             def _wrapped():
                 parts = []
                 try:
@@ -14823,6 +14884,16 @@ Answer:"""
                     _s_label = str(
                         getattr(pre_built_bus_result, "confidence_label", "") or ""
                     ) if pre_built_bus_result else ""
+                    # "confidence" is this turn's own response score (Stage 12, above) — the
+                    # number the GUI badge is meant to show. "aggregated_confidence" is the
+                    # agent-bus telemetry, a different, supplementary number. This used to store
+                    # the agent aggregate in BOTH fields, which is 0.0 for any phatic turn (the
+                    # agent bus is deliberately skipped for those) — the badge read "conf 0.00"
+                    # for a reply Stage 12 had just scored 0.79.
+                    try:
+                        _s_confidence = float(_s12_score)
+                    except Exception:
+                        _s_confidence = _s_agg
                     self._last_request_meta = {
                         "action": "CHAT",
                         "result_action": "CHAT",
@@ -14831,7 +14902,7 @@ Answer:"""
                         "reasoning_mode": str(reasoning_mode or "quick"),
                         "agents_used": _s_agents,
                         "aggregated_confidence": _s_agg,
-                        "confidence": _s_agg,
+                        "confidence": _s_confidence,
                         "grounding_confidence": _s_grounding,
                         "confidence_label": _s_label,
                         "evidence_used": bool(pre_built_memory_context),

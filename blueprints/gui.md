@@ -90,6 +90,28 @@ sites (OCR results, "ask ELI" results) used `QTimer.singleShot(0, ...)`
 called *from* the worker thread instead, which has no guaranteed event loop —
 fixed to use the same signal pattern as the neighbouring capture handler.
 
+### The status-bar confidence/grounding badge
+
+`_update_confidence_meta_label()` reads `CognitiveEngine._last_request_meta`, refreshed once
+per turn via the `_conf_meta_update_sig` signal fired at the end of `send_message()`'s worker.
+Two gaps let it show stale or wrong numbers:
+
+- The GUI always calls `process(..., stream=True)`, regardless of reasoning mode. A
+  chain-of-thought/tree-of-thoughts/constitutional-AI/self-consistency turn runs its passes as
+  discrete non-streaming GGUF calls, so `_run_internal_orchestrator` returns a plain dict, not a
+  generator — `stream=True` with a non-generator result matched neither of the function's two
+  meta-publish branches, so `_publish_orchestrator_turn_meta` was never called and the badge kept
+  whatever an earlier, unrelated turn had left in it (observed: a 0.94-scoring CoT reply left the
+  badge reading "0.00 (phatic_light)" from a prior greeting). Fixed by unifying the branch
+  condition around whether the result actually is a generator, not just whether streaming was
+  requested.
+- Separately, the streaming/phatic meta-publish block computed the turn's real Stage-12 response
+  score but then discarded it, publishing the agent-bus aggregate confidence instead — which is
+  genuinely 0.0 on a phatic turn, since the agent bus is deliberately skipped for those. Fixed by
+  publishing the Stage-12 score.
+
+See `tests/test_confidence_badge_reflects_the_real_turn.py`.
+
 ## Labs workspace (`labs_tab.py`)
 
 A 5.7k-line "scientific workspace" tab with **11 sub-tabs**: Notebook, Memory &

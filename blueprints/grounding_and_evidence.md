@@ -230,3 +230,31 @@ turn retrieval (`memory/retrieval.py`) replaced it. The user-facing setting
 `cog.mem_recent_turns` (default 24, maximum 80) and `cognition/context_budget.py` now decide
 how much history and memory enter the prompt, and a recall question keeps a floor of a third
 of the window for memory context.
+
+## Retrieved evidence can't be cut away by an oversized-prompt truncation
+
+Getting evidence into `_build_enhanced_system`'s SITUATION BRIEF / CONVERSATION HISTORY blocks
+is not enough — if the assembled system prompt then overflows the model's context window,
+whatever truncates it back down to size has to know where the evidence lives, or it can cut the
+one thing the whole grounding pipeline exists to protect.
+
+`_get_chat_response`'s hard prompt-size guard used to slice the oversized prompt by raw
+character position: keep the first half, keep the last half, drop the middle. Its own comment
+claimed this kept "the grounded-evidence tail (appended last)" — wrong. `_build_enhanced_system`
+actually writes SITUATION BRIEF and CONVERSATION HISTORY between the persona head and a closing
+block of generic RESPONSE DISCIPLINE rules, so on a heavily-retrieved turn (a large brief plus a
+large history) the blind slice could land past the evidence block on both ends, keeping only
+persona boilerplate and rules with zero retrieved memory inside them. A chain-of-thought turn hit
+this live: retrieval genuinely found real memory (11 items in the time window, 36 turns, 4575
+chars assembled), but the truncated prompt handed to the model contained none of it, and the
+final answer truthfully — from what it was shown — denied any relevant memory existed.
+
+`_truncate_system_prompt_preserving_evidence` (`engine.py`) fixes this by finding the SITUATION
+BRIEF / CONVERSATION HISTORY span first and keeping it whole; only the persona/rules head and the
+closing-rules tail around it get shrunk, and evidence itself is only trimmed (head+tail, within
+itself) as a last resort. It's wired into both truncation sites in `_get_chat_response` — the
+broker path and the no-broker direct-GGUF path — which is the only place any of the four
+algorithmic reasoning modes (chain_of_thought, tree_of_thoughts, constitutional_ai,
+self_consistency) generate text; `quick` mode's separate streaming path
+(`_trim_enhanced_system_for_stream`) already trimmed history in place rather than blindly, so it
+was never exposed to this. See `tests/test_evidence_survives_prompt_truncation.py`.
