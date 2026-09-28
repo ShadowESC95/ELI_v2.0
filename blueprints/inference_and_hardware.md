@@ -198,6 +198,15 @@ the session after one transient early-boot failure, even after the GPU became
 detectable. `"cpu"` is still returned for that one call (a safe, conservative
 answer right now); the next call gets a real chance to detect the GPU.
 
+The probe used to test the raw requested layer count regardless of MoE. For a mixture-of-experts
+model too big to fit as requested, the loader always offloads with experts in RAM and every layer
+on the GPU instead — a completely different, much lighter VRAM footprint — so the probe was
+proving a configuration that is never actually attempted, thrashing the full timeout budget (180s
+on an 8 GB card) every launch instead of the few seconds a real MoE load takes. It now checks
+`moe_offload.plan_for_load()` first and, when a plan applies, probes that configuration (the child
+subprocess wraps its `Llama(...)` call in `moe_offload.expert_offload_params()` the same way the
+real loaders do) — proven in 31s against a live model instead of an "unproven" 180s timeout.
+
 ## Settings (`core/runtime_settings.py`, ~1150 LOC)
 
 - `DEFAULTS` (the full settings schema) + `ENV_TO_KEY` (env-var overrides).

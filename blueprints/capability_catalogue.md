@@ -580,7 +580,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `gpu_pack_runtime.py` | 83 | Activate the optional GPU pack before llama_cpp is imported (AppImage/portable). |
 | `init_data.py` | 283 | First-run data initialiser — build ELI's FULL database architecture up front. |
 | `llama_cpu_compat.py` | 240 | CPU compatibility for llama-cpp-python — parity with GPU probe/fallback policy. |
-| `load_probe.py` | 407 | Verify a set of load parameters actually works, without dying if it doesn't. |
+| `load_probe.py` | 439 | Verify a set of load parameters actually works, without dying if it doesn't. |
 | `model_tier.py` | 141 | Model-capability tier — the single signal that lets ELI's cognition budgets |
 | `secure_io.py` | 94 | Race-free writing of files that must never be world-readable. |
 | `self_provenance.py` | 207 | Is this row ELI's own bookkeeping, or evidence about the user? |

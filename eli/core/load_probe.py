@@ -242,6 +242,14 @@ try:
 except Exception as e:
     print("IMPORT_FAIL:%s" % e, file=sys.stderr)
     raise SystemExit(3)
+_moe_ctx = None
+if cfg.get("moe_expert_offload"):
+    try:
+        from eli.core import moe_offload as _moe
+        _moe_ctx = _moe.expert_offload_params()
+        _moe_ctx.__enter__()
+    except Exception:
+        _moe_ctx = None
 try:
     llm = Llama(
         model_path=cfg["model_path"],
@@ -254,6 +262,12 @@ try:
 except Exception as e:
     print("LOAD_FAIL:%s" % e, file=sys.stderr)
     raise SystemExit(4)
+finally:
+    if _moe_ctx is not None:
+        try:
+            _moe_ctx.__exit__(None, None, None)
+        except Exception:
+            pass
 # Drive a real decode: loading alone proves nothing (the abort happened with the model resident and
 # the context created). The compute buffer for a large prompt isn't allocated until generation, so
 # push a prompt of the size the caller will really use.
@@ -311,6 +325,23 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
     if n_gpu_layers <= 0:
         return SKIPPED, "cpu-only: no GPU allocation to prove"
 
+    # A mixture-of-experts model that will not fit as requested is what the loader (and the GUI's
+    # own loader) actually offload with experts kept in RAM and every layer on the GPU — a
+    # different, much lighter VRAM footprint than the raw request. Proving the raw request here
+    # tests a configuration that never gets attempted for real: on an 8 GB card it thrashed the
+    # full 180s budget every single launch testing a load the caller was never going to make.
+    # Probe the configuration that will actually load instead.
+    probe_gpu_layers = n_gpu_layers
+    moe_expert_offload = False
+    try:
+        from eli.core import moe_offload as _moe_lp
+        _moe_plan = _moe_lp.plan_for_load(str(model_path), True)
+        if _moe_plan and int(_moe_plan.get("layers") or 0) > 0:
+            probe_gpu_layers = int(_moe_plan["layers"]) + 1
+            moe_expert_offload = True
+    except Exception:
+        log.debug("[LOAD_PROBE] moe plan lookup failed", exc_info=True)
+
     # Probe sizes derive from the caller's parameters, no magic numbers. The prompt has to be the
     # size ELI will really send: a cheaper probe passed startups that later aborted at 5189 tokens,
     # because llama.cpp's peak allocation depends on prompt length. The timeout above bounds the cost.
@@ -326,8 +357,9 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
     payload = json.dumps({
         "model_path": str(model_path),
         "n_ctx": n_ctx,
-        "n_gpu_layers": n_gpu_layers,
+        "n_gpu_layers": probe_gpu_layers,
         "n_batch": n_batch,
+        "moe_expert_offload": moe_expert_offload,
         "probe_tokens": probe_tokens,
         "probe_gen": probe_gen,
     })
