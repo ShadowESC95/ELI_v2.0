@@ -207,6 +207,30 @@ on an 8 GB card) every launch instead of the few seconds a real MoE load takes. 
 subprocess wraps its `Llama(...)` call in `moe_offload.expert_offload_params()` the same way the
 real loaders do) — proven in 31s against a live model instead of an "unproven" 180s timeout.
 
+That fixed WHAT is tested but not the timeout BUDGET, which still charged the full file size at
+the VRAM-upload rate (`_TIMEOUT_PER_GB_S`, calibrated for synchronous per-layer VRAM upload) —
+for a 24GB mixture-of-experts model that estimate came to ~294s, so the probe was still capped
+by the same 180s ceiling as everything else and looked "unproven" every launch regardless of the
+fix above. `_probe_budget_sizes_gb()` now separates the VRAM-bound share (the small resident
+portion under MoE, `moe_offload.plan_for_load().resident_gb`) from the rest of the file, which
+only pays a cheap disk-page-in rate (`_TIMEOUT_PER_GB_DISK_S`); a MoE model gets its own, higher
+ceiling (`_TIMEOUT_MOE_CEILING_S`, 240s) since the estimate is now trustworthy rather than a
+known-wrong number capped at the same limit as everything else. A genuinely dense model of the
+same size is unaffected — the two size shares collapse to the same value with no MoE plan, and
+the calculation reduces exactly to the original single-term formula.
+
+`runtime_load_gap()` (`cognition/context_synthesiser.py`) only ever checked for `effective <
+requested` ("reduced," the classic VRAM-shortfall case) — a mixture-of-experts load *raises*
+`n_gpu_layers` above the request instead, and that case reported "loaded exactly as requested"
+for a load that did not match the request at all. It now reports a separate `raised` dict, and
+every surface that reads it (`GPU_STATUS`, `EXPLAIN_COGNITION_RUNTIME`'s `_inference_runtime_lines`,
+and `live_runtime_brief()` which grounds casual/phatic replies) states plainly which layers'
+attention/shared weights are on the GPU, how much VRAM that is, how many GB of experts sit in
+RAM, and that the CPU processes those during generation — not "the rest run on CPU" (backwards
+under MoE: nothing was left off the GPU) and not silence. `live_runtime_brief()` returning ""
+for a MoE load specifically is why a phatic reply once stated a stale, invented layer count: the
+grounding it would have drawn from was empty.
+
 ## Settings (`core/runtime_settings.py`, ~1150 LOC)
 
 - `DEFAULTS` (the full settings schema) + `ENV_TO_KEY` (env-var overrides).

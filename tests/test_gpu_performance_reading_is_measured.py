@@ -163,3 +163,42 @@ def test_the_measured_hardware_lines_are_untouched(gpu_report):
     assert "7493 MiB used / 8192 MiB total" in txt
     assert "temperature: 44 C" in txt
     assert "driver: 595.84" in txt
+
+
+# ── mixture-of-experts: raises gpu_layers above request, not below ──────────
+# From a live session: NVIDIA-Nemotron-3-Nano-Omni-30B-A3B, requested 52 layers, effective 53
+# (llama.cpp's "everything on the GPU" convention for expert offload). The old comparison only
+# checked for effective < requested, so this fell into "Loaded exactly as requested" — wrong,
+# 52 != 53 — and said nothing about the ~21.5GB of expert weights actually sitting in RAM.
+MOE_RAISED = dict(
+    AS_REQUESTED,
+    model_name="NVIDIA-Nemotron-3-Nano-Omni-30B-A3B-Reasoning-UD-Q4_K_XL.gguf",
+    n_gpu_layers=53, moe_expert_offload=True, moe_resident_gb=2.39, moe_experts_gb=21.54,
+    requested={"n_ctx": 10384, "n_gpu_layers": 52, "n_threads": 10, "n_batch": 128},
+    effective={"n_ctx": 10384, "n_gpu_layers": 53, "n_threads": 10, "n_batch": 128},
+)
+
+
+def test_moe_raise_is_not_reported_as_exactly_as_requested():
+    gap = runtime_load_gap(MOE_RAISED)
+    assert gap["reduced"] == {}
+    assert gap["raised"] == {"n_gpu_layers": {"requested": 52, "effective": 53}}
+    assert gap["moe_expert_offload"] is True
+
+
+def test_moe_load_explains_gpu_ram_and_cpu(gpu_report):
+    txt = gpu_report(MOE_RAISED, SMI_ROOMY)
+    assert "Loaded exactly as requested" not in txt
+    assert "mixture-of-experts offload" in txt
+    assert "n_gpu_layers 52 → 53" in txt
+    assert "expert weights" in txt and "21.54GB" in txt
+    assert "system RAM" in txt and "CPU" in txt
+
+
+def test_live_runtime_brief_explains_moe(monkeypatch, tmp_path):
+    import eli.cognition.context_synthesiser as cs
+    (tmp_path / "runtime_snapshot.json").write_text(json.dumps(MOE_RAISED), encoding="utf-8")
+    monkeypatch.setattr(cs, "_runtime_snapshot", lambda: MOE_RAISED)
+    brief = cs.live_runtime_brief()
+    assert "mixture-of-experts offload" in brief
+    assert "53" in brief and "21.54GB" in brief

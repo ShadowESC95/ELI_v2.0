@@ -123,3 +123,19 @@ def test_the_pipeline_text_is_a_constant_not_rebuilt_per_call():
     """It is static prose; only the runtime block is live."""
     assert isinstance(G._COGNITION_PIPELINE_TEXT, str)
     assert "Cognition pipeline" in G._COGNITION_PIPELINE_TEXT
+
+
+# ── mixture-of-experts: the divergence explanation must not say the layers ran on CPU ──
+MOE_SNAPSHOT = dict(
+    SNAPSHOT, n_gpu_layers=53, moe_expert_offload=True, moe_resident_gb=2.39, moe_experts_gb=21.54,
+    requested={"n_ctx": 12192, "n_gpu_layers": 52, "n_threads": 10, "n_batch": 128},
+    effective={"n_ctx": 12192, "n_gpu_layers": 53, "n_threads": 10, "n_batch": 128},
+)
+
+
+def test_moe_explanation_names_ram_and_cpu_not_the_rest_run_on_cpu(monkeypatch):
+    monkeypatch.setattr(G, "_runtime_snapshot", lambda: dict(MOE_SNAPSHOT))
+    out = G._inference_runtime_lines()
+    assert "the rest run on CPU" not in out, "there is no 'rest' — MoE raised the count, it did not reduce it"
+    assert "mixture-of-experts" in out
+    assert "21.54GB" in out and "system RAM" in out and "CPU" in out

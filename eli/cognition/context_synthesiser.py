@@ -319,6 +319,7 @@ def runtime_load_gap(snap: Dict[str, Any] | None = None) -> Dict[str, Any]:
             req[key] = snap.get(f"requested_{key}")
 
     reduced: Dict[str, Dict[str, int]] = {}
+    raised: Dict[str, Dict[str, int]] = {}
     for key in _LOAD_PARAMS:
         try:
             r = int(req.get(key) or 0)
@@ -327,6 +328,12 @@ def runtime_load_gap(snap: Dict[str, Any] | None = None) -> Dict[str, Any]:
             continue
         if r > 0 and e > 0 and e < r:
             reduced[key] = {"requested": r, "effective": e}
+        # A mixture-of-experts model raises n_gpu_layers ABOVE what was requested (llama.cpp's
+        # "put everything on the GPU" convention, with the experts kept in RAM) — "loaded exactly
+        # as requested" was being said for a load that did not match the request at all, just
+        # not in the direction this function used to check for.
+        elif r > 0 and e > r:
+            raised[key] = {"requested": r, "effective": e}
 
     gpu_layers = 0
     try:
@@ -346,6 +353,8 @@ def runtime_load_gap(snap: Dict[str, Any] | None = None) -> Dict[str, Any]:
     clamped = bool(flag) if flag is not None else bool(reduced)
 
     return {"ok": True, "on_gpu": on_gpu, "clamped": clamped, "reduced": reduced,
+            "raised": raised, "moe_expert_offload": bool(snap.get("moe_expert_offload")),
+            "moe_resident_gb": snap.get("moe_resident_gb"), "moe_experts_gb": snap.get("moe_experts_gb"),
             "requested": req, "effective": eff}
 
 
@@ -405,6 +414,17 @@ def live_runtime_brief() -> str:
             f"ELI loaded with effective ctx={n_ctx}, gpu_layers={gpu_layers} "
             f"(requested {req.get('n_ctx')}/{req.get('n_gpu_layers')}; "
             f"clamped due to VRAM headroom)."
+        )
+    if gap.get("moe_expert_offload"):
+        # Without this, a phatic/casual turn had no grounded note about the runtime at all
+        # (clamped=False, since MoE RAISES gpu_layers rather than reducing it) — the model then
+        # had nothing to draw an honest layer count from and stated a stale, invented one.
+        _experts_gb = gap.get("moe_experts_gb")
+        return (
+            f"ELI loaded {head} with mixture-of-experts offload: all {gpu_layers} layers' "
+            f"attention/shared weights on the GPU"
+            + (f", ~{_experts_gb}GB of expert weights in system RAM" if _experts_gb is not None else "")
+            + " (processed by the CPU during generation)."
         )
     return ""
 

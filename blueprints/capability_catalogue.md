@@ -212,7 +212,7 @@ layer that wraps the probabilistic model. Grouped by function:
 ## Grounding & anti-confabulation
 | Module | LOC | Role |
 |---|---|---|
-| `deterministic_grounding_gate.py` | 3367 | Renders control/status answers directly from live runtime (bypasses the model). One ordered `render_action` pipeline of layers composed by `_stack`; an unhandled action returns a `missing_deterministic_renderer` surface. |
+| `deterministic_grounding_gate.py` | 3385 | Renders control/status answers directly from live runtime (bypasses the model). One ordered `render_action` pipeline of layers composed by `_stack`; an unhandled action returns a `missing_deterministic_renderer` surface. |
 | `grounding_escalation.py` | 698 | When a **checkable factual** question is poorly grounded by the bus, escalates through agent tiers instead of letting the model confabulate (the "Eminem's real name" failure class). |
 | `diagnostic_patterns.py` | 112 | Regexes that catch vague/dynamic status confabulation ("currently processing updates…") and image-status fabrication. |
 | `control_contracts.py` | 1242 | Control-action evidence contract: build evidence → validate the model's output doesn't violate it → finalise. |
@@ -308,7 +308,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## Inference
 | Module | LOC | Role |
 |---|---|---|
-| `gguf_inference.py` | 3262 | Model-agnostic GGUF inference: model resolution (no baked model), family-aware chat templating, graceful GPU-layer fallback, streaming, output cleaning, token budgeting. |
+| `gguf_inference.py` | 3266 | Model-agnostic GGUF inference: model resolution (no baked model), family-aware chat templating, graceful GPU-layer fallback, streaming, output cleaning, token budgeting. |
 | `inference_broker.py` | 222 | Thin GGUF broker (`infer`) used by agents/coding/patching. |
 
 ## Reasoning & engagement
@@ -321,7 +321,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## Context & grounding
 | Module | LOC | Role |
 |---|---|---|
-| `context_synthesiser.py` | 756 | Builds the precise prompt context: persona handoff, turns block, vector block, live-runtime brief, budgeting. |
+| `context_synthesiser.py` | 776 | Builds the precise prompt context: persona handoff, turns block, vector block, live-runtime brief, budgeting. |
 | `grounded_status.py` | 648 | Identity + memory-inventory rendered directly from profile/DBs (direct grounded answers). |
 
 ## Persona (the living voice)
@@ -456,7 +456,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `gui/` (PySide6 desktop) — 27.4k lines
 | Module | LOC | Role |
 |---|---|---|
-| `eli_pro_audio_gui_v2_0.py` | 13145 | Main window: 13 top-level tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
+| `eli_pro_audio_gui_v2_0.py` | 13149 | Main window: 13 top-level tabs + adapters (CentralMemory/LocalModel/Ollama/Executor bridges, the `_GUIEngineAdapter`), chat, drag-drop, reasoning-mode auto-select, all toggles. |
 | `labs_tab.py` | 5744 | Labs workspace: Notebook, Memory browser, Jupyter launcher, Calculator(+constants), Physics tables, **Report Builder** (evidence-grounded docs), File-Chat, Workspaces, Sim-IDE. |
 | `app.py` | 827 | Launcher / first-boot auto-tune / `main()`. |
 | `panels/startup.py` | 1974 | StartupModelSelectionDialog, FirstBootWizard, HardwareTuningDock. |
@@ -580,7 +580,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `gpu_pack_runtime.py` | 83 | Activate the optional GPU pack before llama_cpp is imported (AppImage/portable). |
 | `init_data.py` | 283 | First-run data initialiser — build ELI's FULL database architecture up front. |
 | `llama_cpu_compat.py` | 240 | CPU compatibility for llama-cpp-python — parity with GPU probe/fallback policy. |
-| `load_probe.py` | 439 | Verify a set of load parameters actually works, without dying if it doesn't. |
+| `load_probe.py` | 479 | Verify a set of load parameters actually works, without dying if it doesn't. |
 | `model_tier.py` | 141 | Model-capability tier — the single signal that lets ELI's cognition budgets |
 | `secure_io.py` | 94 | Race-free writing of files that must never be world-readable. |
 | `self_provenance.py` | 207 | Is this row ELI's own bookkeeping, or evidence about the user? |

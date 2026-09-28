@@ -1120,6 +1120,8 @@ def load_model(force_reload: bool = False):
         "model_path": str(model_path),
         "load_mode": "GPU" if int(effective_n_gpu_layers) > 0 else "CPU",
         "moe_expert_offload": bool(_moe),
+        "moe_resident_gb": (_moe or {}).get("resident_gb") if _moe else None,
+        "moe_experts_gb": (_moe or {}).get("experts_gb") if _moe else None,
     }
     globals()["_live_runtime_params"] = {
         "provider": "gguf",
@@ -1135,6 +1137,8 @@ def load_model(force_reload: bool = False):
         "main_gpu": kwargs.get("main_gpu"),
         "load_mode": "GPU" if int(effective_n_gpu_layers) > 0 else "CPU",
         "moe_expert_offload": bool(_moe),
+        "moe_resident_gb": (_moe or {}).get("resident_gb") if _moe else None,
+        "moe_experts_gb": (_moe or {}).get("experts_gb") if _moe else None,
         "loaded": True,
         "pid": os.getpid(),
         "ts": _time.time(),

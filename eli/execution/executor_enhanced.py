@@ -724,12 +724,31 @@ def _gpu_status_report() -> Dict[str, Any]:
 
     if _gap.get("ok"):
         _reduced = _gap.get("reduced") or {}
+        _raised = _gap.get("raised") or {}
         if _reduced:
             _detail = "; ".join(
                 f"{k} {v['requested']} → {v['effective']}" for k, v in sorted(_reduced.items())
             )
             _reading.append(f"- Loaded BELOW request ({_detail}) — reduced to fit "
                             f"available VRAM, not a settings error.")
+        elif _raised and _gap.get("moe_expert_offload"):
+            # A mixture-of-experts model raises n_gpu_layers above what was requested (llama.cpp's
+            # "put everything on the GPU" convention) — this was being reported as "loaded exactly
+            # as requested" although the number the operator asked for and the number that loaded
+            # do not match, and the RAM/CPU side that comes with it went unmentioned entirely.
+            _detail = "; ".join(
+                f"{k} {v['requested']} → {v['effective']}" for k, v in sorted(_raised.items())
+            )
+            _experts_gb = _gap.get("moe_experts_gb")
+            _resident_gb = _gap.get("moe_resident_gb")
+            _reading.append(
+                f"- Loaded with mixture-of-experts offload ({_detail}): every layer's "
+                f"attention/shared weights are on the GPU"
+                + (f" (~{_resident_gb}GB VRAM)" if _resident_gb is not None else "")
+                + ", the expert weights"
+                + (f" (~{_experts_gb}GB)" if _experts_gb is not None else "")
+                + " stay in system RAM and are processed by the CPU during generation."
+            )
         else:
             _eff = _gap.get("effective") or {}
             _reading.append(

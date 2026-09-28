@@ -50,13 +50,19 @@ log = get_logger(__name__)
 # certain to finish. Past it the answer is "unproven" and startup carries on. Cost scales with
 # model size and ctx, so the budget is derived from both. ELI_LOAD_PROBE_TIMEOUT overrides it.
 _TIMEOUT_BASE_S = 30.0        # process spawn + import + backend init
-_TIMEOUT_PER_GB_S = 10.0      # cold read from disk + upload to VRAM
+_TIMEOUT_PER_GB_S = 10.0      # synchronous per-layer VRAM upload — only the VRAM-resident share
+_TIMEOUT_PER_GB_DISK_S = 2.0  # cold mmap page-in from disk, the rest of a MoE model's file
 _TIMEOUT_PER_1K_CTX_S = 2.0   # prefill, worst case with CPU-spilled layers
 _TIMEOUT_FLOOR_S = 30.0
 # The ceiling stops a startup probe blocking forever: three minutes at most, once per
 # configuration (cached, timeouts remembered), only when the request already exceeds the measured
 # fit, and the caller prints the real number first. A typical 2-5GB model settles well inside it.
 _TIMEOUT_CEILING_S = 180.0
+# A mixture-of-experts model's budget is scaled to its real (small) VRAM-bound share, not the
+# full file at the VRAM-upload rate — that number is trustworthy enough to earn more room than
+# the old always-pessimistic full-size estimate, which was already known wrong and got the same
+# cap as everything else regardless of how wrong.
+_TIMEOUT_MOE_CEILING_S = 240.0
 
 # Verdicts older than this are re-proven — drivers, other GPU tenants and
 # resident models all move. Override with ELI_LOAD_PROBE_TTL.
@@ -66,6 +72,34 @@ _DEFAULT_TTL_S = 7 * 24 * 3600.0
 # briefly: without this, a configuration too slow to settle re-pays the FULL budget
 # on every launch forever. Short enough that a machine which frees up gets retried.
 _TIMEOUT_MEMO_TTL_S = 3600.0
+
+
+def _probe_budget_sizes_gb(model_path: str) -> tuple:
+    """(vram_bound_gb, total_gb) — what the timeout budget should actually scale on.
+
+    _TIMEOUT_PER_GB_S was calibrated for the slow part of a cold load: synchronous, per-layer
+    VRAM upload. A mixture-of-experts model under expert offload only pays that cost for the
+    small resident share (attention/shared weights); the much larger expert share stays in RAM,
+    a plain mmap page-in at disk speed, not VRAM-upload speed. Budgeting the full file at the
+    VRAM rate — the previous behaviour — overshot so far past the 180s ceiling for a 24GB MoE
+    model that a probe already fixed to test the right configuration (moe_expert_offload=True)
+    still always looked "unproven": the estimate said ~294s were needed and the ceiling cut it
+    at 180s regardless of what the probe itself was actually measuring.
+    """
+    try:
+        total_gb = Path(model_path).stat().st_size / (1024 ** 3)
+    except Exception:
+        log.debug("load_probe: model size unreadable for timeout scaling", exc_info=True)
+        return 0.0, 0.0
+    vram_bound_gb = total_gb
+    try:
+        from eli.core import moe_offload as _moe_lp
+        _plan = _moe_lp.plan_for_load(str(model_path), True)
+        if _plan and _plan.get("resident_gb") is not None:
+            vram_bound_gb = float(_plan["resident_gb"])
+    except Exception:
+        log.debug("[LOAD_PROBE] moe plan lookup failed for timeout scaling", exc_info=True)
+    return vram_bound_gb, total_gb
 
 
 def probe_timeout_for(model_path: str, n_ctx: int) -> float:
@@ -80,19 +114,25 @@ def probe_timeout_for(model_path: str, n_ctx: int) -> float:
             return max(1.0, float(override))
         except ValueError:
             log.debug("ELI_LOAD_PROBE_TIMEOUT is not a number: %r", override)
-    try:
-        size_gb = Path(model_path).stat().st_size / (1024 ** 3)
-    except Exception:
-        log.debug("load_probe: model size unreadable for timeout scaling", exc_info=True)
-        size_gb = 0.0
-    budget = _uncapped_budget(size_gb, n_ctx)
-    return float(min(_TIMEOUT_CEILING_S, max(_TIMEOUT_FLOOR_S, budget)))
+    vram_bound_gb, total_gb = _probe_budget_sizes_gb(model_path)
+    budget = _uncapped_budget(vram_bound_gb, total_gb, n_ctx)
+    # A budget scaled to the real (MoE-aware) cost deserves a higher ceiling than the old
+    # always-pessimistic full-size estimate did — that estimate was already known-wrong for MoE,
+    # capping it at the same 180s as everything else just hid the wrongness instead of fixing it.
+    ceiling = _TIMEOUT_CEILING_S if vram_bound_gb >= total_gb else _TIMEOUT_MOE_CEILING_S
+    return float(min(ceiling, max(_TIMEOUT_FLOOR_S, budget)))
 
 
-def _uncapped_budget(size_gb: float, n_ctx: int) -> float:
+def _uncapped_budget(vram_bound_gb: float, total_gb: float, n_ctx: int) -> float:
+    # The VRAM-upload rate already stands in for "read from disk + upload" for whatever IS VRAM-
+    # bound (matches the old, single-term formula exactly when vram_bound_gb == total_gb, i.e. no
+    # MoE plan). The separate, cheaper disk rate applies only to the REMAINDER — the expert share
+    # that skips the VRAM step entirely — not the full file on top of the VRAM term.
+    disk_only_gb = max(0.0, total_gb - vram_bound_gb)
     return (
         _TIMEOUT_BASE_S
-        + size_gb * _TIMEOUT_PER_GB_S
+        + vram_bound_gb * _TIMEOUT_PER_GB_S
+        + disk_only_gb * _TIMEOUT_PER_GB_DISK_S
         + (max(0, int(n_ctx)) / 1000.0) * _TIMEOUT_PER_1K_CTX_S
     )
 
@@ -101,11 +141,11 @@ def budget_is_ceiling_cut(model_path: str, n_ctx: int) -> bool:
     """True when the probe's own estimate exceeds its ceiling, so it is expected to be cut off."""
     if (os.environ.get("ELI_LOAD_PROBE_TIMEOUT", "") or "").strip():
         return False
-    try:
-        size_gb = Path(model_path).stat().st_size / (1024 ** 3)
-    except Exception:
+    vram_bound_gb, total_gb = _probe_budget_sizes_gb(model_path)
+    if vram_bound_gb <= 0.0 and total_gb <= 0.0:
         return False
-    return _uncapped_budget(size_gb, n_ctx) > _TIMEOUT_CEILING_S
+    ceiling = _TIMEOUT_CEILING_S if vram_bound_gb >= total_gb else _TIMEOUT_MOE_CEILING_S
+    return _uncapped_budget(vram_bound_gb, total_gb, n_ctx) > ceiling
 
 
 def _cache_path() -> Path:

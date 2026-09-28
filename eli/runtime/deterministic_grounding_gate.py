@@ -524,7 +524,25 @@ def _inference_runtime_lines() -> str:
     if req.get("n_ctx") not in (None, "") and req.get("n_ctx") != eff.get("n_ctx"):
         lines.append(f"  (requested {req.get('n_ctx')}, reduced to fit VRAM)")
     lines.append(f"- GPU layers offloaded: {pick('n_gpu_layers')}")
-    if req.get("n_gpu_layers") not in (None, "") and req.get("n_gpu_layers") != eff.get("n_gpu_layers"):
+    _moe = bool(snap.get("moe_expert_offload"))
+    if _moe:
+        # Under expert offload, effective n_gpu_layers is deliberately HIGHER than requested
+        # (llama.cpp's "put everything on the GPU" convention) — attention/shared weights for
+        # every layer sit on the GPU, but the mixture-of-experts weights, most of the file, stay
+        # in system RAM and are processed by the CPU. "The rest run on CPU" (the old, dense-model
+        # phrasing) is backwards here: there is no "rest" left off the GPU, and it said nothing
+        # about the RAM/CPU side that actually accounts for the slower reply.
+        _experts_gb = snap.get("moe_experts_gb")
+        _resident_gb = snap.get("moe_resident_gb")
+        lines.append(
+            "  (mixture-of-experts: every layer's attention/shared weights are on the GPU"
+            + (f" (~{_resident_gb}GB VRAM)" if _resident_gb is not None else "")
+            + "; the expert weights"
+            + (f" (~{_experts_gb}GB)" if _experts_gb is not None else "")
+            + " stay in system RAM and are processed by the CPU during generation — "
+              "that is the dominant cost of a slower reply, not a layer count)"
+        )
+    elif req.get("n_gpu_layers") not in (None, "") and req.get("n_gpu_layers") != eff.get("n_gpu_layers"):
         lines.append(f"  (requested {req.get('n_gpu_layers')} — the rest run on CPU, which is the "
                      f"dominant cost of a slow reply)")
     lines.append(f"- batch: {pick('n_batch')}   threads: {pick('n_threads')}")
