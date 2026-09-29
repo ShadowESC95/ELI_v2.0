@@ -7416,9 +7416,16 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": True, "action": a, "fault": False, "needs_input": True,
                     "content": msg, "response": msg}
         from eli.execution.router_enhanced import route as _mc_route
-        parts = []
+        from eli.execution.command_sequence_log import start_or_resume, mark_step, finish
+        raw = str((args or {}).get("raw") or " | ".join(cmds))
+        seq = start_or_resume(raw, cmds)
+        seq_id, done_ok = seq["sequence_id"], seq["done_ok"]
+        parts = [None] * len(cmds)
         all_ok = True
-        for c in cmds:
+        for i, c in enumerate(cmds):
+            if i in done_ok:
+                parts[i] = done_ok[i] + "  (already done)"
+                continue
             try:
                 sub = _mc_route(c)
                 sa = (sub.get("action") or "CHAT")
@@ -7428,15 +7435,17 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     sa, sargs = "CHAT", {"message": c}
                 r = execute(sa, sargs)
                 txt = (r.get("response") or r.get("content") or "") if isinstance(r, dict) else str(r)
-                if isinstance(r, dict) and r.get("ok") is False:
+                ok = not (isinstance(r, dict) and r.get("ok") is False)
+                if not ok:
                     all_ok = False
             except Exception as e:
-                txt = f"failed: {e}"
-                all_ok = False
-            parts.append(f"• {c.strip()} →\n{(txt or '(done)').strip()}")
+                txt, ok, all_ok = f"failed: {e}", False, False
+            parts[i] = f"• {c.strip()} →\n{(txt or '(done)').strip()}"
+            mark_step(seq_id, i, ok, parts[i])
+        finish(seq_id, all_ok)
         msg = "\n\n".join(parts)
         return {"ok": all_ok, "action": a, "content": msg, "response": msg,
-                "meta": {"commands": cmds}}
+                "meta": {"commands": cmds, "resumed": seq["resumed"]}}
 
     # ---- TEST_REVIEW — run the suite, back up + write errors, then summarise + offer options ----
     # The grounded report below is summarised by the persona; the options route to
