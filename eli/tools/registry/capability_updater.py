@@ -76,6 +76,7 @@ def _manifest_matches(path, manifest) -> bool:
 
 def update_capability_manifest():
     from eli.runtime.capability_sync import CapabilitySync
+    from eli.runtime.evidence_ledger import predict_success, last_verified_success
 
     sync = CapabilitySync(repo_root=ELI_ROOT)
     capabilities_map = sync.discover()
@@ -88,6 +89,8 @@ def update_capability_manifest():
             "action": action,
             "source": meta.get("source", "unknown"),
             "active": True,
+            "health": predict_success(action),
+            "last_verified_success": last_verified_success(action),
             "plugin": meta.get("plugin"),
             "routable": bool(meta.get("routable")),
             "in_dispatch": bool(meta.get("in_dispatch")),

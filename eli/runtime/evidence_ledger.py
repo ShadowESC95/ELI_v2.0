@@ -630,6 +630,19 @@ def action_reliability(action: str, *, days: float = 30.0, half_life_days: float
     return {"action": str(action or "").upper(), "n": len(rows), "p": (ws + 1.0) / (ws + wf + 2.0)}
 
 
+def last_verified_success(action: str, *, db_path: Optional[str | Path] = None) -> Optional[float]:
+    """Timestamp of the most recent successful tool_execution for this action, or None."""
+    conn = _connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT MAX(COALESCE(ts, timestamp, 0)) FROM runtime_events WHERE event_type = 'tool_execution' "
+            "AND action = ? AND outcome = 'ok'", (str(action or "").upper(),)
+        ).fetchone()
+    finally:
+        conn.close()
+    return float(row[0]) if row and row[0] else None
+
+
 def predict_success(action: str, *, db_path: Optional[str | Path] = None) -> Optional[float]:
     """Chance the next run succeeds, or None when there is too little history to say."""
     try:
