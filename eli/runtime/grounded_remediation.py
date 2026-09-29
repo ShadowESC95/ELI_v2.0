@@ -850,16 +850,22 @@ def diagnose_app(name: str) -> dict:
         return _mk_result(False, "application", "", "status", "EMPTY_SUBJECT",
                           evidence=["No application name was provided."], repairable=False)
 
+    # PATH resolution alone is a confident, near-free "installed" — the filesystem
+    # walk and flatpak/snap subprocess calls below are redundant once it succeeds.
     which_path = shutil.which(app)
-    app_hits = _app_presence_hits(app)
-    flatpak_ok = _flatpak_installed(app)
-    snap_ok = _snap_installed(app)
-
-    evidence = []
-    evidence.append(f"command -v {app} -> {which_path if which_path else 'not found'}")
-    evidence.append(f"installed-app search -> {', '.join(app_hits) if app_hits else 'none found'}")
-    evidence.append(f"flatpak lookup -> {'installed' if flatpak_ok else 'not installed'}")
-    evidence.append(f"snap lookup -> {'installed' if snap_ok else 'not installed'}")
+    evidence = [f"command -v {app} -> {which_path if which_path else 'not found'}"]
+    if which_path:
+        app_hits, flatpak_ok, snap_ok = [], False, False
+        evidence.append("installed-app search -> skipped (PATH already confirmed install)")
+        evidence.append("flatpak lookup -> skipped (PATH already confirmed install)")
+        evidence.append("snap lookup -> skipped (PATH already confirmed install)")
+    else:
+        app_hits = _app_presence_hits(app)
+        flatpak_ok = _flatpak_installed(app)
+        snap_ok = _snap_installed(app)
+        evidence.append(f"installed-app search -> {', '.join(app_hits) if app_hits else 'none found'}")
+        evidence.append(f"flatpak lookup -> {'installed' if flatpak_ok else 'not installed'}")
+        evidence.append(f"snap lookup -> {'installed' if snap_ok else 'not installed'}")
 
     if which_path or app_hits or flatpak_ok or snap_ok:
         result = _mk_result(True, "application", app, "status", "INSTALLED",
