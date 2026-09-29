@@ -7465,6 +7465,12 @@ Answer:"""
                     'clarified': False,
                     'clarify_suppressed': True,
                 }
+            elif is_grounded_control_action(_eli_gc_action):
+                from eli.contracts.grounded_control import evidence_gap_reason
+                log.debug(
+                    f"[COGNITIVE][FINAL] grounded-control no-clarify v2 NOT suppressed "
+                    f"action={_eli_gc_action} gap={evidence_gap_reason(_eli_gc_action, {'evidence': evidence, 'best_answer': best_answer})}",
+                )
 
             log.debug(
                 f'[COGNITIVE][FINAL] clarify score={best_score:.2f} threshold={threshold:.2f}'
@@ -13050,6 +13056,12 @@ Answer:"""
                                 os.environ.get("ELI_EVIDENCE_GATE_DISABLE", "").lower() in ("1", "true")
                                 or evidence_complete_for_action(_action_upper, _chosen_payload)
                             )
+                            if not _eli_direct_evidence_ok:
+                                from eli.contracts.grounded_control import evidence_gap_reason
+                                log.debug(
+                                    f"[COGNITIVE][PHASE33] direct-return blocked action={_action_upper} "
+                                    f"gap={evidence_gap_reason(_action_upper, _chosen_payload)}",
+                                )
                         if _direct_content and _bypass_persona and _eli_direct_evidence_ok:
                             try:
                                 self._store_assistant_turn(_direct_content)

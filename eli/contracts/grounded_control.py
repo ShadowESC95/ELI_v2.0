@@ -220,6 +220,36 @@ def evidence_complete_for_action(action: str, local_vars: Mapping[str, Any]) -> 
     )
 
 
+def evidence_gap_reason(action: str, local_vars: Mapping[str, Any]) -> str:
+    """Why evidence_complete_for_action said False — for a distinct response per gap type,
+    not one generic "I can't answer that". One of: complete, missing, corrupted,
+    unreliable_tool, incomplete. Never raises; degrades to "incomplete" on any lookup failure.
+    """
+    action = str(action or "").strip().upper()
+    if evidence_complete_for_action(action, local_vars):
+        return "complete"
+
+    text = _collect_text(local_vars, limit=70000)
+    if not text or len(text.strip()) < 20:
+        return "missing"
+
+    if action in FILE_EVIDENCE_ACTIONS:
+        sample = text[:4000]
+        printable = sum(1 for ch in sample if ch.isprintable() or ch in "\n\t")
+        if len(sample) and printable / len(sample) < 0.85:
+            return "corrupted"
+
+    try:
+        from eli.runtime.evidence_ledger import action_reliability
+        rel = action_reliability(action)
+        if rel.get("n", 0) >= 5 and rel.get("p", 1.0) < 0.4:
+            return "unreliable_tool"
+    except Exception:
+        pass
+
+    return "incomplete"
+
+
 def should_suppress_clarification(local_vars: Mapping[str, Any]) -> bool:
     """
     Called from the final synthesis confidence branch.

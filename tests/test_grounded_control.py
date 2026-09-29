@@ -51,3 +51,11 @@ def test_real_file_text_is_complete():
 def test_empty_file_evidence_is_incomplete():
     assert gc.evidence_complete_for_action("READ_FILE", {"result": ""}) is False
     assert gc.evidence_complete_for_action("READ_FILE", {"result": "   "}) is False
+
+
+def test_evidence_gap_reason_types():
+    real = "Use Case Title: Automated Loan Approval System with enough real text here"
+    assert gc.evidence_gap_reason("SUMMARIZE_FILE", {"result": real}) == "complete"
+    assert gc.evidence_gap_reason("SUMMARIZE_FILE", {"result": ""}) == "missing"
+    garbage = "PK\x03\x04" + "".join(chr(i % 256) for i in range(200))
+    assert gc.evidence_gap_reason("SUMMARIZE_FILE", {"result": garbage}) == "corrupted"
