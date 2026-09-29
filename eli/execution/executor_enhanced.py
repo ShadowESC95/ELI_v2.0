@@ -10968,11 +10968,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception:
             log.debug("suppressed exception", exc_info=True)
         try:
-            # Read the WHOLE file — no 8000-byte truncation. The summariser does
-            # hierarchical map-reduce sized to the model context, so an arbitrarily
-            # large file is fully covered instead of summarising only its first 10%.
-            with open(expanded, errors="replace") as _sf:
-                _sf_raw = _sf.read()
+            _sf_doc = _read_document_text(expanded)
+            if _sf_doc is not None:
+                if not _sf_doc.get("ok"):
+                    return {"ok": False, "action": a, "error": _sf_doc.get("error"),
+                            "content": _sf_doc.get("content"), "response": _sf_doc.get("response")}
+                _sf_raw = _sf_doc.get("content", "")
+            else:
+                # Read the WHOLE file — no 8000-byte truncation. The summariser does
+                # hierarchical map-reduce sized to the model context, so an arbitrarily
+                # large plain-text file is fully covered instead of just its first 10%.
+                with open(expanded, errors="replace") as _sf:
+                    _sf_raw = _sf.read()
             _sf_summary = None
             try:
                 _sf_summary = _summarize_long_text(_sf_raw, _sf_instruction)
@@ -12987,6 +12994,19 @@ def _eli_user_info_report(force=False, reason="query"):
 # Helpers preserved from former EXECUTOR SAFE FILE WRAPPERS (phaseBW2).
 # The wrapper-install scaffolding was removed; pre-dispatch in execute()
 # routes READ_FILE / WRITE_NOTE / SCREENSHOT through these directly.
+# .docx/.pdf/etc are binary containers — open(path).read() decodes them as mojibake
+# and the model confabulates from the garbage. document_reader plugin already has
+# real per-format extraction; both SUMMARIZE_FILE and READ_FILE route through it.
+_DOC_READER_SUFFIXES = (".pdf", ".docx", ".doc", ".odt", ".epub")
+
+
+def _read_document_text(path):
+    if Path(path).suffix.lower() not in _DOC_READER_SUFFIXES:
+        return None
+    from eli.plugins.document_reader.plugin import DocumentReaderPlugin
+    return DocumentReaderPlugin().read({"path": str(path)})
+
+
 def _eli_safe_read_file(args=None):
     _args = args or {}
     path = str(_args.get("path") or "").strip()
@@ -13008,6 +13028,13 @@ def _eli_safe_read_file(args=None):
         except Exception as _ld_err:
             return {"ok": False, "action": "READ_FILE",
                     "content": f"Could not read directory {p}: {_ld_err}"}
+    _doc = _read_document_text(p)
+    if _doc is not None:
+        if not _doc.get("ok"):
+            return {"ok": False, "action": "READ_FILE",
+                    "content": _doc.get("content", "Could not read file.")}
+        return {"ok": True, "action": "READ_FILE", "path": str(p),
+                "content": _doc.get("content", "")}
     data = None
     for enc in ("utf-8", "utf-8-sig", "latin-1"):
         try:
