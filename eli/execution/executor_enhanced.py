@@ -6427,9 +6427,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
     if a == "RESUME_TASK":
-        # Explicit "continue/resume the X project" must reach the real task record
-        # (goal_store.find_task), not a chat-routed guess at what "the project" was —
-        # and must say how stale it is rather than silently implying continuity.
+        # Real goal_store lookup, not a chat-routed guess — always states staleness.
         try:
             topic = str((args or {}).get("topic") or (args or {}).get("query") or "").strip()
             if not topic:

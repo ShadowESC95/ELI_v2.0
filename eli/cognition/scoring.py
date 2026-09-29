@@ -93,10 +93,8 @@ def fuse_memory_score(importance: float, weight: float, recency: float,
         return 0.0
 
 
-# Overlap floor for "this evidence is genuinely about the query" vs. "something merely
-# vouched for it." Shared by the memory reranker and the agent bus — see reranker.py's own
-# comment for the live incident (importance alone outranking actual query matches) this was
-# built to close; the agent bus had the identical gap, one layer further up the pipeline.
+# Overlap floor for "genuinely about the query" vs. "merely vouched for." Shared by the
+# reranker and the agent bus.
 RELEVANCE_OVERLAP_FLOOR = 0.2
 RELEVANCE_STRONG_CREDIT = 1.0
 RELEVANCE_WEAK_CREDIT = 0.55
@@ -104,11 +102,9 @@ RELEVANCE_MIN_CREDIT = 0.2
 
 
 def relevance_gate(overlap: float, *, strong_signal: bool = False, weak_signal: bool = False) -> float:
-    """3-tier credit gate: full credit only above a real overlap floor or an explicit
-    alternate relevance signal; partial credit when some other channel vouched for it but
-    overlap is weak; minimal credit otherwise. `strong_signal` overrides the floor entirely
-    (e.g. a memory row inside the exact date window the user asked about); `weak_signal`
-    only matters when the floor isn't met (e.g. a retriever found it, but on weak overlap)."""
+    """3-tier credit: full above the overlap floor or strong_signal; partial on weak_signal
+    alone; minimal otherwise. strong_signal overrides the floor; weak_signal only matters
+    when the floor isn't met."""
     if overlap >= RELEVANCE_OVERLAP_FLOOR or strong_signal:
         return RELEVANCE_STRONG_CREDIT
     if weak_signal:

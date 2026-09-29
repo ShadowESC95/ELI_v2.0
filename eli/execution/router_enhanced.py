@@ -5601,17 +5601,10 @@ def _eli_pm_pre_route(text):
     return None
 
 
-# "continue/resume the X project" must reach a real, evidence-backed lookup (goal_store's
-# task record), not open CHAT and let the model guess at what "the project" was — the same
-# grounded-vs-guessed pattern already fixed for news-topic deepening and routing-fault
-# explanations above.
-#
-# The task-noun requirement is load-bearing, not decorative: an unqualified "resume X" is
-# also the router's dynamic media-control contract's own pattern ("resume spotify" / "resume
-# the podcast" -> MEDIA_CONTROL, applied as a post-contract that runs on every final route
-# regardless of which stage matched first — see _eli_media_contract_post). Without a keyword
-# to disambiguate, "resume the RAIMS project" was won by the media contract and silently
-# turned into a fabricated MEDIA_CONTROL play command for a target called "raims project".
+# "continue/resume the X project" -> goal_store lookup, not a CHAT guess. The task-noun
+# requirement is load-bearing: bare "resume X" also matches media's dynamic_control_contract
+# post-contract ("resume spotify" -> MEDIA_CONTROL) and would otherwise lose to it — see
+# _eli_media_contract_post's RESUME_TASK short-circuit below.
 _RESUME_TASK_RX = re.compile(
     r"\b(?:continue|resume|pick\s+(?:back\s+)?up|go\s+back\s+to|get\s+back\s+to)\s+"
     r"(?:working\s+on\s+)?(?:the\s+|my\s+|that\s+|our\s+)?"
@@ -7057,10 +7050,8 @@ def _eli_media_contract_post(raw, result):
         # "and close spotify"; let the executor run each segment in order.
         if isinstance(result, dict) and str(result.get("action") or "").upper() == "MULTI_COMMAND":
             return result
-        # A task/project resume already resolved to a real, evidence-backed goal_store lookup
-        # (RESUME_TASK, matched only when "project"/"task"/"work"/... is present — see
-        # _RESUME_TASK_RX). Don't let this post-contract's generic "resume X" catch-all below
-        # reinterpret it as a media-playback command for a target called "raims project".
+        # Already resolved to a real task lookup — don't let the "resume X" catch-all below
+        # reinterpret it as media playback.
         if isinstance(result, dict) and str(result.get("action") or "").upper() == "RESUME_TASK":
             return result
         original = str(raw or "")

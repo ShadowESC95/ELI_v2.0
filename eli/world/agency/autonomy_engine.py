@@ -172,9 +172,8 @@ class EliWorldAutonomyEngine:
         )
 
     def _create_task_object_action(self, goal_id: str, title: str) -> WorldAction:
-        # A task's workbench must be its own object, not the shared one _create_object_action
-        # keys on template+room — every task would collide onto the same object and retiring
-        # one task would (incorrectly) retire the visible marker for all of them.
+        # Own object per task, not the shared template+room one — else retiring one task
+        # retires every task's marker.
         template = get_object_template("project_workbench")
         object_id = f"task_workbench_{sha1(goal_id.encode('utf-8')).hexdigest()[:10]}"
         return WorldAction(

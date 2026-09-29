@@ -123,9 +123,7 @@ _TASK_IDLE_S = 14 * 86400.0
 
 
 def _notify_world(event_type: str, summary: str, payload: Dict[str, Any]) -> None:
-    """Best-effort task<->World bridge. World is a visualisation layer, not a dependency a
-    task record can be blocked on — a broken/unavailable World must never stop a task from
-    opening or closing, so this is fire-and-forget."""
+    """Fire-and-forget task<->World bridge — a broken World must never block a task."""
     try:
         from eli.world.local_world_bridge import append_event
         append_event(event_type, "goal_store", summary, payload)
@@ -145,8 +143,7 @@ def open_task(title: str, objective: str = "", constraints: List[str] | None = N
 
 
 def close_task(goal_id: str) -> bool:
-    """Explicitly mark a task done and retire its visible World object. Never inferred from
-    idle time alone — an old task going quiet means it's unfinished, not finished."""
+    """Explicitly mark a task done and retire its World object. Never inferred from idle time."""
     goals = load_goals()
     for g in goals:
         if g.goal_id == goal_id and "task" in g.tags and g.status == "active":
@@ -193,9 +190,7 @@ def record_task_event(goal_id: str, kind: str, text: str) -> bool:
 
 
 def task_brief_for(g: GoalSpec, *, tail: int = 3) -> str:
-    """One task's line: constraints, decisions, what is done, artifacts, what is still open.
-    Shared by the passive multi-task brief and an explicit single-task resume — one formatter,
-    not two slightly different ones."""
+    """One task's line: constraints, decisions, what is done, artifacts, what is still open."""
     m = g.metadata
     bits = [(label, m.get(k) or (g.constraints if k == "constraints" else [])) for label, k in (
         ("constraints", "constraints"), ("decided", "decisions"), ("done", "steps_done"), ("artifacts", "artifacts"), ("open", "open_questions"))]
@@ -212,9 +207,7 @@ def task_brief(limit: int = 2, now: float | None = None) -> str:
 
 
 def find_task(query: str, *, include_idle: bool = True) -> Optional[GoalSpec]:
-    """Look up a task by title/objective match, bypassing the idle-freshness gate by
-    default — an explicit ask for an old project should find and resume it, not silently
-    drop it because `current_task()`'s passive window (14 days) has lapsed."""
+    """Look up a task by title/objective match, bypassing the idle-freshness gate by default."""
     from eli.cognition.scoring import term_overlap
     q = str(query or "").strip()
     if not q:

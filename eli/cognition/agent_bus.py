@@ -188,9 +188,7 @@ _EVIDENCE_KEYS = (
     "entries", "rules", "insights", "memory_context",
 )
 
-# Below this, a result's representative text is too short for term_overlap to mean anything
-# (a couple of words can share 100% overlap with the query by chance) — treat it as
-# unscored rather than let a sliver of text swing the relevance gate either way.
+# Below this, term_overlap is noise (a couple words can hit 100% by chance) — leave ungated.
 _RELEVANCE_MIN_TEXT_CHARS = 40
 
 
@@ -1669,13 +1667,9 @@ def _aggregate_confidence(
         (see _evidence_density), smooth and asymptotic to 1.
       - calibration is a rolling per-(agent, action) multiplier learned from
         the agent_metrics table (starts neutral at 1.0).
-      - relevance gates evidence_quality/density against whether the result's
-        text is actually ABOUT `user_input` (term_overlap, via relevance_gate) —
-        without it, a maximally confident, evidence-dense result that has
-        nothing to do with the query scores as highly as one that does. Same
-        gap reranker.py already closed for memory recall; this is the agent-bus
-        layer's own copy of it. No-op (1.0) when `user_input` is empty/too
-        short to score, or when ELI_AGENT_BUS_RELEVANCE_GATE=0.
+      - relevance gates evidence_quality/density on whether the result's text
+        is actually about `user_input` (term_overlap via relevance_gate).
+        1.0 (no-op) when user_input is empty/short or the gate env var is off.
 
     Single-agent contributions are capped at _SINGLE_AGENT_CAP so no one
     agent can dominate. Empty-bus dispatches are capped at _EMPTY_BUS_CEILING.
@@ -3193,10 +3187,8 @@ class CriticAgent(_BaseAgent):
                         f"mutual agreement (overlap {agreement}); treat with lower "
                         f"confidence and prefer the deterministic/grounded path.")
             else:
-                # Corroboration alone isn't enough: two sources can agree strongly with
-                # EACH OTHER while both being off-topic for what was actually asked — the
-                # same gap _aggregate_confidence closes one layer down. Discount agreement
-                # by how well the sources actually match the query, not just each other.
+                # Sources can agree with EACH OTHER while both being off-topic — discount
+                # agreement by query match, not just mutual match.
                 relevance = 1.0
                 if _relevance_gate_enabled():
                     long_texts = [t for t in texts if len(t) >= _RELEVANCE_MIN_TEXT_CHARS]
