@@ -7417,35 +7417,57 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "content": msg, "response": msg}
         from eli.execution.router_enhanced import route as _mc_route
         from eli.execution.command_sequence_log import start_or_resume, mark_step, finish
+        from eli.execution.command_dependency_graph import infer_dependencies
         raw = str((args or {}).get("raw") or " | ".join(cmds))
         seq = start_or_resume(raw, cmds)
         seq_id, done_ok = seq["sequence_id"], seq["done_ok"]
-        parts = [None] * len(cmds)
+
+        n = len(cmds)
+        deps = infer_dependencies(cmds)
+        try:
+            from eli.core.dag import build_dag
+            g = build_dag({str(i): [str(d) for d in deps.get(i, [])] for i in range(n)})
+            layers = [[int(nid) for nid in layer] for layer in g.topological_layers()]
+        except Exception:
+            layers = [list(range(n))]   # no real dependencies, or the graph didn't validate
+
+        parts = [None] * n
+        ok_flags = [i in done_ok for i in range(n)]
         all_ok = True
-        for i, c in enumerate(cmds):
-            if i in done_ok:
-                parts[i] = done_ok[i] + "  (already done)"
-                continue
-            try:
-                sub = _mc_route(c)
-                sa = (sub.get("action") or "CHAT")
-                sargs = dict(sub.get("args") or {})
-                sargs.setdefault("_raw_user_text", c)
-                if sa == "MULTI_COMMAND":          # guard against re-entry
-                    sa, sargs = "CHAT", {"message": c}
-                r = execute(sa, sargs)
-                txt = (r.get("response") or r.get("content") or "") if isinstance(r, dict) else str(r)
-                ok = not (isinstance(r, dict) and r.get("ok") is False)
-                if not ok:
+        for layer in layers:
+            for i in sorted(layer):
+                c = cmds[i]
+                if i in done_ok:
+                    parts[i] = done_ok[i] + "  (already done)"
+                    continue
+                blockers = [d for d in deps.get(i, []) if not ok_flags[d]]
+                if blockers:
+                    reason = ", ".join(str(d) for d in blockers)
+                    parts[i] = f"• {c.strip()} →\nskipped — depends on step {reason} which failed"
                     all_ok = False
-            except Exception as e:
-                txt, ok, all_ok = f"failed: {e}", False, False
-            parts[i] = f"• {c.strip()} →\n{(txt or '(done)').strip()}"
-            mark_step(seq_id, i, ok, parts[i])
+                    mark_step(seq_id, i, False, parts[i])
+                    continue
+                try:
+                    sub = _mc_route(c)
+                    sa = (sub.get("action") or "CHAT")
+                    sargs = dict(sub.get("args") or {})
+                    sargs.setdefault("_raw_user_text", c)
+                    if sa == "MULTI_COMMAND":          # guard against re-entry
+                        sa, sargs = "CHAT", {"message": c}
+                    r = execute(sa, sargs)
+                    txt = (r.get("response") or r.get("content") or "") if isinstance(r, dict) else str(r)
+                    ok = not (isinstance(r, dict) and r.get("ok") is False)
+                    if not ok:
+                        all_ok = False
+                except Exception as e:
+                    txt, ok, all_ok = f"failed: {e}", False, False
+                ok_flags[i] = ok
+                parts[i] = f"• {c.strip()} →\n{(txt or '(done)').strip()}"
+                mark_step(seq_id, i, ok, parts[i])
         finish(seq_id, all_ok)
         msg = "\n\n".join(parts)
         return {"ok": all_ok, "action": a, "content": msg, "response": msg,
-                "meta": {"commands": cmds, "resumed": seq["resumed"]}}
+                "meta": {"commands": cmds, "resumed": seq["resumed"], "dependencies": deps}}
 
     # ---- TEST_REVIEW — run the suite, back up + write errors, then summarise + offer options ----
     # The grounded report below is summarised by the persona; the options route to
