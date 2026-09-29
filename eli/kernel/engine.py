@@ -1450,6 +1450,17 @@ _ELI_PHASE19_GROUNDED_FOLLOWUP_ACTIONS = {
     "MCP_STATUS",
     "STT_DIAGNOSTICS",
 }
+# File-evidence actions (SUMMARIZE_FILE, READ_FILE, ANALYZE_PDF, ...) belong in the same
+# rebind set — a live incident showed the exact GPU_STATUS failure mode reproduced for
+# SUMMARIZE_FILE: a challenge/complaint after a genuinely grounded summary fell through to
+# plain CHAT and the model fabricated two different, elaborate fake "analyses" of the same
+# file in a row, complete with invented legal citations. Reuses grounded_control's registry
+# rather than hand-duplicating it (FILE_AUDIT above already overlaps; the union is a no-op).
+try:
+    from eli.contracts.grounded_control import FILE_EVIDENCE_ACTIONS as _ELI_FILE_EVIDENCE_ACTIONS
+    _ELI_PHASE19_GROUNDED_FOLLOWUP_ACTIONS |= _ELI_FILE_EVIDENCE_ACTIONS
+except Exception:
+    pass
 
 _ELI_PHASE19_DETAIL_FOLLOWUP_RX = re.compile(
     r"(?:"
@@ -1463,6 +1474,14 @@ _ELI_PHASE19_DETAIL_FOLLOWUP_RX = re.compile(
     r"\b(?:line|lines|file|files|path|paths|issue|issues|duplicate|duplicates|finding|findings|report|result|results|fix|repair|remove|delete)\b"
     r"|\b(?:issue|issues|duplicate|duplicates|finding|findings)\b.{0,100}"
     r"\b(?:where|line|lines|file|files|fix|repair|remove|delete)\b"
+    # "you didn't really analyse my answers though, more of just a summary" — a live
+    # incident: this fell through to plain CHAT (neither regex matched it, and SUMMARIZE_FILE
+    # wasn't even in the rebind action set), and the follow-up got an elaborate, entirely
+    # fabricated re-"analysis" instead of the same file being re-read with the complaint as
+    # the refined instruction.
+    r"|\byou\s+did\s?n'?t\s+(?:really|actually)?\s*\w+"
+    r"|\bthat'?s\s+not\s+(?:what\s+i\s+(?:asked|wanted)|really\s+\w+)"
+    r"|\bmore\s+of\s+(?:a|an)?\s*\w+\s+than\b"
     r")",
     re.IGNORECASE | re.DOTALL,
 )
@@ -1470,7 +1489,12 @@ _ELI_PHASE19_DETAIL_FOLLOWUP_RX = re.compile(
 _ELI_PHASE19_CHALLENGE_FOLLOWUP_RX = re.compile(
     r"\b(?:"
     r"are\s+you\s+(?:lying|lieing)\s+to\s+me"
+    # "you are lying to me" / "you're lying" — the word-order-swapped version of the pattern
+    # above. A live incident used exactly this phrasing ("you ae lyinto me") and it fell
+    # through unmatched; typos aside, the correct-word-order phrasing itself wasn't covered.
+    r"|you\s*(?:'?re|\s+are)\s+(?:lying|lieing)(?:\s+to\s+me)?"
     r"|you\s+(?:lied|made\s+that\s+up|invented\s+that|fabricated\s+that)"
+    r"|(?:making|make)\s+(?:shit|stuff|things?)\s+up"
     r"|that(?:'s|\s+is)\s+(?:wrong|false|not\s+correct|incorrect)"
     r"|thats\s+funny\s+because"
     r"|that(?:'s|\s+is)\s+funny\s+because"
@@ -1589,6 +1613,21 @@ def _eli_phase19_rebind_grounded_followup(engine, user_input: str, intent: Dict[
         "followup_to_request_id": str(prior.get("request_id") or ""),
         "followup_kind": "challenge" if challenge else "detail",
     }
+    # File-evidence actions (SUMMARIZE_FILE etc.) need the ORIGINAL path/file to mean
+    # anything — "question" alone re-invokes the action with nothing to read, which the
+    # executor already refuses honestly ("Specify file to summarize"), but the point of the
+    # rebind is to re-examine the SAME file with the complaint as a refined instruction, not
+    # just avoid a lie. Recover it from what the prior turn actually recorded.
+    try:
+        from eli.contracts.grounded_control import FILE_EVIDENCE_ACTIONS as _rebind_file_actions
+        if prior_action in _rebind_file_actions:
+            _prior_file_args = dict(prior.get("args") or {})
+            for _k in ("path", "file", "folder", "url"):
+                if _prior_file_args.get(_k):
+                    current["args"][_k] = _prior_file_args[_k]
+            current["args"]["instruction"] = raw
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
     try:
         current["confidence"] = max(float(current.get("confidence") or 0.0), 0.985)
     except Exception:
@@ -10078,6 +10117,7 @@ Answer:"""
         response: str = "",
         grounding_confidence: Optional[float] = None,
         user_input: str = "",
+        args: Optional[Dict[str, Any]] = None,
     ) -> None:
         try:
             score = None if confidence is None else float(confidence)
@@ -10128,6 +10168,11 @@ Answer:"""
             # the exchange was rather than only how confident it felt.
             "user_input": str(user_input or "")[:400],
             "grounding_confidence": _grounding_score,
+            # The action's own args (path/file/instruction, not a full payload) — lets a
+            # challenge/detail follow-up to a file-evidence action (SUMMARIZE_FILE etc.)
+            # rebind to the SAME file instead of re-asking with no path at all.
+            "args": {k: v for k, v in dict(args or {}).items()
+                     if k in ("path", "file", "folder", "instruction", "url", "query")},
         }
         try:
             if "agent_confidence" in (trace or {}):
@@ -13004,6 +13049,7 @@ Answer:"""
                                         evidence_used=True,
                                         grounded=True,
                                         response=_final_text,
+                                        args=intent.get("args") or {},
                                     )
                                 except Exception:
                                     log.debug("suppressed exception", exc_info=True)
@@ -13087,6 +13133,7 @@ Answer:"""
                                     evidence_used=True,
                                     grounded=True,
                                     response=_direct_content,
+                                    args=intent.get("args") or {},
                                 )
                             except Exception:
                                 log.debug("suppressed exception", exc_info=True)
@@ -13181,6 +13228,7 @@ Answer:"""
                                     evidence_used=True,
                                     grounded=True,
                                     response=_final_text,
+                                    args=intent.get("args") or {},
                                 )
                             except Exception:
                                 log.debug("suppressed exception", exc_info=True)
