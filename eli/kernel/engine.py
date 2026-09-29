@@ -4119,6 +4119,9 @@ class CognitiveEngine:
         self._last_trace: Dict[str, Any] = {}
         self._last_request_meta: Dict[str, Any] = {}  # populated after each response
         self._gguf_lock = threading.RLock()
+        # Lets a fresh failure cluster or user challenge pull reflection forward
+        # instead of always waiting out the full 24h window — see _start_reflection_loop.
+        self._reflection_wake = threading.Event()
         self.user_id = self._get_user_id()
         # ── Working Memory (session-persistent pinned facts) ──────────────────
         try:
@@ -9983,6 +9986,12 @@ Answer:"""
             self.memory.add_conversation_turn("user", text, self.session_id, self.user_id)
         except Exception as e:
             log.debug(f"[COGNITIVE] User turn store failed: {e}")
+        try:
+            from eli.runtime.diagnostic_patterns import is_user_challenge
+            if is_user_challenge(text):
+                self._reflection_wake.set()
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
 
     def _prepend_recent_exchange(self, user_input: str) -> str:
         """Prepend live session thread to the user prompt whenever the session has history."""
@@ -15447,19 +15456,47 @@ Answer:"""
 
     def _start_reflection_loop(self) -> None:
         def loop() -> None:
-            _MAX_RETRIES = 4  # Fix 7: retry instead of skipping
             initial_delay = int(
     os.environ.get(
         "ELI_REFLECTION_START_DELAY_SEC",
          "300") or 300)
             time.sleep(max(0, initial_delay))
+            last_reflection = 0.0
+            _FLOOR = 30 * 60      # never reflect more than once per 30 min, even under a signal burst
+            _CEILING = 24 * 3600  # still reflect at least once a day with zero signal
+            _POLL = 30 * 60       # how often to check for an early-wake signal
             while self.running:
-                self._reflect()
-                time.sleep(24 * 3600)
+                self._reflection_wake.wait(timeout=_POLL)
+                self._reflection_wake.clear()
+                now = time.time()
+                if now - last_reflection < _FLOOR:
+                    continue
+                if now - last_reflection >= _CEILING or self._significant_reflection_signal(last_reflection):
+                    self._reflect()
+                    last_reflection = time.time()
         threading.Thread(
     target=loop,
     daemon=True,
      name="eli-reflection").start()
+
+    def _significant_reflection_signal(self, since: float) -> bool:
+        """Cheap reuse of reflect_on_period's own significance checks, run early instead
+        of only inside the 24h reflection — a fresh user challenge or an active failure
+        cluster is worth reflecting on now, not up to a day later."""
+        try:
+            from eli.runtime.evidence_ledger import recent_events
+            rows = recent_events(limit=1, event_type="user_challenge")
+            if rows and float(rows[0].get("timestamp") or 0) > since:
+                return True
+        except Exception:
+            log.debug("reflection wake: user_challenge check failed", exc_info=True)
+        try:
+            from eli.runtime import lessons as _lessons
+            if _lessons.from_failure_clusters(days=1.0, min_count=3):
+                return True
+        except Exception:
+            log.debug("reflection wake: failure cluster check failed", exc_info=True)
+        return False
 
     def _reflect(self) -> None:
         _MAX_RETRIES = 4
