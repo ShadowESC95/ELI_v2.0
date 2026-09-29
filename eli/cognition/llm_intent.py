@@ -50,6 +50,21 @@ def _catalogue() -> List[str]:
         return []
 
 
+def _catalogue_prompt_lines(catalogue: List[str]) -> str:
+    """"NAME: description" per action, from the same curated map the capabilities
+    doc renders from — bare names alone left near-neighbours (ANALYZE_PDF vs
+    SUMMARIZE_FILE, FIX_FILE vs CODE_SOLVE) indistinguishable to the model."""
+    try:
+        from eli.tools.registry.capabilities_doc import _C
+    except Exception:
+        _C = {}
+    lines = []
+    for a in catalogue:
+        desc = _C.get(a, (None, None, None))[1]
+        lines.append(f"{a}: {desc}" if desc else a)
+    return "\n".join(lines)
+
+
 # A few diverse FORMAT examples (teach arg extraction + the CHAT default). These
 # illustrate the output shape and generalise — they are not a per-phrase routing
 # table. Kept short and cross-domain on purpose.
@@ -183,6 +198,22 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
     if not text:
         return {"action": "CHAT", "args": {"message": text}, "confidence": 0.5}
 
+    # A real file marker is a structured, deterministic fact — don't spend a 199-way
+    # LLM guess on it. Empirically the model confused this with ANALYZE_PDF/READ_FILE
+    # regardless of prompt tuning; SUMMARIZE_FILE's own extension dispatch is what
+    # actually gets it right (PDF/image/etc all redirect correctly from there).
+    _tag_m = re.search(r"\[(?:Image|File|PDF):\s*(.+?)\]", text)
+    _marker_path = _tag_m.group(1).strip() if _tag_m else None
+    if not _marker_path:
+        try:
+            from eli.execution.router_enhanced import _attachment_marker_path
+            _marker_path = _attachment_marker_path(text)
+        except Exception:
+            _marker_path = None
+    if _marker_path:
+        return {"action": "SUMMARIZE_FILE", "args": {"path": _marker_path},
+                "confidence": 0.9, "meta": {"matched_by": "llm_intent.file_marker"}}
+
     catalogue = _catalogue()
     if not catalogue:
         return {"action": "CHAT", "args": {"message": text}, "confidence": 0.5}
@@ -200,7 +231,7 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
         )
         prompt = (
             "ACTIONS (choose exactly one, or CHAT):\n"
-            + ", ".join(catalogue)
+            + _catalogue_prompt_lines(catalogue)
             + "\n\nEXAMPLES (format only):\n" + _FEW_SHOT
             + f'\nUSER: "{text}"\nJSON:'
         )
