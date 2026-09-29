@@ -247,6 +247,7 @@ def _ensure_failure_tables(conn: sqlite3.Connection) -> None:
     )
     _ensure_columns(conn, "code_patches", {
         "hypothesis": "TEXT", "verdict": "TEXT", "results": "TEXT", "cost_s": "REAL", "parent_id": "INTEGER",
+        "probation_actions": "TEXT", "probation_baseline": "TEXT", "probation_started": "REAL",
     })
     conn.commit()
 
@@ -256,6 +257,37 @@ _WORKSPACE_DIRS = ("eli", "api", "tests", "tools", "config")
 _WORKSPACE_FILES = ("pytest.ini", "pyproject.toml", "conftest.py")
 _REPLAYABLE_ACTIONS = frozenset({"DATE", "TIME", "GPU_STATUS", "RUNTIME_STATUS", "MEMORY_STATUS", "MEMORY_STATS",
                                  "SYSTEM_STATUS", "CPU_USAGE", "LIST_DIR", "EXPLAIN_MEMORY_RUNTIME", "IMAGE_STATUS"})
+
+# Staged deployment: how many real invocations of a watched action are needed before a
+# probationary patch gets a verdict, how far reliability may drop below its pre-patch
+# baseline before that counts as a regression, and how long to keep watching before
+# giving up (too little real traffic on a single-user desktop app to ever judge it).
+_PROBATION_MIN_INVOCATIONS = 5
+_PROBATION_REGRESSION_DROP = 0.15
+_PROBATION_MAX_DAYS = 14.0
+
+
+def _actions_for_patch_file(file_path: str) -> List[str]:
+    """Actions worth watching after patching this file — only where the file->action
+    mapping is unambiguous (a plugin's own plugin.py). executor_enhanced.py/
+    router_enhanced.py each back hundreds of actions; a patch there can't be
+    attributed to any one of them, so those patches keep today's immediate-adopt
+    behaviour rather than a misleading probation.
+    """
+    try:
+        rel = Path(file_path).resolve().relative_to(_patch_root()).as_posix()
+    except Exception:
+        rel = str(file_path or "")
+    m = re.match(r"eli/plugins/([^/]+)/plugin\.py$", rel)
+    if not m:
+        return []
+    plugin_name = m.group(1)
+    try:
+        from eli.runtime.capability_sync import CapabilitySync
+        caps = CapabilitySync(repo_root=_patch_root()).discover()
+    except Exception:
+        return []
+    return sorted(a for a, meta in caps.items() if meta.get("plugin") == plugin_name)
 
 
 def failure_capsule(action: str, args: Any, result: Any, *, request_id: str = "") -> Dict[str, Any]:
@@ -608,6 +640,11 @@ class SelfImprovementEngine:
         fine on a daemon tick, fatal on the shutdown path, where it hung the
         window close until the user pressed Ctrl-C twice.
         """
+        try:
+            self._check_probationary_patches()
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+
         failures = self.analyze_failures(limit=25, min_cluster_size=1)
         improvements: List[Dict[str, Any]] = []
 
@@ -1337,10 +1374,23 @@ class SelfImprovementEngine:
             conn.close()
         if not row or row[4] != "verified" or row[5] != "fixed":
             return {"ok": False, "applied": False, "message": "only a candidate that fixed its reproducer with no regression can be adopted"}
+        watched = _actions_for_patch_file(row[0])
+        baseline: Dict[str, float] = {}
+        if watched:
+            from eli.runtime.evidence_ledger import action_reliability
+            baseline = {a: action_reliability(a)["p"] for a in watched}
         res = self.apply_code_patch({"file": row[0], "old": row[2], "new": row[3], "description": row[1]}, verify=True)
+        if res.get("applied") and watched:
+            status = "probationary"
+        else:
+            status = "adopted" if res.get("applied") else "rolled_back"
         conn = self.memory._get_connection()
         try:
-            conn.execute("UPDATE code_patches SET status = ? WHERE id = ?", ("adopted" if res.get("applied") else "rolled_back", int(candidate_id)))
+            conn.execute(
+                "UPDATE code_patches SET status = ?, probation_actions = ?, probation_baseline = ?, "
+                "probation_started = ? WHERE id = ?",
+                (status, json.dumps(watched) if watched else None, json.dumps(baseline) if watched else None,
+                 time.time() if status == "probationary" else None, int(candidate_id)))
             conn.commit()
         finally:
             conn.close()
@@ -1402,6 +1452,60 @@ class SelfImprovementEngine:
             return {"ok": True, "message": f"Reverted {p.name} from backup"}
         except Exception as exc:
             return {"ok": False, "message": f"Revert failed: {exc}"}
+
+    def _resolve_probation(self, candidate_id: int, status: str) -> None:
+        conn = self.memory._get_connection()
+        try:
+            conn.execute("UPDATE code_patches SET status = ? WHERE id = ?", (status, int(candidate_id)))
+            conn.commit()
+        finally:
+            conn.close()
+
+    def _check_probationary_patches(self) -> None:
+        """Re-check every probationary patch's watched actions against its pre-adoption
+        baseline. A real regression auto-reverts via the existing revert_patch(); enough
+        clean invocations promotes it to permanent 'adopted'; too little real traffic to
+        ever judge it flips it to 'adopted' anyway once the time ceiling is hit — it
+        can't sit in limbo forever on a single-user desktop app with sparse usage.
+        """
+        conn = self.memory._get_connection()
+        try:
+            _ensure_failure_tables(conn)
+            rows = conn.execute(
+                "SELECT id, file_path, probation_actions, probation_baseline, probation_started "
+                "FROM code_patches WHERE status = 'probationary'").fetchall()
+        finally:
+            conn.close()
+        if not rows:
+            return
+        from eli.runtime.evidence_ledger import action_reliability
+        now = time.time()
+        for pid, file_path, actions_json, baseline_json, started in rows:
+            try:
+                watched = json.loads(actions_json or "[]")
+                baseline = json.loads(baseline_json or "{}")
+            except Exception:
+                watched, baseline = [], {}
+            if not watched:
+                self._resolve_probation(pid, "adopted")
+                continue
+            regressed = False
+            all_clean = True
+            for a in watched:
+                r = action_reliability(a, since=float(started) if started else None)
+                if r["n"] < _PROBATION_MIN_INVOCATIONS:
+                    all_clean = False
+                    continue
+                base_p = baseline.get(a)
+                if base_p is not None and r["p"] < base_p - _PROBATION_REGRESSION_DROP:
+                    regressed = True
+            if regressed:
+                self.revert_patch(file_path)
+                self._resolve_probation(pid, "rolled_back")
+            elif all_clean:
+                self._resolve_probation(pid, "adopted")
+            elif started and now - float(started) > _PROBATION_MAX_DAYS * 86400.0:
+                self._resolve_probation(pid, "adopted")
 
     def run_patch_cycle(
         self,

@@ -609,14 +609,20 @@ _MIN_HISTORY = 3
 
 
 def action_reliability(action: str, *, days: float = 30.0, half_life_days: float = 7.0,
-                       db_path: Optional[str | Path] = None) -> Dict[str, Any]:
-    """Recency-weighted success rate of an action from its tool_execution events (Beta(1,1) prior)."""
+                       since: Optional[float] = None, db_path: Optional[str | Path] = None) -> Dict[str, Any]:
+    """Recency-weighted success rate of an action from its tool_execution events (Beta(1,1) prior).
+
+    `since`, when given, replaces the rolling `days` window with an exact cutoff — e.g.
+    self_improvement's staged-deployment check wants reliability strictly after a patch's
+    adoption time, not blended with whatever history came before it.
+    """
     now = time.time()
+    cutoff = float(since) if since is not None else now - float(days) * 86400.0
     conn = _connect(db_path)
     try:
         rows = conn.execute(
             "SELECT COALESCE(ts, timestamp, 0), outcome FROM runtime_events WHERE event_type = 'tool_execution' "
-            "AND action = ? AND COALESCE(ts, timestamp, 0) >= ?", (str(action or "").upper(), now - float(days) * 86400.0)
+            "AND action = ? AND COALESCE(ts, timestamp, 0) >= ?", (str(action or "").upper(), cutoff)
         ).fetchall()
     finally:
         conn.close()
