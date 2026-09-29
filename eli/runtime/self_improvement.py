@@ -1344,6 +1344,19 @@ class SelfImprovementEngine:
             conn.commit()
         finally:
             conn.close()
+        if res.get("applied"):
+            # A verified fix becomes a lesson for that file: the same failure pattern next
+            # time should try the same change first, not be re-diagnosed from scratch.
+            try:
+                from eli.runtime import lessons as _lessons
+                _lessons.propose(
+                    applies_to=str(row[0]), trigger=f"recurrence of: {row[1][:200]}",
+                    evidence=[f"candidate {candidate_id} verified fixed, no regression"],
+                    proposed_change=str(row[1])[:400], hypothesis="same root cause as the verified candidate",
+                    predicted_outcome="fixed", category="self_repair",
+                )
+            except Exception:
+                log.debug("self_improvement: lesson recording failed", exc_info=True)
         return res
 
     def apply_autonomously(self, patch: dict, failure: Optional[dict] = None) -> dict:
