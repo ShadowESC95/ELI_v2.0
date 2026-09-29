@@ -26,6 +26,13 @@ from typing import List, Optional
 _CONJ_RX = re.compile(
     r"\s+(?:and then|and also|;|,\s*then\s+|\bthen\b|\band\b)\s+", re.I)
 
+# "analyse and summarise report.docx" is ONE request (synonyms for "engage with this
+# file"), not two — but "analyse" and "summarise" each pass _IMP_START on their own, so
+# it split into ["Analyse", "summarise report.docx"], the first with no object at all.
+# The router's own SUMMARIZE_FILE pattern already treats these as one compound verb;
+# don't steal the match before it gets there.
+_FILE_ENGAGE_VERBS = re.compile(r"^\s*(?:summari[sz]e|analyse|analyze|read|look\s+at)\b", re.I)
+
 # Imperative verbs a real command starts with: the splitter's model of what ELI can be told
 # to do. It had drifted from the capability manifest, so "do a web search and open the browser"
 # and "open firefox then maximise it" didn't split. Only real imperatives are added; most manifest
@@ -77,6 +84,8 @@ def split_commands(text: str, *, max_parts: int = 5) -> Optional[List[str]]:
     if not (2 <= len(parts) <= max_parts):
         return None
     if not all(_IMP_START.search(p) for p in parts):
+        return None
+    if all(_FILE_ENGAGE_VERBS.search(p) for p in parts):
         return None
     return [_trim_trailing_chatter(p) for p in parts]
 
