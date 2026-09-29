@@ -51,11 +51,13 @@ echo "  Targets: ${TARGETS[*]}"
 echo "================================================="
 
 build_python_artifacts() {
-    if ( cd /tmp && python3 -c 'import build.__main__' >/dev/null 2>&1 ); then
-        ( cd /tmp && python3 -m build "$PROJECT_ROOT" --wheel --sdist --outdir "$DIST/" )
+    # $PY, not python3: the build frontend lives in the venv, and this check silently
+    # skipped the sdist on any machine where the bare system python3 doesn't have it.
+    if ( cd /tmp && "$PY" -c 'import build.__main__' >/dev/null 2>&1 ); then
+        ( cd /tmp && "$PY" -m build "$PROJECT_ROOT" --wheel --sdist --outdir "$DIST/" )
     else
         echo "[wheel] python-build frontend not installed; building wheel via pip wheel (sdist skipped)."
-        python3 -m pip wheel --no-deps "$PROJECT_ROOT" -w "$DIST/"
+        "$PY" -m pip wheel --no-deps "$PROJECT_ROOT" -w "$DIST/"
     fi
 }
 
@@ -78,7 +80,7 @@ build_windows_wheelhouse_for() {
                 PyAutoGUI*|pyautogui*) continue ;;
                 accelerate*) extra_download_args=(--no-deps) ;;
             esac
-            if ! python3 -m pip download \
+            if ! "$PY" -m pip download \
                     --dest "$OUT_DIR" \
                     --platform "$PLATFORM" \
                     --python-version "$pyver" \
@@ -96,7 +98,7 @@ build_windows_wheelhouse_for() {
             awk 'NF && $1 !~ /^#/'
         )
 
-        if ! python3 -m pip download \
+        if ! "$PY" -m pip download \
                 --dest "$OUT_DIR" \
                 --platform "$PLATFORM" \
                 --python-version "$pyver" \
@@ -113,7 +115,7 @@ build_windows_wheelhouse_for() {
 
     if [ "$PLATFORM" = "win_amd64" ]; then
         echo "[wheelhouse] Building pure-Python automation wheels (x64)…"
-        if ! python3 -m pip wheel \
+        if ! "$PY" -m pip wheel \
                 --wheel-dir "$OUT_DIR" \
                 "PyAutoGUI>=0.9.54"; then
             echo "[wheelhouse] Missing pure-Python automation wheels for PyAutoGUI."
@@ -212,7 +214,8 @@ WOA_EOF
 
     # Pre-generate the capability manifest into the package (it's gitignored, so the
     # git-archive source carries none) — the installer's offline fallback copy.
-    ( cd "$STAGING" && PYTHONPATH="$STAGING" python3 -c \
+    # $PY, not python3: same silent-import-failure trap as the pre-flight manifest step.
+    ( cd "$STAGING" && PYTHONPATH="$STAGING" "$PY" -c \
       "from eli.tools.registry.capability_updater import update_capability_manifest; update_capability_manifest()" ) \
       >/dev/null 2>&1 || true
 
@@ -222,13 +225,13 @@ WOA_EOF
         cp "$PROJECT_ROOT/requirements-portable-bootstrap.txt" "$STAGING/"
         for _plat in win_amd64 win_arm64; do
             for _pv in 311 312; do
-                python3 -m pip download -r "$PROJECT_ROOT/requirements-portable-bootstrap.txt" \
+                "$PY" -m pip download -r "$PROJECT_ROOT/requirements-portable-bootstrap.txt" \
                     -d "$STAGING/wheelhouse" \
                     --platform "$_plat" --python-version "$_pv" --implementation cp \
                     --abi "cp${_pv}" --only-binary=:all: --prefer-binary -q 2>/dev/null || true
             done
         done
-        python3 -m pip download -r "$PROJECT_ROOT/requirements-portable-bootstrap.txt" \
+        "$PY" -m pip download -r "$PROJECT_ROOT/requirements-portable-bootstrap.txt" \
             -d "$STAGING/wheelhouse" --prefer-binary -q 2>/dev/null || true
     fi
 }
@@ -240,11 +243,11 @@ echo "[pre-flight] Compiling the codebase…"
 # This is a MAINTAINER build tool. If it's run from an unpacked release (no .git),
 # fall back to a plain file walk instead of `git ls-files` so it doesn't error out.
 if git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
-    ( cd "$PROJECT_ROOT" && python3 -m py_compile $(git ls-files '*.py') )
+    ( cd "$PROJECT_ROOT" && "$PY" -m py_compile $(git ls-files '*.py') )
 else
     echo "[pre-flight] not a git checkout — this is the maintainer release builder;"
     echo "             to USE ELI run ./ELI_Setup.sh (or ./RUN_ELI.sh). Skipping compile."
-    ( cd "$PROJECT_ROOT" && find eli api -name '*.py' -print0 2>/dev/null | xargs -0 python3 -m py_compile 2>/dev/null || true )
+    ( cd "$PROJECT_ROOT" && find eli api -name '*.py' -print0 2>/dev/null | xargs -0 "$PY" -m py_compile 2>/dev/null || true )
 fi
 fi
 
