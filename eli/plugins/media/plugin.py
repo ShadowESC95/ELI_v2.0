@@ -8,6 +8,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, Optional
 
+from eli.plugins.base.base import Plugin
+
 
 def _b():
     """Lazy import to avoid circular imports at startup."""
@@ -15,11 +17,86 @@ def _b():
     return playerctl_backend
 
 
-class MediaPlugin:
+class MediaPlugin(Plugin):
     name = "media"
     version = "1.0.0"
     description = "Controls media playback and system volume via MPRIS2/playerctl"
     requires = ["playerctl"]  # runtime dependency hint
+
+    def __init__(self):
+        # Plugin.execute()/register() rebind each handler via handler.__get__(self, ...),
+        # which only works for an already-bound method (a plain lambda gets `self` injected
+        # as its first arg on rebind and breaks) — so each action maps to a bound _act_*
+        # adapter below, not a lambda, matching the other plugins' convention.
+        self.actions = {
+            "play": self._act_play,
+            "pause": self._act_pause,
+            "stop": self._act_stop,
+            "play_pause": self._act_play_pause,
+            "next_track": self._act_next_track,
+            "previous_track": self._act_previous_track,
+            "seek": self._act_seek,
+            "get_volume": self._act_get_volume,
+            "set_volume": self._act_set_volume,
+            "mute": self._act_mute,
+            "unmute": self._act_unmute,
+            "toggle_mute": self._act_toggle_mute,
+            "get_status": self._act_get_status,
+            "list_players": self._act_list_players,
+            "clipboard_set": self._act_clipboard_set,
+            "clipboard_get": self._act_clipboard_get,
+        }
+        super().__init__()
+
+    # ── Action adapters (args: dict -> the real, kwarg-based methods below) ────
+
+    def _act_play(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.play(args.get("player"))
+
+    def _act_pause(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.pause(args.get("player"))
+
+    def _act_stop(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.stop(args.get("player"))
+
+    def _act_play_pause(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.play_pause(args.get("player"))
+
+    def _act_next_track(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.next_track(args.get("player"))
+
+    def _act_previous_track(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.previous_track(args.get("player"))
+
+    def _act_seek(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.seek(float(args.get("seconds") or 0), args.get("player"))
+
+    def _act_get_volume(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.get_volume()
+
+    def _act_set_volume(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.set_volume(int(args.get("level") or 0), args.get("player"))
+
+    def _act_mute(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.mute(bool(args.get("muted", True)))
+
+    def _act_unmute(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.unmute()
+
+    def _act_toggle_mute(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.toggle_mute()
+
+    def _act_get_status(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.get_status(args.get("player"))
+
+    def _act_list_players(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.list_players()
+
+    def _act_clipboard_set(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.clipboard_set(args.get("text", ""))
+
+    def _act_clipboard_get(self, args: Dict[str, Any]) -> Dict[str, Any]:
+        return self.clipboard_get()
 
     # ── Playback ──────────────────────────────────────────────
 

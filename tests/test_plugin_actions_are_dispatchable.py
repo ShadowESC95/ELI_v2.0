@@ -155,6 +155,28 @@ def test_ambiguous_bare_name_is_reported_not_guessed(installed, monkeypatch):
     assert mgr.dispatch("RIVAL_HELLO", {})["content"] == "rival hello"
 
 
+def test_media_plugin_is_dispatchable(monkeypatch):
+    """MediaPlugin didn't inherit from Plugin, so PluginManager's issubclass check
+    never found it — it loaded fine but was silently unregistered. Covers the real
+    eli/plugins/media/plugin.py, not a synthetic fixture. _load_plugin_from_file
+    execs it under a fresh module name (plugins.media.plugin, not
+    eli.plugins.media.plugin), so the MPRIS backend has to be patched at its own
+    module rather than on media/plugin.py's `_b` — both resolve the same object."""
+    import eli.plugins.manager as M
+    from eli.plugins.media import plugin as media_plugin_mod
+    from eli.integrations.mpris import playerctl_backend
+
+    monkeypatch.setattr(playerctl_backend, "play", lambda player=None: {"ok": True, "content": "playing"})
+    monkeypatch.setattr(M, "_load_state", lambda: {"enabled": ["media"], "disabled": []})
+
+    mgr = M.PluginManager()
+    mgr._load_plugin_from_file("media", media_plugin_mod.__file__)
+    assert isinstance(mgr._loaded["media"], media_plugin_mod.Plugin)
+
+    res = mgr.dispatch("MEDIA_PLAY", {"player": "spotify"})
+    assert res is not None and res["ok"] is True and res["content"] == "playing"
+
+
 def test_a_plugin_cannot_shadow_a_builtin_action():
     """Dispatch is the LAST stop in the executor. A listing declaring SHUTDOWN or
     SEND_EMAIL must not take that verb over for the whole assistant."""
