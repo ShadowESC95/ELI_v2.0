@@ -47,3 +47,56 @@ def test_chatter_and_questions_add_nothing():
 def test_an_abandoned_task_falls_out_of_the_brief():
     gs.open_task("Old work")
     assert gs.task_brief(now=__import__("time").time() + 30 * 86400) == ""
+
+
+def test_find_task_recovers_what_the_passive_brief_drops():
+    t = gs.open_task("RAIMS project", "build the RAIMS ingestion pipeline")
+    gs.record_task_event(t.goal_id, "decision", "use SQLite for the staging store")
+    goals = gs.load_goals()
+    for g in goals:
+        if g.goal_id == t.goal_id:
+            g.updated_at -= 30 * 86400
+    gs.save_goals(goals)
+
+    # passive lookup: correctly silent past the idle window
+    assert gs.current_task() is None
+    assert gs.task_brief() == ""
+    # explicit lookup: still finds it, brief still has the real recorded content
+    found = gs.find_task("continue the raims project")
+    assert found is not None and found.goal_id == t.goal_id
+    assert "use SQLite" in gs.task_brief_for(found)
+    # explicit lookup can also honor the idle gate when asked to
+    assert gs.find_task("continue the raims project", include_idle=False) is None
+
+
+def test_find_task_returns_none_for_no_match():
+    gs.open_task("Something else entirely")
+    assert gs.find_task("a totally unrelated query with no overlap") is None
+    assert gs.find_task("") is None
+
+
+def test_open_task_notifies_world_close_task_notifies_world(monkeypatch):
+    calls = []
+    import eli.world.local_world_bridge as bridge
+    monkeypatch.setattr(bridge, "append_event", lambda *a, **k: calls.append((a, k)))
+
+    t = gs.open_task("Bridge test project")
+    assert calls and calls[0][0][0] == "task_opened"
+    assert calls[0][0][3]["goal_id"] == t.goal_id
+
+    ok = gs.close_task(t.goal_id)
+    assert ok is True
+    assert calls[-1][0][0] == "task_closed"
+    assert calls[-1][0][3]["goal_id"] == t.goal_id
+    # the task record itself is marked done, not deleted
+    goals = gs.load_goals()
+    assert any(g.goal_id == t.goal_id and g.status == "done" for g in goals)
+
+
+def test_close_task_is_a_no_op_for_unknown_or_already_closed(monkeypatch):
+    import eli.world.local_world_bridge as bridge
+    monkeypatch.setattr(bridge, "append_event", lambda *a, **k: None)
+    assert gs.close_task("no-such-goal-id") is False
+    t = gs.open_task("Twice closed")
+    assert gs.close_task(t.goal_id) is True
+    assert gs.close_task(t.goal_id) is False  # already done, not active

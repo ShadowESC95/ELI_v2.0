@@ -5,7 +5,7 @@ from typing import Any, Dict, Iterable, List
 
 # Canonical text + recency primitives (one owner — no bespoke stopwords/tokeniser here).
 from eli.cognition.scoring import (
-    tokenize as _tok, recency_score as _recency_score,
+    tokenize as _tok, recency_score as _recency_score, relevance_gate as _relevance_gate,
     RERANK_W_OVERLAP as _W_OVERLAP, RERANK_W_IMPORTANCE as _W_IMPORTANCE,
     RERANK_W_WEIGHT as _W_WEIGHT, RERANK_W_RECENCY as _W_RECENCY,
 )
@@ -145,9 +145,7 @@ def rerank_candidates(query: str, candidates: Iterable[Dict[str, Any]], limit: i
         # weight/recency credit on some sign a retriever found this genuinely related to THIS
         # query — real lexical overlap, or at least a retrieval channel hit — not just that it
         # is generally salient.
-        relevance_gate = (
-            1.0 if (overlap >= 0.2 or _window_sourced) else (0.55 if (rrf or channels) else 0.2)
-        )
+        relevance_gate = _relevance_gate(overlap, strong_signal=_window_sourced, weak_signal=bool(rrf or channels))
         quality = (
             importance * _W_IMPORTANCE
             + min(weight, 2.0) / 2.0 * _W_WEIGHT

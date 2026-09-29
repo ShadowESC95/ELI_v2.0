@@ -121,6 +121,16 @@ class EliWorldAutonomyEngine:
             actions.append(self._create_object_action("upgrade_console", RoomType.UPGRADE_BAY.value, "An improvement proposal was generated and needs visible staging."))
         if event.event_type in {"tool_activity", "code_work", "project_work"}:
             actions.append(self._create_object_action("project_workbench", RoomType.WORKSHOP.value, "Tool/project activity is active; workspace should be foregrounded."))
+        if event.event_type == "task_opened":
+            _goal_id = str(event.payload.get("goal_id") or "")
+            _title = str(event.payload.get("title") or _goal_id)
+            if _goal_id:
+                actions.append(self._create_task_object_action(_goal_id, _title))
+        if event.event_type == "task_closed":
+            _goal_id = str(event.payload.get("goal_id") or "")
+            _obj = self._find_task_object(state, _goal_id) if _goal_id else None
+            if _obj is not None:
+                actions.append(self._retire_object_action(_obj.object_id, _obj.room, f"Task '{_obj.name}' was closed."))
 
         # Reasoning-stage routing: move the avatar to the semantically right room and materialise
         # the matching symbolic object so the World tab shows live activity during the multi-pass
@@ -161,7 +171,58 @@ class EliWorldAutonomyEngine:
             payload={"object_id": object_id, "template_id": template_id, "name": template.get("name", template_id), "object_type": template.get("object_type", "world_object"), "symbolic_meaning": template.get("symbolic_meaning", ""), "importance": template.get("importance", 0.5), "affordances": template.get("affordances", [])},
         )
 
+    def _create_task_object_action(self, goal_id: str, title: str) -> WorldAction:
+        # A task's workbench must be its own object, not the shared one _create_object_action
+        # keys on template+room — every task would collide onto the same object and retiring
+        # one task would (incorrectly) retire the visible marker for all of them.
+        template = get_object_template("project_workbench")
+        object_id = f"task_workbench_{sha1(goal_id.encode('utf-8')).hexdigest()[:10]}"
+        return WorldAction(
+            action_type=WorldActionType.CREATE_OBJECT.value,
+            actor="eli",
+            room=RoomType.WORKSHOP.value,
+            reason=f"Task opened: {title}",
+            payload={
+                "object_id": object_id, "template_id": "project_workbench",
+                "name": title or template.get("name", "project_workbench"),
+                "object_type": template.get("object_type", "world_object"),
+                "symbolic_meaning": template.get("symbolic_meaning", ""),
+                "importance": template.get("importance", 0.5),
+                "affordances": template.get("affordances", []),
+                "links": [{"type": "task", "goal_id": goal_id}],
+            },
+        )
+
+    def _find_task_object(self, state: EliWorldState, goal_id: str) -> Optional[WorldObject]:
+        for obj in state.objects.values():
+            if obj.retired:
+                continue
+            for link in obj.links or []:
+                if link.get("type") == "task" and link.get("goal_id") == goal_id:
+                    return obj
+        return None
+
+    def _retire_object_action(self, object_id: str, room: str, reason: str) -> WorldAction:
+        return WorldAction(
+            action_type=WorldActionType.RETIRE_OBJECT.value,
+            actor="eli",
+            room=room,
+            reason=reason,
+            payload={"object_id": object_id},
+        )
+
     def _apply_action(self, state: EliWorldState, action: WorldAction) -> None:
+        if action.action_type == WorldActionType.RETIRE_OBJECT.value:
+            object_id = action.payload.get("object_id")
+            obj = state.objects.get(object_id)
+            if obj is not None and not obj.retired:
+                obj.retired = True
+                append_journal_entry(
+                    title=f"Retired world object: {obj.name}",
+                    body=f"Reason: {action.reason}\n\nRoom: `{action.room}`\n\nObject ID: `{object_id}`",
+                    source="eli_world_autonomy",
+                )
+            return
         if action.action_type == WorldActionType.CREATE_OBJECT.value:
             object_id = action.payload["object_id"]
             if object_id in state.objects:
@@ -176,6 +237,7 @@ class EliWorldAutonomyEngine:
                 importance=float(action.payload.get("importance", 0.5)),
                 symbolic_meaning=action.payload.get("symbolic_meaning", ""),
                 affordances=list(action.payload.get("affordances", [])),
+                links=list(action.payload.get("links", [])),
                 reason=action.reason,
                 x=float(len(state.objects) % 5),
                 y=float((len(state.objects) // 5) % 5),

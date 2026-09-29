@@ -122,13 +122,40 @@ _TASK_CAP = 30
 _TASK_IDLE_S = 14 * 86400.0
 
 
+def _notify_world(event_type: str, summary: str, payload: Dict[str, Any]) -> None:
+    """Best-effort task<->World bridge. World is a visualisation layer, not a dependency a
+    task record can be blocked on — a broken/unavailable World must never stop a task from
+    opening or closing, so this is fire-and-forget."""
+    try:
+        from eli.world.local_world_bridge import append_event
+        append_event(event_type, "goal_store", summary, payload)
+    except Exception:
+        pass
+
+
 def open_task(title: str, objective: str = "", constraints: List[str] | None = None) -> GoalSpec:
     """A unit of work that outlives a conversation. A task is a goal the scheduler does not tick."""
     for g in load_goals():
         if "task" in g.tags and g.status == "active" and g.title.strip().lower() == title.strip().lower():
             return g
-    return upsert_goal({"title": title, "objective": objective, "constraints": list(constraints or []), "tags": ["task"],
+    goal = upsert_goal({"title": title, "objective": objective, "constraints": list(constraints or []), "tags": ["task"],
                         "enabled": False, "autonomy_mode": "none", "metadata": {"task": True}})
+    _notify_world("task_opened", f"Task opened: {goal.title}", {"goal_id": goal.goal_id, "title": goal.title})
+    return goal
+
+
+def close_task(goal_id: str) -> bool:
+    """Explicitly mark a task done and retire its visible World object. Never inferred from
+    idle time alone — an old task going quiet means it's unfinished, not finished."""
+    goals = load_goals()
+    for g in goals:
+        if g.goal_id == goal_id and "task" in g.tags and g.status == "active":
+            g.status = "done"
+            g.updated_at = time.time()
+            save_goals(goals)
+            _notify_world("task_closed", f"Task closed: {g.title}", {"goal_id": g.goal_id, "title": g.title})
+            return True
+    return False
 
 
 def current_task(now: float | None = None) -> Optional[GoalSpec]:
@@ -165,19 +192,45 @@ def record_task_event(goal_id: str, kind: str, text: str) -> bool:
     return False
 
 
+def task_brief_for(g: GoalSpec, *, tail: int = 3) -> str:
+    """One task's line: constraints, decisions, what is done, artifacts, what is still open.
+    Shared by the passive multi-task brief and an explicit single-task resume — one formatter,
+    not two slightly different ones."""
+    m = g.metadata
+    bits = [(label, m.get(k) or (g.constraints if k == "constraints" else [])) for label, k in (
+        ("constraints", "constraints"), ("decided", "decisions"), ("done", "steps_done"), ("artifacts", "artifacts"), ("open", "open_questions"))]
+    detail = "; ".join(f"{label}: {', '.join(v[-tail:])}" for label, v in bits if v)
+    return f"  Unfinished task: {g.title}" + (f" — {detail}" if detail else "")
+
+
 def task_brief(limit: int = 2, now: float | None = None) -> str:
     """What is unfinished, for the next session: constraints, decisions, what is done and what is still open."""
     now = time.time() if now is None else float(now)
     tasks = sorted((g for g in load_goals() if "task" in g.tags and g.status == "active" and now - g.updated_at <= _TASK_IDLE_S),
                    key=lambda g: g.updated_at, reverse=True)[:limit]
-    lines = []
-    for g in tasks:
-        m = g.metadata
-        bits = [(label, m.get(k) or (g.constraints if k == "constraints" else [])) for label, k in (
-            ("constraints", "constraints"), ("decided", "decisions"), ("done", "steps_done"), ("artifacts", "artifacts"), ("open", "open_questions"))]
-        detail = "; ".join(f"{label}: {', '.join(v[-3:])}" for label, v in bits if v)
-        lines.append(f"  Unfinished task: {g.title}" + (f" — {detail}" if detail else ""))
-    return "\n".join(lines)
+    return "\n".join(task_brief_for(g) for g in tasks)
+
+
+def find_task(query: str, *, include_idle: bool = True) -> Optional[GoalSpec]:
+    """Look up a task by title/objective match, bypassing the idle-freshness gate by
+    default — an explicit ask for an old project should find and resume it, not silently
+    drop it because `current_task()`'s passive window (14 days) has lapsed."""
+    from eli.cognition.scoring import term_overlap
+    q = str(query or "").strip()
+    if not q:
+        return None
+    now = time.time()
+    best: Optional[GoalSpec] = None
+    best_score = 0.0
+    for g in load_goals():
+        if "task" not in g.tags or g.status != "active":
+            continue
+        if not include_idle and now - g.updated_at > _TASK_IDLE_S:
+            continue
+        score = max(term_overlap(q, g.title), term_overlap(q, g.objective))
+        if score > best_score:
+            best, best_score = g, score
+    return best if best_score > 0.0 else None
 
 
 _CUES = (
