@@ -151,10 +151,23 @@ skip next previous volume save store remember forget schedule cancel switch enab
 
 
 def is_plain_statement(text: str) -> bool:
-    """Conversation, not a command: no question, no leading action verb. Nothing for an intent model to resolve."""
+    """Conversation, not a command: no question, no leading action verb. Nothing for an intent model to resolve.
+
+    A message can lead with chat ("Sorry, been busy — here's my file [File: x.docx]")
+    and still carry an attachment worth resolving; the first-word check alone missed
+    this and skipped the resolver entirely, so the model never learned a file existed.
+    """
     t = " ".join(str(text or "").split())
     if len(t.split()) < 6 or "?" in t:
         return False
+    if any(tag in t for tag in ("[Image:", "[File:", "[PDF:")):
+        return False
+    try:
+        from eli.execution.router_enhanced import _attachment_marker_path
+        if _attachment_marker_path(t):
+            return False
+    except Exception:
+        pass
     first = re.sub(r"^(?:please|hey|eli|ok|okay|so|well|and|but)[,\s]+", "", t.lower())
     words = re.findall(r"[a-z']+", first)
     return bool(words) and words[0] not in _IMPERATIVE and not re.search(r"\bplease\b", t, re.I)
