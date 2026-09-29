@@ -7446,9 +7446,13 @@ Answer:"""
             except Exception:
                 _eli_gc_action = ""
 
-            from eli.contracts.grounded_control import is_grounded_control_action
+            from eli.contracts.grounded_control import (
+                is_grounded_control_action, evidence_complete_for_action)
 
-            if is_grounded_control_action(_eli_gc_action):
+            _eli_gate_off = os.environ.get("ELI_EVIDENCE_GATE_DISABLE", "").lower() in ("1", "true")
+            if is_grounded_control_action(_eli_gc_action) and (
+                _eli_gate_off or evidence_complete_for_action(
+                    _eli_gc_action, {"evidence": evidence, "best_answer": best_answer})):
                 log.debug(
                     f"[COGNITIVE][FINAL] grounded-control no-clarify v2 suppressed "
                     f"action={_eli_gc_action} score={best_score:.2f} threshold={threshold:.2f}",
@@ -13038,7 +13042,15 @@ Answer:"""
                                     ),
                                     "report": _exec_meta_payload.get("report"),
                                 }
-                        if _direct_content and _bypass_persona:
+                        _eli_direct_evidence_ok = True
+                        from eli.contracts.grounded_control import (
+                            GROUNDED_CONTROL_ACTIONS as _ELI_GC_ACTIONS, evidence_complete_for_action)
+                        if _direct_content and _action_upper in _ELI_GC_ACTIONS:
+                            _eli_direct_evidence_ok = (
+                                os.environ.get("ELI_EVIDENCE_GATE_DISABLE", "").lower() in ("1", "true")
+                                or evidence_complete_for_action(_action_upper, _chosen_payload)
+                            )
+                        if _direct_content and _bypass_persona and _eli_direct_evidence_ok:
                             try:
                                 self._store_assistant_turn(_direct_content)
                             except Exception:

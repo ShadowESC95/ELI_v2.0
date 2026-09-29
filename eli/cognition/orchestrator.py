@@ -868,16 +868,30 @@ class AgentOrchestrator:
                     "trace": wm.trace,
                 }
 
-            wm.trace["stage_nonchat"] = "executor_direct_result"
-            wm.trace["stage_10"] = "skipped_nonchat_direct_result"
-            wm.trace["stage_10_5"] = "skipped_nonchat_direct_result"
-            wm.trace["stage_11"] = "skipped_nonchat_direct_result"
-            _eli_orch_complete_final_stage(
-                "completed",
-                note="nonchat_direct_result",
-            )
-            self.engine._in_orchestrator = False
-            return result
+            _eli_orch_evidence_ok = True
+            try:
+                import os as _eli_orch_os
+                from eli.contracts.grounded_control import (
+                    GROUNDED_CONTROL_ACTIONS as _ELI_ORCH_GC, evidence_complete_for_action)
+                if action in _ELI_ORCH_GC:
+                    _eli_orch_evidence_ok = (
+                        _eli_orch_os.environ.get("ELI_EVIDENCE_GATE_DISABLE", "").lower() in ("1", "true")
+                        or evidence_complete_for_action(action, result)
+                    )
+            except Exception:
+                _eli_orch_evidence_ok = True
+
+            if _eli_orch_evidence_ok:
+                wm.trace["stage_nonchat"] = "executor_direct_result"
+                wm.trace["stage_10"] = "skipped_nonchat_direct_result"
+                wm.trace["stage_10_5"] = "skipped_nonchat_direct_result"
+                wm.trace["stage_11"] = "skipped_nonchat_direct_result"
+                _eli_orch_complete_final_stage(
+                    "completed",
+                    note="nonchat_direct_result",
+                )
+                self.engine._in_orchestrator = False
+                return result
 
         wm.trace["stage_4"] = "planner"
         retrieval_plan = self.planner_agent.plan_retrieval(
