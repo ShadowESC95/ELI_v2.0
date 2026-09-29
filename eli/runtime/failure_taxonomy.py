@@ -28,7 +28,7 @@ when nothing matched, not the answer to everything.
 from __future__ import annotations
 
 import re
-from typing import Dict, Tuple
+from typing import Dict, List, Tuple
 
 # ── categories ────────────────────────────────────────────────────────────────
 RESOURCE = "resource"            # out of memory, VRAM, disk, file handles
@@ -166,20 +166,41 @@ def exception_name(error: str) -> str:
     return m.group(1) if m else ""
 
 
-def classify_category(error: str, command: str = "") -> str:
-    """What kind of failure this is. Evidence-ordered: type, then text."""
+def classify_categories(error: str, command: str = "", top_n: int = 3) -> List[Tuple[str, float]]:
+    """Ranked, deduped competing categories, not just the winner.
+
+    Same evidence order as classify_category (exception type beats message text)
+    but keeps runners-up instead of discarding them — a KeyError with "invalid
+    json" in its message is plausibly DATA either way, but a caller weighing
+    hypotheses wants to see both, not just the first pattern that happened to hit.
+    """
     err = str(error or "")
     exc = exception_name(err)
+    scored: Dict[str, float] = {}
+
     if exc:
         # Match the bare name too, so `json.JSONDecodeError` resolves.
         for key in (exc, exc.rsplit(".", 1)[-1]):
             if key in _BY_EXCEPTION:
-                return _BY_EXCEPTION[key]
+                cat = _BY_EXCEPTION[key]
+                scored[cat] = max(scored.get(cat, 0.0), 1.0)
+
     low = err.lower()
-    for pattern, cat in _BY_MESSAGE:
+    for i, (pattern, cat) in enumerate(_BY_MESSAGE):
         if re.search(pattern, low):
-            return cat
-    return STABILITY
+            # Earlier patterns are more distinctive; always ranks below an
+            # exception-type match (max 0.9 < the 1.0 an exception scores).
+            w = 0.9 - i * 0.01
+            scored[cat] = max(scored.get(cat, 0.0), w)
+
+    if not scored:
+        return [(STABILITY, 0.0)]
+    return sorted(scored.items(), key=lambda kv: kv[1], reverse=True)[:top_n]
+
+
+def classify_category(error: str, command: str = "") -> str:
+    """What kind of failure this is. Evidence-ordered: type, then text."""
+    return classify_categories(error, command, top_n=1)[0][0]
 
 
 def classify_area(error: str, command: str = "") -> str:
@@ -223,8 +244,8 @@ def is_actionable(category: str) -> bool:
 
 
 __all__ = [
-    "classify", "classify_category", "classify_area", "exception_name",
-    "is_actionable", "RESOURCE", "TIMEOUT", "NETWORK", "PERMISSION",
-    "DEPENDENCY", "MISSING", "DATA", "CORRECTNESS", "INTERFACE",
+    "classify", "classify_category", "classify_categories", "classify_area",
+    "exception_name", "is_actionable", "RESOURCE", "TIMEOUT", "NETWORK",
+    "PERMISSION", "DEPENDENCY", "MISSING", "DATA", "CORRECTNESS", "INTERFACE",
     "CONCURRENCY", "STABILITY", "USER_INPUT",
 ]

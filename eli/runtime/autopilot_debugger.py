@@ -235,23 +235,30 @@ def diagnose(error_text: str = "", targets: Optional[List[str]] = None,
     incidental = [f for f in findings if f not in relevant]
 
     # ---- Root cause (best grounded hypothesis) ----
+    def _fmt_cause(f0: Dict[str, Any]) -> str:
+        if exc and fail_frame:
+            return (f"{exc}  →  likely from a {f0['kind']} at {f0['file']}:{f0.get('line')} "
+                    f"({f0['message']})")
+        return (f"Static defect ({f0['kind']}) in {f0['file']}"
+                + (f":{f0['line']}" if f0.get("line") else "") + f" — {f0['message']}")
+
     if exc and fail_frame:
         if relevant:
-            f0 = relevant[0]
-            root_cause = (f"{exc}  →  likely from a {f0['kind']} at {f0['file']}:{f0.get('line')} "
-                          f"({f0['message']})")
+            root_cause = _fmt_cause(relevant[0])
         else:
             root_cause = f"{exc}  →  raised at {fail_frame[0]}:{fail_frame[1]}"
     elif exc:
         root_cause = exc
     elif relevant:
-        f0 = relevant[0]
-        root_cause = (f"Static defect ({f0['kind']}) in {f0['file']}"
-                      + (f":{f0['line']}" if f0.get("line") else "") + f" — {f0['message']}")
+        root_cause = _fmt_cause(relevant[0])
     elif config_issues:
         root_cause = "Configuration mismatch: " + "; ".join(config_issues)
     else:
         root_cause = "No traceback/pytest failure detected in the input — nothing to diagnose."
+
+    # Same `relevant` list, already ordered by frame-proximity — surfaced as
+    # ranked alternates instead of discarding everything past [0].
+    alternate_causes = [_fmt_cause(f) for f in relevant[:3]] if relevant else []
 
     # ---- Rollback plan (grounded in git history of the affected files) ----
     rollback: List[str] = []
@@ -301,6 +308,7 @@ def diagnose(error_text: str = "", targets: Optional[List[str]] = None,
     return {
         "ok": True,
         "root_cause": root_cause,
+        "alternate_causes": alternate_causes,
         "exception": exc,
         "affected_files": affected,
         "suspect_commits": suspects,
@@ -365,6 +373,9 @@ def format_report(d: Dict[str, Any]) -> str:
     L: List[str] = []
     L.append("🔧 Autopilot debugger")
     L.append(f"\nRoot cause:\n  {d['root_cause']}")
+    alts = [a for a in d.get("alternate_causes") or [] if a != d["root_cause"]]
+    if alts:
+        L.append("\nAlso considered:\n  " + "\n  ".join(alts[:2]))
     if d["affected_files"]:
         L.append("\nAffected files:\n  " + "\n  ".join(d["affected_files"]))
     if d["suspect_commits"]:
