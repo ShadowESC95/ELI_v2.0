@@ -1,6 +1,6 @@
 # ELI Orchestration & Agents — Full Topology
 
-> **Updated for v2.4.72.** All CHAT modes run the orchestrator at scaled depth; retrieval is
+> **Updated for v2.4.84.** All CHAT modes run the orchestrator at scaled depth; retrieval is
 > unified in `eli/memory/retrieval.py`; stage 12 learning is centralised in
 > `learning_coordinator.py`; the direct-versus-synthesise gate
 > (`_deterministic_direct_payload_actions`) has been audited against what the executor
@@ -60,7 +60,7 @@ Flow inside `AgentOrchestrator.run()`:
 
 **The direct-versus-synthesise decision** is a set membership test in `eli/kernel/engine.py`:
 
-- `_deterministic_direct_payload_actions` (191 entries): the executor's `content` or `response`
+- `_deterministic_direct_payload_actions` (192 entries): the executor's `content` or `response`
   is returned verbatim in quick mode; in other modes such an action may be re-narrated by
   `_compact_grounded_synthesis()` (constrained to quote from evidence, validated against it,
   falling back to the raw evidence).

@@ -1,6 +1,6 @@
 # Blueprint — Code-Mode Execution Layer for ELI (gap analysis)
 
-> **Updated for v2.4.72.** Restricted exec gated on Full Control; `api.call()` facade.
+> **Updated for v2.4.84.** Restricted exec gated on Full Control; `api.call()` facade.
 
 *Status: draft. Date: 2026-06-11.*
 *REVISED after auditing the codebase: an earlier version of this doc proposed building
@@ -72,7 +72,7 @@ request*, and the reply is synthesised from the execution result. Each candidate
 audited IN FULL (2026-06-11); statuses below are grounded with file:line evidence.
 
 1. **`eli.api` facade — MOSTLY EXISTS (only typed sugar is new).** The callable dispatch
-   already exists: `execute(action, args)` at `executor_enhanced.py:12337` runs any of the
+   already exists: `execute(action, args)` at `executor_enhanced.py:12454` runs any of the
    228 manifest actions by name. Generated code can already call `execute("SUMMARIZE_FILE", {...})`.
    The *only* delta is a typed, discoverable wrapper (`eli.api.files.summarize(path)`)
    generated from the registry — convenience + discoverability over an existing surface,
@@ -87,8 +87,8 @@ audited IN FULL (2026-06-11); statuses below are grounded with file:line evidenc
    `code_examiner` AST walker + `approval_engine` action-classes for the GREEN/AMBER/RED
    decision — but the in-process restricted-exec itself is new. This is THE work.
 3. **Routing lane to the code agent — ALREADY EXISTS as `CODE_SOLVE`.** Router lane
-   (`router_enhanced.py:3186`, `_CODE_SOLVE_RE`) + executor handler
-   (`executor_enhanced.py:9905`) → `eli.coding.solve` (plan→search→verify→repair, quick/
+   (`router_enhanced.py:3194`, `_CODE_SOLVE_RE`) + executor handler
+   (`executor_enhanced.py:10009`) → `eli.coding.solve` (plan→search→verify→repair, quick/
    thorough, DAG, background). Reuse it. The only variant is targeting `eli.api` for
    assistant-actions rather than producing a standalone script, + grounded synthesis of the
    result (reuses the `540f514` no-confabulation work). Do NOT build a new lane.
@@ -126,10 +126,10 @@ registry, AND the `CODE_SOLVE` routing lane are already yours.
 ## 4. Verified in full (2026-06-11)
 
 Audited against the project directory, not assumed:
-- **Callable dispatch surface?** YES — `execute(action, args)` at `executor_enhanced.py:12337`.
+- **Callable dispatch surface?** YES — `execute(action, args)` at `executor_enhanced.py:12454`.
   Generated code can already run any of the 228 manifest actions by name.
-- **Routing lane to the code agent?** YES — `CODE_SOLVE` (`router_enhanced.py:3186` +
-  `executor_enhanced.py:9905` → `eli.coding.solve`). Already plan→search→verify→repair,
+- **Routing lane to the code agent?** YES — `CODE_SOLVE` (`router_enhanced.py:3194` +
+  `executor_enhanced.py:10009` → `eli.coding.solve`). Already plan→search→verify→repair,
   quick/thorough, DAG, background.
 - **Sandbox: namespace-restricted or process-only?** PROCESS-only (`coding/sandbox.py:129`:
   subprocess + scrubbed env + CPU limit), for *standalone* code. **Cannot host live-state

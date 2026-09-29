@@ -22,7 +22,7 @@ subsystem, and OS control. All local, no APIs, no third-party accounts.
 | `ui_ground.py` | ~320 | local GGUF precision click + computer-use agent (no HTTP) |
 | `desktop_capabilities.py` | ~170 | cross-OS input/screenshot/locate probe; feeds the awareness briefing and SELF_TEST |
 | `media_deps.py` | ~140 | bundled-python + PATH discovery for yt-dlp/mpv/desktop CLIs |
-| `gaze_engine.py` | 358 |
+| `gaze_engine.py` | 358 | webcam gaze/eye tracking daemon — see below |
 | `log_rotation.py` | 224 | log housekeeping |
 | `analyze_pdfs/image/mesh/csv.py` | ~600 | file-type analysers |
 | `ambient_vision.py` | 238 | periodic screen glances (off by default) |
@@ -47,6 +47,18 @@ The working local-vision stack (see memory `eli-image-analysis`):
   guarded daemon re-reads the toggle/interval each cycle and **skips a glance
   whenever the shared LLM lock is busy** (so it never steals the model
   mid-reply). Stores a short description as memory for rolling awareness.
+
+## Gaze tracking (`gaze_engine.py`)
+
+A background thread: opens the webcam, runs real-time gaze estimation (MediaPipe iris
+landmarks, with a Haar-cascade fallback), applies a ridge-regression calibration model
+if a calibration file exists, smooths the output through a "OneEuroLikeFilter" (the 1€
+Filter — a real HCI signal-smoothing technique built for exactly this: low-latency,
+jitter-free tracking of noisy human input), and writes `latest_gaze.json` every ~100ms.
+With no calibration it still runs, producing raw face-centre coordinates (useful for
+"is someone present" detection). Feeds a **dwell-click accessibility feature** — rest
+your gaze on a target for ~1s to click it, no mouse or voice needed (`GAZE_ENABLE`'s
+`dwell` argument). Settings key `gaze_engine_enabled`.
 
 ## Screen locate & click (`screen_locator.py` + `ui_ground.py`)
 

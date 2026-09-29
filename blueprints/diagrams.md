@@ -1,6 +1,6 @@
 # Blueprint — ELI ASCII Diagrams
 
-> **Updated for v2.4.72.** CHAT uses a gradient orchestrator for all modes; retrieval
+> **Updated for v2.4.84.** CHAT uses a gradient orchestrator for all modes; retrieval
 > is unified in `eli/memory/retrieval.py`; Stage 12 = learning/state commit.
 
 Visual companion to `architecture.md`. Three views: the full request pipeline,
@@ -87,7 +87,8 @@ the memory subsystem, and the gating stack. All grounded in the real modules
                  situation brief ─► generation (persona handoff)
 
  ┌──────────────────────── STORES (artifacts/) ───────────────────────────┐
- │ db/user.sqlite3   memories, memories_archive, memory_meta, semantic,     │
+ │ db/user.sqlite3   memories, memories_archive, memory_meta, memory_lineage,│
+ │                   semantic,                                              │
  │                   conversation_turns, conversations, session_summaries,   │
  │                   kg_entities(+_fts), kg_relations, recall_log,           │
  │                   runtime_events, learning_replay, observations,          │

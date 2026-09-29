@@ -1,4 +1,4 @@
-> **Updated for v2.4.72.** Gradient orchestrator for all CHAT modes; shared
+> **Updated for v2.4.84.** Gradient orchestrator for all CHAT modes; shared
 > `memory/retrieval.py`; canonical S01–S12 via `pipeline_trace.py`.
 
 # ELI Capability Catalogue — every action & module, what it actually does
@@ -204,7 +204,7 @@ voice, coding, memory, introspection, autonomy, remediation, and plugins.
 
 ---
 
-# Part 2 — `runtime/` module catalogue (95 files, 35.4k lines)
+# Part 2 — `runtime/` module catalogue (94 files, 36.4k lines)
 
 The largest package. It's the **grounding/governance + introspection + plumbing**
 layer that wraps the probabilistic model. Grouped by function:
@@ -232,7 +232,7 @@ layer that wraps the probabilistic model. Grouped by function:
 ## Self-improvement & code-awareness
 | Module | LOC | Role |
 |---|---|---|
-| `self_improvement.py` | 1736 | Failure logging/clustering, patch generate→verify→apply→**auto-revert**, full patch cycle, plugin-stub gen. |
+| `self_improvement.py` | 1852 | Failure logging/clustering, patch generate→verify→apply→**auto-revert**, full patch cycle, plugin-stub gen. |
 | `code_examiner.py` | 910 | Tiered file error scan (syntax/import → lint → gated LLM) → offer → verified fix. |
 | `code_monitor.py` | 261 | Detects source changes via git diff, classifies by subsystem, summarises for memory/context (ELI is aware of its own code changes). |
 | `capability_sync.py` | 419 | **AST-discovers** the live capability surface, diffs, writes `capability_manifest.json` — this is why the count is *measured*, not asserted. |
@@ -380,7 +380,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `memory/` — 8.8k lines
 | Module | LOC | Role |
 |---|---|---|
-| `memory.py` | 5677 | The `Memory` class (69 public methods): semantic store/recall, conversations, habits, failures/improvements, storage policy, upkeep, weight decay, KG bridge, `mark_failure_resolved`, `disable_invalid_habit_rules`. |
+| `memory.py` | 6003 | The `Memory` class (85 public methods): semantic store/recall, conversations, habits, failures/improvements, storage policy, upkeep, weight decay, KG bridge, `mark_failure_resolved`, `disable_invalid_habit_rules`. |
 | `knowledge_graph.py` | 643 | Entity/relation graph + multi-hop BFS (`related`) + `context_for_prompt` + extract-from-memory. |
 | `retrieval.py` | 253 | Shared turn retrieval (`retrieve_for_turn`) with an 8 s cache, time window and `memory_diag` stats. |
 | `policy.py` | 118 | Storage policy: origin, dedupe key, forgetting curve, archive rule. |
@@ -401,7 +401,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | `gaze_engine.py` | 358 | MediaPipe face-gaze + calibration mapper + One-Euro smoothing → `latest_gaze.json` @10Hz. |
 | `local_whisper_stt.py`, `ambient_vision.py`, `analyze_{pdfs,image,mesh,csv}.py`, `log_rotation.py`, `voice_worker*.py` | ~1.2k | Whisper backend; ambient glances; file analysers; log rotation; voice workers. |
 
-## `planning/` (autonomy, habits, proactive) — 4.0k lines
+## `planning/` (autonomy, habits, proactive) — 4.3k lines
 | Module | LOC | Role |
 |---|---|---|
 | `proactive_daemon.py` | 1523 | Background 10-min loop: pattern/code analysis, habit detect+offer, morning report, error tracking. |
@@ -466,7 +466,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `plugins/` — 10 built-ins + manager
 | Module | Role |
 |---|---|
-| `manager.py` (553L) | Discover/install/enable/disable/execute; auto-load; builtin-stub gen; registry. |
+| `manager.py` (708L) | Discover/install/enable/disable/execute; auto-load; builtin-stub gen; registry. |
 | `web`, `web_automation`, `weather`, `calendar`, `notes`, `pomodoro`, `system_stats`, `media`, `tts`, `document_reader` | The 10 built-in plugins (see Part 1 §17). |
 | `base/base.py` | Plugin base class + action validation + loader. |
 

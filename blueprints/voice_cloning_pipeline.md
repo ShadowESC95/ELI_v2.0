@@ -1,6 +1,6 @@
 # Voice Creation / Cloning Engine — end-to-end (2026-07-28)
 
-> **Updated for v2.4.72.** Character presets (ffmpeg) vs XTTS zero-shot cloning;
+> **Updated for v2.4.84.** Character presets (ffmpeg) vs XTTS zero-shot cloning;
 > see also `blueprints/perception.md` for mic auto-detect (v2.3.44+).
 
 How ELI turns a short audio/video clip of *any* voice — a character, an actor, a
@@ -31,13 +31,13 @@ extra install; cloning is the accurate path for a specific timbre.
  user: "create a voice called vader from vader_clip.mp4"
    │        (or Settings ▸ Runtime ▸ "VOICE / TTS" ▸ drop-zone)
    ▼
- router_enhanced.py  (voice.create pattern, ~line 1832)
+ router_enhanced.py  (voice.create pattern, ~line 2238)
    regex: (voice|clone) + (creat|make|build|clone|generat|record)
         + a media extension OR "from/using/with … recording/audio/clip/sample"
    extracts: name ("called X") + file (a .wav/.mp3/.mp4/.m4a/.ogg/.flac/.aac/.webm path)
    ──► {action: CREATE_VOICE, args: {name, file}}
    ▼
- executor_enhanced.py  CREATE_VOICE handler (~line 10575)
+ executor_enhanced.py  CREATE_VOICE handler (~line 11762)
    resolves ~ in the path, checks the file exists
    ──► tts_xtts.add_clone(name, path)
    ▼
@@ -68,8 +68,8 @@ extra install; cloning is the accurate path for a specific timbre.
 
 | File | Role |
 |---|---|
-| `eli/execution/router_enhanced.py` (~1832) | `voice.create` pattern → `CREATE_VOICE` |
-| `eli/execution/executor_enhanced.py` (~10570) | `CREATE_VOICE` handler → `add_clone` → sets active voice |
+| `eli/execution/router_enhanced.py` (~2238) | `voice.create` pattern → `CREATE_VOICE` |
+| `eli/execution/executor_enhanced.py` (~11762) | `CREATE_VOICE` handler → `add_clone` → sets active voice |
 | `eli/perception/tts_xtts.py` | registry (`add_clone`/`get_clone`/`list_clones`/`delete_clone`), synthesis (`synthesize_wav`, `synthesize_natural_wav`), availability (`xtts_available`, `natural_available`) |
 | `eli/perception/tts_router.py` | `synthesize_wav()` dispatches `clone:`/`natural:`/`char:`/plain Piper by prefix |
 | `eli/perception/voice_fx.py` | the *other* path — ffmpeg character presets, unrelated dependency-wise |

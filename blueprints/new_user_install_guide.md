@@ -1,10 +1,10 @@
 # ELI v2.0 — New User Installation Guide
 
-> **Updated for v2.4.72.** One hardware-aware GUI wizard.  
-> Releases: https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.24  
+> **Updated for v2.4.84.** One hardware-aware GUI wizard.  
+> Releases: https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.84  
 > Full guide: **`first time Installation/INSTALLATION_GUIDE.md`**
 
-**Version:** 2.4.24
+**Version:** 2.4.84
 
 ## What the wizard installs (core)
 

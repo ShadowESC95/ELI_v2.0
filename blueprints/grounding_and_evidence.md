@@ -1,6 +1,6 @@
 # ELI Grounding & Evidence Layer
 
-> **Updated for v2.4.72.** Quick mode still returns verbatim for deterministic
+> **Updated for v2.4.84.** Quick mode still returns verbatim for deterministic
 > introspection; all CHAT modes now pass through the gradient orchestrator first.
 
 The anti-confabulation system — a deterministic evidence scaffold wrapped around
@@ -58,7 +58,7 @@ assembles the live config block (model_path, n_ctx, gpu_layers, …).
 > already used correctly for "what was your last message," and says plainly
 > when no trace is available rather than fabricating an answer.
 
-### `runtime/control_contracts.py` (1,232 lines)
+### `runtime/control_contracts.py` (1,242 lines)
 The deterministic control path:
 - `is_control_action` / `route_control_text` — recognise control/status intents.
 - `build_control_evidence(engine, action, args, …)` — gather the evidence packet
@@ -83,13 +83,13 @@ The deterministic control path:
 non-Quick compact synthesis path uses it and falls back to the deterministic evidence text.
 `contracts/grounded_control.py` owns which actions never fall back to a clarifying question.
 
-### `runtime/evidence_ledger.py` (603 lines)
+### `runtime/evidence_ledger.py` (701 lines)
 A persistent SQLite ledger of evidence events: `record_event`, `recent_events`,
 `repeated_event_signals` (detect recurring issues over N days), `status_evidence`,
 `artifact_snapshot`. Gives ELI a durable, queryable record of what actually
 happened.
 
-### `runtime/evidence_arbitration.py` (193 lines)
+### `runtime/evidence_arbitration.py` (212 lines)
 `EvidenceItem` + `arbitrate_evidence(limit)` + `build_evidence_context_text` —
 scores and merges competing evidence into a single context block. Pairs with the
 agent-bus confidence aggregation (`_score_tool_result`), which scores a tool
@@ -102,7 +102,7 @@ recalled line carries its event date and status (`memory_provenance.format_groun
 and the orchestrator adds a retrieval diagnostics block (what was searched, how many items,
 which time window) so ELI can say truthfully what its search did.
 
-### `cognition/output_governor.py` (1,681 lines)
+### `cognition/output_governor.py` (1,694 lines)
 Post-generation governor: `govern_output(text, is_grounded)`,
 `normalize_assistant_text`, `validate_against_evidence`, plus a family of
 drift-repair functions — `strip_generic_ai_identity_drift` (kills "As an AI
@@ -122,6 +122,38 @@ browser/IDE absent), it: `diagnose_app/path/browser/ide` → `build_repair_plan`
 yes/no) → `execute_pending_plan`. Stateful pending-repair tracking +
 `explain_last_failure`. This is what makes failures conversational and
 recoverable instead of dead ends.
+
+## Evidence-completeness gating (`contracts/grounded_control.py`)
+
+A prior gap in this exact layer: `GROUNDED_CONTROL_ACTIONS` existed but was never checked before
+a direct/verbatim return or a no-clarify decision — only bare membership (`is_grounded_control_action`)
+gated anything, so a grounded action with genuinely incomplete evidence (a binary file decoded as
+text, an empty result) could still short-circuit straight to the user. `evidence_complete_for_action(action,
+local_vars)` closes that: it's checked at both live call sites —
+before the direct-payload verbatim return, and before the no-clarify-suppression decision — and on
+`False` the turn falls through to the next tier instead of returning early, rather than refusing outright.
+
+- `GROUNDED_CONTROL_ACTIONS` (51 actions) is the union of `control_contracts.CONTROL_ACTIONS` and a
+  new `FILE_EVIDENCE_ACTIONS` (10 actions: `SUMMARIZE_FILE`, `READ_FILE`, `ANALYZE_PDF[_FOLDER]`,
+  `ANALYZE_IMAGE`, `OCR_IMAGE`, `TRANSCRIBE`, `CONVERT_DOCUMENT`, `FILE_AUDIT`,
+  `SCREEN_READ_ANALYZE`) — the family implicated in a real bug this closes: a `.docx` read as raw
+  binary and confabulated into a fake analysis, because nothing checked whether the "evidence" was
+  actually decodable text before treating it as complete.
+- `_looks_like_file_evidence_complete` runs a printable-ratio + non-empty + no-error-marker check
+  on file-family evidence — this is what would have caught the binary-as-text bug directly. A
+  minimum-length floor (20 chars) also treats a bare dict-key-name leak (`_collect_text` including
+  Mapping keys, not just values) as still-incomplete rather than a false "complete."
+- `evidence_gap_reason(action, local_vars)` returns `"complete"`, `"missing"` or `"corrupted"` — a
+  typed reason, not just a bool, for callers that want to say *why* evidence fell short.
+- Kill switch: `ELI_EVIDENCE_GATE_DISABLE=1` bypasses the check at both call sites, since widening
+  `GROUNDED_CONTROL_ACTIONS` from the old hand-maintained ~10-action list to the full ~51-action
+  union means the no-clarify gate now applies far more broadly than before — this lets a
+  false-refusal in the field be killed instantly without a revert.
+- The generic fallback (non-file, non-runtime-status actions) stays weak — satisfied by dict keys
+  existing at all, not real content — an acknowledged, separate gap, not part of this pass.
+
+`tests/test_grounded_control.py` covers it, including a direct repro of the original binary-garbage
+bug (asserts `evidence_complete_for_action` now returns `False` on it).
 
 ## How it fits the pipeline
 

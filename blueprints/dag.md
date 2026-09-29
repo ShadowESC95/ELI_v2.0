@@ -27,8 +27,13 @@ Pure, deterministic, no I/O — fully unit-tested.
 Previously the bus was a single-round star fan-out (agents couldn't use each
 other's output). Now:
 
-- `_AGENT_DEPENDENCIES` declares edges among agents. Shipped edge:
-  `knowledge_graph ← memory`.
+- `_AGENT_DEPENDENCIES` declares edges among agents. Shipped edges:
+  `knowledge_graph ← memory`, and `critic ← {memory, system, knowledge_graph,
+  file_code}` — `CriticAgent` is the bus's second-tier verifier: it reasons over
+  what its upstream retrievers found (via `intent["_upstream"]`) rather than the
+  raw query, measuring pairwise term-overlap agreement between them and
+  downgrading confidence on contradiction. It self-gates to nothing when fewer
+  than 2 upstream sources are available, so it never fires on trivial turns.
 - `_agent_execution_layers(active_names)` builds a DAG from that map ∩ the
   selected agents and returns topological layers.
 - `AgentBus._run_agents_layered` runs **layer by layer**: each layer's agents run
@@ -80,4 +85,4 @@ For decomposable coding tasks:
 |---|---|---|
 | `ELI_AGENT_DAG` | on | agent-bus topological layered dispatch (off ⇒ flat fan-out) |
 | `ELI_CODING_DAG` | on | coding subtask-DAG decomposition (off ⇒ single-shot only) |
-| `_AGENT_DEPENDENCIES` | `{knowledge_graph: {memory}}` | declare agent edges |
+| `_AGENT_DEPENDENCIES` | `{knowledge_graph: {memory}, critic: {memory, system, knowledge_graph, file_code}}` | declare agent edges |

@@ -1,6 +1,6 @@
 # ELI GUI
 
-> **Updated for v2.4.72.** Ollama model selector fixed on packaged builds
+> **Updated for v2.4.84.** Ollama model selector fixed on packaged builds
 > (`QDialogButtonBox` exported via `eli/gui/qt_compat.py`).
 
 `eli/gui/` — 27.4k LOC, 27 modules (8 top-level + panels/tabs/docks/widgets). A full native PySide6/PyQt desktop app (with a
@@ -48,8 +48,8 @@ flowchart TD
 |---|---|---|
 | `eli_pro_audio_gui_v2_0.py` | 13.1k | the main window + most app logic (god-file) |
 | `labs_tab.py` | 5.7k | scientific workspace tab |
-| `app.py` | 827 | launcher / first-boot auto-tune / entry `main()` |
-| `panels/startup.py` | 1974 | guided first-boot: hardware, model pick or download, tuning |
+| `app.py` | 833 | launcher / first-boot auto-tune / entry `main()` |
+| `panels/startup.py` | 2014 | guided first-boot: hardware, model pick or download, tuning |
 | `panels/settings.py` | 825 | settings dialog incl. Plugins + Marketplace sub-tabs |
 | `tabs/training_tab.py` | 841 | Labs ▸ Training — the LoRA wizard |
 | `tabs/marketplace_tab.py` | 991 | Settings ▸ Marketplace — browse/installed/permissions/sources |
@@ -72,9 +72,9 @@ A 13.1k-line module holding the window **and** a stack of embedded classes that
 are really application logic, not just UI:
 - `CentralMemoryAdapter` — bridges the GUI to the memory subsystem.
 - `LocalModelManager` (line 749) — discover/load/swap local GGUF models.
-- `OllamaModelManager` (line 1646) — optional Ollama integration (legacy/optional;
+- `OllamaModelManager` (line 1684) — optional Ollama integration (legacy/optional;
   ELI's stance is 100% local GGUF, so this is a secondary path).
-- `ExecutorBridge` (line 1778) — routes GUI actions into the executor/engine.
+- `ExecutorBridge` (line 1816) — routes GUI actions into the executor/engine.
 - `_GUIEngineAdapter` — engine façade for the UI.
 - UI widgets: `_QABoard` (quick-action card board), `_MiniTelemetryGraph` (live
   telemetry), `_ZoomableSettingsView`, `_ZoomableImagePreview`, `_FlowLayout`,

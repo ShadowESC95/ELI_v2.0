@@ -265,17 +265,19 @@ terms:
 |---|---|
 | **Chat** | Talk to ELI, by voice or text. Home base. |
 | **Quick Actions** | One-tap buttons for the things you do most. |
-| **Memory** | Browse what ELI remembers about you; add or remove facts. |
 | **Habits** | Routines ELI has learned; turn on/off, edit times, add your own. |
-| **Proactive** | Controls for ELI's "act on its own" behaviour (suggestions, summaries, insights). |
+| **Proactive** | Controls for ELI's "act on its own" behaviour (suggestions, summaries, insights) — includes a nested **Memory** sub-tab to browse/add/remove what ELI remembers about you. |
 | **Tasks** | Scheduled & overnight jobs and their status. |
 | **Images** | Generate images — procedural (fast) or diffusion (photoreal). |
 | **Screen** | Watch/read your screen, take screenshots, OCR. |
-| **Coding / IDE** | Write, examine, and fix code; a built-in editor. |
+| **IDE** | A built-in code editor. |
+| **Coding** | Write, examine, and fix code via the coding agent. |
+| **Files** | Browse and act on your local files. |
 | **Self-Improve** | What ELI is proposing to improve in *itself* — approval-gated. |
 | **Report Builder** | Generate longer documents/reports with sources (evidence → outline → draft → revise). |
 | **Elis World** | ELI's own world-model view. |
 | **Labs** | Power-user workshop — notebook, Jupyter, calculator, physics, file-chat, **projects/workspaces**, sim-IDE, orchestration, test review, **training** (§14). |
+| **Experimental** | In-development features not yet promoted to a stable tab. |
 | **Settings** | Model (incl. the model-switch dropdown), hardware, voice, privacy options (§16), plugins and the **Marketplace** (§20). |
 
 You rarely need the tabs directly — almost everything is reachable by **asking** in Chat:
@@ -437,7 +439,8 @@ and carries a digest of your recent sessions forward — so it recalls what you'
 through* over days, not just isolated one-off facts.
 
 Everything is stored **locally** in small private databases. Review and prune it in the **Memory**
-tab. A brand-new install is a **blank slate** — ELI knows nothing about you until you talk.
+sub-tab (under **Proactive**). A brand-new install is a **blank slate** — ELI knows nothing about
+you until you talk.
 
 ---
 
@@ -925,9 +928,9 @@ What it does instead, before a single file lands on your computer:
 - **Checks who wrote it**, if they signed it and you have chosen to trust their key.
   Unsigned isn't blocked — it's clearly labelled *unverified*.
 - **Reads the code.** If it uses an ability it never declared, ELI refuses.
-- **Scans it for malware** — eleven different checks, looking for things like remote
+- **Scans it for malware** — nine checks always run, looking for things like remote
   access backdoors, password stealing, hidden start-up entries, disguised code, and
-  crypto miners. If you have ClamAV or YARA installed, those run too.
+  crypto miners; if you have ClamAV or YARA installed, those run too, for eleven in total.
 - **Shows you everything it found**, then asks.
 
 If a scanner couldn't run, ELI says the check was **partial**. It won't call something

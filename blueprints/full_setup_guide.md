@@ -1,6 +1,6 @@
 # ELI v2.0 — The Complete Setup Guide (Plain English)
 
-> **Updated for v2.4.72 (September 2026).** Release **v2.4.72** on GitHub; cognition
+> **Updated for v2.4.84 (September 2026).** Release **v2.4.84** on GitHub; cognition
 > pipeline unified (gradient orchestrator, shared retrieval, S01–S12 tracing).
 > Primary install: **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe`
 > (Windows), the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux
@@ -192,7 +192,7 @@ desktop icons on Linux), so you can start it with a click like any other program
 
 Type in the chat box, or speak — say the wake word (you can set your own; train it in
 Settings) and just talk. Ask it *"what can you do?"* and it will list everything —
-all 208 of its capabilities, generated from what's genuinely wired in.
+all 228 of its capabilities, generated from what's genuinely wired in.
 
 ### The phone / tablet view (optional)
 

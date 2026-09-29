@@ -1,4 +1,4 @@
-> **Updated for v2.4.72 (September 2026).** Every CHAT turn runs the gradient
+> **Updated for v2.4.84 (September 2026).** Every CHAT turn runs the gradient
 > orchestrator at a depth scaled to the reasoning mode, with the specialist bus composed
 > inside it after shared retrieval (`eli/memory/retrieval.py`). Canonical S01–S12 tracing is in
 > `eli/kernel/pipeline_trace.py`; stage 12 learning runs through `learning_coordinator.py`.
@@ -11,8 +11,8 @@ source tree on 2026-09-25; where something is only true at runtime it is marked 
 > ELI is a **local-first, offline-by-default, model-agnostic** cognitive runtime and
 > assistant GUI, and also a self-hosted web app (`api/server.py`, described in
 > `ELI_USER_MANUAL.md`). No cloud on the inference path, no hardcoded model.
-> **196,249 lines across 438 Python files in `eli/`**, plus `api/server.py` (2,292 lines).
-> 228 capabilities in `capability_manifest.json`, 186 of them routable and 205 in the
+> **194,736 lines across 429 Python files in `eli/`**, plus `api/server.py` (2,292 lines).
+> 228 capabilities in `capability_manifest.json`, 187 of them routable and 206 in the
 > executor's supported list.
 
 ---
@@ -45,7 +45,7 @@ source tree on 2026-09-25; where something is only true at runtime it is marked 
 | `eli/core` | 11,222 | 30 | netguard, paths, settings, hardware profile, model download, full control |
 | `eli/perception` | 10,220 | 23 | Vision, STT, TTS, wake word, voice tone, OS control, gaze |
 | `eli/memory` | 8,770 | 11 | SQLite, FTS5, FAISS, knowledge graph, storage policy |
-| `eli/tools` | 7,573 | 29 | Image engine, news, capability registry, document tools |
+| `eli/tools` | 5,969 | 25 | Image engine, news, capability registry, document tools |
 | `eli/plugins` | 5,911 | 34 | Plugin manager, marketplace client, bundled plugins |
 | `eli/learning` | 4,251 | 14 | LoRA self-training pipeline |
 | `eli/planning` | 4,000 | 19 | Proactive daemon, habit scheduler, job, proposal and attention queues |
@@ -58,7 +58,7 @@ source tree on 2026-09-25; where something is only true at runtime it is marked 
 | `eli/contracts` | 787 | 3 | Typed runtime-status contracts |
 | `eli/onboarding` | 709 | 2 | Onboarding interview |
 | `eli/cli`, top level | 236 | 4 | Headless REPL, package entry |
-| **total** | **193,503** | **434** | |
+| **total** | **194,736** | **429** | |
 
 The largest files: `eli/kernel/engine.py` (16,014 lines), `eli/execution/executor_enhanced.py`
 (15,845), `eli/gui/eli_pro_audio_gui_v2_0.py` (13,107), `eli/execution/router_enhanced.py`
@@ -245,7 +245,7 @@ The known weak seam is internal state leaking into spoken output on the plain CH
 ## 10. Execution layer (`eli/execution/executor_enhanced.py`)
 
 - `execute(action, args) -> dict`. The executor's supported list holds **206 actions**; the
-  manifest declares **228 capabilities**, of which **186 are routable** and 206 are in the
+  manifest declares **228 capabilities**, of which **187 are routable** and 206 are in the
   supported list.
 - **Fast path** (`engine.py`): deterministic OS, media, status and job actions (`VOLUME`,
   `MEDIA_CONTROL`, `NEXT_MEDIA`, `OPEN_APP`, `DATE`, `SHELL_EXEC`, `ANALYZE_IMAGE`,
@@ -288,8 +288,8 @@ Custom agents and plugins are trust-gated (§ plugin table below).
 **Four SQLite files** under `artifacts/db/` *(runtime)*: `user.sqlite3` (memory, conversation,
 knowledge graph, learning tables), `agent.sqlite3` (self-improvement records and agent
 metrics), `system_index.sqlite3` (OS index) and `coding_memory.sqlite3` (coding bug fixes).
-The blank `user.sqlite3` template holds 27 tables plus three FTS5 indexes: `memories`,
-`memories_archive`, `memory_meta`, `semantic`, `conversation_turns`, `conversations`,
+The blank `user.sqlite3` template holds 28 tables plus three FTS5 indexes: `memories`,
+`memories_archive`, `memory_meta`, `memory_lineage`, `semantic`, `conversation_turns`, `conversations`,
 `session_summaries`, `kg_entities`, `kg_relations`, `recall_log`, `runtime_events`,
 `learning_replay`, `observations`, `habits`, `habit_events`, `habit_rules`, `user_patterns`,
 `user_model`, `eli_stances`, `belief_revisions`, `corrections`, `failures`,

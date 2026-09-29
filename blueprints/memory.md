@@ -1,12 +1,12 @@
 # ELI Memory Subsystem
 
-> **Updated for v2.4.72.** Memory is governed by a storage policy
+> **Updated for v2.4.84.** Memory is governed by a storage policy
 > (`eli/memory/policy.py`): every row has an origin, repeats are merged, weight follows a
 > forgetting curve reinforced by use, and faded derived rows are archived. Recall applies a
 > time window before ranking, and reports what it did. Turn retrieval is shared in
 > `eli/memory/retrieval.py`; FAISS deletes use tombstones.
 
-`eli/memory/` holds 8,770 lines in 11 files: relational, full-text, vector and graph
+`eli/memory/` holds 8,996 lines in 11 files: relational, full-text, vector and graph
 storage, all local SQLite and FAISS. Companion to `project_overview.md`.
 
 ## The two layers
@@ -29,12 +29,12 @@ internals), with live counts for each layer.
 
 | File | Lines | Role |
 |---|---:|---|
-| `memory.py` | 5,677 | the `Memory` class (69 public methods), schema, `DBPaths`, upkeep, module facade |
-| `policy.py` | 118 | pure storage-policy functions (origin, dedupe key, strength, archive, merge) |
+| `memory.py` | 6,003 | the `Memory` class (85 public methods), schema, `DBPaths`, upkeep, module facade |
+| `policy.py` | 128 | pure storage-policy functions (origin, dedupe key, strength, archive, merge) |
 | `retrieval.py` | 253 | shared turn retrieval (`retrieve_for_turn`), turn cache, time window |
 | `claims.py` | 266 | dated claims about the user: valid-from and valid-to, learned-at, supersession |
 | `unified_retrieval.py` | 168 | the orchestrator stages consume `retrieve_for_turn` through it; formats the verified-memory block |
-| `vector_store.py` | 637 | FAISS index, embedder, tombstones |
+| `vector_store.py` | 660 | FAISS index, embedder, tombstones |
 | `knowledge_graph.py` | 643 | entity and relation graph |
 | `system_index.py` | 278 | indexed apps, executables, files |
 | `memory_truth.py` | 188 | read-only inspection used by status surfaces |
@@ -300,7 +300,7 @@ regresses one fails the suite.
   noise filtering that keeps ELI's own reflections out of recall; embedder serialisation that
   avoids the segfault.
 - **Weak:**
-  1. `memory.py` is a 5.7k-line class spanning unrelated concerns (semantic, conversation,
+  1. `memory.py` is a 6k-line class spanning unrelated concerns (semantic, conversation,
      habits, learning, failures, capabilities, upkeep). It wants splitting along those seams.
   2. **Schema sprawl.** `memories` and a legacy `memory`, `conversations` and
      `conversation_turns`, plus a standalone `semantic` table; inline column detection

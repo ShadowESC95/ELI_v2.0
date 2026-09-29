@@ -1,6 +1,6 @@
 # ELI Runtime Surfaces, Planning, World, Tools & Plugins
 
-> **Updated for v2.4.72.** Stage 12 learning via `learning_coordinator.py`; goal
+> **Updated for v2.4.84.** Stage 12 learning via `learning_coordinator.py`; goal
 > autogenesis feeds the proactive stack.
 
 The remaining subsystems: the `runtime/` response/introspection surfaces, the
@@ -106,7 +106,33 @@ Background cognition + goal/queue machinery:
 The substrate behind ELI's emergent self-state (autonomy pressure, awareness,
 "anomaly room" — intended behaviour, see memory `eli-emergent-voice`):
 - `agency/autonomy_engine.py` — `EliWorldAutonomyEngine`: ingests world events,
-  maintains awareness/autonomy state.
+  maintains awareness/autonomy state. Every proposed `WorldAction` is
+  `policy.classify()`'d, provenance-logged (`record_provenance`: actor, triggering
+  event, full action, awareness snapshot — logged whether or not it's allowed),
+  and only actually applied if `policy.allowed()`; a blocked or approval-required
+  action is recorded but not executed. Internal reasoning stages are spatially
+  visualised: `_REASONING_STAGE_ROOM_MAP` routes each `(reasoning_mode, stage_name)`
+  pair (chain-of-thought's scratchpad vs. final synthesis, tree-of-thoughts'
+  branch proposal vs. development, etc.) to a specific room (Reflection Chamber,
+  Simulation Lab, Evidence Wall, Anomaly Room) and materialises stage-specific
+  objects there; `propose_actions()` also reads live awareness thresholds
+  (`memory_confidence < 0.45` spawns a diagnostic-bench object, `reflection_depth
+  > 0.55` spawns a reflection lectern) — the world externalises ELI's own
+  cognitive state as spatial objects as it happens, not just a chat avatar.
+- `agency/policy.py` — `EliWorldPolicy`: keyword-based action classifier
+  (`BLOCKED_KEYWORDS`, `APPROVAL_KEYWORDS`) plus an enumerated safe-action
+  allowlist; default-deny (unmatched action types fall to
+  `APPROVAL_REQUIRED`, not silently allowed). **Not the same object as
+  `agency/world_constitution.py`'s declared `WORLD_CONSTITUTION` tiers**
+  (`free_actions`/`approval_required`/`blocked`) — that dict is only ever read
+  by `get_world_constitution()` to stamp metadata into the persisted world-state
+  JSON (`persistence/storage.py`); editing it changes what's *displayed*, not
+  what's *enforced*. The two lists currently agree in intent but are
+  hand-maintained separately and can drift.
+- `agency/goal_ecology.py` — `decay_goals()`: goal urgency decays by a fixed
+  0.02 per ecology tick (called from every `load()`/`ingest_event()`),
+  abandoned goals pruned. Lightweight; the richer goal-generation logic lives in
+  `planning/goal_autogenesis.py` above, not here.
 - `local_world_bridge.py` — `append_event`, `get_world_state`,
   `get_awareness_driven_suggestions` (**throttled to once/hour to prevent
   auto-trigger loops**).
