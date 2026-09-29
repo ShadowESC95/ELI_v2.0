@@ -382,7 +382,6 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 |---|---|---|
 | `memory.py` | 5677 | The `Memory` class (69 public methods): semantic store/recall, conversations, habits, failures/improvements, storage policy, upkeep, weight decay, KG bridge, `mark_failure_resolved`, `disable_invalid_habit_rules`. |
 | `knowledge_graph.py` | 643 | Entity/relation graph + multi-hop BFS (`related`) + `context_for_prompt` + extract-from-memory. |
-| `habits_memory_db.py` | 466 | Habit rules/events store + cheap embed/recall. |
 | `retrieval.py` | 253 | Shared turn retrieval (`retrieve_for_turn`) with an 8 s cache, time window and `memory_diag` stats. |
 | `policy.py` | 118 | Storage policy: origin, dedupe key, forgetting curve, archive rule. |
 | `claims.py` | 266 | Bitemporal claims about the user: valid interval, learned-at, supersession, extraction. |

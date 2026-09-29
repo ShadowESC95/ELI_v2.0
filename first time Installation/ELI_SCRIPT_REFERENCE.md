@@ -835,7 +835,6 @@ The `eli/` package contains **452 Python modules** across **26 subpackages** (ex
 ### `memory/` (15 modules)
 
 - `memory/__init__.py` — Lazy-load memory_adapter exports to avoid circular import at package init.
-- `memory/habits_memory_db.py` — Module in the ELI v2 runtime.
 - `memory/habits_memory_service.py` — eli/memory/habits_memory_service.py
 - `memory/knowledge_graph.py` — Module in the ELI v2 runtime.
 - `memory/memory.py` — Module in the ELI v2 runtime.

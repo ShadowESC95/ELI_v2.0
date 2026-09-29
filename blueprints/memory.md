@@ -36,7 +36,6 @@ internals), with live counts for each layer.
 | `unified_retrieval.py` | 168 | the orchestrator stages consume `retrieve_for_turn` through it; formats the verified-memory block |
 | `vector_store.py` | 637 | FAISS index, embedder, tombstones |
 | `knowledge_graph.py` | 643 | entity and relation graph |
-| `habits_memory_db.py` | 466 | habit and legacy memory helpers |
 | `system_index.py` | 278 | indexed apps, executables, files |
 | `memory_truth.py` | 188 | read-only inspection used by status surfaces |
 | `memory_adapter.py` | 131 | compatibility adapter |

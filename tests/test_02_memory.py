@@ -43,11 +43,6 @@ def test_memory_system_index_loadable():
     assert mod is not None
 
 
-def test_memory_habits_db_loadable():
-    mod = importlib.import_module("eli.memory.habits_memory_db")
-    assert mod is not None
-
-
 
 def test_memory_memory_adapter_loadable():
     mod = importlib.import_module("eli.memory.memory_adapter")

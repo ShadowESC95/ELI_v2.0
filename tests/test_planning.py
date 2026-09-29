@@ -154,18 +154,3 @@ def test_memory_adapter_recall_returns_list(tmp_db):
 
 # ── Memory Service ────────────────────────────────────────────────────────
 
-
-# ── Habits Memory ────────────────────────────────────────────────────────
-
-def test_habits_memory_importable():
-    from eli.memory.habits_memory_db import recall_recent
-    assert recall_recent is not None
-
-def test_habits_memory_recall_returns_dict():
-    from eli.memory.habits_memory_db import recall_recent
-    try:
-        result = recall_recent(limit=5)
-        assert isinstance(result, (dict, list))
-    except Exception:
-        pass  # may require DB setup
-
