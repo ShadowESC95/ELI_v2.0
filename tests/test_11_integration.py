@@ -31,13 +31,6 @@ def test_wire_planning_to_memory():
     assert daemon and bridge
 
 
-def test_wire_execution_to_runtime():
-    """Route authority stubs in execution and runtime must coexist."""
-    exec_ra    = importlib.import_module("eli.execution.route_authority")
-    runtime_ra = importlib.import_module("eli.runtime.route_authority")
-    assert exec_ra and runtime_ra
-
-
 def test_wire_kernel_engine_to_pipeline():
     engine   = importlib.import_module("eli.kernel.engine")
     pipeline = importlib.import_module("eli.kernel.pipeline")

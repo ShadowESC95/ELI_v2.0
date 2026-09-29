@@ -52,11 +52,6 @@ def test_core_legacy_paths_loadable():
     assert mod is not None
 
 
-def test_core_architecture_contracts_loadable():
-    mod = importlib.import_module("eli.core.architecture_contracts")
-    assert mod is not None
-
-
 # ── Cross-module wiring ────────────────────────────────────────────────────────
 
 def test_core_imports_not_circular():

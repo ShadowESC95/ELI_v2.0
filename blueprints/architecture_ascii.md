@@ -27,7 +27,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
                                           ▼
 ┌─ ROUTING ─────────────────────────────────────────────────────────────────────────┐
 │  execution/router_enhanced.py :: route()      regex-first PRIORITY PIPELINE         │
-│  + cognition/llm_intent.py (fallback)   route_authority · route_contracts ·         │
+│  + cognition/llm_intent.py (fallback)   route_contracts ·                           │
 │    execution_planner · portable_intent_contract                                     │
 └────────────────────────────────────────┬───────────────────────────────────────────┘
                                           ▼  {action, args, confidence, matched_by}
@@ -145,7 +145,7 @@ eli/  (196,249 LOC, 438 files)  ·  api/server.py  (FastAPI web app + dashboard)
 ├── execution/         26.3k ─── route → act
 │   ├── executor_enhanced.py   15.8k   206 supported / 228 manifest
 │   ├── router_enhanced.py      8.3k   priority pipeline
-│   ├── execution_planner.py · route_authority.py · route_contracts.py
+│   ├── execution_planner.py · route_contracts.py
 │   ├── operator_actions.py · operator_policy.py
 │   ├── media_runtime.py
 │   └── portable_intent_contract.py

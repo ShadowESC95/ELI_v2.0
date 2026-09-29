@@ -63,20 +63,6 @@ def test_grounded_actions_contains_standard():
         assert contract is not None
 
 
-# ── Route Authority ───────────────────────────────────────────────────────
-
-def test_route_authority_importable():
-    try:
-        from eli.runtime.route_authority import check_route_authority
-        assert check_route_authority is not None
-    except ImportError:
-        try:
-            from eli.execution.route_authority import check_route_authority
-            assert check_route_authority is not None
-        except ImportError:
-            pytest.skip("route_authority not available")
-
-
 # ── Reflection ────────────────────────────────────────────────────────────
 
 def test_reflection_importable():

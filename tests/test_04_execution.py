@@ -43,12 +43,6 @@ def test_execution_operator_policy_loadable():
     assert mod is not None
 
 
-def test_execution_route_authority_loadable():
-    mod = importlib.import_module("eli.execution.route_authority")
-    assert mod is not None
-
-
-
 def test_execution_cross_import_router_executor():
     """Router and executor should share no circular deps."""
     router = importlib.import_module("eli.execution.router_enhanced")

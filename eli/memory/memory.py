@@ -2918,7 +2918,6 @@ class Memory(metaclass=_MemoryMeta):
 
     def apply_weight_decay(
         self,
-        decay_factor: float = 0.98,
         min_weight: float = 0.05,
         older_than_days: int = 7,
         half_life_days: Optional[float] = None,

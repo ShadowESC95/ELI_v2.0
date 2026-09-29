@@ -142,7 +142,3 @@ def test_runtime_stage_packets_loadable():
 
 def test_runtime_stage_packet_store_loadable():
     assert _load("eli.runtime.stage_packet_store") is not None
-
-
-def test_runtime_auth_loadable():
-    assert _load("eli.runtime.auth") is not None

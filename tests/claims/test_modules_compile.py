@@ -33,7 +33,7 @@ def test_module_has_no_merge_markers(path):
 # Load-bearing modules that MUST import cleanly (no GUI — needs a display).
 _CORE_MODULES = [
     "eli.execution.router_enhanced", "eli.execution.executor_enhanced",
-    "eli.execution.execution_planner", "eli.execution.route_authority",
+    "eli.execution.execution_planner",
     "eli.cognition.agent_bus", "eli.cognition.orchestrator",
     "eli.cognition.gguf_inference", "eli.cognition.inference_broker",
     "eli.cognition.reasoning_modes", "eli.cognition.output_governor",

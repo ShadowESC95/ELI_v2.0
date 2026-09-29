@@ -627,7 +627,6 @@ The `eli/` package contains **452 Python modules** across **26 subpackages** (ex
 
 ### `brain/` (1 modules)
 
-- `brain/agents/custom/__init__.py` — Module in the ELI v2 runtime.
 
 ### `cli/` (2 modules)
 
@@ -704,7 +703,6 @@ The `eli/` package contains **452 Python modules** across **26 subpackages** (ex
 ### `core/` (31 modules)
 
 - `core/__init__.py` — Module in the ELI v2 runtime.
-- `core/architecture_contracts.py` — Authoritative ownership map for the live ELI runtime.
 - `core/cognition_tunables.py` — Central registry of user-tunable cognition / knowledge-gathering parameters.
 - `core/compatibility.py` — Compatibility layer for older tests/import paths.
 - `core/config.py` — Configuration manager for ELI - thin shim over runtime_settings.
@@ -748,7 +746,6 @@ The `eli/` package contains **452 Python modules** across **26 subpackages** (ex
 - `execution/operator_actions.py` — The user data dir on a packaged install; the source tree in dev.
 - `execution/operator_policy.py` — Module in the ELI v2 runtime.
 - `execution/portable_intent_contract.py` — Hard block document/code/analysis prompts from PLAY_MEDIA.
-- `execution/route_authority.py` — Module in the ELI v2 runtime.
 - `execution/route_contracts.py` — Static template vs dynamic/evolving understanding of the user.
 - `execution/router_enhanced.py` — Prevent broad memory-runtime regexes from hijacking codebase audits.
 - `execution/router_plugin_intents.py` — Plugin-related intent patterns for router_enhanced.py.
@@ -959,7 +956,6 @@ The `eli/` package contains **452 Python modules** across **26 subpackages** (ex
 - `runtime/active_project.py` — Active project signal.
 - `runtime/api_users.py` — API users + roles (admin / member RBAC) for the web server.
 - `runtime/approval_engine.py` — Module in the ELI v2 runtime.
-- `runtime/auth.py` — Module in the ELI v2 runtime.
 - `runtime/authority_gate.py` — authority_gate — intentional stub.
 - `runtime/authority_state.py` — Compatibility placeholder kept import-safe during v2.0 migration.
 - `runtime/autopilot_debugger.py` — Autopilot debugger — one loop that turns a failure into a plan.
@@ -1029,7 +1025,6 @@ The `eli/` package contains **452 Python modules** across **26 subpackages** (ex
 - `runtime/response_contracts.py` — Module in the ELI v2 runtime.
 - `runtime/response_packets.py` — Module in the ELI v2 runtime.
 - `runtime/response_policy.py` — Module in the ELI v2 runtime.
-- `runtime/route_authority.py` — Module in the ELI v2 runtime.
 - `runtime/runtime_policy.py` — Canonical, environment-honouring root — not this module's own location.
 - `runtime/scheduled_tasks.py` — Scheduled / overnight advanced tasks.
 - `runtime/security.py` — ELI Full Control (the GUI toggle / `full_control` setting) — single source
@@ -1080,7 +1075,6 @@ The `eli/` package contains **452 Python modules** across **26 subpackages** (ex
 
 - `tools/__init__.py` — Module in the ELI v2 runtime.
 - `tools/api.py` — eli.api — a small, curated callable surface over ELI's action executor.
-- `tools/automation/__init__.py` — Module in the ELI v2 runtime.
 - `tools/image_engine/__init__.py` — GUI bridge and nested runtime exports for the local image engine.
 - `tools/image_engine/fetch_model.py` — Fetch a diffusers image model's weights into the local models dir.
 - `tools/image_engine/gui_bridge.py` — Module in the ELI v2 runtime.
@@ -1088,7 +1082,6 @@ The `eli/` package contains **452 Python modules** across **26 subpackages** (ex
 - `tools/image_engine/image_engine/__main__.py` — Module in the ELI v2 runtime.
 - `tools/image_engine/image_engine/cli.py` — Module in the ELI v2 runtime.
 - `tools/image_engine/image_engine/contracts.py` — Module in the ELI v2 runtime.
-- `tools/image_engine/image_engine/engine.py` — Module in the ELI v2 runtime.
 - `tools/image_engine/image_engine/memory.py` — Small SQLite memory/index for generated images, plots, and jobs.
 - `tools/image_engine/image_engine/plotting.py` — Module in the ELI v2 runtime.
 - `tools/image_engine/image_engine/project_analyzer.py` — Module in the ELI v2 runtime.
@@ -1097,13 +1090,11 @@ The `eli/` package contains **452 Python modules** across **26 subpackages** (ex
 - `tools/image_engine/image_engine/service.py` — Module in the ELI v2 runtime.
 - `tools/image_engine/image_engine/visual_core.py` — Module in the ELI v2 runtime.
 - `tools/image_engine/runtime_paths.py` — Resolve the project root from this file's actual location.
-- `tools/media/__init__.py` — Module in the ELI v2 runtime.
 - `tools/mic_diag.py` — ELI Microphone Diagnostic
 - `tools/news/__init__.py` — Module in the ELI v2 runtime.
 - `tools/news/news_fetcher.py` — ELI Web Learning Module — News & Current Events Fetcher
 - `tools/news/news_synthesis.py` — News synthesis cadence
 - `tools/registry/__init__.py` — Module in the ELI v2 runtime.
-- `tools/registry/capabilities.py` — Capabilities management for ELI.
 - `tools/registry/capabilities_doc.py` — capabilities_doc.py — regenerate blueprints/capabilities_and_actions.md.
 - `tools/registry/capability_registry.py` — Module in the ELI v2 runtime.
 - `tools/registry/capability_updater.py` — capability_updater.py

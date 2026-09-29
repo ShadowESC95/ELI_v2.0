@@ -19,24 +19,12 @@ def test_tools_news_fetcher_loadable():
     assert importlib.import_module("eli.tools.news.news_fetcher") is not None
 
 
-def test_tools_registry_capabilities_loadable():
-    mod = importlib.import_module("eli.tools.registry.capabilities")
-    assert mod is not None
-
-
 def test_tools_registry_capability_registry_loadable():
     assert importlib.import_module("eli.tools.registry.capability_registry") is not None
 
 
 def test_tools_registry_capability_updater_loadable():
     assert importlib.import_module("eli.tools.registry.capability_updater") is not None
-
-
-def test_tools_capabilities_has_registry_symbols():
-    mod = importlib.import_module("eli.tools.registry.capabilities")
-    syms = dir(mod)
-    matches = [s for s in syms if "capabilit" in s.lower() or "Capabilit" in s]
-    assert matches, f"No capability symbols: {syms}"
 
 
 def test_tools_utils_platform_compat_loadable():

@@ -375,7 +375,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | `cognition_tunables.py` | 273 | User-tunable knowledge-gathering limits + synthesis cap registry (GUI-surfaced). |
 | `grounding.py` | 145 | `is_grounded_query` classifier. |
 | `crisis_guard.py` | 113 | STT-robust self-harm detector + persona steering directive. |
-| `portable_paths.py`, `db_paths.py`, `legacy_paths.py`, `architecture_contracts.py` | small | path helpers, ownership map. |
+| `portable_paths.py`, `db_paths.py`, `legacy_paths.py` | small | path helpers. |
 
 ## `memory/` — 8.8k lines
 | Module | LOC | Role |
@@ -515,7 +515,6 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `repair_playbook.py` | 243 | ELI repair playbook — decision guide for self-maintenance, code examine, and upgrades. |
 | `report_pipeline.py` | 198 | Multi-stage grounded document pipeline (Report-Builder discipline, chat scale). |
 | `research_corpus.py` | 439 | Local research corpus workspaces. |
-| `route_authority.py` | 1 | Re-export shim of `execution/route_authority.py`. |
 | `scheduled_tasks.py` | 569 | Scheduled / overnight advanced tasks. |
 | `self_facts.py` | 333 | Verified facts about ELI's own construction, assembled from live sources. |
 | `self_maintenance.py` | 175 | Unified self-maintenance orchestration for ELI. |
@@ -567,7 +566,6 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `operator_actions.py` | 105 | Valid states and helpers for operator (proposal) actions: pending, approved, rejected, blocked, pending_confirmation. |
 | `operator_policy.py` | 65 | The valid operator policy modes: `proposal_only`, `operator_supervised`, `goal_driven`, `observe_only`. |
 | `portable_intent_contract.py` | 643 | Portable intent rules; hard-blocks document, code and analysis prompts from `PLAY_MEDIA`. |
-| `route_authority.py` | 46 | Thread-local record of which layer decided a route, and the internal prompt prefixes that must never be routed as user text. |
 | `route_contracts.py` | 123 | Small predicates that classify a request (for example `wants_memory_internals`) for the router. |
 | `router_enhanced.py` | 8343 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
 | `shell_gate.py` | 110 | Centralised shell-command safety gate. |
@@ -739,7 +737,6 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `mic_diag.py` | 149 | ELI Microphone Diagnostic |
 | `news/news_fetcher.py` | 577 | ELI Web Learning Module — News & Current Events Fetcher |
 | `news/news_synthesis.py` | 913 | News synthesis cadence |
-| `registry/capabilities.py` | 142 | Capabilities management for ELI. |
 | `registry/capabilities_doc.py` | 374 | capabilities_doc.py — regenerate blueprints/capabilities_and_actions.md. |
 | `registry/capability_registry.py` | 38 | Process-local capability registry (`register_capability`). |
 | `registry/capability_updater.py` | 142 | capability_updater.py |

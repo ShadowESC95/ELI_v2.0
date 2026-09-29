@@ -35,7 +35,7 @@ ALL_MODULES = [
     # eli.cognition.working_memory — deleted module, removed from list
     # ── core ──────────────────────────────────────────────────────────────────
     "eli.core",
-    "eli.core.architecture_contracts",
+    # eli.core.architecture_contracts — deleted module (no consumer), removed 2026-09-29
     "eli.core.config",
     "eli.core.db_paths",
     "eli.core.hardware_profile",
@@ -49,7 +49,7 @@ ALL_MODULES = [
     "eli.execution.executor_enhanced",
     "eli.execution.operator_actions",
     "eli.execution.operator_policy",
-    "eli.execution.route_authority",
+    # eli.execution.route_authority — deleted module (route-cycle locking, no caller), removed 2026-09-29
     "eli.execution.router_enhanced",
     # ── gui ───────────────────────────────────────────────────────────────────
     "eli.gui",
@@ -147,7 +147,7 @@ ALL_MODULES = [
     "eli.runtime",
     "eli.runtime.approval_engine",
     "eli.runtime.authority_gate",
-    "eli.runtime.auth",
+    # eli.runtime.auth — deleted module (was already a 4-line tombstone comment), removed 2026-09-29
     "eli.runtime.awareness_boot",
     "eli.runtime.capability_sync",
     "eli.runtime.code_monitor",
@@ -168,7 +168,7 @@ ALL_MODULES = [
     "eli.runtime.reflection",
     "eli.runtime.response_contracts",
     "eli.runtime.response_policy",
-    "eli.runtime.route_authority",
+    # eli.runtime.route_authority — deleted module (shim over the deleted execution module), removed 2026-09-29
     "eli.runtime.security",
     "eli.runtime.self_improvement",
     "eli.runtime.self_model_refresh",
@@ -177,11 +177,11 @@ ALL_MODULES = [
     # ── tools ─────────────────────────────────────────────────────────────────
     "eli.tools",
     "eli.tools.image_engine",
-    "eli.tools.media",
+    # eli.tools.media — deleted module (empty package, no content), removed 2026-09-29
     "eli.tools.news",
     "eli.tools.news.news_fetcher",
     "eli.tools.registry",
-    "eli.tools.registry.capabilities",
+    # eli.tools.registry.capabilities — deleted module, superseded by capability_registry, removed 2026-09-29
     "eli.tools.registry.capability_registry",
     "eli.tools.registry.capability_updater",
     # ── utils ─────────────────────────────────────────────────────────────────
