@@ -241,6 +241,7 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
         log.debug("suppressed exception", exc_info=True)
 
     # Failure patterns
+    failures: List[Dict[str, Any]] = []
     try:
         failures = mem.recall_memory("failure error", limit=10)
         if failures:
@@ -324,7 +325,12 @@ def reflect_on_period(hours: int = 24) -> Dict[str, Any]:
         reflection_text = f"Reflection ({hours}h): " + "; ".join(insights)
         if not _already_stored(mem, reflection_text):
             try:
-                mem.store_memory(reflection_text, tags=["reflection", "auto"])
+                _refl_row = mem.store_memory(reflection_text, tags=["reflection", "auto"])
+                # This reflection restates the failure memories it counted — link it so
+                # recall/confirmation-counting treats them as one lineage, not independent evidence.
+                _parent_ids = [f.get("id") for f in failures if str(f.get("id", "")).isdigit()]
+                if _refl_row.get("id") and _parent_ids:
+                    mem.link_derivation(_refl_row["id"], _parent_ids, kind="reflection")
             except Exception:
                 log.debug("reflection: aggregate store failed", exc_info=True)
         # Also store each individual insight so reflection surfaces can cite it. These are telemetry,
