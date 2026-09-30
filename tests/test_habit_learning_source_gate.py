@@ -55,3 +55,39 @@ def test_is_autonomous_source_matches_settle_recall_outcome_vocabulary():
         assert CognitiveEngine._is_autonomous_source(s) is True
     for s in ("user", "", None):
         assert CognitiveEngine._is_autonomous_source(s) is False
+
+
+def test_finalize_turn_threads_source_through_to_learn_from_result(eng, monkeypatch):
+    # process()'s normal exit path calls learning_coordinator.finalize_turn(), not
+    # _learn_from_result() directly (that's only the except-fallback) — a real gap this
+    # session's own personal-adaptation fix missed: finalize_turn() didn't accept or forward
+    # `source`, so the primary path always learned as if it were a user turn.
+    from eli.cognition.learning_coordinator import finalize_turn
+
+    spy = MagicMock()
+    eng._learn_from_result = spy
+    eng._publish_last_response_meta = MagicMock()
+    eng._store_assistant_turn = MagicMock()
+
+    finalize_turn(
+        eng, user_input="close steam", response="done",
+        intent=_intent(name="steam"), result={"ok": True, "cmd": "steam"},
+        source="habit",
+    )
+    spy.assert_called_once()
+    _, kwargs = spy.call_args
+    assert kwargs.get("source") == "habit"
+
+
+def test_finalize_turn_defaults_source_to_user(eng):
+    from eli.cognition.learning_coordinator import finalize_turn
+
+    spy = MagicMock()
+    eng._learn_from_result = spy
+    eng._publish_last_response_meta = MagicMock()
+    eng._store_assistant_turn = MagicMock()
+
+    finalize_turn(eng, user_input="hi", response="hello",
+                  intent=_intent(), result={"ok": True})
+    _, kwargs = spy.call_args
+    assert kwargs.get("source") == "user"

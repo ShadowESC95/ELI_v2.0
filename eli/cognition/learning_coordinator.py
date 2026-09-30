@@ -22,6 +22,7 @@ def finalize_turn(
     grounding_confidence: Optional[float] = None,
     agents_used: Optional[List[str]] = None,
     req_id: str = "",
+    source: str = "user",
 ) -> None:
     """Run all Stage-12 side effects in a fixed, observable order."""
     intent = dict(intent or {})
@@ -66,7 +67,7 @@ def finalize_turn(
         if hasattr(engine, "_learn_from_result"):
             _learn_intent = dict(intent)
             _learn_intent.setdefault("user_input", user_input)
-            engine._learn_from_result(_learn_intent, result)
+            engine._learn_from_result(_learn_intent, result, source=source)
     except Exception as exc:
         log.debug(f"[LEARNING] learn_from_result failed: {exc}")
 
