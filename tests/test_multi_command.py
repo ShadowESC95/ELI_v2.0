@@ -7,6 +7,14 @@ from eli.runtime.command_splitter import split_commands
 from eli.execution.router_enhanced import route
 
 
+@pytest.fixture(autouse=True)
+def isolated_command_sequence_log(tmp_path, monkeypatch):
+    # test_executor_runs_each_command below exercises MULTI_COMMAND for real, which
+    # persists to command_sequence_log.py — without this it writes to the real
+    # artifacts/runtime/command_sequences.json.
+    monkeypatch.setenv("ELI_COMMAND_SEQUENCE_LOG", str(tmp_path / "seq.json"))
+
+
 @pytest.mark.parametrize("text,n", [
     ("close steam and set an alarm for 7am", 2),
     ("open spotify then play vincents tale", 2),
