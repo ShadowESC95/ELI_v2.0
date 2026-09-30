@@ -920,6 +920,57 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                 lines_out.append(f"🧠 Last memory: {recent_mems[0][0][:80]}")
             return "\n".join(lines_out)
 
+    def _handle_high_priority_world_suggestion(self, action: str, reason: str, priority: float) -> None:
+        """A world-awareness signal strong enough to matter (priority >= 0.70) — but strong
+        signal alone isn't permission to interrupt. Defer if the user is mid-turn, and don't
+        re-raise the same suggestion inside its cooldown window (attention_queue's own
+        suppression, reused rather than a second cooldown store). Nothing here executes the
+        suggested action — say so; a "[AUTO] ... triggered" label on a suggestion nobody ran
+        is the same class of confabulation already fixed for SUMMARIZE_FILE this session."""
+        try:
+            from eli.cognition.inference_broker import foreground_recently_active
+            if foreground_recently_active():
+                return
+        except Exception:
+            _SWLOG.debug("suppressed exception", exc_info=True)
+
+        try:
+            from eli.planning.attention_queue import append_attention
+            rec = append_attention(
+                kind="world_suggestion",
+                title=f"{action}: {reason[:120]}",
+                severity="high",
+                source="proactive_daemon.world_awareness",
+                metadata={"action": action, "reason": reason, "priority": priority},
+                suppression_key=f"world_action:{action}",
+                suppression_window_sec=1800,
+            )
+            if rec.get("suppressed"):
+                return
+        except Exception:
+            _SWLOG.debug("suppressed exception", exc_info=True)
+            return   # no cooldown signal available — err toward not interrupting
+
+        self.suggestion_queue.put(("world_action", {
+            "type": "world_driven_action",
+            "action": action,
+            "reason": reason,
+            "priority": priority,
+            "suggestion": f"[suggested] {action}: {reason[:120]}",
+        }))
+        try:
+            _obs_mem = self.agent_mem or self.user_mem
+            if _obs_mem:
+                _obs_mem.store_memory(
+                    f"ELI noticed a pattern worth mentioning: {action} — {reason[:120]}",
+                    tags=["eli_autonomy", "world_action", "suggested"],
+                    kind="insight",
+                    source="eli_world",
+                    importance=0.72,
+                )
+        except Exception:
+            _SWLOG.debug("suppressed exception", exc_info=True)
+
     def run(self):
         """
         Main proactive daemon loop
@@ -1157,32 +1208,8 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                                     _SWLOG.debug("suppressed exception", exc_info=True)
 
                             if _ws_priority >= 0.70 and _ws_action:
-                                # HIGH priority: actually execute the suggested action.
-                                # Queue as a suggestion so the proactive listener can
-                                # surface it to the user in the next response.
-                                self.suggestion_queue.put(("world_action", {
-                                    "type": "world_driven_action",
-                                    "action": _ws_action,
-                                    "reason": _ws.get("reason", ""),
-                                    "priority": _ws_priority,
-                                    "suggestion": (
-                                        f"[AUTO] World awareness triggered {_ws_action}: "
-                                        f"{_ws.get('reason', '')[:120]}"
-                                    ),
-                                }))
-                                # Also store as a user-visible memory note
-                                try:
-                                    _obs_mem = self.agent_mem or self.user_mem
-                                    if _obs_mem:
-                                        _obs_mem.store_memory(
-                                            f"ELI autonomy: {_ws_action} triggered — {_ws.get('reason','')[:120]}",
-                                            tags=["eli_autonomy", "world_action", "auto"],
-                                            kind="insight",
-                                            source="eli_world",
-                                            importance=0.72,
-                                        )
-                                except Exception:
-                                    _SWLOG.debug("suppressed exception", exc_info=True)
+                                self._handle_high_priority_world_suggestion(
+                                    _ws_action, _ws.get("reason", ""), _ws_priority)
 
                             if _ws_priority >= 0.55:
                                 log.debug(
