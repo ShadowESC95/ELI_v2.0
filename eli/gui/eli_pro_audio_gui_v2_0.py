@@ -1144,6 +1144,15 @@ class LocalModelManager:
                             gpu_integrated=_sf_igpu,
                             user_gpu_layers=_user_gpu_layers,
                         )
+                        if _moe_gui and _sf_layers > 0:
+                            # This fit sizes layers off the full file on disk, which is wrong
+                            # once expert offload is active: only non-expert tensors go to
+                            # GPU, so layer COUNT isn't the lever that saves VRAM here, and
+                            # the Llama() build below forces every candidate back to the full
+                            # MoE layer count anyway (line ~1429). Match that now, or this
+                            # log and the needs-proof check below both claim a fallback that
+                            # will never actually be used.
+                            _sf_layers = int(_moe_gui["layers"])
                         log.debug(
                             f"[GUI][LOAD] smart-fit (post-init free={_sf_gpu.free_mb}MB "
                             f"reserve={_sf_reserve}MB kvq={_sf_kvq}): "
