@@ -1,7 +1,7 @@
 # ELI — What It Can Actually Do
 
-> **Updated for v2.4.84.** All CHAT modes run the gradient orchestrator; 15 specialist
-> agents; 228 capabilities (211 routable or executor-backed). Regenerate the action list with
+> **Updated 2026-09-30.** All CHAT modes run the gradient orchestrator; 15 specialist
+> agents; 229 capabilities (212 routable or executor-backed). Regenerate the action list with
 > `python -m eli.tools.registry.capability_updater`.
 
 *A capability showcase for the layman and the tech-savvy alike. Each capability listed
@@ -19,7 +19,7 @@ builds documents, creates images, looks after itself, and learns you over time �
 and **nothing leaves your device unless you explicitly allow it.**
 
 Here's the part most "AI assistants" can't say: it's *yours*. A fully local,
-embodied desktop AI you actually own — **228 capabilities** (211 routable or executor-backed
+embodied desktop AI you actually own — **229 capabilities** (212 routable or executor-backed
 by voice or text), a 15-agent reasoning bus, persistent memory, and full
 voice/vision/gaze control, in ~196,249 lines of Python in `eli/`. One machine, your data, no landlord. (The
 capability count is read live from the manifest each boot, so it grows as ELI
@@ -238,7 +238,16 @@ defers it to its **durable background workers** (survives restarts; *"every morn
 makes it recurring) instead of doing it now. Alarms, timers, and questions still behave
 normally. You can also **chain several commands in one breath** — *"close Steam and set
 an alarm for 7am"*, *"open Spotify then play Vincent's Tale"* — and ELI runs each in
-order. Works by voice or text.
+order, recognises when one step genuinely depends on an earlier one (so a failure
+blocks only what needed it, not unrelated steps), and durably tracks progress — if
+it's interrupted mid-chain, repeating the same request skips whatever already
+succeeded instead of doing it all again. Works by voice or text.
+
+### 🔖 Pick up where you left off
+*"Continue the RAIMS project"* recovers a saved task's real constraints, decisions,
+finished steps and open questions — and tells you honestly how stale it is ("last
+touched 6 days ago"), never silently pretending no time passed. If nothing matches,
+it says so plainly instead of guessing.
 
 ### 🎯 Be proactive & self-aware
 A background daemon notices your patterns, **offers** to automate routines (never

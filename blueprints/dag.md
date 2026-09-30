@@ -2,8 +2,9 @@
 
 A single, generic directed-acyclic-graph engine (`eli/core/dag.py`) is now the
 shared scheduling primitive across ELI: the **agent bus** runs its agents on it,
-and the **coding engine** runs its subtasks on it. One DAG algorithm, two
-consumers — no per-subsystem reinvention.
+the **coding engine** runs its subtasks on it, and **MULTI_COMMAND** orders
+chained commands on it. One DAG algorithm, three consumers — no per-subsystem
+reinvention.
 
 ## The engine (`eli/core/dag.py`)
 
@@ -67,17 +68,35 @@ For decomposable coding tasks:
 - Single-node tasks return `None` so the agent uses the plain single-shot path
   (no DAG overhead). Gated by `ELI_CODING_DAG` (default on).
 
+## Consumer 3 — MULTI_COMMAND's dependency graph (`eli/execution/command_dependency_graph.py`, 2026-09-29)
+
+For a chained command request ("close steam and set an alarm" / "open the file and then edit
+it"):
+
+- `infer_dependencies(commands)` mirrors `plan_graph.decompose_dag`'s shape: one optional LLM
+  call asking only for dependency EDGES among the fixed, already-split command list (not a
+  re-decomposition), validated through `build_dag(...).topological_layers()`. Falls back to
+  fully independent (empty dict — today's behavior) on no model, bad JSON, an out-of-range
+  index, or a cycle.
+- The executor runs `MULTI_COMMAND` in topological layers. A step whose dependency didn't
+  succeed is skipped and reported as such (not silently run); independent branches still run
+  regardless of an unrelated failure. Gated by `ELI_MULTI_COMMAND_DAG` (default on).
+- Deliberately narrower than consumers 1-2: it only asks for edges among an already-fixed list,
+  never regenerates or reorders the commands themselves — the router's `command_splitter.py`
+  owns splitting, this only owns ordering.
+
 ## Scope & honesty
 
-- **DAG-driven now:** agent-bus execution (topological layers + upstream) and
-  coding subtask decomposition both run on `eli/core/dag`.
+- **DAG-driven now:** agent-bus execution (topological layers + upstream), coding subtask
+  decomposition, and MULTI_COMMAND dependency-aware execution all run on `eli/core/dag`.
 - **Still linear (not yet DAG):** the 12-stage orchestrator pipeline is a fixed
   chain; `execution_planner.ExecutionPlan.steps` is an ordered list. Converting
   those to DAGs is a possible next step but wasn't required for "agents on a DAG".
 - **Composition is v1:** the coding DAG composes node code by ordered
   concatenation with import-deduping; integration quality scales with the model.
 - Everything here is covered by `tests/test_dag.py` (engine, layered dispatch via
-  fake agents, coding subtask DAG) — all deterministic.
+  fake agents, coding subtask DAG) plus `tests/test_multi_command_dependencies.py`
+  (consumer 3) — all deterministic, no real model calls in the test suite.
 
 ## Control summary
 
@@ -85,4 +104,5 @@ For decomposable coding tasks:
 |---|---|---|
 | `ELI_AGENT_DAG` | on | agent-bus topological layered dispatch (off ⇒ flat fan-out) |
 | `ELI_CODING_DAG` | on | coding subtask-DAG decomposition (off ⇒ single-shot only) |
+| `ELI_MULTI_COMMAND_DAG` | on | MULTI_COMMAND dependency inference (off ⇒ fully independent) |
 | `_AGENT_DEPENDENCIES` | `{knowledge_graph: {memory}, critic: {memory, system, knowledge_graph, file_code}}` | declare agent edges |

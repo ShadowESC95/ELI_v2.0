@@ -11,8 +11,8 @@ source tree on 2026-09-25; where something is only true at runtime it is marked 
 > ELI is a **local-first, offline-by-default, model-agnostic** cognitive runtime and
 > assistant GUI, and also a self-hosted web app (`api/server.py`, described in
 > `ELI_USER_MANUAL.md`). No cloud on the inference path, no hardcoded model.
-> **194,736 lines across 429 Python files in `eli/`**, plus `api/server.py` (2,292 lines).
-> 228 capabilities in `capability_manifest.json`, 187 of them routable and 206 in the
+> **195,242 lines across 431 Python files in `eli/`**, plus `api/server.py` (2,292 lines).
+> 229 capabilities in `capability_manifest.json`, 188 of them routable and 206 in the
 > executor's supported list.
 
 ---
@@ -245,7 +245,7 @@ The known weak seam is internal state leaking into spoken output on the plain CH
 ## 10. Execution layer (`eli/execution/executor_enhanced.py`)
 
 - `execute(action, args) -> dict`. The executor's supported list holds **206 actions**; the
-  manifest declares **228 capabilities**, of which **187 are routable** and 206 are in the
+  manifest declares **229 capabilities**, of which **188 are routable** and 206 are in the
   supported list.
 - **Fast path** (`engine.py`): deterministic OS, media, status and job actions (`VOLUME`,
   `MEDIA_CONTROL`, `NEXT_MEDIA`, `OPEN_APP`, `DATE`, `SHELL_EXEC`, `ANALYZE_IMAGE`,

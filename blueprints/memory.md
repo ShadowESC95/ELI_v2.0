@@ -161,7 +161,10 @@ A single class that owns most persistent concerns:
   `get_recent_turns_since`, `search_conversations`, `get_turns_for_day`,
   `save_session_summary`, `get_session_summaries`.
 - **Habits**: `log_habit_event`, `get_habit_events`, `add_habit_rule`, `get_habit_rules`,
-  `get_detected_habits`, `record_habit_run`.
+  `get_detected_habits`, `record_habit_run`. `log_habit_event` writes from the engine's
+  `_learn_from_result` (2026-09-30: gated on `source` — a habit-scheduler-fired turn doesn't
+  write here, so ELI's own automation can't reinforce itself as fresh evidence of a routine
+  when `detect_habits` later mines this table for recurrence).
 - **Self-improvement and learning**: `log_learning_event`, `log_failure`, `log_correction`,
   `add_observation`, `log_improvement`, `add_capability_proposal`, `propose_capability`,
   `get_pending_proposals`, `get_recent_failures`, `get_recent_improvements`,

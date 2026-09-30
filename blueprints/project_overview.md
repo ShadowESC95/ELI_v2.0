@@ -68,8 +68,8 @@ an embedded dashboard) and **544 test files** under `tests/`.
   calculation is shared by the loader and the startup dialog; the fit priority
   (balanced, max GPU, max context) is a setting.
 - **Routing**: `execution/router_enhanced.py` is regex-first with an LLM-intent fallback
-  and an explicit priority pipeline, resolving to one of **228 manifest capabilities**
-  (187 routable, 206 in the executor's supported list, 211 in either). The full reference
+  and an explicit priority pipeline, resolving to one of **229 manifest capabilities**
+  (188 routable, 206 in the executor's supported list, 212 in either). The full reference
   with activation phrases is `capabilities_and_actions.md`.
 - **Orchestration**: `kernel/engine.py` runs the gradient orchestrator for all CHAT modes
   (Quick is light, Expert is deep); `dispatch_specialists()` composes the 15-agent

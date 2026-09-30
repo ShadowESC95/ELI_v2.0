@@ -280,6 +280,7 @@ _add("Tasks, time & planning", "HABIT_STATUS", "Show learned habits", "“show m
 _add("Tasks, time & planning", "CONFIRM_HABIT", "Approve a proposed habit", "“yes” (to a habit offer)")
 _add("Tasks, time & planning", "DECLINE_HABIT", "Decline a proposed habit", "“no” (to a habit offer)")
 _add("Tasks, time & planning", "EXECUTE_GOAL", "Execute a stored goal", "“execute goal X”")
+_add("Tasks, time & planning", "RESUME_TASK", "Recover a saved task record and state its real staleness", "“continue the RAIMS project”", "“resume the migration task”")
 
 # ── Proactive ───────────────────────────────────────────────────────────────
 _add("Proactive", "PROACTIVE_START", "Start the proactive daemon", "“start proactive mode”")

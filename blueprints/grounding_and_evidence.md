@@ -255,6 +255,18 @@ can make it retract a correct answer and invent a wrong one instead
 `tests/test_phase19_grounded_followup_truth_lock.py` pins both the regex and the action set
 against the live failure.
 
+**Widened 2026-09-29** for file-backed evidence, not just status/diagnostic actions: a real
+transcript showed `SUMMARIZE_FILE` correctly reading a document once, then two follow-up
+complaints ("that's not what I asked" / "you're making this up") producing fabricated
+analysis — invented citations, fake quoted "answers" — because the rebind didn't cover
+`FILE_EVIDENCE_ACTIONS` (`SUMMARIZE_FILE`, `READ_FILE`, `ANALYZE_PDF[_FOLDER]`, and 7 more).
+`_ELI_PHASE19_GROUNDED_FOLLOWUP_ACTIONS` now unions with `FILE_EVIDENCE_ACTIONS` (imported, not
+hand-duplicated) and the rebind also recovers the prior action's `args` (`path`/`file`/`folder`/
+`url`) from `_publish_last_response_meta`, so it knows *what to re-examine*, not just *that* to
+re-examine — re-reading the same file rather than guessing from memory of what it said. The
+challenge/detail regexes were widened too (`"you did n't really..."`, `"that's not what I
+asked"`, `"more of a X than..."`, `"you're lying"`, `"making stuff up"`).
+
 ## History is not discarded before the budgeter sees it
 
 The old memory-evidence module capped recent-history pulls silently; it was removed and shared

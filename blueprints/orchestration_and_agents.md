@@ -1,10 +1,11 @@
 # ELI Orchestration & Agents — Full Topology
 
-> **Updated for v2.4.84.** All CHAT modes run the orchestrator at scaled depth; retrieval is
+> **Updated 2026-09-30.** All CHAT modes run the orchestrator at scaled depth; retrieval is
 > unified in `eli/memory/retrieval.py`; stage 12 learning is centralised in
 > `learning_coordinator.py`; the direct-versus-synthesise gate
 > (`_deterministic_direct_payload_actions`) has been audited against what the executor
-> handlers actually return.
+> handlers actually return. Agent-bus confidence now has a relevance term; MULTI_COMMAND
+> gained real dependency awareness and crash-survival.
 
 Read-only reference; nothing here changes behaviour.
 
@@ -115,8 +116,13 @@ Execution (`AgentBus.dispatch`):
 - **Per-agent hard timeout**: a timeout or exception becomes a failed `AgentResult` and never
   blocks the response.
 - **Aggregation** (`_aggregate_confidence`): per-agent contribution = evidence quality ×
-  evidence density × a calibration learned per (agent, action); a single-agent cap; an
-  empty-bus ceiling; a corroboration bonus when several agents contribute.
+  evidence density × a calibration learned per (agent, action) × relevance (2026-09-29:
+  `term_overlap(user_input, representative_text) → relevance_gate()`, gated on ≥40 chars of
+  text; a fluent, evidence-dense result that's off-topic for what was actually asked no longer
+  scores as highly as one that's on-topic — env `ELI_AGENT_BUS_RELEVANCE_GATE` to disable);
+  a single-agent cap; an empty-bus ceiling; a corroboration bonus when several agents
+  contribute. `CriticAgent`'s corroboration score gets the same relevance discount: two
+  sources can agree strongly with each other while both being off-topic.
 
 ### When each runs
 
@@ -140,6 +146,18 @@ Stage 12 side effects (store the turn, publish meta, `_learn_from_result`) run t
    typed plan. `AgentBus.dispatch` builds it each turn, injecting the result of
    `_select_agents_for_intent` as `agent_profile`, and drives the active agents through it; it
    is exposed as `DispatchResult.execution_plan`. `EXECUTE_GOAL` also builds a plan through it.
+   **`.steps` is never executed anywhere** — only `.agent_profile` (an agent-name filter) is
+   read; `EXECUTE_GOAL` renders `.steps` as decorative numbered text, nothing more. Confirmed
+   dead scaffolding for real step execution, not a mechanism to extend.
+5. **`MULTI_COMMAND` (`command_dependency_graph.py`, 2026-09-29)**: the only mechanism in the
+   codebase that actually, mechanically executes a multi-part request (as opposed to items 3-4
+   above). One optional LLM call identifies real dependency edges among an already-split
+   command list (validated through the shared `eli.core.dag` engine, falling back to fully
+   independent on any failure); the executor runs the commands in topological layers, and a
+   step whose dependency failed is skipped and reported as such rather than blindly run.
+   Crash-survival is separate (`command_sequence_log.py`): each step's outcome is durably
+   recorded, and a resubmit of the same text within an hour skips steps already known to have
+   succeeded.
 
 ## Where it is still weak
 

@@ -1,15 +1,18 @@
-> **Updated for v2.4.84.** Gradient orchestrator for all CHAT modes; shared
-> `memory/retrieval.py`; canonical S01–S12 via `pipeline_trace.py`.
+> **Updated 2026-09-30.** Gradient orchestrator for all CHAT modes; shared
+> `memory/retrieval.py`; canonical S01–S12 via `pipeline_trace.py`. RESUME_TASK
+> and MULTI_COMMAND's dependency/crash-survival layer added; agent-bus confidence
+> and habit learning gained relevance/source integrity checks — see
+> `runtime_planning_world.md`, `orchestration_and_agents.md`, `dag.md`.
 
 # ELI Capability Catalogue — every action & module, what it actually does
 
 > **Purpose.** A systematic, ground-truth catalogue built by reading the real
 > handlers and modules — not summarised from memory. It exists because
-> conversational summaries of a 193,503-line project (`eli/`, measured 2026-09-25) keep undershooting; this is the
+> conversational summaries of a 195,242-line project (`eli/`, measured 2026-09-30) keep undershooting; this is the
 > persisted, exhaustive map.
 >
-> **Method.** Action list comes from the live `capability_manifest.json` (**228**
-> entries; 187 routable, 206 in the executor's supported list, 211 in either),
+> **Method.** Action list comes from the live `capability_manifest.json` (**229**
+> entries; 188 routable, 206 in the executor's supported list, 212 in either),
 > verified against the `executor_enhanced.py` dispatch. **The always-current,
 > auto-generated action list with activation phrases is
 > `capabilities_and_actions.md`** — this catalogue is the deeper module-level read.
@@ -21,9 +24,9 @@
 
 ---
 
-## Headline finding: 228 is real but aliased
+## Headline finding: 229 is real but aliased
 
-The manifest's 228 entries are honest (*measured* by `capability_sync`, not asserted)
+The manifest's 229 entries are honest (*measured* by `capability_sync`, not asserted)
 but inflated by **alias families** — multiple action names routing to one
 behaviour. Collapsed, there are roughly **~110 distinct capabilities**. Alias
 families are grouped below so the real surface is visible.
@@ -37,6 +40,7 @@ families are grouped below so the real surface is visible.
 | `ANSWER`, `DIRECT_RESPONSE`, `SAY` | Direct/short response surfaces (lighter than CHAT). *(inferred for some)* |
 | `SET_AI_MODE` | Set the reasoning mode (Quick / Normal / Advanced / Research / Expert). Legacy names still accepted as input. |
 | `SEQUENCE` | Multi-step action chaining (run a sequence of actions). |
+| `MULTI_COMMAND` | The real chained-command executor ("close steam and set an alarm"). Router's `command_splitter.py` splits; the executor runs in topological layers by inferred dependency (`command_dependency_graph.py`, `eli/core/dag`), durably records each step's outcome (`command_sequence_log.py`) so a crash mid-sequence isn't a silent loss and a resubmit within an hour skips steps already known to have succeeded. `SEQUENCE` above is a different, simpler mechanism. |
 | `NOOP` | No-op. |
 
 ## 2. OS & application control
@@ -145,6 +149,7 @@ families are grouped below so the real surface is visible.
 | `MORNING_REPORT` | The consolidated morning brief (news digest + activity + attention). |
 | `PROACTIVE_START`, `PROACTIVE_STOP`, `PROACTIVE_STATUS` | Control the proactive daemon. |
 | `EXECUTE_GOAL` | Execute a mission-layer goal (governed). |
+| `RESUME_TASK` | Explicit "continue/resume the X project" — `goal_store.find_task()` bypasses the passive 14-day idle window, states real staleness, says plainly when nothing matches rather than guessing. |
 | `BACKGROUND_JOBS`, `CHECK_JOB` | List background tasks / check a job id. |
 
 ## 13. Self-healing remediation (Linux)
@@ -271,7 +276,7 @@ layer that wraps the probabilistic model. Grouped by function:
 | `personal_memory_surface.py` | 452 | "Is this a personal-memory query" + surface builder. |
 | `personal_memory_clean_response.py` | 338 | Clean "what do you know about me" report (reset-aware, poison-filtered, dynamic-fact aging). |
 | `personal_memory_deep_response.py` | 450 | Deep memory-internals explain (schema/tables/functions) + routing-fault explain. |
-| `profile_extractor.py` | 1517 | Extracts user facts from turns (role/interests/field/"remember that I…"), writes user_patterns + LLM session summaries; recency refresh. |
+| `profile_extractor.py` | 1519 | Extracts user facts from turns (role/interests/field/"remember that I…"), writes user_patterns + LLM session summaries; recency refresh. `_SINGLE_VALUED_PATTERNS` (single source of truth, `user_model.py` imports it) gets belief-weighed supersession with revision history on a correction, not accumulation of contradictory rows. |
 | `identity_validation.py` | 176 | Validate identity candidates. |
 
 ## Typed pipeline plumbing (evidence/packets)
@@ -299,7 +304,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 |---|---|---|
 | `agent_bus.py` | 3517 | 15 specialist agents on a dependency DAG (topological layers) + calibrated weight-free confidence aggregation + per-action agent selection. |
 | `orchestrator.py` | 1123 | Gradient 12-stage pipeline (all CHAT modes): planner → `retrieve_for_turn()` → `dispatch_specialists()` → heuristic rerank → context assembly. Composes the specialist bus; no longer Quick-only bypass. |
-| `learning_coordinator.py` | 82 | Stage 12 `finalize_turn()` — store assistant turn, publish meta, `_learn_from_result()`. |
+| `learning_coordinator.py` | 82 | Stage 12 `finalize_turn()` — store assistant turn, publish meta, `_learn_from_result()`. The latter is gated by `source` (`_is_autonomous_source()`): a habit-scheduler-fired turn doesn't feed `habit_events`, so ELI's own automation can't reinforce itself as fresh evidence of a user routine. |
 | `hyde.py` | 69 | Hypothetical-document-embedding query expansion. |
 | `reranker.py` | 178 | Candidate reranking (token overlap + source priority). |
 | `introspection_agent.py` | 164 | Wraps introspection for the bus (pipeline/memory/runtime/audit). |
@@ -559,14 +564,17 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | Module | Lines | Role |
 |---|---:|---|
 | `app_aliases.py` | 90 | Speech-damage layer for app names, on top of the cross-platform resolver. |
+| `command_dependency_graph.py` | 60 | MULTI_COMMAND's `infer_dependencies()` — one optional LLM call for dependency edges among an already-split command list, validated via `eli.core.dag`. |
+| `command_sequence_log.py` | 102 | MULTI_COMMAND's durable per-step log — crash-survival and skip-already-done on resubmit. |
 | `effectors/system_helpers.py` | 175 | Cross-platform system helpers shared by executor and effectors (v3). |
-| `execution_planner.py` | 111 | Builds `RouteDecision` and the typed `ExecutionPlan`/`PlanStep` artifacts the bus consumes. |
+| `execution_planner.py` | 111 | Builds `RouteDecision` and the typed `ExecutionPlan`/`PlanStep` artifacts — `.agent_profile` (agent-name filter) is the only field anything reads; `.steps` is never executed, only rendered as decorative text by `EXECUTE_GOAL`. |
+| `executor_enhanced.py` | 16035 | The flat `if a == "ACTION":` dispatch every routed action runs through. |
 | `media_runtime.py` | 709 | Media runtime control for ELI. |
 | `operator_actions.py` | 105 | Valid states and helpers for operator (proposal) actions: pending, approved, rejected, blocked, pending_confirmation. |
-| `operator_policy.py` | 65 | The valid operator policy modes: `proposal_only`, `operator_supervised`, `goal_driven`, `observe_only`. |
+| `operator_policy.py` | 65 | The valid operator policy modes: `proposal_only`, `operator_supervised`, `goal_driven`, `observe_only`. Only `observe_only` (silences the autonomy loop) and `goal_driven` (elevated + self-upgrade scheduling) have distinct behavior — `proposal_only`/`operator_supervised` are currently identical code paths. |
 | `portable_intent_contract.py` | 643 | Portable intent rules; hard-blocks document, code and analysis prompts from `PLAY_MEDIA`. |
 | `route_contracts.py` | 123 | Small predicates that classify a request (for example `wants_memory_internals`) for the router. |
-| `router_enhanced.py` | 8343 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
+| `router_enhanced.py` | 8389 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
 | `shell_gate.py` | 110 | Centralised shell-command safety gate. |
 
 ## `core/`

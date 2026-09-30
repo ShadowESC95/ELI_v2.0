@@ -192,7 +192,7 @@ desktop icons on Linux), so you can start it with a click like any other program
 
 Type in the chat box, or speak — say the wake word (you can set your own; train it in
 Settings) and just talk. Ask it *"what can you do?"* and it will list everything —
-all 228 of its capabilities, generated from what's genuinely wired in.
+all 229 of its capabilities, generated from what's genuinely wired in.
 
 ### The phone / tablet view (optional)
 

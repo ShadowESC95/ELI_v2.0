@@ -137,7 +137,7 @@ and gets out of your way.**
 ~196,249 lines of Python across 438 files (`eli/`). A real cognitive runtime — not an API
 wrapper:
 
-- **Request pipeline.** A deterministic **router** (206 executor dispatch actions, 228
+- **Request pipeline.** A deterministic **router** (206 executor dispatch actions, 229
   declared capabilities) backed by a **model-grounded intent resolver** that
   resolves anything the rules miss against that same catalogue (so near-miss
   phrasings reach real actions instead of a blind chat) → a **gradient orchestrator**
@@ -193,7 +193,7 @@ wrapper:
 - **Extensibility.** A real plugin system (10 built-ins: weather, web, calendar,
   notes, pomodoro, document-reader, web-automation, system-stats,
   media, TTS) with install/enable/disable, plus user-created custom agents that
-  register live. `capability_sync` keeps the 228-capability manifest *measured*
+  register live. `capability_sync` keeps the 229-capability manifest *measured*
   against the actual code, not asserted.
 
 ---
