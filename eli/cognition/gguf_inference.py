@@ -839,12 +839,32 @@ def load_model(force_reload: bool = False):
             log.debug("suppressed exception", exc_info=True)
         n_threads = _as_int(_runtime_value(settings, "cpu_threads", "n_threads"), _nt_default)
 
+    # Detected up front (not after smart-fit, as before) so the smart-fit block below can
+    # pass it to moe_offload.plan_for_load() and get a real MoE fit instead of asserting one.
+    gpu_offload_supported = None
+    try:
+        _supports_fn = getattr(_llama_native, "llama_supports_gpu_offload", None)
+        if callable(_supports_fn):
+            gpu_offload_supported = bool(_supports_fn())
+    except Exception:
+        gpu_offload_supported = None
+    if gpu_offload_supported is False:
+        try:
+            from eli.core.gpu_pack_runtime import trust_vulkan_igpu_offload
+            if trust_vulkan_igpu_offload():
+                gpu_offload_supported = True
+                log.debug("[GGUF][GPU] trusting Vulkan iGPU pack despite offload flag=False")
+        except Exception:
+            log.debug("vulkan igpu offload trust probe failed", exc_info=True)
+
     # Size the text model DYNAMICALLY to live free VRAM (GPU) or available RAM
     # (CPU / iGPU without an active offload backend) instead of trusting a stale
     # gpu_layers number. Opt out with ELI_GGUF_SMART_FIT=0.
     _smart_fit_on = str(os.environ.get("ELI_GGUF_SMART_FIT", "1")).strip().lower() not in (
         "0", "false", "no", "off",
     )
+    _moe = None
+    _moe_fit_applied = False
     if _smart_fit_on:
         try:
             from eli.core.startup_hardware_optimizer import (
@@ -874,6 +894,9 @@ def load_model(force_reload: bool = False):
                     from eli.core.hardware_profile import vram_reserve_mb as _vrm
                     _res = int(_vrm(gpu_integrated=bool(getattr(_hw, "gpu_integrated", False))))
                     _kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
+                    if gpu_offload_supported is not False:
+                        from eli.core import moe_offload as _moe_offload
+                        _moe = _moe_offload.plan_for_load(str(_mp), gpu_offload_supported)
                     _fc, _fl, _fb = _sf_fit(
                         _mgb, _sf_gpu.free_mb, _hw.available_ram_gb,
                         user_ctx=min(int(n_ctx), _want),
@@ -882,10 +905,17 @@ def load_model(force_reload: bool = False):
                         model_path=str(_mp),
                         gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)),
                         user_gpu_layers=int(n_gpu_layers) if int(n_gpu_layers) > 0 else None,
+                        moe_resident_gb=(_moe["resident_gb"] if _moe else None),
                     )
-                    log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
-                              f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "
-                              f"layers {n_gpu_layers}->{_fl} batch {n_batch}->{_fb}")
+                    if _moe:
+                        _moe_fit_applied = True
+                        log.debug(f"[GGUF] MoE expert offload: {_fl}/{_moe['layers']} layers' core "
+                                  f"weights fit in {_sf_gpu.free_mb}MB free VRAM (~{_moe['resident_gb']}GB); "
+                                  f"~{_moe['experts_gb']}GB of experts stay in RAM regardless")
+                    else:
+                        log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
+                                  f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "
+                                  f"layers {n_gpu_layers}->{_fl} batch {n_batch}->{_fb}")
                     n_ctx, n_gpu_layers, n_batch = _fc, _fl, _fb
                 else:
                     _kvq = bool(float(getattr(_hw, "ram_gb", 0) or 0) <= 16.0)
@@ -938,22 +968,8 @@ def load_model(force_reload: bool = False):
     _split_mode_raw = (os.environ.get("ELI_GGUF_SPLIT_MODE") or "").strip() or str(
         _runtime_value(settings, "split_mode", default="") or "").strip()
 
+    # gpu_offload_supported was already detected above, before the smart-fit block.
     requested_n_gpu_layers = int(n_gpu_layers)
-    gpu_offload_supported = None
-    try:
-        _supports_fn = getattr(_llama_native, "llama_supports_gpu_offload", None)
-        if callable(_supports_fn):
-            gpu_offload_supported = bool(_supports_fn())
-    except Exception:
-        gpu_offload_supported = None
-    if gpu_offload_supported is False:
-        try:
-            from eli.core.gpu_pack_runtime import trust_vulkan_igpu_offload
-            if trust_vulkan_igpu_offload():
-                gpu_offload_supported = True
-                log.debug("[GGUF][GPU] trusting Vulkan iGPU pack despite offload flag=False")
-        except Exception:
-            log.debug("vulkan igpu offload trust probe failed", exc_info=True)
 
     effective_n_gpu_layers = int(n_gpu_layers)
     if requested_n_gpu_layers > 0 and gpu_offload_supported is False:
@@ -963,14 +979,29 @@ def load_model(force_reload: bool = False):
         )
         effective_n_gpu_layers = 0
 
-    _moe = None
     if effective_n_gpu_layers > 0:
-        from eli.core import moe_offload as _moe_offload
-        _moe = _moe_offload.plan_for_load(str(model_path), gpu_offload_supported)
-        if _moe:
-            log.debug(f"[GGUF] MoE expert offload: experts (~{_moe['experts_gb']} GB) stay in RAM, "
-                      f"all {_moe['layers']} layers on the GPU")
-            effective_n_gpu_layers = int(_moe['layers']) + 1 if _moe['layers'] else 999
+        if _moe_fit_applied and _moe:
+            # Already VRAM-verified above (moe_resident_gb-aware smart-fit) — trust it as-is,
+            # no forcing. n_gpu_layers already carries the real fitted count (partial, or the
+            # 99 "all layers" sentinel smart_fit_config already uses everywhere else).
+            pass
+        elif not _moe:
+            # Smart-fit was skipped/disabled/errored (ELI_GGUF_SMART_FIT=0, or an exception),
+            # so nothing verified a real fit. Fall back to the old unconditional behaviour
+            # rather than silently dropping MoE offload — but this path is now unverified by
+            # construction, not the default.
+            from eli.core import moe_offload as _moe_offload
+            _moe = _moe_offload.plan_for_load(str(model_path), gpu_offload_supported)
+            if _moe:
+                log.debug(f"[GGUF] MoE expert offload: experts (~{_moe['experts_gb']} GB) stay in "
+                          f"RAM, all {_moe['layers']} layers on the GPU (unverified — smart-fit "
+                          f"did not run)")
+                effective_n_gpu_layers = int(_moe['layers']) + 1 if _moe['layers'] else 999
+
+    if int(effective_n_gpu_layers) <= 0:
+        # Nothing is actually going to GPU (VRAM-starved even for core weights, or offload
+        # unsupported) — don't report MoE offload as active when it isn't.
+        _moe = None
 
     kwargs = {
         "model_path": str(model_path),
@@ -1052,7 +1083,7 @@ def load_model(force_reload: bool = False):
         log.debug("[GGUF] pre-load RSS capture skipped", exc_info=True)
 
     def _new_llama(kw):
-        if not _moe:
+        if not _moe or int(effective_n_gpu_layers) <= 0:
             return Llama(**kw)
         from eli.core import moe_offload as _moe_offload
         with _moe_offload.expert_offload_params():

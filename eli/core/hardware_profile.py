@@ -1904,6 +1904,7 @@ def smart_fit_config(
     min_gpu_fraction: float = 0.25,
     fit_priority: Optional[str] = None,
     user_gpu_layers: Optional[int] = None,
+    moe_resident_gb: Optional[float] = None,
 ) -> tuple[int, int, int]:
     """VRAM-only smart loader fit (backward compatible).
 
@@ -1914,10 +1915,19 @@ def smart_fit_config(
     make the request fit, but will never hand back more layers than the
     operator asked for. Omit it (as every pre-2.4.55 caller does) to keep the
     old behaviour of backfilling spare VRAM up to the model's full layer count.
+
+    ``moe_resident_gb``, when given, is the real GPU-resident weight size for a
+    mixture-of-experts model under expert offload (everything except expert
+    tensors, which stay in RAM regardless of layer count — see
+    ``eli.core.moe_offload``). The per-layer VRAM cost is sized from this
+    instead of the full file size; the layer-count CEILING still comes from
+    the model's real total layer count (``total_layers`` / ``model_path``),
+    which is unaffected. Omit it for ordinary dense models.
     """
     total = int(total_layers or layers_for_model(model_path, model_size_gb))
     budget = max(0, int(free_vram_mb) - int(reserve_mb))
     priority = normalize_fit_priority(fit_priority or FIT_PRIORITY_BALANCED)
+    _fit_size_gb = float(moe_resident_gb) if moe_resident_gb is not None else float(model_size_gb)
     common = dict(
         user_ctx=user_ctx,
         user_batch=user_batch,
@@ -1929,11 +1939,11 @@ def smart_fit_config(
         user_gpu_layers=user_gpu_layers,
     )
     if priority == FIT_PRIORITY_MAX_GPU:
-        return _smart_fit_max_gpu(model_size_gb, budget, **common)
+        return _smart_fit_max_gpu(_fit_size_gb, budget, **common)
     if priority == FIT_PRIORITY_MAX_CTX:
-        return _smart_fit_max_ctx(model_size_gb, budget, **common)
+        return _smart_fit_max_ctx(_fit_size_gb, budget, **common)
     return _smart_fit_balanced(
-        model_size_gb, budget, min_gpu_fraction=min_gpu_fraction, **common)
+        _fit_size_gb, budget, min_gpu_fraction=min_gpu_fraction, **common)
 
 
 def unified_fit_config(
@@ -1955,6 +1965,7 @@ def unified_fit_config(
     gpu_integrated: bool = False,
     force_cpu: bool = False,
     user_gpu_layers: Optional[int] = None,
+    moe_resident_gb: Optional[float] = None,
 ) -> tuple[int, int, int]:
     """Joint VRAM + RAM planner for every OS and GPU class.
 
@@ -1966,6 +1977,12 @@ def unified_fit_config(
     ``user_gpu_layers``, when given, caps every fallback this function can
     produce — it will reduce that value to fit, never grow it. See
     ``smart_fit_config`` for why this matters.
+
+    ``moe_resident_gb``, when given, is passed straight through to
+    ``smart_fit_config`` — see its docstring. Note this only corrects the
+    VRAM-side fit; ``_clamp_fit_to_ram_budget`` below still sizes CPU spill
+    from the full file size (a MoE model's expert RAM cost is constant
+    regardless of GPU layer count, so that clamp is a separate, deferred fix).
     """
     total = int(total_layers or layers_for_model(model_path, model_size_gb))
     priority = (
@@ -1991,6 +2008,7 @@ def unified_fit_config(
             min_gpu_fraction=0.0,
             fit_priority=priority,
             user_gpu_layers=user_gpu_layers,
+            moe_resident_gb=moe_resident_gb,
         )
         return ctx, 0, batch
 
@@ -2011,6 +2029,7 @@ def unified_fit_config(
             min_gpu_fraction=min_gpu_fraction,
             fit_priority=priority,
             user_gpu_layers=user_gpu_layers,
+            moe_resident_gb=moe_resident_gb,
         )
         return _clamp_fit_to_ram_budget(
             model_size_gb,
@@ -2045,6 +2064,7 @@ def unified_fit_config(
         min_gpu_fraction=min_gpu_fraction,
         fit_priority=priority,
         user_gpu_layers=user_gpu_layers,
+        moe_resident_gb=moe_resident_gb,
     )
     return _clamp_fit_to_ram_budget(
         model_size_gb,
@@ -2309,6 +2329,10 @@ def recommend(hw: Optional[HardwareProfile] = None,
     if not _fit_batch_in:
         _fit_batch_in = max(128, recommend_cpu_threads(hw.cpu_threads, cpu_bound=True) * 32)
 
+    _pre_fit_ctx = rec.n_ctx  # the MoE re-fit below must start from this, not the naive
+                               # fit's (possibly needlessly shrunk) result — captured
+                               # unconditionally since the MoE block can run even when
+                               # use_gpu_layers is False (GPU present, backend not active)
     if use_gpu_layers:
         _total_layers_est = layers_for_model(chosen["path"], chosen["size_gb"])
         _fit_ctx, _fit_layers, _fit_batch = unified_fit_config(
@@ -2372,34 +2396,49 @@ def recommend(hw: Optional[HardwareProfile] = None,
     total_layers = layers_for_model(chosen["path"], chosen["size_gb"])
     _full_offload = chosen_layers >= total_layers  # 99 >= actual layer count → all layers on GPU
 
-    # The loader (and the GUI's own loader) push a mixture-of-experts model to every layer, with
-    # the experts kept in RAM, whenever it wouldn't otherwise fit — regardless of the conservative
-    # per-layer split computed above. That must be decided BEFORE the recommendation is built, so
-    # the number this panel shows (rec.n_gpu_layers, also what gets saved as the canonical pin) is
-    # the one that actually loads — not the pre-MoE figure with a footnote explaining the real one
-    # printed somewhere else on screen with no visible connection between them.
+    # The loader (and the GUI's own loader) may push a mixture-of-experts model onto more layers
+    # than a naive split would, since expert tensors stay in RAM regardless of layer count and the
+    # non-expert ("core") per-layer footprint is much smaller than the full file size. That real
+    # core-layer fit is decided BEFORE the recommendation is built, so the number this panel shows
+    # (rec.n_gpu_layers, also what gets saved as the canonical pin) is the one that actually loads
+    # — a MEASURED fit against moe_resident_gb, not an unconditional "always all layers" assertion
+    # (which had no fallback for a machine where even the core weights don't fit).
     _moe_plan = None
-    _pre_moe_layers = chosen_layers
-    if chosen_layers > 0 and not _full_offload:
+    if use_gpu_layers and not _full_offload:
+        # Gated on use_gpu_layers (not chosen_layers > 0): a dense fit that already gave up
+        # entirely (0 layers, VRAM too small for the full file) is exactly the case MoE offload
+        # exists to rescue. But NOT when use_gpu_layers is False (GPU present with free VRAM yet
+        # the llama.cpp backend isn't active) — offloading anything there, MoE or not, isn't
+        # actually usable, matching the dense-fit branch's own CPU-only decision above.
         try:
             from eli.core import moe_offload as _moe_hw
             _moe_plan = _moe_hw.plan(
-                chosen["path"], chosen["size_gb"],
+                chosen["path"], chosen["size_gb"], gpu_supported=bool(use_gpu_layers),
                 free_vram_mb=int(hw.free_vram_mb), available_ram_gb=float(hw.available_ram_gb),
             )
         except Exception:
             _moe_plan = None
         if _moe_plan:
-            chosen_layers = total_layers
-            rec.n_gpu_layers = int(total_layers)
-            _full_offload = True
+            _mf_ctx, _mf_layers, _mf_batch = unified_fit_config(
+                chosen["size_gb"], hw.free_vram_mb, hw.available_ram_gb,
+                user_ctx=_pre_fit_ctx, user_batch=_fit_batch_in,
+                reserve_mb=vram_reserve_mb(gpu_integrated=hw.gpu_integrated),
+                kv_quantized=kv_q, model_path=chosen["path"], total_layers=total_layers,
+                min_batch=_igpu_min_batch, gpu_integrated=hw.gpu_integrated,
+                moe_resident_gb=_moe_plan["resident_gb"],
+            )
+            chosen_layers = total_layers if int(_mf_layers) >= 99 else int(_mf_layers)
+            rec.n_ctx = int(_mf_ctx)
+            rec.n_gpu_layers = chosen_layers
+            rec.batch_size = max(rec.batch_size, int(_mf_batch))
+            _full_offload = chosen_layers >= total_layers
 
-    if _full_offload and _moe_plan:
+    if _moe_plan:
         rec.reasoning.append(
-            f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB), mixture-of-experts — a plain "
-            f"layer split would only fit {_pre_moe_layers}/{total_layers} layers on the GPU, but "
-            f"expert offload puts all {total_layers} on it and keeps ~{_moe_plan['experts_gb']}GB "
-            f"of experts in RAM instead. This is what actually loads."
+            f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB), mixture-of-experts — "
+            f"{chosen_layers}/{total_layers} layers' core weights fit in {hw.free_vram_mb:.0f}MB "
+            f"free VRAM (~{_moe_plan['resident_gb']}GB); ~{_moe_plan['experts_gb']}GB of experts "
+            f"stay in RAM regardless of layer count. This is what actually loads."
         )
     elif _full_offload:
         rec.reasoning.append(

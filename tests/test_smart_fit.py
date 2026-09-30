@@ -1,6 +1,6 @@
 """Smart loader fit: reduce GPU layers → batch → ctx, in that order, to fit
 the VRAM left after vision+nomic. Pure math — no GPU needed."""
-from eli.core.hardware_profile import smart_fit_config, _layers_for_size
+from eli.core.hardware_profile import smart_fit_config, unified_fit_config, _layers_for_size
 
 # A 7B-class Q3 model on an 8GB card (q4_0 KV), user asked for 16384 ctx / 256 batch.
 MODEL_GB = 3.28
@@ -102,3 +102,70 @@ def test_user_gpu_layers_ceiling_matches_unconstrained_when_above_full_offload()
     unconstrained = _fit(24000)
     ceiling_above_total = _fit(24000, user_gpu_layers=99)
     assert unconstrained == ceiling_above_total
+
+
+# ── moe_resident_gb: a mixture-of-experts model's real GPU-resident footprint ──────────────────
+# A real session: 19.71GB file, 6667MB free VRAM, 40 layers. Without moe_resident_gb the fit sizes
+# layers off the full file (wrong once expert offload is active — most of that size is expert
+# tensors that stay in RAM regardless of layer count) and badly underestimates what fits.
+_MOE_GB, _MOE_RESIDENT_GB, _MOE_LAYERS = 19.71, 1.97, 40
+
+
+def _moe_fit(free_mb, resident_gb=_MOE_RESIDENT_GB, user_gpu_layers=None, user_ctx=12000):
+    return smart_fit_config(
+        _MOE_GB, free_mb, user_ctx=user_ctx, user_batch=256,
+        reserve_mb=700, kv_quantized=True, total_layers=_MOE_LAYERS,
+        user_gpu_layers=user_gpu_layers, moe_resident_gb=resident_gb,
+    )
+
+
+def test_without_moe_resident_gb_the_naive_fit_badly_undersizes_layers():
+    # Documents the bug numerically: sizing off the full 19.71GB file for a model whose real
+    # GPU-resident cost is ~1.97GB gives far fewer layers than actually fit.
+    ctx, layers, batch = smart_fit_config(
+        _MOE_GB, 6667, user_ctx=12000, user_batch=256, reserve_mb=700,
+        kv_quantized=True, total_layers=_MOE_LAYERS, min_batch=128,
+    )
+    assert layers < 20, f"expected the naive (non-MoE-aware) fit to undersize badly, got {layers}"
+
+
+def test_moe_resident_gb_lets_full_layers_fit_despite_large_file_size():
+    ctx, layers, batch = _moe_fit(6667)
+    assert layers == 99, f"1.97GB resident should fit all {_MOE_LAYERS} layers in 6667MB, got {layers}"
+    assert ctx == 12000
+
+
+def test_moe_resident_gb_still_sheds_layers_when_vram_starved():
+    # Genuine partial fallback: even the real (small) resident footprint doesn't fully fit.
+    ctx, layers, batch = _moe_fit(3000)
+    assert 0 < layers < _MOE_LAYERS, f"expected a genuine partial MoE fit, got {layers}"
+    assert ctx == 12000, "ctx should still be preserved before layers are fully exhausted"
+
+
+def test_moe_resident_gb_respects_user_gpu_layers_ceiling():
+    # An operator's own explicit partial MoE request must not be grown back to full.
+    ctx, layers, batch = _moe_fit(6667, user_gpu_layers=8)
+    assert layers == 8, f"operator asked for 8 layers under MoE, got {layers}"
+
+
+def test_non_moe_callers_are_unaffected():
+    # moe_resident_gb omitted (every existing, non-MoE caller) must behave exactly as before.
+    with_kwarg_absent = smart_fit_config(
+        MODEL_GB, 24000, user_ctx=USER_CTX, user_batch=USER_BATCH,
+        reserve_mb=700, kv_quantized=True, total_layers=TOTAL,
+    )
+    with_kwarg_none = smart_fit_config(
+        MODEL_GB, 24000, user_ctx=USER_CTX, user_batch=USER_BATCH,
+        reserve_mb=700, kv_quantized=True, total_layers=TOTAL, moe_resident_gb=None,
+    )
+    assert with_kwarg_absent == with_kwarg_none == (USER_CTX, 99, USER_BATCH)
+
+
+def test_unified_fit_config_passes_moe_resident_gb_through():
+    ctx, layers, batch = unified_fit_config(
+        _MOE_GB, 6667, 32.0, user_ctx=12000, user_batch=256,
+        reserve_mb=700, kv_quantized=True, total_layers=_MOE_LAYERS,
+        min_batch=128, gpu_integrated=False, moe_resident_gb=_MOE_RESIDENT_GB,
+    )
+    assert layers == 99, f"unified_fit_config did not forward moe_resident_gb correctly, got {layers}"
+    assert ctx == 12000

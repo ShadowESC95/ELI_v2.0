@@ -977,15 +977,12 @@ class LocalModelManager:
                 try:
                     from eli.core import moe_offload as _moe_offload_gui
                     _moe_gui = _moe_offload_gui.plan_for_load(str(path_obj), gpu_offload_supported)
-                    if _moe_gui:
-                        log.debug(f"[GUI] MoE expert offload: experts (~{_moe_gui['experts_gb']} GB) stay "
-                                  f"in RAM, all {_moe_gui['layers']} layers on the GPU")
                 except Exception:
                     log.debug("[GUI] MoE plan lookup failed", exc_info=True)
             if _moe_gui:
                 print(f"   GPU-layer load parameter: {effective_n_gpu_layers} "
-                      f"(MoE expert offload will raise this to all {_moe_gui['layers']} layers; "
-                      f"~{_moe_gui['experts_gb']}GB of experts stay in RAM)")
+                      f"(mixture-of-experts model — real GPU-resident layer fit measured below; "
+                      f"~{_moe_gui['experts_gb']}GB of experts always stay in RAM)")
             else:
                 print(f"   GPU-layer load parameter: {effective_n_gpu_layers}")
             if (
@@ -1143,16 +1140,20 @@ class LocalModelManager:
                             model_path=str(path_obj),
                             gpu_integrated=_sf_igpu,
                             user_gpu_layers=_user_gpu_layers,
+                            moe_resident_gb=(_moe_gui["resident_gb"] if _moe_gui else None),
                         )
-                        if _moe_gui and _sf_layers > 0:
-                            # This fit sizes layers off the full file on disk, which is wrong
-                            # once expert offload is active: only non-expert tensors go to
-                            # GPU, so layer COUNT isn't the lever that saves VRAM here, and
-                            # the Llama() build below forces every candidate back to the full
-                            # MoE layer count anyway (line ~1429). Match that now, or this
-                            # log and the needs-proof check below both claim a fallback that
-                            # will never actually be used.
-                            _sf_layers = int(_moe_gui["layers"])
+                        if _moe_gui:
+                            _sf_layers_real = (
+                                _moe_gui["layers"] if int(_sf_layers) >= 99 else int(_sf_layers)
+                            )
+                            print(f"   MoE fit: {_sf_layers_real}/{_moe_gui['layers']} layers' core "
+                                  f"weights fit in {_sf_gpu.free_mb}MB free VRAM "
+                                  f"(~{_moe_gui['resident_gb']}GB); ~{_moe_gui['experts_gb']}GB of "
+                                  f"experts stay in RAM regardless")
+                            log.debug(
+                                f"[GUI] MoE fit: {_sf_layers_real}/{_moe_gui['layers']} layers' core "
+                                f"weights fit ({_moe_gui['resident_gb']}GB) — experts "
+                                f"~{_moe_gui['experts_gb']}GB stay in RAM")
                         log.debug(
                             f"[GUI][LOAD] smart-fit (post-init free={_sf_gpu.free_mb}MB "
                             f"reserve={_sf_reserve}MB kvq={_sf_kvq}): "
@@ -1434,9 +1435,12 @@ class LocalModelManager:
                         # Never call an unproven config "verified" — that line is
                         # what made the 2.2.9 crash look like a checked launch.
                         log.debug(f"[GUI][LOAD] proceeding unproven ({_why})")
+                # Each candidate already carries a trustworthy number: the operator's own
+                # verbatim request, or the VRAM-verified (moe_resident_gb-aware) smart-fit
+                # result, or a conservative non-MoE fallback rung. No MoE override needed here
+                # any more — forcing every candidate to the full MoE layer count used to also
+                # silently discard an operator's own explicit partial request.
                 _cand_gpu_layers = int(_cand["n_gpu_layers"])
-                if _moe_gui and _cand_gpu_layers > 0:
-                    _cand_gpu_layers = int(_moe_gui["layers"]) + 1 if _moe_gui["layers"] else 999
                 llama_kwargs: Dict[str, Any] = dict(
                     model_path=str(path_obj),
                     n_ctx=int(_cand["n_ctx"]),

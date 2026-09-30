@@ -1,8 +1,9 @@
-"""A mixture-of-experts model that won't fit as requested is what the loader actually offloads
-with experts kept in RAM and every layer on the GPU — a much lighter VRAM footprint than the raw
-request. Proving the raw (non-MoE) request tested a configuration that never gets attempted for
-real, thrashing the full timeout budget every launch. The probe now tests the configuration that
-will actually load.
+"""A mixture-of-experts model offloads with experts kept in RAM regardless of layer count — a much
+lighter VRAM footprint than a naive per-layer split would suggest. The caller now sizes
+n_gpu_layers from that real footprint itself (moe_resident_gb-aware smart-fit), so by the time a
+candidate reaches probe_verdict(), n_gpu_layers already IS the real configuration — including a
+genuine partial count when VRAM is tight. The probe must test it VERBATIM (only flipping on the
+expert-offload buffer override), not rewrite it back to "every layer" regardless of what was asked.
 """
 from __future__ import annotations
 
@@ -16,7 +17,7 @@ class _FakeCompleted:
         self.stdout, self.returncode, self.stderr = stdout, returncode, ""
 
 
-def test_probe_tests_the_moe_adjusted_configuration(monkeypatch):
+def test_probe_tests_the_requested_layers_verbatim_with_moe_flagged(monkeypatch):
     monkeypatch.setattr(load_probe, "cached_verdict", lambda *a, **k: None)
     monkeypatch.setattr(load_probe, "_recently_timed_out", lambda *a, **k: False)
     monkeypatch.setattr(
@@ -34,7 +35,31 @@ def test_probe_tests_the_moe_adjusted_configuration(monkeypatch):
     verdict, _why = load_probe.probe_verdict("model.gguf", 12500, 40, 192, use_cache=False)
 
     assert verdict == load_probe.PROVEN_OK
-    assert captured["payload"]["n_gpu_layers"] == 41
+    assert captured["payload"]["n_gpu_layers"] == 40
+    assert captured["payload"]["moe_expert_offload"] is True
+
+
+def test_probe_tests_a_genuine_partial_moe_request_verbatim(monkeypatch):
+    """The caller's own fit can now land on a partial layer count (VRAM-starved even for the
+    core weights) — the probe must verify exactly that, not silently widen it back to full."""
+    monkeypatch.setattr(load_probe, "cached_verdict", lambda *a, **k: None)
+    monkeypatch.setattr(load_probe, "_recently_timed_out", lambda *a, **k: False)
+    monkeypatch.setattr(
+        "eli.core.moe_offload.plan_for_load",
+        lambda *a, **k: {"resident_gb": 2.0, "experts_gb": 17.7, "layers": 40},
+    )
+    captured = {}
+
+    def _fake_run(cmd, **kwargs):
+        captured["payload"] = json.loads(cmd[-1])
+        return _FakeCompleted()
+
+    monkeypatch.setattr(load_probe.subprocess, "run", _fake_run)
+
+    verdict, _why = load_probe.probe_verdict("model.gguf", 12500, 8, 192, use_cache=False)
+
+    assert verdict == load_probe.PROVEN_OK
+    assert captured["payload"]["n_gpu_layers"] == 8
     assert captured["payload"]["moe_expert_offload"] is True
 
 

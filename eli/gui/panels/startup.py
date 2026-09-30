@@ -917,6 +917,17 @@ class StartupModelSelectionDialog(QDialog):
                     _batch = int(self.target_batch_spin.value()) or 256
                     _kvq = bool(_hw.total_vram_mb and _hw.total_vram_mb < 12000)
                     _use_gpu = effective_use_gpu_layers(_hw)
+                    _moe_preview = None
+                    if _use_gpu:
+                        try:
+                            from eli.core import moe_offload as _moe_startup
+                            _moe_preview = _moe_startup.plan(
+                                str(_mp), _size_gb,
+                                free_vram_mb=int(_hw.free_vram_mb),
+                                available_ram_gb=float(_hw.available_ram_gb),
+                            )
+                        except Exception:
+                            log.debug("startup MoE preview lookup failed", exc_info=True)
                     _fc, _fl, _fb = unified_fit_config(
                         _size_gb,
                         _hw.free_vram_mb if _use_gpu else 0,
@@ -929,10 +940,15 @@ class StartupModelSelectionDialog(QDialog):
                         fit_priority_mode=_fit_mode,
                         gpu_integrated=_hw.gpu_integrated,
                         force_cpu=not _use_gpu,
+                        moe_resident_gb=(_moe_preview["resident_gb"] if _moe_preview else None),
                     )
                     _fit_line = (
                         f"  |  fit ({_fit_mode}): ctx={_fc} gpu={_fl} batch={_fb}"
                     )
+                    if _moe_preview:
+                        _fit_line += (
+                            f" (MoE: ~{_moe_preview['experts_gb']}GB experts stay in RAM)"
+                        )
                 except Exception:
                     log.debug("startup fit preview failed", exc_info=True)
             if not _hw.has_gpu:

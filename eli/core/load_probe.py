@@ -365,19 +365,18 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
     if n_gpu_layers <= 0:
         return SKIPPED, "cpu-only: no GPU allocation to prove"
 
-    # A mixture-of-experts model that will not fit as requested is what the loader (and the GUI's
-    # own loader) actually offload with experts kept in RAM and every layer on the GPU — a
-    # different, much lighter VRAM footprint than the raw request. Proving the raw request here
-    # tests a configuration that never gets attempted for real: on an 8 GB card it thrashed the
-    # full 180s budget every single launch testing a load the caller was never going to make.
-    # Probe the configuration that will actually load instead.
+    # A mixture-of-experts model offloads with experts kept in RAM regardless of layer count — a
+    # different, much lighter VRAM footprint than a naive per-layer split would suggest. The
+    # caller (gguf_inference.py / the GUI loader) now sizes n_gpu_layers from that real footprint
+    # itself (moe_resident_gb-aware smart-fit), so n_gpu_layers here already IS the real candidate
+    # — probe it verbatim. Only the expert-offload FLAG needs setting, so the probe subprocess
+    # applies the same tensor-buffer-type override the real load will.
     probe_gpu_layers = n_gpu_layers
     moe_expert_offload = False
     try:
         from eli.core import moe_offload as _moe_lp
         _moe_plan = _moe_lp.plan_for_load(str(model_path), True)
         if _moe_plan and int(_moe_plan.get("layers") or 0) > 0:
-            probe_gpu_layers = int(_moe_plan["layers"]) + 1
             moe_expert_offload = True
     except Exception:
         log.debug("[LOAD_PROBE] moe plan lookup failed", exc_info=True)

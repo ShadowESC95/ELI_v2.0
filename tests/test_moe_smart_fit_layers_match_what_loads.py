@@ -9,20 +9,21 @@ Live from a real session on a 6667MB-free card with a 35B MoE model
     [GUI][LOAD] attempt 2/12: smart-fit (ctx=12000 gpu_layers=8 batch=256)
     [GUI][LOAD] selected=smart-fit (ctx=12000 gpu_layers=41 batch=256)
 
-Two different layer counts (8, then 41) for the rung the log calls "smart-fit".
-The 8 came from `unified_fit_config()`, which sizes layers off the model's
-full file size on disk. That is the wrong number once expert offload is
-active: only non-expert tensors go to the GPU, so layer COUNT is not what
-buys back VRAM for a MoE model, and the Llama() build a few hundred lines
-below unconditionally forces every candidate's layer count back up to the
-MoE plan's full count. The 8 was never going to be used — it just cost a
-109s probe timeout on the "gpu_layers 40>8" comparison it produced, and then
-lied about what rung actually got selected.
+Two different layer counts (8, then 41) for the rung the log calls "smart-fit". The 8 came from
+sizing layers off the model's full file size on disk, which is wrong once expert offload is
+active: only non-expert tensors go to GPU, so a much smaller "resident" size (moe_offload.plan()
+already computes this, as resident_gb) is what actually governs the real VRAM fit.
 
-`eli/cognition/gguf_inference.py` (the canonical loader) and
-`hardware_profile.recommend()` both decide the MoE layer count BEFORE
-computing/reporting anything derived from it. This GUI file has its own
-separate, duplicated load ladder that didn't get the same ordering.
+An interim fix within the same session made the smart-fit rung's candidate layer count match
+what an unconditional build-time override forced anyway — stopping the log from contradicting
+itself, but not verifying the override was actually safe (see git history for that commit's
+`_sf_layers = int(_moe_gui["layers"])` patch — now removed).
+
+The real fix: `_sf_fit` (`unified_fit_config`) is now itself MoE-aware via a `moe_resident_gb`
+kwarg, returning a genuinely VRAM-verified layer count (partial, or the `99` "all layers"
+sentinel this codebase already uses everywhere for a full fit) — so there is nothing left to
+correct after the call, and nothing left to force at Llama()-build time, since every candidate
+the ladder produces (the operator's own request, or this fit's result) is already trustworthy.
 """
 import pathlib
 
@@ -36,42 +37,34 @@ def _smart_fit_block():
     return src[i:j]
 
 
-def test_moe_correction_runs_before_the_fit_is_logged():
+def test_moe_resident_gb_is_threaded_into_the_fit_call():
     block = _smart_fit_block()
-    correction = block.index('_sf_layers = int(_moe_gui["layers"])')
-    first_log = block.index('log.debug(\n                            f"[GUI][LOAD] smart-fit (post-init')
-    assert correction < first_log, (
-        "the MoE layer correction must run before the fit is logged, or the "
-        "log keeps reporting a fallback that will never be used"
-    )
+    assert 'moe_resident_gb=(_moe_gui["resident_gb"] if _moe_gui else None)' in block
 
 
-def test_moe_correction_runs_before_the_needs_proof_comparison():
+def test_no_post_hoc_layer_correction_remains():
+    """The interim patch that rewrote _sf_layers AFTER the fit is gone — the fit itself is now
+    correct, so a second correction on top of it would silently re-force full layers over an
+    already-correct (possibly partial) answer."""
+    block = _smart_fit_block()
+    assert '_sf_layers = int(_moe_gui["layers"])' not in block
+
+
+def test_no_build_time_override_remains():
+    """The unconditional 'any candidate with layers>0 gets forced to the full MoE count' override
+    is gone — every candidate reaching the Llama() build already carries a trustworthy number."""
     src = GUI.read_text(encoding="utf-8")
+    assert 'int(_moe_gui["layers"]) + 1 if _moe_gui["layers"] else 999' not in src
+    i = src.index('_cand_gpu_layers = int(_cand["n_gpu_layers"])')
+    j = src.index("llama_kwargs: Dict[str, Any] = dict(", i)
+    window = src[i:j]
+    assert "_moe_gui" not in window
+
+
+def test_the_post_fit_report_states_the_real_measured_outcome():
+    """Once the fit has run, the GUI reports what was actually measured — fitted/total layers,
+    resident_gb, experts_gb — not an assumed "will raise this to all N layers" outcome."""
     block = _smart_fit_block()
-    correction_offset = src.index(block) + block.index('_sf_layers = int(_moe_gui["layers"])')
-    proof_bits = src.index('_proof_bits.append(\n                    f"gpu_layers')
-    assert correction_offset < proof_bits, (
-        "the needs-proof check compares _base_layers against the naive "
-        "pre-MoE fit unless the correction runs first — that is what "
-        "produced the spurious 'gpu_layers 40>8' 109s probe timeout"
-    )
-
-
-def test_moe_correction_only_fires_when_smart_fit_kept_any_gpu_layers():
-    """Mirrors the later Llama()-build override's own guard (`_cand_gpu_layers > 0`):
-    a smart-fit result of 0 layers means even the reduced non-expert tensors
-    didn't fit, and must stay a real CPU fallback, not get forced back to
-    every layer."""
-    block = _smart_fit_block()
-    assert "if _moe_gui and _sf_layers > 0:" in block
-
-
-def test_moe_correction_matches_the_build_time_override():
-    """The value written here must be the pre-`+1` layer count the later
-    override applies, so the two agree instead of drifting into a second
-    pair of mismatched numbers."""
-    src = GUI.read_text(encoding="utf-8")
-    assert 'int(_moe_gui["layers"]) + 1 if _moe_gui["layers"] else 999' in src
-    block = _smart_fit_block()
-    assert '_sf_layers = int(_moe_gui["layers"])' in block
+    assert "MoE fit:" in block
+    assert "_moe_gui['resident_gb']" in block or '_moe_gui["resident_gb"]' in block
+    assert "_moe_gui['experts_gb']" in block or '_moe_gui["experts_gb"]' in block
