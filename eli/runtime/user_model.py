@@ -22,6 +22,8 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+from eli.runtime.profile_extractor import _SINGLE_VALUED_PATTERNS as _SINGLE_VALUED_TYPES
+
 # Pattern-prefix → structured column. user_patterns is the evidence; this groups it.
 _PREFIX_TO_COL = {
     "identity": "identity",
@@ -35,11 +37,8 @@ _PREFIX_TO_COL = {
 _COLS = ("identity", "comms_style", "current_focus", "interests", "habits", "goals", "relationship")
 
 # Facts a person can only have ONE current value for. Newest wins; older rows
-# are superseded rather than listed alongside.
-_SINGLE_VALUED_TYPES = frozenset({
-    "identity.name", "identity.preferred_name", "identity.nickname",
-    "identity.role", "preference.style",
-})
+# are superseded rather than listed alongside. Same set profile_extractor.py supersedes
+# on write — one source of truth, so write-time supersession and read-time dedup never drift.
 
 # Profile facts are third-person statements about the user ("User prefers detailed, thorough
 # responses"). First-person fragments and conversational punctuation mean the raw sentence

@@ -311,6 +311,8 @@ def backfill_semantic_from_patterns(cur: sqlite3.Cursor) -> int:
 # survived, so ELI held contradictory answers.
 _SINGLE_VALUED_PATTERNS = frozenset({
     "identity.name",
+    "identity.preferred_name",
+    "identity.nickname",
     "identity.role",
     "preference.style",
     "goal.primary",

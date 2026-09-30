@@ -11205,10 +11205,18 @@ Answer:"""
         )
         return
 
+    _AUTONOMOUS_SOURCES = ("habit", "proactive", "scheduler", "system", "autonomy")
+
+    @staticmethod
+    def _is_autonomous_source(source: str) -> bool:
+        """True when `source` (process()'s own origin tag) is ELI's own automation, not a
+        real user turn — one vocabulary, shared by every place that needs the distinction."""
+        return str(source or "user").lower() in CognitiveEngine._AUTONOMOUS_SOURCES
+
     def _settle_recall_outcome(self, user_input: str, source: str) -> None:
         """The memories behind the previous answer were used if this turn does not correct it."""
         ids = getattr(self, "_pending_recall_ids", None)
-        if not ids or str(source or "user").lower() in ("habit", "proactive", "scheduler", "system", "autonomy"):
+        if not ids or CognitiveEngine._is_autonomous_source(source):
             return
         self._pending_recall_ids = None
         try:
@@ -11969,11 +11977,10 @@ Answer:"""
                             source="identity", importance=0.92)
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
-                try:
-                    from eli.cognition.persona import append_preference
-                    append_preference(f"User's preferred name: {_candidate}")
-                except Exception:
-                    log.debug("suppressed exception", exc_info=True)
+                # write_patterns_from_turn() (called for every user turn via
+                # memory.add_conversation_turn()) already extracts identity.preferred_name
+                # from this same user_input via the same extract_explicit_identity_facts() —
+                # no separate write needed here.
                 log.debug(f"[COGNITIVE] Explicit user identity detected and stored: {_candidate}")
         except Exception:
             log.debug("suppressed exception", exc_info=True)
@@ -12387,7 +12394,7 @@ Answer:"""
                 _p45_raw = execute_action(_p45_action, args or {})
                 _p45_result = _phase45_force_direct_result(_p45_action, _p45_raw)
                 try:
-                    self._learn_from_result(intent, _p45_result)
+                    self._learn_from_result(intent, _p45_result, source=source)
                 except Exception as _p45_learn_err:
                     log.debug(f"[PHASE45] learn skipped: {_p45_learn_err}")
                 try:
@@ -13054,7 +13061,7 @@ Answer:"""
                                 except Exception:
                                     log.debug("suppressed exception", exc_info=True)
                                 try:
-                                    self._learn_from_result(intent, _chosen_payload)
+                                    self._learn_from_result(intent, _chosen_payload, source=source)
                                 except Exception:
                                     log.debug("suppressed exception", exc_info=True)
                                 try:
@@ -13138,7 +13145,7 @@ Answer:"""
                             except Exception:
                                 log.debug("suppressed exception", exc_info=True)
                             try:
-                                self._learn_from_result(intent, _chosen_payload)
+                                self._learn_from_result(intent, _chosen_payload, source=source)
                             except Exception:
                                 log.debug("suppressed exception", exc_info=True)
                             try:
@@ -13233,7 +13240,7 @@ Answer:"""
                             except Exception:
                                 log.debug("suppressed exception", exc_info=True)
                             try:
-                                self._learn_from_result(intent, _chosen_payload)
+                                self._learn_from_result(intent, _chosen_payload, source=source)
                             except Exception:
                                 log.debug("suppressed exception", exc_info=True)
                             try:
@@ -13464,7 +13471,7 @@ Answer:"""
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
                 try:
-                    self._learn_from_result(intent, _ev_result)
+                    self._learn_from_result(intent, _ev_result, source=source)
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
                 try:
@@ -13560,7 +13567,7 @@ Answer:"""
                         except Exception:
                             log.debug("suppressed exception", exc_info=True)
                         try:
-                            self._learn_from_result(intent, _self_payload)
+                            self._learn_from_result(intent, _self_payload, source=source)
                         except Exception:
                             log.debug("suppressed exception", exc_info=True)
                         try:
@@ -13687,7 +13694,7 @@ Answer:"""
                                 "trace": trace,
                             }
                             try:
-                                self._learn_from_result(intent, bus_result.action_result or {})
+                                self._learn_from_result(intent, bus_result.action_result or {}, source=source)
                             except Exception as learn_err:
                                 log.debug(f"[COGNITIVE] Grounded learn hook failed: {learn_err}")
                             try:
@@ -13778,7 +13785,7 @@ Answer:"""
                     # WEB_SEARCH), so no special-casing is needed here.
                     self._store_assistant_turn(synthesized)
                     self._learn_from_result(
-    intent, bus_result.action_result or {})
+                        intent, bus_result.action_result or {}, source=source)
                     try:
                         self._execute_post_actions(
     trace, bus_result.action_result or {})
@@ -14174,7 +14181,7 @@ Answer:"""
                 final_text = govern_output(str(final_source or "").strip(), is_grounded=True)
 
                 self._store_assistant_turn(final_text)
-                self._learn_from_result(intent, raw_result)
+                self._learn_from_result(intent, raw_result, source=source)
 
                 return {
                     "ok": ok_flag,
@@ -14347,7 +14354,7 @@ Answer:"""
             )
         except Exception:
             self._store_assistant_turn(final_response)
-            self._learn_from_result(intent, result)
+            self._learn_from_result(intent, result, source=source)
         result["content"] = final_response
         result["response"] = final_response
         result["trace"] = trace
@@ -15427,11 +15434,16 @@ Answer:"""
             log.debug("suppressed exception", exc_info=True)
 
     def _learn_from_result(
-        self, intent: Dict[str, Any], result: Dict[str, Any]) -> None:
+        self, intent: Dict[str, Any], result: Dict[str, Any], source: str = "user") -> None:
         action = str(intent.get("action") or "").upper()
         args = intent.get("args", {}) or {}
         ok = bool((result or {}).get("ok", True))
         meta = intent.get("meta", {}) or {}
+        # ELI's own automation (habit firing, scheduled tasks, ...) re-running an action must
+        # not feed habit_events — detect_habits() mines that table for recurring USER routines,
+        # and a self-triggered run would let ELI's automation reinforce itself as if it were
+        # fresh, independent evidence of a pattern.
+        autonomous = CognitiveEngine._is_autonomous_source(source)
 
         try:
             self.memory.log_learning_event(
@@ -15445,30 +15457,32 @@ Answer:"""
                     "args": args,
                     "matched_by": meta.get("matched_by"),
                     "result_error": (result or {}).get("error"),
+                    "source": source,
                 },
             )
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        try:
-            self.memory.log_habit_event(
-                "command_result",
-                {
-                    "action": action,
-                    "args": args,
-                    "ok": ok,
-                    "matched_by": meta.get("matched_by"),
-                    "source": "cognitive_engine",
-                },
-            )
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
+        if not autonomous:
+            try:
+                self.memory.log_habit_event(
+                    "command_result",
+                    {
+                        "action": action,
+                        "args": args,
+                        "ok": ok,
+                        "matched_by": meta.get("matched_by"),
+                        "source": "cognitive_engine",
+                    },
+                )
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
 
         try:
             from eli.runtime.evidence_ledger import record_event as _eli_record_event
             _eli_record_event(
                 "command_result",
-                source="cognitive_engine.learn_from_result",
+                source=f"cognitive_engine.learn_from_result.{source}",
                 action=action,
                 subject=str(args.get("path") or args.get("target") or args.get("name") or args.get("topic") or ""),
                 content=str((result or {}).get("content") or (result or {}).get("response") or (result or {}).get("error") or ""),
@@ -15486,6 +15500,9 @@ Answer:"""
             )
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+
+        if autonomous:
+            return   # below this point is app/file usage — real routine-clustering input
 
         if action == "OPEN_APP" and ok:
             name = args.get("name") or args.get("target") or args.get("app")
