@@ -732,10 +732,8 @@ def _gpu_status_report() -> Dict[str, Any]:
             _reading.append(f"- Loaded BELOW request ({_detail}) — reduced to fit "
                             f"available VRAM, not a settings error.")
         elif _raised and _gap.get("moe_expert_offload"):
-            # A mixture-of-experts model raises n_gpu_layers above what was requested (llama.cpp's
-            # "put everything on the GPU" convention) — this was being reported as "loaded exactly
-            # as requested" although the number the operator asked for and the number that loaded
-            # do not match, and the RAM/CPU side that comes with it went unmentioned entirely.
+            # MoE raises n_gpu_layers above what was requested (llama.cpp puts everything on
+            # GPU) — report the real requested->effective numbers, not "as requested".
             _detail = "; ".join(
                 f"{k} {v['requested']} → {v['effective']}" for k, v in sorted(_raised.items())
             )

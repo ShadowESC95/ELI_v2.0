@@ -1,14 +1,5 @@
-"""
-v2.0 kernel-local scheduler compatibility layer.
-
-Why this exists:
-- eli.kernel.engine imports `from .scheduler import get_scheduler`
-- the migration-generated shim forwarded into eli.planning.scheduler
-- eli.planning.scheduler is a consolidation stub and intentionally raises
-
-This file restores a concrete kernel-owned scheduler contract so engine imports
-do not depend on deprecated placeholder modules.
-"""
+"""Kernel-local scheduler. eli.planning.scheduler is a consolidation stub that
+intentionally raises — engine.py needs a real one, so it lives here instead."""
 
 from __future__ import annotations
 

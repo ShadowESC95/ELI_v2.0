@@ -257,10 +257,8 @@ _WORKSPACE_FILES = ("pytest.ini", "pyproject.toml", "conftest.py")
 _REPLAYABLE_ACTIONS = frozenset({"DATE", "TIME", "GPU_STATUS", "RUNTIME_STATUS", "MEMORY_STATUS", "MEMORY_STATS",
                                  "SYSTEM_STATUS", "CPU_USAGE", "LIST_DIR", "EXPLAIN_MEMORY_RUNTIME", "IMAGE_STATUS"})
 
-# Staged deployment: how many real invocations of a watched action are needed before a
-# probationary patch gets a verdict, how far reliability may drop below its pre-patch
-# baseline before that counts as a regression, and how long to keep watching before
-# giving up (too little real traffic on a single-user desktop app to ever judge it).
+# Staged deployment: invocations needed for a verdict, max reliability drop before it
+# counts as a regression, and how long to watch before giving up on low traffic.
 _PROBATION_MIN_INVOCATIONS = 5
 _PROBATION_REGRESSION_DROP = 0.15
 _PROBATION_MAX_DAYS = 14.0
@@ -397,10 +395,8 @@ class SelfImprovementEngine:
     # ─────────────────────────────────────────────────────────────────────────
 
     def log_failure(self, input_text: str, error: str = "", confidence: float = 0.0, context: dict = None):
-        # Guard: never persist a unit-test mock as a real failure. When a test patches subprocess.run,
-        # the executor's stdout concat gives a MagicMock repr ("<MagicMock name='run().stdout.__add__()'
-        # ...>") that leaked into the live failures DB and polluted SELF_ANALYZE. Drop mock reprs at the
-        # write source so a test-isolation slip can't pollute real failures.
+        # Drop MagicMock reprs at the source — a patched subprocess.run in a test leaked
+        # "<MagicMock name=...>" into the live failures DB and polluted SELF_ANALYZE.
         import re as _re_mock
         if _re_mock.search(r"<\s*(?:Magic)?Mock\b|(?:Magic)?Mock\s+name=|\bMock\s+id=0x",
                            f"{error} {input_text}"):
@@ -441,9 +437,8 @@ class SelfImprovementEngine:
         finally:
             conn.close()
 
-        # Escalation clauses (a recurring error is raised with the user): >=5x is "notice" (flag it
-        # in the next conversation turn); >=10x is "act" (also attempt a self-resolution and report
-        # the outcome). Skip user-input/clarification cases (fault=False); they aren't real faults.
+        # Escalation: >=5x notices next turn, >=10x also attempts self-resolution.
+        # Skips fault=False (user-input/clarification, not real faults).
         if new_count in (5, 10) or (new_count > 10 and new_count % 5 == 0):
             if not (isinstance(ctx, dict) and ctx.get("fault") is False):
                 stage = "notice" if new_count < 10 else "act"
@@ -496,9 +491,8 @@ class SelfImprovementEngine:
             _report()
             return
 
-        # Attempt code patches for failures with file tracebacks and high recurrence.
-        # Gated behind auto_patch_enabled (default off) so patches never apply without
-        # explicit user opt-in via settings.json.
+        # Patches failures with file tracebacks + high recurrence; gated behind
+        # auto_patch_enabled (default off, opt-in via settings.json).
         try:
             from eli.core.full_control import is_full_control as _ifc
         except Exception:

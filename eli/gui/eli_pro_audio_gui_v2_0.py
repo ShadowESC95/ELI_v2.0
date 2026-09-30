@@ -1173,68 +1173,22 @@ class LocalModelManager:
             if gpu_offload_supported is False:
                 _base_layers = 0
 
-            # ── The user's OWN settings, first ────────────────────────────
-            #
-            # What the operator chose in the startup dialog is attempted before
-            # anything ELI calculates: their ctx and their batch, exactly as set.
-            #
-            # Nothing here is clamped and nothing is assumed. The operator's
-            # numbers go to llama.cpp exactly as entered; ELI's own calculations
-            # are only ever a FALLBACK, used when the request is PROVEN not to
-            # work on this machine.
-            #
-            # Proving it is the part that was missing. An earlier note here
-            # reasoned that "the refusal should come from the driver, not from
-            # ELI pre-emptively overruling them", and that queuing the raw
-            # request "costs one failed load attempt on hardware that genuinely
-            # cannot honour it". The intent was right; the mechanism does not
-            # exist. llama.cpp/CUDA allocate LAZILY: asking for more than fits
-            # does not fail at load — it reports success, wins
-            # `selected=requested`, and then aborts the whole PROCESS on the
-            # first generation large enough to touch the buffers. Live at 2.2.7:
-            #
-            #   smart-fit ... : ctx=10384 gpu_layers=28
-            #   smart-fit reduced GPU layers 99->28 to fit 6268MB free VRAM
-            #   attempt 1/13: requested (ctx=10384 gpu_layers=99 batch=128)
-            #   selected=requested (ctx=10384 gpu_layers=99 batch=128)
-            #   ...
-            #   prompt_tokens=5189
-            #   ggml-cuda.cu:98: CUDA error → Aborted (core dumped)
-            #
-            # There is no failed attempt to fall back FROM, so none of the twelve
-            # rungs below can ever run. It had survived only because earlier
-            # sessions' first turn was a short greeting whose KV cache stayed
-            # small; the first big prompt killed it.
-            #
-            # So the request is VERIFIED instead of guessed at. eli/core/
-            # load_probe.py loads these exact numbers in a SEPARATE PROCESS and
-            # drives a real decode through them. A process can survive a child's
-            # abort(); it cannot survive its own. If the probe comes back clean
-            # the operator's settings are used verbatim — which is now a fact
-            # about this machine rather than an assumption. If the probe proves
-            # they abort, that is the "cannot be honoured" signal the ladder
-            # below was always meant to receive, and the fallbacks take over.
-            #
-            # No value is reduced, capped or substituted here.
-            #
-            # The proof is only spent where there is something to doubt. When the
-            # request sits INSIDE what the fit just measured, the hardware has
-            # already been shown to have room and a probe would cost a full cold
-            # load to confirm what is not in question — so it is skipped and the
-            # settings load immediately. Shipped without this, 2.2.8 probed every
-            # GPU start, including the ones certain to pass.
-            #
-            # Only a request that EXCEEDS the measured capacity is proven, which
-            # is the case that silently aborts the process mid-generation. The
-            # verdict is cached per (model, params, GPU), so even that is paid
-            # once per configuration rather than once per startup.
-            #
-            # Layers alone are not enough. Live 2.4.32: smart-fit measured
-            # ctx=4096 gpu_layers=11 batch=128 for a 22GB Nemotron on an 8GB
-            # card; the operator had layers=11 (equal) but ctx=12000 / batch=512.
-            # `_needs_proof` was False, load reported success, first decode hit
-            # ggml-cuda.cu and aborted the process. Prove on ANY axis that
-            # exceeds the measured fit.
+            # The operator's ctx/batch/layers go to llama.cpp verbatim; ELI's own numbers
+            # are only a fallback once the request is PROVEN not to work here. Proving it
+            # matters because CUDA allocates lazily: an over-request doesn't fail at load
+            # (`selected=requested`, reports success) — it aborts the whole process on the
+            # first decode big enough to touch the buffers (live at 2.2.7: smart-fit already
+            # reduced to gpu_layers=28, but the raw request of 99 still got tried, "succeeded",
+            # then `ggml-cuda.cu:98: CUDA error -> Aborted` on prompt_tokens=5189). No failed
+            # attempt exists to fall back from, so the ladder below never ran.
+            # eli/core/load_probe.py verifies the exact settings in a SEPARATE process (which
+            # can survive a child's abort, not its own) before using them verbatim or handing
+            # off to the fallback ladder. Skipped when the request sits inside what smart-fit
+            # already measured — proving what isn't in question just costs a redundant cold
+            # load (2.2.8's mistake). Verdict cached per (model, params, GPU).
+            # Must check every axis, not just layers: 2.4.32 had gpu_layers=11 matching the
+            # operator's setting but ctx=12000/batch=512 well above the measured fit — skipped
+            # the probe on a layers-only check and aborted on first decode anyway.
             _proof_bits: list[str] = []
             if _sf_fit_layers is not None and int(_base_layers) > int(_sf_fit_layers):
                 _proof_bits.append(
@@ -10547,30 +10501,16 @@ class EliMainWindow(QMainWindow):
                 dock.set_summary(summary)
             self.status_signal.emit(summary)
 
-            # Apply the calculated profile to the live spinboxes so load_model()
-            # reads the model-specific values as its primary (attempt 1) load.
-            # setValue() clamps to each spinbox's range automatically.
-            # CANONICAL ctx = the user's chosen value (preserved), NOT the possibly
-            # VRAM-reduced rec.n_ctx — writing the reduced effective back would strand
-            # the user at a lower ctx next boot. The load path's smart-fit reduces to
-            # fit (and logs) at load time; the effective value lives in hw_profile_*.
+            # CANONICAL ctx = the user's chosen value, not the possibly VRAM-reduced rec.n_ctx
+            # — writing the reduced value back would strand the user at a lower ctx next boot;
+            # smart-fit already reduces to fit at load time.
             _canonical_ctx = int(_user_pinned_ctx) if _user_pinned_ctx else int(rec.n_ctx)
-            # Same rule for layers: an explicit user value is a preference, not a
-            # measurement, so the recommendation goes to hw_profile_n_gpu_layers
-            # and the loader still reduces to fit at load time (which IS transient).
-            # A pinned layer count belongs to the MODEL it was chosen for. It is an
-            # absolute number of layers, so it means something entirely different on
-            # a different model: 7 was right for a 15.66GB 27B on 8GB of VRAM, and
-            # stranded 25 of 32 layers on the CPU when a 4GB model that fits VRAM
-            # whole was loaded under the same 7 -- the tuner correctly measured 32,
-            # said so, and stood down because "yours" wins. Nothing recorded which
-            # model the pin came from, so it followed the user silently across swaps.
-            # Same rule the headless/server loader applies, from the same helper,
-            # so the desktop app and the API can never disagree about which
-            # layer count is live. "All layers" (99 / -1) is exempt there: it is
-            # a policy, correct on every model, and the loader reduces it to fit.
-            # Same normalisation the matcher uses, or a pin stamped on Windows
-            # would never match the key computed when it is read back.
+            # A pinned layer count is an absolute number scoped to the MODEL it was chosen
+            # for, not portable: 7 layers was right for a 27B model on 8GB VRAM, but stranded
+            # 25/32 layers on CPU for a 4GB model that fit whole — the pin carried no model
+            # identity and silently followed the user across swaps. Same normalisation the
+            # headless/server loader and the pin-matcher both use, so desktop/API/Windows
+            # pins can't disagree about which layer count is live.
             try:
                 from eli.core.runtime_settings import model_identity_key as _mk
                 _this_model = _mk(model_path)

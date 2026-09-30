@@ -101,9 +101,8 @@ def _get_source_location(module_name: str, func_name: str = None) -> str:
             # Get the function object
             mod = __import__(module_name, fromlist=[func_name])
             func = getattr(mod, func_name, None)
-            # Many engine "functions" are actually CognitiveEngine METHODS, invisible to a
-            # module-level getattr — resolve them on the class so the stage reports a real
-            # line (else it falls back to a path with no line, implying false vagueness).
+            # Many "functions" are actually CognitiveEngine methods, invisible to a module-level
+            # getattr — resolve on the class instead.
             if not callable(func):
                 for _cls_name in ("CognitiveEngine",):
                     _cls = getattr(mod, _cls_name, None)

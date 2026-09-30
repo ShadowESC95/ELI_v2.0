@@ -356,10 +356,8 @@ def spotify_query(query: str) -> str:
     return f"Searching Spotify for: {q}"
 
 
-# Streaming platforms ELI can't deep-control (login-gated, no local API) but can target:
-# "play X on netflix/prime/disney/hulu/paramount" opens that platform's search in the default
-# browser, and a named platform never falls through to YouTube. Canonical ids map to search URL
-# templates; aliases fold STT variants onto them so routing and execution agree on every OS.
+# Login-gated streaming platforms: opens the platform's search in the browser instead of
+# falling through to YouTube. Aliases fold STT variants onto the canonical id.
 
 _STREAMING_CANONICAL_URLS: dict[str, str] = {
     "netflix": "https://www.netflix.com/search?q={q}",

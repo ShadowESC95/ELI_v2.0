@@ -526,12 +526,9 @@ def _inference_runtime_lines() -> str:
     lines.append(f"- GPU layers offloaded: {pick('n_gpu_layers')}")
     _moe = bool(snap.get("moe_expert_offload"))
     if _moe:
-        # Under expert offload, effective n_gpu_layers is deliberately HIGHER than requested
-        # (llama.cpp's "put everything on the GPU" convention) — attention/shared weights for
-        # every layer sit on the GPU, but the mixture-of-experts weights, most of the file, stay
-        # in system RAM and are processed by the CPU. "The rest run on CPU" (the old, dense-model
-        # phrasing) is backwards here: there is no "rest" left off the GPU, and it said nothing
-        # about the RAM/CPU side that actually accounts for the slower reply.
+        # MoE offload: n_gpu_layers is deliberately HIGHER than requested (attention/shared
+        # weights all go to GPU; expert weights stay in RAM, CPU-processed) — "rest run on CPU"
+        # is backwards here, there's no rest left off the GPU.
         _experts_gb = snap.get("moe_experts_gb")
         _resident_gb = snap.get("moe_resident_gb")
         lines.append(
@@ -569,9 +566,7 @@ def _eli_cognition_pipeline_v2(focus: str = "", question: str = "") -> str:
     except Exception:
         log.debug("inference runtime block unavailable", exc_info=True)
 
-    # A question about the inference runtime leads with the numbers, then keeps the architecture
-    # description; both are required. Returning only the footprint (v2.4.16) dropped "Cognition
-    # pipeline" / Router from reports the tests and operator rely on.
+    # Numbers first, then architecture — both required (v2.4.16 dropped the architecture part).
     if focus_l == "inference_runtime":
         parts = []
         if runtime_block:
@@ -745,9 +740,7 @@ def _render_v2(action: str, args: _EliMapping[str, _EliAny] | None = None, user_
         return _eli_runtime_audit_v2()
 
     if a == "EXPLAIN_COGNITION_RUNTIME":
-        # The router already decides this ("diagnostic_focus": "inference_runtime"
-        # for a question about the context window / model / GPU) — pass it through
-        # instead of returning the same architecture text for every question.
+        # Router already set diagnostic_focus — pass it through, don't re-derive.
         return _eli_cognition_pipeline_v2(
             str((args or {}).get("diagnostic_focus") or ""),
             question=text,
@@ -1768,9 +1761,7 @@ def _eli_v8_fallback_identity() -> str:
     return f"Local account: {name}"
 
 
-# The portable user-profile surface. No static profile files, no dev-specific identity
-# shipped in, it rejects prompt/image-gen/event rows, and it only keeps runtime
-# SELF_REPORT for actual runtime-status questions.
+# Portable user-profile surface: no shipped dev identity, rejects prompt/image-gen/event rows.
 
 import re as _eli_v9_re
 from typing import Any as _EliV9Any, Mapping as _EliV9Mapping
@@ -2324,14 +2315,8 @@ def _eli_v10_personal_memory_answer(mode_label: str = "") -> str:
     return "\n".join(lines).strip()
 
 
-# Dead code removed: the v10 layer captured _ELI_V10_PREVIOUS_RENDER_ACTION and defined
-# _eli_v14_render_action_legacy but never rebound `render_action` to it (v11 captured v9's), so
-# it was never installed or called. render_action output was byte-identical across all
-# actions/modes after removal, and the live delegation chain is unchanged.
-
-# Hard rules I enforce on the response surface: never leak the user's real name or OS account name
-# into anything user-facing, redact home paths, let quick mode use the instant deterministic
-# surfaces, and push non-quick modes through the normal persona/cognition path.
+# Response surface: never leak the real/OS username or home paths; quick mode uses the
+# deterministic surfaces, non-quick goes through the normal persona/cognition path.
 
 import getpass as _eli_v11_getpass
 import re as _eli_v11_re
