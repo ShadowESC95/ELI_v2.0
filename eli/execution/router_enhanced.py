@@ -2545,7 +2545,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         r"look\s+at|inspect|check|open)\b",
         low,
     ):
-        return _mk("SUMMARIZE_FILE", {"path": _known_file},
+        return _mk("SUMMARIZE_FILE", {"path": _known_file, "instruction": raw},
                    0.9, matched_by="analyze.known_eli_file")
 
     # Relational / wellbeing / concern questions aimed at ELI go to CHAT, never a status dump
@@ -4215,14 +4215,18 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                         "per_file": True, "_force_background": True, "format": _fmt},
                        0.9, matched_by="analyze.pdf_per_file_followup")
 
-    # summarize / analyse / read / look at: conversation vs file/path. Matches "summarise /path",
-    # "analyse and read /path", "read /path", "can you look at /path".
+    # summarize / analyse / read / look at / evaluate: conversation vs file/path. Matches
+    # "summarise /path", "analyse and read /path", "read /path", "can you look at /path",
+    # "evaluate /path". One verb group so this list can't drift from the one below it again —
+    # "evaluate X" used to fall through to CHAT entirely (no verb here matched it at all,
+    # not even as a plain summary), which is worse than the instruction-dropping bug below.
+    _DOC_VERBS = r"summari[sz]e|analyse|analyze|read|look\s+at|evaluate"
     m = re.match(
-        r"^(?:please\s+)?(?:can\s+you\s+)?(?:summari[sz]e|analyse|analyze|read|look\s+at)"
-        r"(?:[,\s]+(?:and\s+)?(?:summari[sz]e|analyse|analyze|read|look\s+at))*"
+        rf"^(?:please\s+)?(?:can\s+you\s+)?(?:{_DOC_VERBS})"
+        rf"(?:[,\s]+(?:and\s+)?(?:{_DOC_VERBS}))*"
         r"[,\s]+(?:this\s+)?(.+)$",
         raw, re.I,
-    ) or re.match(r"^(?:please\s+)?(?:summari[sz]e|analyse|analyze|read)\s+(.+)$", raw, re.I)
+    ) or re.match(rf"^(?:please\s+)?(?:{_DOC_VERBS})\s+(.+)$", raw, re.I)
     if m:
         target = m.group(1).strip()
         # If target contains an absolute path, extract from the first / or ~/
@@ -4255,7 +4259,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         else:
             # Fallback: strip leading filler words
             target = re.sub(
-                r"^(?:and\s+)?(?:summari[sz]e|analyse|analyze|summaise|read|look\s+at|the|this|file|directory|folder)\s+",
+                rf"^(?:and\s+)?(?:{_DOC_VERBS}|summaise|the|this|file|directory|folder)\s+",
                 "", target, flags=re.I,
             ).strip()
         # If the target contains a PDF, use the robust extractor to avoid
@@ -4286,7 +4290,8 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                 return _mk("ANALYZE_IMAGE", {"path": abs_path},
                            0.95, matched_by="analyze.image")
             return _mk("SUMMARIZE_FILE", {
-                       "path": abs_path}, 0.92, matched_by="analyze.summarize_file")
+                       "path": abs_path, "instruction": raw},
+                       0.92, matched_by="analyze.summarize_file")
         # Referential: "summarise the pdfs in that directory" with no explicit path
         if any(w in low for w in ["pdf", "pdfs"]) and any(
                 w in low for w in ["that", "there", "those", "the folder", "the directory"]):

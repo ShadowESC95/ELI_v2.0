@@ -336,13 +336,6 @@ class DocumentReaderPlugin(Plugin):
     def _read_docx(self, p: Path) -> dict:
         try:
             import docx
-            doc = docx.Document(str(p))
-            text = "\n".join(para.text for para in doc.paragraphs)
-            truncated = len(text) > 8000
-            return {
-                "ok": True, "content": text[:8000], "response": text[:8000],
-                "path": str(p), "truncated": truncated,
-            }
         except ImportError:
             return {
                 "ok": False,
@@ -350,6 +343,21 @@ class DocumentReaderPlugin(Plugin):
                 "content": "Install DOCX support: pip install python-docx",
                 "response": "DOCX support not installed. Run: pip install python-docx",
             }
+        doc = docx.Document(str(p))
+        parts = [para.text for para in doc.paragraphs]
+        for table in doc.tables:
+            for row in table.rows:
+                cells = [cell.text.strip() for cell in row.cells]
+                if any(cells):
+                    parts.append(" | ".join(cells))
+        text = "\n".join(t for t in parts if t)
+        truncated = len(text) > 8000
+        return {
+            "ok": True, "content": text[:8000], "response": text[:8000],
+            "path": str(p), "truncated": truncated,
+            "paragraphs_found": len(doc.paragraphs),
+            "tables_found": len(doc.tables),
+        }
 
 
 PluginClass = DocumentReaderPlugin

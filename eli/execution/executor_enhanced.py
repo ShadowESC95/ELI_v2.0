@@ -1209,8 +1209,10 @@ def _split_text_on_lines(text: str, max_chars: int) -> List[str]:
     return out
 
 
-_SUMMARY_SYSTEM = ("You are a precise technical analyst. Summarize key points, "
-                   "structure, and purpose. Ground every statement in the text "
+_SUMMARY_SYSTEM = ("You are a precise technical analyst. Follow the user's instruction "
+                   "exactly — if they asked for a summary, summarize; if they asked you to "
+                   "evaluate, critique, score, or answer something specific, do that instead "
+                   "of defaulting to a generic summary. Ground every statement in the text "
                    "provided; never invent details that are not present.")
 
 

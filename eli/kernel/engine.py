@@ -6617,6 +6617,15 @@ Answer:"""
     def _get_chat_response(self, prompt: str, memory_context: str = "",
                            reasoning_mode: Optional[str] = None, gen_overrides: Optional[Dict[str, Any]] = None,
                            situation_brief: str = "") -> str:
+        # CoT/ToT/constitutional/self-consistency all chain several calls through here with
+        # no check between stages, so Stop only landed after every remaining stage had also
+        # run its full generation. One check here covers all of them instead of patching each.
+        try:
+            from eli.cognition import gguf_inference as _ggi_cancel
+            if _ggi_cancel.is_cancel_requested():
+                return ""
+        except Exception:
+            pass
         # Scoped check: extract the executor-result lines only (avoids false
         # positives from persona notes / old failure history in the prompt).
         _fail_block = _failed_executor_relevant_block(prompt)
@@ -6874,6 +6883,14 @@ Answer:"""
                         )
                 if response:
                     return _normalize_assistant_text(prompt, response)
+                # Empty because the user hit Stop, not because a thinking model burned its
+                # budget — don't burn a second full generation finding that out again.
+                try:
+                    from eli.cognition import gguf_inference as _ggi_cancel2
+                    if _ggi_cancel2.is_cancel_requested():
+                        return ""
+                except Exception:
+                    pass
                 # Empty after broker's own retry — usually a thinking model that burned
                 # its budget inside a hidden reasoning block. One more pass with think
                 # suppressed; do NOT mark the whole GGUF backend unavailable.
@@ -9967,6 +9984,11 @@ Answer:"""
             if _ovr3.get("loaded"):
                 self._gguf_available = True
                 self._gguf_load_error = None
+        try:
+            if gguf_inference is not None and gguf_inference.is_cancel_requested():
+                return None
+        except Exception:
+            pass
         if self._gguf_available and gguf_inference is not None:
             try:
                 from eli.cognition.gguf_inference import force_no_think as _fnt_corr

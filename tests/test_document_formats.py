@@ -384,3 +384,49 @@ def test_plugin_description_lists_the_formats_it_dispatches():
     desc = DocumentReaderPlugin.description.lower()
     for fmt in ("pdf", "docx", "odt", "epub"):
         assert fmt in desc, f"{fmt} is dispatched but not advertised"
+
+
+# ── DOCX ────────────────────────────────────────────────────────────────────
+# python-docx builds real .docx files (a zip of OOXML parts), not worth hand-
+# rolling the XML the way the ODT/EPUB fixtures above do. Only these two tests
+# need it, so only they skip when it's missing — importorskip at module scope
+# would skip every other test in this file too (ODT/EPUB need nothing extra).
+try:
+    import docx
+except ImportError:
+    docx = None
+
+_needs_docx = pytest.mark.skipif(docx is None, reason="python-docx not installed")
+
+
+def _write_docx_with_table(path):
+    d = docx.Document()
+    d.add_paragraph("Intro paragraph text.")
+    t = d.add_table(rows=2, cols=2)
+    t.cell(0, 0).text = "Name"
+    t.cell(0, 1).text = "Score"
+    t.cell(1, 0).text = "Diabolic"
+    t.cell(1, 1).text = "9"
+    d.add_paragraph("Outro paragraph text.")
+    d.save(str(path))
+    return path
+
+
+@_needs_docx
+def test_docx_reads_table_cells(plugin, tmp_path):
+    # _read_docx used to only join doc.paragraphs — doc.tables is a separate
+    # collection, never included in that, so table content was silently
+    # dropped. ODT got this fix already (test_odt_reads_table_cells); DOCX didn't.
+    res = plugin.read({"path": str(_write_docx_with_table(tmp_path / "report.docx"))})
+    assert res["ok"] is True
+    assert "Name | Score" in res["content"]
+    assert "Diabolic | 9" in res["content"]
+    assert "Intro paragraph text." in res["content"]
+    assert "Outro paragraph text." in res["content"]
+
+
+@_needs_docx
+def test_docx_reports_table_and_paragraph_counts(plugin, tmp_path):
+    res = plugin.read({"path": str(_write_docx_with_table(tmp_path / "report.docx"))})
+    assert res["tables_found"] == 1
+    assert res["paragraphs_found"] == 2
