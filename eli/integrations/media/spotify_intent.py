@@ -7,11 +7,14 @@ _PLAYLIST_RE = re.compile(
     r"^\s*(?:my|the|a)?\s*(?P<name>.+?)\s*(?:play\s*list|playlist)\s*$", re.I
 )
 _LIKED_SONGS_RE = re.compile(
-    r"^(?:my\s+)?(?:liked\s+songs?|likes|favourites?|favorites?)$",
+    r"^(?:my\s+)?(?:liked(?:\s+(?:songs?|playlist|play\s*list))?|likes|favou?rites?)$",
     re.I,
 )
 _ALBUM_RE = re.compile(
     r"^\s*(?:the\s+)?(?P<name>.+?)\s+album\s*$", re.I
+)
+_ALBUM_MID_RE = re.compile(
+    r"^\s*(?:the\s+)?(?P<artist>.+?)\s+album\s+(?P<name>.+?)\s*$", re.I
 )
 _LP_RE = re.compile(
     r"^\s*(?:the\s+)?(?P<name>.+?)\s+lp\s*$", re.I
@@ -78,6 +81,17 @@ def album_request(query: str) -> tuple[str, str | None]:
         name = (cmd_m.group(1) or "").strip(" .,:;-")
         if len(name) >= 2:
             return name, None
+    # "ARTIST album ALBUMNAME" — "album" as a mid-string separator rather than
+    # the query's last or first word, e.g. "the arctic monkeys album am" or
+    # "diabolic album liar and a thief". Tried last since the "X by Y" and
+    # "X album"/"album X" forms above are both more specific and must win
+    # when they also happen to match.
+    mid_m = _ALBUM_MID_RE.match(q)
+    if mid_m:
+        artist = (mid_m.group("artist") or "").strip(" .,:;-")
+        name = (mid_m.group("name") or "").strip(" .,:;-")
+        if len(name) >= 2:
+            return name, artist if len(artist) >= 2 else None
     return "", None
 
 

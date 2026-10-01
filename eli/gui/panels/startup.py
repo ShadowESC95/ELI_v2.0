@@ -888,6 +888,7 @@ class StartupModelSelectionDialog(QDialog):
             from eli.core.hardware_profile import (
                 auto_ctx_target,
                 cpu_ram_budget_mb,
+                describe_gpu_layers,
                 detect_hardware,
                 effective_use_gpu_layers,
                 _llama_gpu_offload_available,
@@ -943,7 +944,8 @@ class StartupModelSelectionDialog(QDialog):
                         moe_resident_gb=(_moe_preview["resident_gb"] if _moe_preview else None),
                     )
                     _fit_line = (
-                        f"  |  fit ({_fit_mode}): ctx={_fc} gpu={_fl} batch={_fb}"
+                        f"  |  preview fit ({_fit_mode}): ctx={_fc} "
+                        f"gpu={describe_gpu_layers(_fl)} batch={_fb}"
                     )
                     if _moe_preview:
                         _fit_line += (
@@ -1149,11 +1151,22 @@ class StartupModelSelectionDialog(QDialog):
                         break
                 except Exception:
                     continue
-        if idx < 0 and Path(target).is_file():
-            # a saved path outside the scanned folders: list it, so the dropdown never shows a model
-            # other than the one that will load
+        if idx < 0 and target:
+            # A saved path outside the scanned folders: list it, so the dropdown never shows
+            # a model other than the one that will load. Gating this on Path(target).is_file()
+            # used to mean a transient stat() miss (observed at early AppImage startup, before
+            # the mount/environment fully settles) silently skipped adding the entry — the
+            # combo then kept whatever the scan's first match was, while model_path_input
+            # below still got set correctly, so the WRONG model name showed in the dropdown
+            # even though the RIGHT model actually loaded. Try to size it; a path that
+            # genuinely doesn't exist just fails to load later with its own clear error,
+            # which is no worse than today — a dropdown that lies about what loads is worse.
+            try:
+                _size_gb = file_size_gib(target)
+            except Exception:
+                _size_gb = 0.0
             self.gguf_combo.addItem(self._model_label(
-                {"source": "custom", "name": Path(target).name, "size_gb": file_size_gib(target)}), target)
+                {"source": "custom", "name": Path(target).name, "size_gb": _size_gb}), target)
             idx = self.gguf_combo.count() - 1
         if idx >= 0:
             self.gguf_combo.setCurrentIndex(idx)

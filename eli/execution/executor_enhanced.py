@@ -3343,15 +3343,17 @@ def _spotify_playlist_name(query: str) -> str:
     return name if len(name) >= 2 else ""
 
 
-_LIKED_SONGS_RE = re.compile(
-    r"^(?:my\s+)?(?:liked\s+songs?|likes|favourites?|favorites?)$",
-    re.I,
-)
-
-
 def _spotify_is_liked_songs_request(name: str) -> bool:
-    """True when the user means Spotify's Liked Songs collection, not a search."""
-    return bool(_LIKED_SONGS_RE.match(str(name or "").strip()))
+    """True when the user means Spotify's Liked Songs collection, not a search.
+
+    Delegates to spotify_intent.is_liked_songs() — this file used to carry its
+    own separate copy of the same regex, which silently went stale when the
+    real one was broadened to also recognise "my liked playlist"/"liked
+    playlist" phrasing (bare "liked", not just "liked song(s)"); a fix there
+    had zero effect here until the duplicate was removed.
+    """
+    from eli.integrations.media.spotify_intent import is_liked_songs as _si_is_liked
+    return _si_is_liked(name)
 
 
 def _spotify_live_meta(player: str = "spotify") -> tuple[str, str, str]:
@@ -3674,16 +3676,31 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
 
         # ── Liked Songs ──
         _pl_name = "" if _by_m else _spotify_playlist_name(search_q)
-        if _pl_name and _spotify_is_liked_songs_request(_pl_name):
+        # Checked directly against search_q too, not just the extracted
+        # _pl_name — playlist_name() only fires when the literal word
+        # "playlist" is present, so "my liked songs" (no "playlist" in it)
+        # never reached this branch at all and fell through to a bare
+        # keyword search of the words "my liked songs" in Spotify's track tab.
+        _is_liked = (not _by_m) and (
+            _spotify_is_liked_songs_request(search_q)
+            or (_pl_name and _spotify_is_liked_songs_request(_pl_name))
+        )
+        if _is_liked:
             try:
+                _before = _spotify_live_meta("spotify")[1:]
                 if _spotify_open_liked_songs():
                     _time.sleep(0.9)
                     _spotify_clear_track_repeat()
-                    if _spotify_play():
+                    if _spotify_playback_confirmed(_before):
                         _set_now_playing("spotify", "Liked Songs")
                         msg = "Playing your Liked Songs on Spotify."
                         return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                                 "kind": "liked_songs", "content": msg, "response": msg}
+                    msg = ("I opened your Liked Songs on Spotify but couldn't confirm "
+                           "it started playing — press play in Spotify.")
+                    return {"ok": True, "action": "PLAY_MEDIA", "played": False,
+                            "search_only": True, "kind": "liked_songs",
+                            "content": msg, "response": msg}
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
 

@@ -1618,6 +1618,27 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
     return max(0, n)
 
 
+def describe_gpu_layers(n_gpu_layers: Optional[int], total_layers: Optional[int] = None) -> str:
+    """Render a gpu_layers value for a human to read.
+
+    99 (or anything >= the model's real layer count) is llama.cpp's own
+    convention for "offload every layer there is" — not a literal count of 99
+    layers. Printed raw next to the actual, usually much lower, layer count
+    used elsewhere in the same panel (e.g. a 40-layer MoE fit), it reads as a
+    conflicting, higher number rather than the same "everything that fits"
+    outcome restated. Every user-facing gpu_layers string should go through
+    this rather than an f-string embedding the raw int.
+    """
+    if n_gpu_layers is None:
+        return "unset"
+    n = int(n_gpu_layers)
+    if total_layers and n >= int(total_layers):
+        return f"all {int(total_layers)} layers"
+    if n >= 99:
+        return f"{n} (= all layers)"
+    return str(n)
+
+
 def _fit_needed_mb(
     model_size_gb: float,
     total_layers: int,

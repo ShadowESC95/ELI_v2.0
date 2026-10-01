@@ -57,3 +57,54 @@ def test_youtube_mpv_query_album_by_artist():
 
 def test_prefers_spotify_for_album_phrasing():
     assert si.prefers_spotify_music_context("the marshall mathers lp album")
+
+
+def test_album_mid_string_artist_album_name():
+    """Regression (live session): "play diabolics album liar and a thief" and
+    "play the arctic monkeys album AM on spotify" both fell through to a bare
+    track search typed verbatim, resolving to an unrelated song/album —
+    album_request() only recognised "X album" (trailing) or "album X"
+    (leading), never "ARTIST album ALBUMNAME" with "album" as a mid-string
+    separator, which is how both real requests were phrased."""
+    name, artist = si.album_request("diabolics album liar and a thief")
+    assert name == "liar and a thief"
+    assert artist == "diabolics"
+
+    name, artist = si.album_request("the arctic monkeys album am")
+    assert name == "am"
+    assert artist == "arctic monkeys"
+
+
+def test_album_mid_string_does_not_override_by_phrasing():
+    """"NAME album by ARTIST" must still resolve via the existing, more
+    specific "by" branch, not the new mid-string fallback — adding the
+    fallback must not regress the already-working case this exercises."""
+    name, artist = si.album_request("a liar and a thief album by diabolic")
+    assert name == "a liar and a thief"
+    assert artist == "diabolic"
+
+
+def test_liked_songs_recognises_bare_liked_and_liked_playlist():
+    """Regression: "play my liked playlist on spotify" extracted playlist
+    name "liked" (via playlist_name()'s generic "X playlist" pattern), but
+    is_liked_songs("liked") required "liked song(s)" and rejected bare
+    "liked" — so it searched Spotify for a playlist literally named "liked"
+    instead of opening the real Liked Songs collection."""
+    assert si.is_liked_songs("liked") is True
+    assert si.is_liked_songs("my liked playlist") is True
+    assert si.is_liked_songs("liked playlist") is True
+    assert si.playlist_name("my liked playlist") == "liked"
+
+
+def test_liked_songs_recognises_the_phrase_without_the_word_playlist():
+    """Regression: "play my liked songs in spotify" has no "playlist" in it
+    at all, so playlist_name() never extracted anything and the liked-songs
+    branch (gated behind a truthy extracted name) never ran — the query fell
+    through and got typed verbatim into Spotify's track search, which then
+    silently resumed whatever was already playing and reported false success."""
+    assert si.is_liked_songs("my liked songs") is True
+    assert si.is_liked_songs("liked songs") is True
+    assert si.playlist_name("my liked songs") == "", (
+        "no 'playlist' word in this phrasing — confirms the raw-query check "
+        "is what must catch it, not playlist_name() extraction"
+    )

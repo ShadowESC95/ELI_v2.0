@@ -177,3 +177,87 @@ def test_spotify_playback_confirmed_checks_hint_when_given(monkeypatch):
 def test_spotify_playback_confirmed_false_when_play_itself_fails(monkeypatch):
     monkeypatch.setattr(ex, "_spotify_play", lambda: False)
     assert ex._spotify_playback_confirmed(("", "")) is False
+
+
+def test_my_liked_songs_without_the_word_playlist_opens_liked_collection(monkeypatch):
+    """Regression (live session): "play my liked songs in spotify" has no
+    literal "playlist" in it, so playlist_name() extracted nothing and the
+    liked-songs branch (gated behind a truthy extracted name) never ran —
+    the phrase got typed verbatim into Spotify's track search, which then
+    reported a false "Playing" success by resuming whatever track was
+    already queued from before. Must open the real Liked Songs collection."""
+    monkeypatch.setattr(ex.shutil, "which",
+                        lambda c: f"/usr/bin/{c}" if c in
+                        {"xdg-open", "dbus-send", "playerctl"} else None)
+    _install_capture(monkeypatch, run_rc=0, run_stdout="Playing")
+
+    opened = []
+    monkeypatch.setattr(ex, "_spotify_open_liked_songs", lambda: opened.append(1) or True)
+    live_meta = iter([("", ""), ("Some Artist", "Some Track")])
+    monkeypatch.setattr(ex, "_spotify_live_meta", lambda player="spotify": ("", *next(live_meta)))
+
+    res = ex.play_specific("my liked songs", "spotify")
+
+    assert opened == [1], "must open the real Liked Songs collection, not search for it"
+    assert res.get("kind") == "liked_songs"
+    assert res.get("played") is True
+
+
+def test_my_liked_playlist_opens_liked_collection_not_a_named_playlist_search(monkeypatch):
+    """Regression: "play my liked playlist on spotify" extracted playlist
+    name "liked" (the generic "X playlist" pattern), but is_liked_songs()
+    required "liked song(s)" and rejected bare "liked" — so it searched
+    Spotify for a playlist literally named "liked" instead."""
+    monkeypatch.setattr(ex.shutil, "which",
+                        lambda c: f"/usr/bin/{c}" if c in
+                        {"xdg-open", "dbus-send", "playerctl"} else None)
+    _install_capture(monkeypatch, run_rc=0, run_stdout="Playing")
+
+    opened = []
+    searched = []
+    monkeypatch.setattr(ex, "_spotify_open_liked_songs", lambda: opened.append(1) or True)
+    monkeypatch.setattr(ex, "_spotify_search", lambda q, prefer=None: searched.append(q) or True)
+    live_meta = iter([("", ""), ("Some Artist", "Some Track")])
+    monkeypatch.setattr(ex, "_spotify_live_meta", lambda player="spotify": ("", *next(live_meta)))
+
+    res = ex.play_specific("my liked playlist", "spotify")
+
+    assert opened == [1]
+    assert searched == [], "must not fall through to a named-playlist search for 'liked'"
+    assert res.get("kind") == "liked_songs"
+
+
+def test_artist_album_name_phrasing_reaches_the_album_block_not_track_search(monkeypatch):
+    """Regression (live session): "play diabolics album liar and a thief" and
+    "play the arctic monkeys album AM" both fell through to the generic
+    track-search fallback, typing the whole phrase verbatim and playing an
+    unrelated top result — album_request() didn't recognise "ARTIST album
+    ALBUMNAME" phrasing at all (fixed separately in spotify_intent). This
+    confirms play_specific() actually routes through the album path now
+    that the parser recognises it, rather than falling to track search."""
+    monkeypatch.setattr(ex.shutil, "which",
+                        lambda c: f"/usr/bin/{c}" if c in
+                        {"xdg-open", "dbus-send", "playerctl"} else None)
+    _install_capture(monkeypatch, run_rc=0, run_stdout="Playing")
+
+    track_search_calls = []
+    album_uri_calls = []
+    monkeypatch.setattr(ex, "_spotify_resolve_track_uri", lambda q: None)
+    monkeypatch.setattr(ex, "_spotify_resolve_album_uri",
+                         lambda name, artist=None: album_uri_calls.append((name, artist)) or None)
+    monkeypatch.setattr(ex, "_spotify_search",
+                         lambda q, prefer=None: track_search_calls.append((q, prefer)) or False)
+    monkeypatch.setattr(
+        "eli.integrations.media.cross_platform.spotify_search_type_and_play",
+        lambda q: False,
+    )
+
+    ex.play_specific("the arctic monkeys album am", "spotify")
+
+    assert album_uri_calls == [("am", "arctic monkeys")], (
+        "must resolve as an album request (name='am', artist='arctic monkeys')"
+    )
+    assert ("am arctic monkeys", "albums") in track_search_calls, (
+        "the album search-tab fallback must search for the album name + "
+        "artist, not get skipped"
+    )
