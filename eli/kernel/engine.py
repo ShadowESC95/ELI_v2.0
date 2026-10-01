@@ -1274,10 +1274,14 @@ def _phatic_rapport_style_rule() -> str:
         "- Treat the latest user message as a chemistry-building moment, not as a task ticket.\n"
         "- Reply AS ELI with your full voice: local, dry, direct, lightly sarcastic when it fits, "
         "and alive in tone — not a stripped-down echo of their words.\n"
-        "- Give a real greeting: 2–4 sentences with personality. Mirror their energy (morning warmth, "
-        "casual banter, check-in warmth). A dry observation, gentle wit, or natural follow-up is welcome.\n"
-        "- FORBIDDEN: telegraphic parroting ('It's morning.' after 'good morning'), weather-report "
-        "minimalism, or empty mirroring. You are ELI, not a notification banner.\n"
+        "- Give a real greeting: 2–4 sentences with personality. Match their MOOD — warm if they're "
+        "warm, brisk if they're brisk, bantering if they're bantering. A dry observation, gentle wit, "
+        "or natural follow-up is welcome.\n"
+        "- FORBIDDEN, no exceptions: reusing the user's own words, phrases, or sentence openings back "
+        "at them ('Is there any other day?' after they say 'Is there any other day?'), telegraphic "
+        "parroting ('It's morning.' after 'good morning'), weather-report minimalism, or restating "
+        "what they just told you as if it were your own observation. Matching their MOOD is not the "
+        "same as repeating their WORDS — never do the latter. You are ELI, not an echo chamber.\n"
         "- Do not say the prompt is a common greeting, or use 'functioning as intended', "
         "'ready to assist', 'queries or tasks', 'how can I help', 'happy to help', or customer-service filler.\n"
         "- Do NOT resume old projects, invent user preferences/habits, or dump runtime stats unprompted.\n"
@@ -7283,6 +7287,43 @@ Answer:"""
             yield token
 
     def _run_chat_reasoning_loop(self, user_input: str, memory_context: str, intent: Dict[str, Any], reasoning_mode: Optional[
+                                 str], trace: Optional[Dict[str, Any]] = None, gen_overrides: Optional[Dict[str, Any]] = None,
+                                 situation_brief: str = "") -> Dict[str, Any]:
+        """Private reasoning modes bypass the streaming path, so they need their own
+        anti-repeat/anti-echo pass: inject the contract, run the loop, strip any
+        opening that restates ELI's own prior reply or the user's own message."""
+        brief = self._inject_anti_repeat_contract(user_input, situation_brief, recent_turns=None)
+        result = self._run_chat_reasoning_loop_inner(
+            user_input, memory_context, intent, reasoning_mode,
+            trace=trace, gen_overrides=gen_overrides, situation_brief=brief,
+        )
+        response = str((result or {}).get("response") or "")
+        if not response:
+            return result
+        try:
+            _recent_eli: List[str] = []
+            _recent_user: List[str] = []
+            for _t in (self.memory.get_recent_conversation(limit=16) or []):
+                _role = str((_t or {}).get("role", "")).lower()
+                _c = str((_t or {}).get("content", "") or "").strip()
+                if not _c:
+                    continue
+                if _role == "user":
+                    _recent_user.append(_c)
+                elif _role in ("assistant", "eli"):
+                    _recent_eli.append(_c)
+            echo_sources = [user_input] + _recent_user
+            if (_opens_by_echoing(response, echo_sources)
+                    or (_recent_eli and _is_repeat_of_recent(response, _recent_eli))):
+                novel = _strip_repeated_opening(response, _recent_eli + echo_sources)
+                if len(_clarifier_norm(novel)) >= _REPEAT_MIN_SENTENCE_CHARS:
+                    result = dict(result)
+                    result["response"] = novel
+        except Exception:
+            log.debug("[ANTI-REPEAT] reasoning-loop echo guard skipped", exc_info=True)
+        return result
+
+    def _run_chat_reasoning_loop_inner(self, user_input: str, memory_context: str, intent: Dict[str, Any], reasoning_mode: Optional[
                                  str], trace: Optional[Dict[str, Any]] = None, gen_overrides: Optional[Dict[str, Any]] = None,
                                  situation_brief: str = "") -> Dict[str, Any]:
         try:
