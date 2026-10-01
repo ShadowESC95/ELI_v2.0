@@ -13,6 +13,7 @@ from __future__ import annotations
 import subprocess
 
 from eli.execution import executor_enhanced as ex
+from eli.integrations.media import cross_platform as cp
 
 
 def _install_capture(monkeypatch, *, run_rc=0, run_stdout="Playing"):
@@ -46,11 +47,17 @@ def _has_youtube(calls):
 
 
 def test_spotify_target_plays_and_never_opens_youtube(monkeypatch):
-    # Spotify reachable; status reports Playing -> honest played=True.
+    # Spotify reachable; status reports Playing AND live metadata matches the
+    # requested track -> honest played=True. Status alone ("Playing") isn't
+    # enough on its own — that's also true of a stale, already-playing track
+    # that the request never touched; live metadata is what actually confirms
+    # the right song loaded (see test_now_playing_matches_query regression).
     monkeypatch.setattr(ex.shutil, "which",
                         lambda c: f"/usr/bin/{c}" if c in
                         {"xdg-open", "dbus-send", "playerctl"} else None)
     calls = _install_capture(monkeypatch, run_rc=0, run_stdout="Playing")
+    monkeypatch.setattr(cp, "spotify_live_meta",
+                         lambda player="spotify": ("▶ Playing", "The Notorious B.I.G.", "Juicy"))
 
     res = ex.play_specific("juicy by notorious big", "spotify")
 
@@ -73,7 +80,28 @@ def test_spotify_unreachable_reports_search_only_not_youtube(monkeypatch):
     assert res.get("played") is not True
     assert res.get("search_only") is True
     assert res.get("target") == "spotify"
-    assert not _has_youtube(calls), "Unreachable Spotify must not open YouTube"
+
+
+def test_spotify_stale_track_resuming_is_not_reported_as_the_requested_song(monkeypatch):
+    """Regression (live session, 2026-10-01): "play evil by eminem on spotify"
+    opened a spotify:search: URI then hit MPRIS Play. Spotify had an unrelated
+    track already queued from earlier and just resumed it — playerctl status
+    correctly says "Playing", but it's the wrong track. The old code trusted
+    status alone and told the user "Playing 'evil by eminem' on Spotify" when
+    nothing of the sort had happened. Now it must report search_only instead."""
+    monkeypatch.setattr(ex.shutil, "which",
+                        lambda c: f"/usr/bin/{c}" if c in
+                        {"xdg-open", "dbus-send", "playerctl"} else None)
+    calls = _install_capture(monkeypatch, run_rc=0, run_stdout="Playing")
+    monkeypatch.setattr(cp, "spotify_live_meta",
+                         lambda player="spotify": ("▶ Playing", "Point Of No Return", "Immortal Technique"))
+
+    res = ex.play_specific("evil by eminem", "spotify")
+
+    assert res["action"] == "PLAY_MEDIA"
+    assert res.get("played") is not True, "must not claim success for an unrelated stale track"
+    assert res.get("search_only") is True
+    assert not _has_youtube(calls), "must not fall through to YouTube either"
 
 
 # ── YouTube continuous play: watch URL becomes a Mix/radio so it autoplays ────
@@ -114,3 +142,38 @@ def test_youtube_dot_com_uses_autoplay_mix_in_browser(monkeypatch):
     assert "list=RD" in url
     assert "autoplay=1" in url
     assert "start_radio=1" in url
+
+
+def test_spotify_playback_confirmed_rejects_unchanged_stale_track(monkeypatch):
+    """Regression: the album/playlist search-tab fallbacks had the same bare
+    `if _spotify_play():` false-positive the track fallback had — a stale,
+    already-playing track reports identical "Playing" status whether or not
+    anything new actually got selected. Used by both fallbacks now."""
+    monkeypatch.setattr(ex, "_spotify_play", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_live_meta",
+                         lambda *a, **k: ("▶ Playing", "Immortal Technique", "Harlem Streets"))
+    before = ("Immortal Technique", "Harlem Streets")
+    assert ex._spotify_playback_confirmed(before) is False
+
+
+def test_spotify_playback_confirmed_accepts_a_real_change(monkeypatch):
+    monkeypatch.setattr(ex, "_spotify_play", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_live_meta",
+                         lambda *a, **k: ("▶ Playing", "Pink Floyd", "Breathe"))
+    before = ("", "")
+    assert ex._spotify_playback_confirmed(before) is True
+
+
+def test_spotify_playback_confirmed_checks_hint_when_given(monkeypatch):
+    """An album play must verify the live artist matches the requested album's
+    artist, not just that *some* different track started."""
+    monkeypatch.setattr(ex, "_spotify_play", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_live_meta",
+                         lambda *a, **k: ("▶ Playing", "Some Other Artist", "Unrelated Track"))
+    before = ("", "")
+    assert ex._spotify_playback_confirmed(before, hint="pink floyd") is False
+
+
+def test_spotify_playback_confirmed_false_when_play_itself_fails(monkeypatch):
+    monkeypatch.setattr(ex, "_spotify_play", lambda: False)
+    assert ex._spotify_playback_confirmed(("", "")) is False

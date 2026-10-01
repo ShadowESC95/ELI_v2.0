@@ -3359,6 +3359,39 @@ def _spotify_live_meta(player: str = "spotify") -> tuple[str, str, str]:
     return _cp_meta(player)
 
 
+def _now_playing_matches_query(query: str) -> bool:
+    """spotify_is_playing() only confirms *something* is playing — it can't
+    tell a resumed, stale track from the one just requested. Opening a
+    spotify:search: URI then hitting MPRIS Play resumes whatever Spotify had
+    queued if nothing in the new search got selected, which reports as a
+    false "Playing X" success. Compare live playerctl metadata against the
+    request before trusting it. Shared with spotify_search_type_and_play's
+    own verification — see cross_platform.track_query_matches_now_playing."""
+    from eli.integrations.media.cross_platform import track_query_matches_now_playing as _cp_match
+    return _cp_match(query)
+
+
+def _spotify_playback_confirmed(before: tuple[str, str], hint: str = "") -> bool:
+    """Shared confirmation for the album/playlist fallback blocks, which had
+    the same bare `if _spotify_play():` false-positive the track block had
+    (fixed via _now_playing_matches_query) — status alone can't tell a
+    resumed stale track from a real new one. An album/playlist name doesn't
+    literally appear in a track's own artist/title metadata the way a track
+    query does, so `hint` (the artist, when known) is checked when given, and
+    a before/after change is always required as the baseline signal that
+    something actually happened rather than the old track just continuing."""
+    if not _spotify_play():
+        return False
+    _, artist, track = _spotify_live_meta("spotify")
+    if not (artist or track):
+        return False
+    if (artist, track) == before:
+        return False
+    if hint and not _now_playing_matches_query(hint):
+        return False
+    return True
+
+
 def _spotify_loop_status() -> str:
     from eli.integrations.media.cross_platform import spotify_loop_status as _cp_loop
     return _cp_loop()
@@ -3415,13 +3448,22 @@ def _spotify_open_liked_songs() -> bool:
 
 
 def _spotify_try_open_and_play(uri: str, *, label: str, kind: str) -> Dict[str, Any] | None:
-    """Open a concrete Spotify URI and start playback. None → try another path."""
+    """Open a concrete Spotify URI and start playback. None → try another path.
+
+    Lower false-positive risk than the generic search-tab fallbacks below —
+    opening a *resolved* spotify:<kind>:<id> URI genuinely queues that exact
+    target, unlike a blind spotify:search: with nothing selected — but
+    _spotify_play() is still only a transport-status check, so a before/after
+    change is required for the same reason it is everywhere else in this
+    file: a stale already-playing track reports identical "Playing" status.
+    """
     import time as _time
     if not uri:
         return None
     if not _spotify_running():
         _ensure_spotify_running()
         _spotify_wait_running(timeout=8.0)
+    _before = _spotify_live_meta()[1:]
     if not _spotify_open_uri(uri):
         return None
     _time.sleep(0.9)
@@ -3429,6 +3471,8 @@ def _spotify_try_open_and_play(uri: str, *, label: str, kind: str) -> Dict[str, 
     if not _spotify_play():
         return None
     _, artist, track = _spotify_live_meta()
+    if (artist, track) == _before and (artist or track):
+        return None
     meta = f"{artist} — {track}" if artist and track else (track or label)
     _set_now_playing("spotify", meta)
     msg = f"Playing {label} on Spotify."
@@ -3666,21 +3710,24 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
             if not _spotify_running():
                 _ensure_spotify_running()
                 _spotify_wait_running(timeout=8.0)
+            _before = _spotify_live_meta("spotify")[1:]
             if _spotify_search(f"{_album} {_album_artist or ''}".strip(), prefer="albums"):
                 _time.sleep(2.4)
                 _spotify_clear_track_repeat()
-                if _spotify_play():
+                if _spotify_playback_confirmed(_before, hint=_album_artist or ""):
                     _set_now_playing("spotify", f"{_album} (album)")
                     msg = f"Playing the “{_album}” album on Spotify."
                     return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                             "kind": "album", "content": msg, "response": msg}
                 # Retry play once after album search UI settles
                 _time.sleep(1.2)
-                if _spotify_play():
+                if _spotify_playback_confirmed(_before, hint=_album_artist or ""):
                     _set_now_playing("spotify", f"{_album} (album)")
                     msg = f"Playing the “{_album}” album on Spotify."
                     return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                             "kind": "album", "content": msg, "response": msg}
+                # Unconfirmed — fall through to the generic track search below
+                # rather than claiming success, same as the original behaviour.
 
         # ── Artist discography / "songs by X" ──
         _artist = _si.artist_songs_request(query)
@@ -3707,9 +3754,10 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
                 except Exception:
                     _pl_opened = False
             if _pl_opened:
+                _before = _spotify_live_meta("spotify")[1:]
                 _time.sleep(1.8)
                 _spotify_clear_track_repeat()
-                if _spotify_play():
+                if _spotify_playback_confirmed(_before):
                     _set_now_playing("spotify", f"{_pl_name} (playlist)")
                     msg = f"Playing the “{_pl_name}” playlist on Spotify."
                     return {"ok": True, "action": "PLAY_MEDIA", "played": True,
@@ -3768,14 +3816,14 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
         if _opened:
             _time.sleep(1.6)
             _spotify_clear_track_repeat()
-            if _spotify_play():
+            if _spotify_play() and _now_playing_matches_query(_track_q):
                 _set_now_playing("spotify", _track_q)
                 msg = f"Playing “{_track_q}” on Spotify."
                 return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                         "content": msg, "response": msg}
-            msg = (f"I opened the Spotify search for “{_track_q}” but playback didn't "
-                   f"start — press play in Spotify, or check that playerctl/dbus "
-                   f"can reach it.")
+            msg = (f"I opened the Spotify search for “{_track_q}” but couldn't confirm "
+                   f"it started playing — press play in Spotify, or check that "
+                   f"playerctl/dbus can reach it.")
             return {"ok": True, "action": "PLAY_MEDIA", "played": False,
                     "search_only": True, "target": "spotify",
                     "content": msg, "response": msg}

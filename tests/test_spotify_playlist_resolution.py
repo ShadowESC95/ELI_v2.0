@@ -89,7 +89,10 @@ def test_play_specific_resolves_and_plays_the_real_track_uri(monkeypatch):
     monkeypatch.setattr(ex, "_spotify_open_uri", lambda u: opened_uris.append(u) or True)
     monkeypatch.setattr(ex, "_spotify_clear_track_repeat", lambda: True)
     monkeypatch.setattr(ex, "_spotify_play", lambda: True)
-    monkeypatch.setattr(ex, "_spotify_live_meta", lambda *a, **k: ("", "Diabolic", "Soldiers Logic"))
+    # Nothing was playing before the resolved URI opened; the requested track
+    # is playing after — a real change, not a stale resumed track.
+    live_meta = iter([("", "", ""), ("", "Diabolic", "Soldiers Logic")])
+    monkeypatch.setattr(ex, "_spotify_live_meta", lambda *a, **k: next(live_meta))
     monkeypatch.setattr(ex.time, "sleep", lambda _s: None)
 
     result = ex.play_specific("soldiers logic by diabolic", target="spotify")
@@ -117,6 +120,26 @@ def test_play_specific_falls_back_to_search_when_no_track_uri_resolves(monkeypat
 
     assert result["played"] is False
     assert result["search_only"] is True
+
+
+def test_try_open_and_play_rejects_a_stale_track_that_never_changed(monkeypatch):
+    """Regression: opening a resolved URI then calling _spotify_play() can
+    report "Playing" purely because a track from before is still playing —
+    _spotify_open_uri() itself can silently fail to actually queue the new
+    target. Metadata identical before and after must not be reported as
+    success."""
+    monkeypatch.setattr(ex, "_spotify_running", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_open_uri", lambda u: True)
+    monkeypatch.setattr(ex, "_spotify_clear_track_repeat", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_play", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_live_meta",
+                         lambda *a, **k: ("▶ Playing", "Immortal Technique", "Harlem Streets"))
+    monkeypatch.setattr(ex.time, "sleep", lambda _s: None)
+
+    result = ex._spotify_try_open_and_play(
+        "spotify:track:abc123", label="“evil”", kind="track")
+
+    assert result is None, "must fall through to another path, not claim a stale track as success"
 
 
 def test_wait_playing_returns_true_when_status_flips(monkeypatch):

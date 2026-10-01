@@ -591,12 +591,22 @@ def focus_app(name: str) -> dict:
     sysname = _system()
     if sysname == "linux":
         wmctrl = shutil.which("wmctrl")
-        if wmctrl and _run([wmctrl, "-a", target.name]).returncode == 0:
-            return _result(True, "FOCUS_APP", f"Focused {target.name}.", resolved=target.__dict__)
+        if wmctrl:
+            # -x matches WM_CLASS, which stays e.g. "Spotify" for the life of the
+            # process — plain `wmctrl -a` matches window TITLE, which media
+            # players like Spotify rewrite to the loaded track ("Artist - Song")
+            # the moment anything plays, breaking title-based lookup from then on.
+            if _run([wmctrl, "-x", "-a", target.name]).returncode == 0:
+                return _result(True, "FOCUS_APP", f"Focused {target.name}.", resolved=target.__dict__)
+            if _run([wmctrl, "-a", target.name]).returncode == 0:
+                return _result(True, "FOCUS_APP", f"Focused {target.name}.", resolved=target.__dict__)
         xdotool = shutil.which("xdotool")
         if xdotool:
-            cp = _run([xdotool, "search", "--name", target.name])
+            cp = _run([xdotool, "search", "--class", target.name])
             ids = [x.strip() for x in cp.stdout.splitlines() if x.strip()]
+            if not ids:
+                cp = _run([xdotool, "search", "--name", target.name])
+                ids = [x.strip() for x in cp.stdout.splitlines() if x.strip()]
             if ids and _run([xdotool, "windowactivate", ids[0]]).returncode == 0:
                 return _result(True, "FOCUS_APP", f"Focused {target.name}.", resolved=target.__dict__)
     if sysname == "darwin":
@@ -636,6 +646,14 @@ def active_window_matches(name: str) -> bool:
     if sysname == "linux":
         xdotool = shutil.which("xdotool")
         if xdotool:
+            # WM_CLASS first — it stays e.g. "Spotify" for the app's whole
+            # lifetime. Window TITLE is a weaker fallback: media players rewrite
+            # it to the loaded track ("Artist - Song") once anything plays, so
+            # title-only matching false-negatives on exactly the apps (media
+            # players) this check exists to verify.
+            cp = _run([xdotool, "getactivewindow", "getwindowclassname"])
+            if cp.returncode == 0 and needle in cp.stdout.strip().lower():
+                return True
             cp = _run([xdotool, "getactivewindow", "getwindowname"])
             return cp.returncode == 0 and needle in cp.stdout.strip().lower()
         return False

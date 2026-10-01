@@ -163,12 +163,18 @@ def spotify_search_type_and_play(query: str) -> bool:
     Down+Enter to select the first suggestion, the same two keystrokes a
     person would use. Refuses to type anything unless active_window_matches()
     independently confirms Spotify actually has input focus — a prior version
-    trusted focus_app()'s own "I raised the window" report, and on a focus
-    race that sent the query straight into whatever window the user was
-    really looking at (ELI's own chat box, in one reported case) instead of
-    Spotify. Not independently verified against a live client beyond that;
-    the real confirmation is spotify_play()'s own spotify_wait_playing()
-    check below, not the keystrokes succeeding.
+    trusted focus_app()'s own window-raise report, and on a focus race that
+    sent the query straight into whatever window the user was really looking
+    at (ELI's own chat box, in one reported case) instead of Spotify.
+
+    Success is verified against live playerctl metadata
+    (track_query_matches_now_playing), not just spotify_play()'s "something
+    is playing" status — status alone can't tell a resumed stale track from
+    the one just requested. Spotify's search suggestions are also a live,
+    debounced network call: if Down+Enter fires before they've populated it
+    selects nothing, so one retry re-opens search and re-types rather than
+    blindly re-pressing Down+Enter into whatever state that first, unverified
+    attempt left the UI in.
     """
     from eli.system.portable_app_control import focus_app, active_window_matches
     from eli.utils.platform_compat import key_press, type_text
@@ -176,26 +182,33 @@ def spotify_search_type_and_play(query: str) -> bool:
     if not spotify_launch_if_needed():
         return False
     spotify_wait_running(timeout=8.0)
-    focus_app("spotify")
-    time.sleep(0.4)
-    if not active_window_matches("spotify"):
-        log.debug("[SPOTIFY] window focus not confirmed, refusing to type blindly")
-        return False
-    time.sleep(0.2)
-    if not key_press("ctrl+l"):
-        return False
-    time.sleep(0.3)
-    if not active_window_matches("spotify"):
-        log.debug("[SPOTIFY] lost focus before typing, aborting")
-        return False
-    if not type_text(query):
-        return False
-    time.sleep(1.0)
-    key_press("Down")
-    time.sleep(0.15)
-    key_press("Return")
-    time.sleep(0.4)
-    return spotify_play()
+
+    def _attempt() -> bool:
+        focus_app("spotify")
+        time.sleep(0.4)
+        if not active_window_matches("spotify"):
+            log.debug("[SPOTIFY] window focus not confirmed, refusing to type blindly")
+            return False
+        time.sleep(0.2)
+        if not key_press("ctrl+l"):
+            return False
+        time.sleep(0.3)
+        if not active_window_matches("spotify"):
+            log.debug("[SPOTIFY] lost focus before typing, aborting")
+            return False
+        if not type_text(query):
+            return False
+        time.sleep(1.6)
+        key_press("Down")
+        time.sleep(0.2)
+        key_press("Return")
+        time.sleep(0.6)
+        return spotify_play() and track_query_matches_now_playing(query)
+
+    if _attempt():
+        return True
+    log.debug("[SPOTIFY] first attempt unconfirmed, retrying once")
+    return _attempt()
 
 
 def spotify_open_uri(uri: str) -> bool:
@@ -484,6 +497,30 @@ def spotify_wait_running(timeout: float = 8.0) -> bool:
             return True
         time.sleep(0.5)
     return False
+
+
+_TRACK_MATCH_STOPWORDS = {"the", "a", "an", "by", "of", "feat", "ft", "on", "spotify"}
+
+
+def track_query_matches_now_playing(query: str, player: str = "spotify") -> bool:
+    """Compare a requested "play X by Y" query against live playerctl metadata.
+
+    spotify_play()/spotify_is_playing() only confirm *something* is playing —
+    not that it's the track just requested. A resumed stale track (whatever
+    was queued before this request) reports the exact same "Playing" status
+    as a genuinely newly-selected one, so anything claiming success for a
+    specific song must check this, not just the transport status.
+    """
+    _, artist, track = spotify_live_meta(player)
+    live = f"{artist} {track}".lower()
+    if not live.strip():
+        return False
+    q_tokens = {t for t in str(query or "").lower().split()
+                if t not in _TRACK_MATCH_STOPWORDS and len(t) > 2}
+    if not q_tokens:
+        return True
+    live_tokens = {t for t in live.split() if t not in _TRACK_MATCH_STOPWORDS}
+    return bool(q_tokens & live_tokens)
 
 
 def spotify_loop_status() -> str:

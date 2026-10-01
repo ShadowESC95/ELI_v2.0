@@ -634,6 +634,17 @@ def build_news_briefing(user_id=None, topic: str = "", top_n: int = 5,
         s = str(s or "").strip()
         if not s:
             return None
+        # RFC-822 (RSS <pubDate>, e.g. "Mon, 10 Aug 2026 14:02:57 GMT") always
+        # starts with a 3-letter weekday + comma — route straight to the RFC-822
+        # parser instead of trying fromisoformat first and eating a guaranteed
+        # exception on every single RSS-sourced article.
+        if len(s) > 4 and s[3] == "," and s[:3].isalpha():
+            try:
+                from email.utils import parsedate_to_datetime as _pdt
+                d = _pdt(s)
+                return d.replace(tzinfo=None) if d else None
+            except Exception:
+                return None
         try:
             return _dt.datetime.fromisoformat(
                 s.replace("Z", "+00:00").replace("z", "+00:00")).replace(tzinfo=None)
