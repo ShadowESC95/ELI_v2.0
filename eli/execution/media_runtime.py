@@ -286,76 +286,6 @@ def open_spotify() -> str:
     return "Could not open spotify."
 
 
-def spotify_query(query: str) -> str:
-    q = _str(query)
-    if not q:
-        return "Say what to play."
-
-    encoded = urllib.parse.quote(q)
-    uri = f"spotify:search:{encoded}"
-
-    from eli.utils import platform_compat as _pc
-
-    # Ensure Spotify has at least been asked to launch.
-    try:
-        open_spotify()
-        time.sleep(0.35)
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-
-    if _pc.LINUX:
-        # Linux: drive Spotify over MPRIS (D-Bus), then nudge play via playerctl.
-        if shutil.which("dbus-send"):
-            try:
-                subprocess.run(
-                    [
-                        "dbus-send",
-                        "--print-reply",
-                        "--dest=org.mpris.MediaPlayer2.spotify",
-                        "/org/mpris/MediaPlayer2",
-                        "org.mpris.MediaPlayer2.Player.OpenUri",
-                        f"string:{uri}",
-                    ],
-                    capture_output=True,
-                    text=True,
-                    timeout=3,
-                )
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
-
-        if shutil.which("playerctl"):
-            try:
-                subprocess.run(
-                    ["playerctl", "-p", "spotify", "play"],
-                    capture_output=True,
-                    text=True,
-                    timeout=2,
-                )
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
-
-    elif _pc.MACOS and shutil.which("osascript"):
-        # macOS: open the search URI then ask Spotify (AppleScript) to play.
-        try:
-            _pc.open_url(uri)
-            time.sleep(0.35)
-            subprocess.run(
-                ["osascript", "-e", 'tell application "Spotify" to play'],
-                capture_output=True, text=True, timeout=3,
-            )
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    else:
-        # Windows / other: open the search URI; the client surfaces results.
-        try:
-            _pc.open_url(uri)
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    return f"Searching Spotify for: {q}"
-
-
 # Login-gated streaming platforms: opens the platform's search in the browser instead of
 # falling through to YouTube. Aliases fold STT variants onto the canonical id.
 
@@ -680,8 +610,7 @@ def install_media_executor(original_execute_action: Callable[..., Any]) -> Calla
 
     YouTube and Spotify play/transport delegate to executor_enhanced (play_specific,
     pause_media, …) so production gets mpv verification, Mix autoplay, playlist
-    resolution, and honest playback status — not the legacy youtube_play /
-    spotify_query shortcuts.
+    resolution, and honest playback status — not a search-and-blind-play shortcut.
     """
 
     def execute_action(action: Any, args: Any = None, *a: Any, **kw: Any) -> Any:
