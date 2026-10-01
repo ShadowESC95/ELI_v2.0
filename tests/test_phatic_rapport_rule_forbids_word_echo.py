@@ -28,4 +28,4 @@ def test_the_rule_explicitly_forbids_reusing_the_users_own_words():
 def test_the_rule_still_asks_for_mood_matching_not_word_copying():
     rule = _phatic_rapport_style_rule().lower()
     assert "match their mood" in rule
-    assert "not the same as repeating their words" in rule
+    assert "not their words" in rule
