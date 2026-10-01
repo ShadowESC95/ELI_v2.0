@@ -41,6 +41,61 @@ def test_resolve_album_uri_from_search_html(monkeypatch):
     assert spotify_resolve_album_uri("marshall mathers lp", "eminem") == "spotify:album:4cQZRveqW4purQgPiE8xNK"
 
 
+def test_resolve_track_uri_from_search_html(monkeypatch):
+    html = '{"uri":"spotify:track:7xpjmdv9k5zgdH3EbLn4N1"}'
+
+    class _Resp:
+        def read(self):
+            return html.encode()
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    monkeypatch.setattr("urllib.request.urlopen", lambda *a, **k: _Resp())
+    from eli.integrations.media.cross_platform import spotify_resolve_track_uri
+    assert spotify_resolve_track_uri("soldiers logic diabolic") == "spotify:track:7xpjmdv9k5zgdH3EbLn4N1"
+
+
+def test_play_specific_resolves_and_plays_the_real_track_uri(monkeypatch):
+    """A bare "song by artist" search used to open Spotify's search UI with nothing
+    selected — playerctl's play then had no loaded track to act on, so it silently
+    did nothing. The real track URI must be resolved and opened directly, same as
+    the album/playlist/artist paths already do."""
+    opened_uris = []
+    monkeypatch.setattr(ex, "_spotify_resolve_track_uri", lambda q: "spotify:track:abc123")
+    monkeypatch.setattr(ex, "_spotify_running", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_open_uri", lambda u: opened_uris.append(u) or True)
+    monkeypatch.setattr(ex, "_spotify_clear_track_repeat", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_play", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_live_meta", lambda *a, **k: ("", "Diabolic", "Soldiers Logic"))
+    monkeypatch.setattr(ex.time, "sleep", lambda _s: None)
+
+    result = ex.play_specific("soldiers logic by diabolic", target="spotify")
+
+    assert result["ok"] is True
+    assert result["played"] is True
+    assert opened_uris == ["spotify:track:abc123"]
+
+
+def test_play_specific_falls_back_to_search_when_no_track_uri_resolves(monkeypatch):
+    """When resolution fails (no network, no match), the existing search-then-play
+    fallback must still run unchanged."""
+    monkeypatch.setattr(ex, "_spotify_resolve_track_uri", lambda q: None)
+    monkeypatch.setattr(ex, "_spotify_running", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_search", lambda q, prefer=None: True)
+    monkeypatch.setattr(ex, "_spotify_clear_track_repeat", lambda: True)
+    monkeypatch.setattr(ex, "_spotify_play", lambda: False)
+    monkeypatch.setattr(ex.time, "sleep", lambda _s: None)
+
+    result = ex.play_specific("soldiers logic by diabolic", target="spotify")
+
+    assert result["played"] is False
+    assert result["search_only"] is True
+
+
 def test_wait_playing_returns_true_when_status_flips(monkeypatch):
     states = iter([False, False, True])
 

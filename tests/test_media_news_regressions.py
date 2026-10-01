@@ -216,6 +216,39 @@ def test_play_specific_video_provider_targets_are_normalized():
     assert prime["args"]["target"] == "primevideo"
 
 
+def test_play_specific_music_provider_targets_are_normalized():
+    """Apple Music/Tidal/Deezer/SoundCloud/Amazon Music were missing from the router's
+    "play X on TARGET" contract entirely — an explicit "on apple music" request fell
+    through to a generic "X by Y" match and got silently misrouted to Spotify instead
+    of the platform the user actually named."""
+    apple = route("play soldiers logic by diabolic on apple music")
+    tidal = route("play soldiers logic by diabolic on tidal")
+    deezer = route("play soldiers logic by diabolic on deezer")
+    soundcloud = route("play soldiers logic by diabolic on soundcloud")
+    amazon_music = route("play soldiers logic by diabolic on amazon music")
+
+    assert apple["action"] == "PLAY_MEDIA"
+    assert apple["args"]["query"].lower() == "soldiers logic by diabolic"
+    assert apple["args"]["target"] == "applemusic"
+
+    assert tidal["action"] == "PLAY_MEDIA"
+    assert tidal["args"]["target"] == "tidal"
+
+    assert deezer["action"] == "PLAY_MEDIA"
+    assert deezer["args"]["target"] == "deezer"
+
+    assert soundcloud["action"] == "PLAY_MEDIA"
+    assert soundcloud["args"]["target"] == "soundcloud"
+
+    assert amazon_music["action"] == "PLAY_MEDIA"
+    assert amazon_music["args"]["target"] == "amazonmusic"
+
+    # "amazon prime"/"amazon" alone must still mean Prime Video, unaffected by the
+    # new "amazon music" alias.
+    amazon_prime = route("play Oppenheimer on amazon prime")
+    assert amazon_prime["args"]["target"] == "primevideo"
+
+
 def test_play_specific_streaming_target_never_falls_through_to_youtube(monkeypatch):
     """Executor must honour netflix/prime targets — not silently route to YouTube."""
     calls = []

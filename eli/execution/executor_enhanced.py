@@ -3404,6 +3404,11 @@ def _spotify_resolve_artist_uri(name: str) -> str | None:
     return _cp(name)
 
 
+def _spotify_resolve_track_uri(query: str) -> str | None:
+    from eli.integrations.media.cross_platform import spotify_resolve_track_uri as _cp
+    return _cp(query)
+
+
 def _spotify_open_liked_songs() -> bool:
     from eli.integrations.media.cross_platform import spotify_open_liked_songs as _cp
     return _cp()
@@ -3723,6 +3728,15 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
 
         # ── Track / generic search (tracks tab, not playlists) ──
         _track_q = search_q
+        # Resolve to the real top-hit URI first — same as album/playlist/artist above.
+        # A bare search opens the search UI with nothing selected; playerctl's play
+        # then has no loaded track to act on, so it silently does nothing.
+        _hit = _spotify_try_open_and_play(
+            _spotify_resolve_track_uri(_track_q),
+            label=f"“{_track_q}”", kind="track",
+        )
+        if _hit:
+            return _hit
         if not _spotify_running():
             _ensure_spotify_running()
             _spotify_wait_running(timeout=8.0)

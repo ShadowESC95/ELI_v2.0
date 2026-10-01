@@ -225,7 +225,8 @@ def _spotify_scrape_uri(name: str, kind: str) -> str | None:
     q = str(name or "").strip()
     if not q:
         return None
-    plural = {"playlist": "playlists", "album": "albums", "artist": "artists"}.get(kind, kind)
+    plural = {"playlist": "playlists", "album": "albums", "artist": "artists",
+              "track": "tracks"}.get(kind, kind)
     url = f"https://open.spotify.com/search/{urllib.parse.quote(q)}/{plural}"
     patterns = {
         "playlist": (
@@ -239,6 +240,10 @@ def _spotify_scrape_uri(name: str, kind: str) -> str | None:
         "artist": (
             r'"uri"\s*:\s*"spotify:artist:([A-Za-z0-9]+)"',
             r'spotify:artist:([A-Za-z0-9]+)',
+        ),
+        "track": (
+            r'"uri"\s*:\s*"spotify:track:([A-Za-z0-9]+)"',
+            r'spotify:track:([A-Za-z0-9]+)',
         ),
     }.get(kind, ())
     try:
@@ -268,6 +273,17 @@ def spotify_resolve_album_uri(name: str, artist: str | None = None) -> str | Non
 
 def spotify_resolve_artist_uri(name: str) -> str | None:
     return _spotify_scrape_uri(name, "artist")
+
+
+def spotify_resolve_track_uri(query: str) -> str | None:
+    """Resolve a "song by artist" query to its top spotify:track:<id> search hit.
+
+    A bare search opens Spotify's search UI with nothing selected — playerctl's
+    play then has no loaded track to act on. Resolving to the real track URI
+    first and opening THAT (same as the album/playlist/artist paths already do)
+    actually queues something to play.
+    """
+    return _spotify_scrape_uri(query, "track")
 
 
 def spotify_open_liked_songs() -> bool:

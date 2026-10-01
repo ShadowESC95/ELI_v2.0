@@ -374,6 +374,11 @@ _STREAMING_CANONICAL_URLS: dict[str, str] = {
     "tubi": "https://tubitv.com/search/{q}",
     "pluto": "https://pluto.tv/search/details/{q}",
     "twitch": "https://www.twitch.tv/search?term={q}",
+    "soundcloud": "https://soundcloud.com/search?q={q}",
+    "applemusic": "https://music.apple.com/us/search?term={q}",
+    "tidal": "https://listen.tidal.com/search?q={q}",
+    "deezer": "https://www.deezer.com/search/{q}",
+    "amazonmusic": "https://music.amazon.com/search/{q}",
 }
 
 _STREAMING_DISPLAY_NAMES: dict[str, str] = {
@@ -391,6 +396,11 @@ _STREAMING_DISPLAY_NAMES: dict[str, str] = {
     "tubi": "Tubi",
     "pluto": "Pluto TV",
     "twitch": "Twitch",
+    "soundcloud": "SoundCloud",
+    "applemusic": "Apple Music",
+    "tidal": "Tidal",
+    "deezer": "Deezer",
+    "amazonmusic": "Amazon Music",
 }
 
 _STREAMING_ALIASES: dict[str, str] = {
@@ -443,6 +453,20 @@ _STREAMING_ALIASES: dict[str, str] = {
     "pluto tv": "pluto",
     # Twitch (VOD search — still login-gated playback)
     "twitch": "twitch",
+    # SoundCloud
+    "soundcloud": "soundcloud",
+    "sound cloud": "soundcloud",
+    # Apple Music (distinct from Apple TV above)
+    "apple music": "applemusic",
+    "applemusic": "applemusic",
+    # Tidal
+    "tidal": "tidal",
+    # Deezer
+    "deezer": "deezer",
+    # Amazon Music — "amazon"/"amazon prime" alone stay mapped to Prime Video above;
+    # only the explicit "music" phrasing routes here.
+    "amazon music": "amazonmusic",
+    "amazonmusic": "amazonmusic",
 }
 
 # Flat lookup used by legacy callers/tests: every alias + canonical id → URL template.

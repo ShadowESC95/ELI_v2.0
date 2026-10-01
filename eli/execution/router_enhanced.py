@@ -5225,7 +5225,7 @@ def _eli_mqc_clean_query(q: str) -> str:
     # Without this, "logic by diabolic on spotify" → query="logic by diabolic on spotify"
     # instead of the expected "logic by diabolic".
     q = _eli_mqc_re.sub(
-        r"\s+on\s+(spotify|youtube|yt|youtube\.com|mpv|soundcloud|apple\s+music|tidal|deezer)\s*$",
+        r"\s+on\s+(spotify|youtube|yt|youtube\.com|mpv|soundcloud|apple\s+music|tidal|deezer|amazon\s+music)\s*$",
         "",
         q,
         flags=_eli_mqc_re.I,
@@ -7164,7 +7164,9 @@ def _eli_media_contract_post(raw, result):
             r"max(?:\.com|\s+com)?|paramount(?:\+|\s*plus)?(?:\.com|\s+com)?|"
             r"peacock(?:\.com|\s+com)?|appletv|apple\s+tv|plex(?:\.com|\s+com)?|"
             r"crunchyroll(?:\.com|\s+com)?|discovery(?:\+|\s*plus)?(?:\.com|\s+com)?|"
-            r"tubi(?:\.com|\s+com)?|pluto(?:\.com|\s+com)?|twitch(?:\.com|\s+com)?"
+            r"tubi(?:\.com|\s+com)?|pluto(?:\.com|\s+com)?|twitch(?:\.com|\s+com)?|"
+            r"sound\s*cloud(?:\.com|\s+com)?|apple\s+music|tidal(?:\.com|\s+com)?|"
+            r"deezer(?:\.com|\s+com)?|amazon\s+music"
         )
         m = re.match(rf"^play\s+(.+?)\s+on\s+({_streaming})\s*$", text)
         if m:

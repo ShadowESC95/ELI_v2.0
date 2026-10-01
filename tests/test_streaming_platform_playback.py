@@ -33,6 +33,12 @@ _STREAMING_CASES = [
     ("tubi", "tubi", "night of the living dead"),
     ("pluto tv", "pluto", "star trek"),
     ("twitch", "twitch", "speedrun"),
+    ("soundcloud", "soundcloud", "lofi hip hop"),
+    ("sound cloud", "soundcloud", "lofi hip hop"),
+    ("apple music", "applemusic", "lofi hip hop"),
+    ("tidal", "tidal", "lofi hip hop"),
+    ("deezer", "deezer", "lofi hip hop"),
+    ("amazon music", "amazonmusic", "lofi hip hop"),
 ]
 
 
