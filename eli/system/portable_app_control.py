@@ -619,6 +619,52 @@ def focus_app(name: str) -> dict:
     return _result(False, "FOCUS_APP", f"Could not focus {name}.", resolved=target.__dict__)
 
 
+def active_window_matches(name: str) -> bool:
+    """Confirm the window that actually has input focus right now names `name`.
+
+    focus_app()'s own return value only means the OS call to raise/activate a
+    window reported success — on some window managers that still doesn't mean
+    the window ended up with real input focus. Anything that is about to send
+    keystrokes blindly (typing a search query, a key combo) must verify this
+    first and refuse to type otherwise — the alternative is keystrokes landing
+    in whatever window the user was last using, invisibly, not a visible error.
+    """
+    needle = str(name or "").strip().lower()
+    if not needle:
+        return False
+    sysname = _system()
+    if sysname == "linux":
+        xdotool = shutil.which("xdotool")
+        if xdotool:
+            cp = _run([xdotool, "getactivewindow", "getwindowname"])
+            return cp.returncode == 0 and needle in cp.stdout.strip().lower()
+        return False
+    if sysname == "darwin":
+        osascript = shutil.which("osascript")
+        if osascript:
+            cp = _run([osascript, "-e",
+                       'tell application "System Events" to name of first '
+                       'application process whose frontmost is true'])
+            return cp.returncode == 0 and needle in cp.stdout.strip().lower()
+        return False
+    if sysname == "windows":
+        ps = shutil.which("powershell") or shutil.which("pwsh")
+        if ps:
+            cmd = (
+                "Add-Type @'\nusing System;\nusing System.Runtime.InteropServices;\n"
+                "public class W32F { [DllImport(\"user32.dll\")] public static extern "
+                "IntPtr GetForegroundWindow(); [DllImport(\"user32.dll\")] public static "
+                "extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid); }\n'@; "
+                "$h=[W32F]::GetForegroundWindow(); $procId=0; "
+                "[W32F]::GetWindowThreadProcessId($h, [ref]$procId) | Out-Null; "
+                "(Get-Process -Id $procId).ProcessName"
+            )
+            cp = _run([ps, "-NoProfile", "-Command", cmd])
+            return cp.returncode == 0 and needle in cp.stdout.strip().lower()
+        return False
+    return False
+
+
 def tile_windows() -> dict:
     if _system() != "linux":
         return _linux_only("TILE_WINDOWS", "Window tiling")

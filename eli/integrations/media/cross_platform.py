@@ -161,21 +161,33 @@ def spotify_search_type_and_play(query: str) -> bool:
 
     Uses Spotify's documented desktop shortcut (Ctrl+L jumps to search) then
     Down+Enter to select the first suggestion, the same two keystrokes a
-    person would use. Not independently verified against a live client; the
-    real confirmation is spotify_play()'s own spotify_wait_playing() check
-    below, not the keystrokes succeeding.
+    person would use. Refuses to type anything unless active_window_matches()
+    independently confirms Spotify actually has input focus — a prior version
+    trusted focus_app()'s own "I raised the window" report, and on a focus
+    race that sent the query straight into whatever window the user was
+    really looking at (ELI's own chat box, in one reported case) instead of
+    Spotify. Not independently verified against a live client beyond that;
+    the real confirmation is spotify_play()'s own spotify_wait_playing()
+    check below, not the keystrokes succeeding.
     """
-    from eli.system.portable_app_control import focus_app
+    from eli.system.portable_app_control import focus_app, active_window_matches
     from eli.utils.platform_compat import key_press, type_text
 
     if not spotify_launch_if_needed():
         return False
     spotify_wait_running(timeout=8.0)
     focus_app("spotify")
-    time.sleep(0.3)
+    time.sleep(0.4)
+    if not active_window_matches("spotify"):
+        log.debug("[SPOTIFY] window focus not confirmed, refusing to type blindly")
+        return False
+    time.sleep(0.2)
     if not key_press("ctrl+l"):
         return False
     time.sleep(0.3)
+    if not active_window_matches("spotify"):
+        log.debug("[SPOTIFY] lost focus before typing, aborting")
+        return False
     if not type_text(query):
         return False
     time.sleep(1.0)

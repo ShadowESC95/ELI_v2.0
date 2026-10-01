@@ -78,6 +78,7 @@ def test_spotify_search_type_and_play_drives_real_search_box(monkeypatch):
     import eli.system.portable_app_control as pac
     import eli.utils.platform_compat as platc
     monkeypatch.setattr(pac, "focus_app", lambda name: calls.append(("focus", name)))
+    monkeypatch.setattr(pac, "active_window_matches", lambda name: True)
     monkeypatch.setattr(platc, "key_press", lambda keys: calls.append(("key", keys)) or True)
     monkeypatch.setattr(platc, "type_text", lambda text: calls.append(("type", text)) or True)
 
@@ -99,8 +100,51 @@ def test_spotify_search_type_and_play_false_when_search_shortcut_unavailable(mon
     import eli.system.portable_app_control as pac
     import eli.utils.platform_compat as platc
     monkeypatch.setattr(pac, "focus_app", lambda name: None)
+    monkeypatch.setattr(pac, "active_window_matches", lambda name: True)
     monkeypatch.setattr(platc, "key_press", lambda keys: False)
     assert cp.spotify_search_type_and_play("anything") is False
+
+
+def test_spotify_search_type_and_play_refuses_to_type_without_confirmed_focus(monkeypatch):
+    """Regression: focus_app() reporting success ("I raised the window") is not
+    the same as Spotify actually having input focus. A prior build trusted it
+    blindly and sent a real user's play request straight into ELI's own chat
+    box instead of Spotify. No keystroke may be sent unless
+    active_window_matches() independently confirms focus first."""
+    monkeypatch.setattr(cp, "spotify_launch_if_needed", lambda: True)
+    monkeypatch.setattr(cp, "spotify_wait_running", lambda timeout=8.0: True)
+    monkeypatch.setattr(cp.time, "sleep", lambda _s: None)
+
+    calls = []
+    import eli.system.portable_app_control as pac
+    import eli.utils.platform_compat as platc
+    monkeypatch.setattr(pac, "focus_app", lambda name: {"ok": True})
+    monkeypatch.setattr(pac, "active_window_matches", lambda name: False)
+    monkeypatch.setattr(platc, "key_press", lambda keys: calls.append(("key", keys)) or True)
+    monkeypatch.setattr(platc, "type_text", lambda text: calls.append(("type", text)) or True)
+
+    assert cp.spotify_search_type_and_play("gangsters paradise by coolio") is False
+    assert calls == []
+
+
+def test_spotify_search_type_and_play_aborts_if_focus_lost_before_typing(monkeypatch):
+    """Focus can be confirmed right after focus_app() and still be gone a beat
+    later (another window steals it). Re-checked right before type_text()."""
+    monkeypatch.setattr(cp, "spotify_launch_if_needed", lambda: True)
+    monkeypatch.setattr(cp, "spotify_wait_running", lambda timeout=8.0: True)
+    monkeypatch.setattr(cp.time, "sleep", lambda _s: None)
+
+    focus_checks = iter([True, False])
+    typed = []
+    import eli.system.portable_app_control as pac
+    import eli.utils.platform_compat as platc
+    monkeypatch.setattr(pac, "focus_app", lambda name: {"ok": True})
+    monkeypatch.setattr(pac, "active_window_matches", lambda name: next(focus_checks))
+    monkeypatch.setattr(platc, "key_press", lambda keys: True)
+    monkeypatch.setattr(platc, "type_text", lambda text: typed.append(text) or True)
+
+    assert cp.spotify_search_type_and_play("gangsters paradise by coolio") is False
+    assert typed == []
 
 
 def test_spotify_search_type_and_play_false_when_launch_fails(monkeypatch):
