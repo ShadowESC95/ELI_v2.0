@@ -59,12 +59,31 @@ def test_resolve_track_uri_from_search_html(monkeypatch):
     assert spotify_resolve_track_uri("soldiers logic diabolic") == "spotify:track:7xpjmdv9k5zgdH3EbLn4N1"
 
 
+def test_play_specific_tries_keystroke_automation_first(monkeypatch):
+    """Typing into Spotify's own search box is tried before URI-scraping — the
+    scrape can never resolve anything against the real site (its search page
+    is a JS shell with no server-rendered track data), so it must not be the
+    only, or first, thing standing between a request and real playback."""
+    monkeypatch.setattr(
+        "eli.integrations.media.cross_platform.spotify_search_type_and_play",
+        lambda q: True,
+    )
+
+    result = ex.play_specific("soldiers logic by diabolic", target="spotify")
+
+    assert result["ok"] is True
+    assert result["played"] is True
+
+
 def test_play_specific_resolves_and_plays_the_real_track_uri(monkeypatch):
-    """A bare "song by artist" search used to open Spotify's search UI with nothing
-    selected — playerctl's play then had no loaded track to act on, so it silently
-    did nothing. The real track URI must be resolved and opened directly, same as
-    the album/playlist/artist paths already do."""
+    """When keystroke automation is unavailable (non-Linux, no xdotool), the real
+    track URI must be resolved and opened directly, same as the album/playlist/
+    artist paths already do — not a bare search with nothing selected."""
     opened_uris = []
+    monkeypatch.setattr(
+        "eli.integrations.media.cross_platform.spotify_search_type_and_play",
+        lambda q: False,
+    )
     monkeypatch.setattr(ex, "_spotify_resolve_track_uri", lambda q: "spotify:track:abc123")
     monkeypatch.setattr(ex, "_spotify_running", lambda: True)
     monkeypatch.setattr(ex, "_spotify_open_uri", lambda u: opened_uris.append(u) or True)
@@ -81,8 +100,12 @@ def test_play_specific_resolves_and_plays_the_real_track_uri(monkeypatch):
 
 
 def test_play_specific_falls_back_to_search_when_no_track_uri_resolves(monkeypatch):
-    """When resolution fails (no network, no match), the existing search-then-play
-    fallback must still run unchanged."""
+    """When both keystroke automation and URI resolution fail, the oldest
+    search-then-play fallback must still run unchanged."""
+    monkeypatch.setattr(
+        "eli.integrations.media.cross_platform.spotify_search_type_and_play",
+        lambda q: False,
+    )
     monkeypatch.setattr(ex, "_spotify_resolve_track_uri", lambda q: None)
     monkeypatch.setattr(ex, "_spotify_running", lambda: True)
     monkeypatch.setattr(ex, "_spotify_search", lambda q, prefer=None: True)

@@ -153,6 +153,39 @@ def spotify_running() -> bool:
     return is_process_running("spotify") or is_process_running("Spotify")
 
 
+def spotify_search_type_and_play(query: str) -> bool:
+    """Drive Spotify's own search box directly — type into it and play the top
+    hit — instead of scraping open.spotify.com (confirmed to return a JS shell
+    with no server-rendered track data on a real fetch) or blindly opening a
+    search URI with nothing selected for playerctl's play to act on.
+
+    Uses Spotify's documented desktop shortcut (Ctrl+L jumps to search) then
+    Down+Enter to select the first suggestion, the same two keystrokes a
+    person would use. Not independently verified against a live client; the
+    real confirmation is spotify_play()'s own spotify_wait_playing() check
+    below, not the keystrokes succeeding.
+    """
+    from eli.system.portable_app_control import focus_app
+    from eli.utils.platform_compat import key_press, type_text
+
+    if not spotify_launch_if_needed():
+        return False
+    spotify_wait_running(timeout=8.0)
+    focus_app("spotify")
+    time.sleep(0.3)
+    if not key_press("ctrl+l"):
+        return False
+    time.sleep(0.3)
+    if not type_text(query):
+        return False
+    time.sleep(1.0)
+    key_press("Down")
+    time.sleep(0.15)
+    key_press("Return")
+    time.sleep(0.4)
+    return spotify_play()
+
+
 def spotify_open_uri(uri: str) -> bool:
     """Open a spotify: or https://open.spotify.com/ URI in the Spotify app."""
     u = str(uri or "").strip()

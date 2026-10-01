@@ -552,6 +552,8 @@ def _xdotool_key(keys: str) -> bool:
     return bool(xdotool and _run([xdotool, "key", keys]).returncode == 0)
 
 
+
+
 def _windows_send_keys(keys: str) -> bool:
     ps = shutil.which("powershell") or shutil.which("pwsh")
     if not ps:

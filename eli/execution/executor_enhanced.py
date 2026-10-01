@@ -3728,9 +3728,23 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
 
         # ── Track / generic search (tracks tab, not playlists) ──
         _track_q = search_q
-        # Resolve to the real top-hit URI first — same as album/playlist/artist above.
-        # A bare search opens the search UI with nothing selected; playerctl's play
-        # then has no loaded track to act on, so it silently does nothing.
+        # Drive Spotify's own search box directly and play the top suggestion —
+        # open.spotify.com's search page is a JS shell with no server-rendered
+        # track data on an unauthenticated fetch (confirmed against the real
+        # site), so URI-scraping below can never resolve a real track here.
+        try:
+            from eli.integrations.media.cross_platform import spotify_search_type_and_play as _sp_type_play
+            if _sp_type_play(_track_q):
+                _set_now_playing("spotify", _track_q)
+                msg = f"Playing “{_track_q}” on Spotify."
+                return {"ok": True, "action": "PLAY_MEDIA", "played": True,
+                        "content": msg, "response": msg}
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+        # Resolve to the real top-hit URI next — same mechanism as album/playlist/
+        # artist above. Rarely resolves anything today (same JS-shell limitation)
+        # but is cheap to try and costs nothing if Spotify ever server-renders
+        # search again.
         _hit = _spotify_try_open_and_play(
             _spotify_resolve_track_uri(_track_q),
             label=f"“{_track_q}”", kind="track",
