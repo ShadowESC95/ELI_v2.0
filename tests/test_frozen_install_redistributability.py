@@ -20,6 +20,13 @@ def test_frozen_data_and_config_dirs_use_eli_v2(tmp_path, monkeypatch):
     monkeypatch.delenv("ELI_DATA_DIR", raising=False)
     monkeypatch.delenv("ELI_CONFIG_DIR", raising=False)
     monkeypatch.delenv("ELI_PROJECT_ROOT", raising=False)
+    # tests/conftest.py sets this process-wide, for the whole suite, so no test
+    # run ever touches the real persona file (a past incident — see
+    # persona_auto_path()'s own docstring). That override must win in every
+    # OTHER test; this one specifically exercises what persona_auto_path()
+    # computes with no override at all under a simulated frozen install, so
+    # it has to clear the override to test the thing it's actually testing.
+    monkeypatch.delenv("ELI_PERSONA_AUTO_PATH", raising=False)
 
     from eli.core import paths
 
