@@ -8,6 +8,7 @@ import logging
 from eli.cognition.output_governor import govern_output
 from eli.cognition.output_governor import normalize_assistant_text as _output_governor_normalize
 from .scheduler import get_scheduler
+from . import request_context as _request_context
 from eli.execution.router_enhanced import route as route_intent
 from eli.execution.executor_enhanced import chat as ollama_chat
 from eli.execution.executor_enhanced import execute as execute_action
@@ -18,12 +19,14 @@ from eli.runtime.self_improvement import get_self_improvement
 from eli.memory import Memory, get_memory, get_memory_status, resolve_db_paths
 
 import difflib
+import inspect
 import os
 import re
 import json
 import sys
 import time
 import threading
+import uuid
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 from eli.cognition.context_synthesiser import build_persona_handoff
@@ -4308,6 +4311,132 @@ class CognitiveEngine:
             log.debug(
     f"[COGNITIVE] Capability manifest update failed (non-fatal): {_cap_err}")
 
+    # ── Per-request identity/state (contextvars, not plain instance attrs) ──
+    # This engine is a process-wide singleton (get_engine()). Reading/writing
+    # these as plain self.* let one thread's turn observe or overwrite
+    # another's mid-flight under concurrent API requests (api/server.py's
+    # handlers run genuinely concurrently on FastAPI's threadpool, each
+    # request fully handled on one worker thread start to finish). Python
+    # gives every OS thread its own independent ContextVar state by default
+    # — no cross-thread copying needed or relied on here: process()'s
+    # wrapper calls ContextVar.set() on whatever thread is actually running
+    # that request, and every read for that same turn happens later in the
+    # same thread's call stack, so it's naturally isolated from any other
+    # thread's concurrently-running turn. Verified directly with a real
+    # ThreadPoolExecutor in tests/test_phase1_request_identity_isolation.py
+    # rather than trusted as a framework claim.
+    #
+    # Every existing self.<name> read/write site keeps its exact syntax —
+    # property/setter pairs route through here transparently. session_id/
+    # user_id (only) keep a self._fallback_* default, set at __init__ exactly
+    # as before this change, used whenever process() wasn't given an
+    # explicit override — unchanged behavior for the GUI and background
+    # daemons, which never pass these. The other 8 properties below have no
+    # such instance-level default — they're pure per-turn scratch state
+    # written directly from inside turn-processing code, so their setters
+    # write the ContextVar itself; a self.*-fallback there would have been a
+    # no-op fix, since nothing else would ever populate the ContextVar.
+
+    @property
+    def session_id(self) -> Optional[str]:
+        val = _request_context.session_id_var.get()
+        return val if val is not None else getattr(self, "_fallback_session_id", None)
+
+    @session_id.setter
+    def session_id(self, value: Optional[str]) -> None:
+        self._fallback_session_id = value
+
+    @property
+    def user_id(self) -> Optional[str]:
+        val = _request_context.user_id_var.get()
+        return val if val is not None else getattr(self, "_fallback_user_id", None)
+
+    @user_id.setter
+    def user_id(self, value: Optional[str]) -> None:
+        self._fallback_user_id = value
+
+    # The 8 properties below are different from session_id/user_id above: they
+    # are written directly from WITHIN turn-processing code (self.attr = x),
+    # not via a separate process()-level override, and have no legitimate
+    # "persistent single default shared by every thread" meaning — they are
+    # pure per-turn scratch state. So the setter writes the ContextVar itself
+    # (not a self.* fallback): every write is isolated to the calling thread
+    # by Python's default contextvars behavior, with no explicit set/reset
+    # plumbing needed anywhere else. A fallback here would have been a no-op
+    # disguised as a fix — the getter would never see anything but the
+    # shared fallback, since nothing else would ever .set() the ContextVar.
+
+    @property
+    def _last_bus_result(self) -> Any:
+        return _request_context.bus_result_var.get()
+
+    @_last_bus_result.setter
+    def _last_bus_result(self, value: Any) -> None:
+        _request_context.bus_result_var.set(value)
+
+    @property
+    def _last_request_meta(self) -> Dict[str, Any]:
+        return _request_context.request_meta_var.get() or {}
+
+    @_last_request_meta.setter
+    def _last_request_meta(self, value: Dict[str, Any]) -> None:
+        _request_context.request_meta_var.set(value)
+
+    @property
+    def _in_followthrough(self) -> bool:
+        return bool(_request_context.in_followthrough_var.get())
+
+    @_in_followthrough.setter
+    def _in_followthrough(self, value: bool) -> None:
+        _request_context.in_followthrough_var.set(value)
+
+    @property
+    def _orchestrator_active(self) -> bool:
+        return bool(_request_context.orchestrator_active_var.get())
+
+    @_orchestrator_active.setter
+    def _orchestrator_active(self, value: bool) -> None:
+        _request_context.orchestrator_active_var.set(value)
+
+    @property
+    def _in_orchestrator(self) -> bool:
+        # orchestrator.py's own recursion guard ("Recursion detected in
+        # orchestrator.run()") was reading/writing this as a plain self.*
+        # flag on the shared engine singleton — two unrelated CONCURRENT
+        # requests, not an actual recursive call, could trip the guard: B
+        # sees True because A set it, raises a false "recursion detected".
+        # Per-thread like the others fixes that without weakening the real
+        # same-call-stack recursion check, which still sees its own set().
+        return bool(_request_context.in_orchestrator_var.get())
+
+    @_in_orchestrator.setter
+    def _in_orchestrator(self, value: bool) -> None:
+        _request_context.in_orchestrator_var.set(value)
+
+    @property
+    def _prev_bus_result(self) -> Any:
+        return _request_context.prev_bus_result_var.get()
+
+    @_prev_bus_result.setter
+    def _prev_bus_result(self, value: Any) -> None:
+        _request_context.prev_bus_result_var.set(value)
+
+    @property
+    def _last_command_action(self) -> Optional[Dict[str, Any]]:
+        return _request_context.last_command_action_var.get()
+
+    @_last_command_action.setter
+    def _last_command_action(self, value: Optional[Dict[str, Any]]) -> None:
+        _request_context.last_command_action_var.set(value)
+
+    @property
+    def _last_orchestrator_reasoning_mode(self) -> str:
+        return _request_context.last_orchestrator_reasoning_mode_var.get() or "quick"
+
+    @_last_orchestrator_reasoning_mode.setter
+    def _last_orchestrator_reasoning_mode(self, value: str) -> None:
+        _request_context.last_orchestrator_reasoning_mode_var.set(value)
+
     def cancel_generation(self) -> None:
         """Stop the in-flight chat generation at the next token (GUI Stop button)."""
         try:
@@ -4860,11 +4989,21 @@ class CognitiveEngine:
 
     def _next_trace(self, user_input: str,
                     intent: Dict[str, Any], reasoning_mode: Optional[str]) -> Dict[str, Any]:
+        # _request_counter stays — WorkingMemory.absorb_memory_hits() uses it as a plain
+        # turn ordinal (current_turn=), unrelated to request_id's uniqueness requirement.
         if not hasattr(self, "_request_counter"):
             self._request_counter = 0
         self._request_counter += 1
+        # request_id used to be f"req-{self._request_counter:06d}" — a non-atomic
+        # read-modify-write on this singleton engine's shared counter, so two
+        # concurrent threads could get the same request_id. A fresh uuid per call
+        # has no shared state to race on. Set on the contextvar too, so code deep
+        # in the call stack that used to read the stale self._pipeline_req_id can
+        # read the real per-turn id instead (see that attribute's read sites).
+        req_id = f"req-{uuid.uuid4().hex[:12]}"
+        _request_context.request_id_var.set(req_id)
         trace = {
-            "request_id": f"req-{self._request_counter:06d}",
+            "request_id": req_id,
             "session_id": getattr(self, "session_id", str(int(time.time()))),
             "user_input": user_input,
             "reasoning_mode": str(reasoning_mode or "quick"),
@@ -11300,6 +11439,59 @@ Answer:"""
             log.debug("recall outcome not settled", exc_info=True)
 
     def process(self, user_input: str, source: str = "user", stream: bool = False,
+                reasoning_mode: Optional[str] = None, *,
+                user_id: Optional[str] = None, session_id: Optional[str] = None,
+                **kwargs) -> Any:
+        """Per-request identity wrapper around _process_impl (Phase 1 of the
+        identity/provenance-graph plan). This engine is a process-wide
+        singleton — under concurrent API requests (api/server.py's handlers
+        run genuinely concurrently on FastAPI's threadpool), self.user_id/
+        self.session_id as plain instance state could leak between requests.
+
+        user_id/session_id, passed here, are set as ContextVars for the
+        duration of this call only — isolated per thread, so one request
+        can't see or clobber another's identity. Omitted (the GUI,
+        habits_scheduler.py, scheduled_tasks.py — none pass these today):
+        the engine's own single-instance fallback is used, unchanged from
+        before this wrapper existed.
+
+        A streaming reply's generator body runs AFTER this method has
+        already returned (the caller iterates it later), so a plain
+        try/finally here would reset the identity before the stream ever
+        reads it. _identity_scoped_stream defers the reset to the
+        generator's own exhaustion instead.
+        """
+        tok_u = _request_context.user_id_var.set(user_id) if user_id is not None else None
+        tok_s = _request_context.session_id_var.set(session_id) if session_id is not None else None
+        try:
+            result = self._process_impl(
+                user_input, source=source, stream=stream,
+                reasoning_mode=reasoning_mode, **kwargs)
+        except Exception:
+            if tok_u is not None:
+                _request_context.user_id_var.reset(tok_u)
+            if tok_s is not None:
+                _request_context.session_id_var.reset(tok_s)
+            raise
+        if inspect.isgenerator(result):
+            return self._identity_scoped_stream(result, tok_u, tok_s)
+        if tok_u is not None:
+            _request_context.user_id_var.reset(tok_u)
+        if tok_s is not None:
+            _request_context.session_id_var.reset(tok_s)
+        return result
+
+    def _identity_scoped_stream(self, gen: Generator, tok_u: Any, tok_s: Any) -> Generator:
+        try:
+            for piece in gen:
+                yield piece
+        finally:
+            if tok_u is not None:
+                _request_context.user_id_var.reset(tok_u)
+            if tok_s is not None:
+                _request_context.session_id_var.reset(tok_s)
+
+    def _process_impl(self, user_input: str, source: str = "user", stream: bool = False,
 
                 reasoning_mode: Optional[str] = None, **kwargs) -> Any:
         # Record the live reasoning mode so REASONING_MODE_STATUS isn't a stale snapshot (last_trace.json
@@ -11348,11 +11540,14 @@ Answer:"""
                 log.debug("suppressed exception", exc_info=True)
 
         try:
-            _eli_pipeline_req = str(getattr(self, "_pipeline_req_id", "") or "")
-            if not _eli_pipeline_req:
-                _ctr = int(getattr(self, "_request_counter", 0) or 0) + 1
-                _eli_pipeline_req = f"eng-{int(time.time() * 1000)}-{_ctr}"
-                object.__setattr__(self, "_pipeline_req_id", _eli_pipeline_req)
+            # Fresh per call, not cached-once-then-reused-forever (the old bug: this was
+            # generated exactly once per engine instance, so every ELI_PIPELINE_TRACE
+            # debug log after the first turn showed the SAME id for the engine's whole
+            # life). Still a plain self.* write — fine here since it only ever feeds an
+            # opt-in debug tracer (_eli_pipe above), never the audit chain or memory
+            # writes, which already read trace["request_id"] instead.
+            _eli_pipeline_req = f"eng-{uuid.uuid4().hex[:10]}"
+            self._pipeline_req_id = _eli_pipeline_req
         except Exception:
             _eli_pipeline_req = f"eng-{int(time.time() * 1000)}"
 
@@ -11371,9 +11566,12 @@ Answer:"""
         # ── End prompt injection guard ─────────────────────────────────────────
 
         # ── Minimal attr guard for __new__-constructed instances (tests) ───────
-        if not hasattr(self, "session_id"):
+        # session_id/user_id are properties now (contextvar-backed) — hasattr on
+        # a property is always True (the getter never raises), so the guard
+        # checks the real backing attribute instead, same as before this change.
+        if not hasattr(self, "_fallback_session_id"):
             self.session_id = str(int(time.time()))
-        if not hasattr(self, "user_id"):
+        if not hasattr(self, "_fallback_user_id"):
             self.user_id = str(__import__("uuid").uuid4())
         if not hasattr(self, "_request_counter"):
             self._request_counter = 0
@@ -14464,7 +14662,11 @@ Answer:"""
                 confidence=float(trace.get("agent_confidence") or 0.0),
                 grounding_confidence=float(trace.get("grounding_confidence") or 0.0),
                 agents_used=list(trace.get("agents_used") or []),
-                req_id=str(getattr(self, "_pipeline_req_id", "") or ""),
+                # Was self._pipeline_req_id — generated once per engine instance and
+                # reused forever (same staleness bug as _record_orchestrator_audit_turn's
+                # request_id, fixed earlier this session). trace["request_id"] is the
+                # real per-turn id.
+                req_id=str(trace.get("request_id") or ""),
                 source=source,
             )
         except Exception:

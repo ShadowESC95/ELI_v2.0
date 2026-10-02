@@ -37,7 +37,10 @@ def test_lp_album_request_detected():
 
 
 def test_phatic_skips_orchestrator_again():
-    src = inspect.getsource(CognitiveEngine.process)
+    # process() is now a thin per-request-identity wrapper (Phase 1 of the
+    # identity/provenance plan, 2026-10-02); the actual turn pipeline this
+    # test checks moved to _process_impl, same body, new name.
+    src = inspect.getsource(CognitiveEngine._process_impl)
     assert '_qclass != "PHATIC"' in src
     assert "_is_brief_phatic_prompt(user_input)" in src
 

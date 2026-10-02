@@ -809,7 +809,9 @@ def chat(request: ChatRequest, principal: Principal = Depends(require_member)):
         result = engine.process(
             request.message,
             source=f"api:{who}",
-            stream=False
+            stream=False,
+            user_id=who,
+            session_id=session_id,
         )
 
         _audit("api_chat", user_id=who, action="CHAT", session_id=session_id)
@@ -839,7 +841,10 @@ def chat_stream(request: ChatRequest, principal: Principal = Depends(require_mem
     def _gen():
         yield _frame({"session_id": session_id})
         try:
-            result = engine.process(request.message, source=f"api:{who}", stream=True)
+            result = engine.process(
+                request.message, source=f"api:{who}", stream=True,
+                user_id=who, session_id=session_id,
+            )
             if isinstance(result, dict):
                 yield _frame({"delta": _extract_response_text(result)})
             elif isinstance(result, str):
