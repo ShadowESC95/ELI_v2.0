@@ -4355,16 +4355,25 @@ class CognitiveEngine:
     def user_id(self, value: Optional[str]) -> None:
         self._fallback_user_id = value
 
-    # The 8 properties below are different from session_id/user_id above: they
-    # are written directly from WITHIN turn-processing code (self.attr = x),
-    # not via a separate process()-level override, and have no legitimate
-    # "persistent single default shared by every thread" meaning — they are
-    # pure per-turn scratch state. So the setter writes the ContextVar itself
-    # (not a self.* fallback): every write is isolated to the calling thread
-    # by Python's default contextvars behavior, with no explicit set/reset
-    # plumbing needed anywhere else. A fallback here would have been a no-op
-    # disguised as a fix — the getter would never see anything but the
-    # shared fallback, since nothing else would ever .set() the ContextVar.
+    # The 5 ContextVar-backed properties below are different from session_id/
+    # user_id above: they are written directly from WITHIN turn-processing
+    # code (self.attr = x), not via a separate process()-level override, and
+    # have no legitimate "persistent single default shared by every thread"
+    # meaning — they are pure per-turn scratch state, true within ONE turn's
+    # synchronous execution and never read again afterward. So the setter
+    # writes the ContextVar itself (not a self.* fallback): every write is
+    # isolated to the calling thread by Python's default contextvars
+    # behavior, with no explicit set/reset plumbing needed anywhere else. A
+    # fallback here would have been a no-op disguised as a fix — the getter
+    # would never see anything but the shared fallback, since nothing else
+    # would ever .set() the ContextVar.
+    #
+    # 3 MORE properties further down (_prev_bus_result, _last_command_action,
+    # _last_orchestrator_reasoning_mode) are NOT pure per-turn scratch — they
+    # are deliberately sticky across turns, and use session-keyed storage
+    # instead (request_context.get/set_session_sticky), not a ContextVar —
+    # see the comment there for why a ContextVar was the wrong fit (found via
+    # a failing test, 2026-10-02).
 
     @property
     def _last_bus_result(self) -> Any:
@@ -4413,29 +4422,43 @@ class CognitiveEngine:
     def _in_orchestrator(self, value: bool) -> None:
         _request_context.in_orchestrator_var.set(value)
 
+    # These 3 are different from every property above: they are DELIBERATELY
+    # meant to survive from one turn into the next (e.g. "was the previous
+    # command a NEWS_FETCH" has to still be true on the turn where the user
+    # says "dive deeper"). A ContextVar is the wrong primitive for that — it
+    # is scoped to the current thread, not to the session the data actually
+    # belongs to. Live bug (2026-10-02): a test constructing its own engine
+    # subclass inherited a reasoning-mode value an unrelated earlier test had
+    # left on the same thread — found by a failing persona-budget test. Keyed
+    # by session_id instead (request_context.get/set_session_sticky): correct
+    # for a concurrent request (different session_id, no shared slot) AND for
+    # a reused threadpool thread (same session_id still finds its own entry,
+    # whichever thread serves it).
     @property
     def _prev_bus_result(self) -> Any:
-        return _request_context.prev_bus_result_var.get()
+        return _request_context.get_session_sticky(self.session_id, "prev_bus_result")
 
     @_prev_bus_result.setter
     def _prev_bus_result(self, value: Any) -> None:
-        _request_context.prev_bus_result_var.set(value)
+        _request_context.set_session_sticky(self.session_id, "prev_bus_result", value)
 
     @property
     def _last_command_action(self) -> Optional[Dict[str, Any]]:
-        return _request_context.last_command_action_var.get()
+        return _request_context.get_session_sticky(self.session_id, "last_command_action")
 
     @_last_command_action.setter
     def _last_command_action(self, value: Optional[Dict[str, Any]]) -> None:
-        _request_context.last_command_action_var.set(value)
+        _request_context.set_session_sticky(self.session_id, "last_command_action", value)
 
     @property
     def _last_orchestrator_reasoning_mode(self) -> str:
-        return _request_context.last_orchestrator_reasoning_mode_var.get() or "quick"
+        return _request_context.get_session_sticky(
+            self.session_id, "last_orchestrator_reasoning_mode", "quick") or "quick"
 
     @_last_orchestrator_reasoning_mode.setter
     def _last_orchestrator_reasoning_mode(self, value: str) -> None:
-        _request_context.last_orchestrator_reasoning_mode_var.set(value)
+        _request_context.set_session_sticky(
+            self.session_id, "last_orchestrator_reasoning_mode", value)
 
     def cancel_generation(self) -> None:
         """Stop the in-flight chat generation at the next token (GUI Stop button)."""
