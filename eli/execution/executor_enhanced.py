@@ -3795,12 +3795,14 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
 
         # ── Track / generic search (tracks tab, not playlists) ──
         _track_q = search_q
+        _launch_attempted = False
         # Drive Spotify's own search box directly and play the top suggestion —
         # open.spotify.com's search page is a JS shell with no server-rendered
         # track data on an unauthenticated fetch (confirmed against the real
         # site), so URI-scraping below can never resolve a real track here.
         try:
             from eli.integrations.media.cross_platform import spotify_search_type_and_play as _sp_type_play
+            _launch_attempted = True  # its first step is spotify_launch_if_needed()
             if _sp_type_play(_track_q):
                 _set_now_playing("spotify", _track_q)
                 msg = f"Playing “{_track_q}” on Spotify."
@@ -3818,7 +3820,11 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
         )
         if _hit:
             return _hit
-        if not _spotify_running():
+        # Type-and-play above already launched and waited 8s. If Spotify still
+        # isn't up, a second launch + 8s wait just delays the "couldn't reach it"
+        # answer — it was only here because the type-and-play path was put in
+        # front of this older fallback without telling it a launch had happened.
+        if not _spotify_running() and not _launch_attempted:
             _ensure_spotify_running()
             _spotify_wait_running(timeout=8.0)
         _opened = _spotify_search(_track_q, prefer="tracks")
