@@ -74,11 +74,38 @@ def ensure_tables(cur: sqlite3.Cursor) -> None:
     for stmt in (
         "ALTER TABLE user_patterns ADD COLUMN corroboration INTEGER DEFAULT 1",
         "ALTER TABLE user_patterns ADD COLUMN provenance TEXT DEFAULT 'user_passing'",
+        # Links a stance to its entry in memory_claims (eli.memory.claims) — one
+        # fact, one revision history, one provenance graph, extended to stances.
+        "ALTER TABLE eli_stances ADD COLUMN claim_id INTEGER",
     ):
         try:
             cur.execute(stmt)
         except Exception:
             pass  # already present on an existing install
+
+
+def _link_stance_to_claim(cur: sqlite3.Cursor, topic_n: str, position: str,
+                         provenance: str, now: float) -> None:
+    """Give the CURRENT row for this topic a real entry in the bitemporal
+    claims spine (eli.memory.claims) — one fact, one revision history, one
+    provenance graph, extended from user facts to ELI's own stances. Topic
+    and position are already relation/value-shaped, so this is a direct
+    claims.record(), not text re-extraction.
+
+    Best-effort: must never break the stance write it rides alongside.
+    """
+    try:
+        from eli.memory import claims as _claims
+        claim_id = _claims.record(
+            cur, topic_n, position, single_valued=True, origin=provenance, now=now)
+        if claim_id is not None:
+            cur.execute(
+                "UPDATE eli_stances SET claim_id = ? "
+                " WHERE lower(topic) = ? AND superseded_by IS NULL",
+                (claim_id, topic_n),
+            )
+    except Exception:
+        log.debug("could not link stance to a claim", exc_info=True)
 
 
 # ── ELI's own stances ─────────────────────────────────────────────────────────
@@ -184,6 +211,7 @@ def record_stance(cur: sqlite3.Cursor, topic: str, position: str,
             " WHERE id = ?",
             (int(existing[2] or 1) + 1, now, existing[0]),
         )
+        _link_stance_to_claim(cur, topic_n, position, provenance, now)
         return True
     if existing:
         # A different position on a topic already held is a revision, not a new
@@ -195,6 +223,7 @@ def record_stance(cur: sqlite3.Cursor, topic: str, position: str,
         "VALUES (?, ?, ?, 1, 0.8, ?, ?)",
         (topic_n, position, provenance, now, now),
     )
+    _link_stance_to_claim(cur, topic_n, position, provenance, now)
     return True
 
 
@@ -222,6 +251,7 @@ def revise_stance(cur: sqlite3.Cursor, topic: str, new_position: str,
         "VALUES (?, ?, 'user_explicit', 1, 0.8, ?, ?)",
         (topic_n, str(new_position).strip(), now, now),
     )
+    _link_stance_to_claim(cur, topic_n, str(new_position).strip(), "user_explicit", now)
     return True
 
 

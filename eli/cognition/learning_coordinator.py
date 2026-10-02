@@ -73,6 +73,19 @@ def finalize_turn(
 
     # 4. Session digest is triggered inside _learn_from_result (every 20 turns)
 
+    # 5. Task-event capture. The CHAT path (_finalize_chat_result -> _maybe_store_memory)
+    # already does this unconditionally for every chat turn - chat has no real ok/fail
+    # axis to gate on. This is the other, disjoint path (non-streaming/action turns,
+    # per this function's own docstring) - confirmed it never captured task events at
+    # all before this. Gated on ok, unlike the chat path: a failed action turn ("set a
+    # timer" that silently didn't fire) should not be recorded as a decided/done step.
+    try:
+        if bool(result.get("ok", True)):
+            from eli.planning.goal_store import capture_task_events
+            capture_task_events(str(user_input or ""))
+    except Exception as exc:
+        log.debug(f"[LEARNING] task event capture failed: {exc}")
+
     log_pipeline_stage(
         12,
         component="learning_coordinator",

@@ -9,12 +9,17 @@ one key, one trust root for both ledgers.
 """
 from __future__ import annotations
 
+import queue
 import sqlite3
+import threading
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from eli.runtime.evidence_ledger import _audit_key, _chain_signature
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
 
 _GENESIS = "ELI-ORCHESTRATOR-AUDIT-GENESIS"
 
@@ -106,6 +111,58 @@ def record_turn(
         return int(cur.lastrowid or 0)
     finally:
         conn.close()
+
+
+# ── Serialized async writer ──────────────────────────────────────────────────
+# record_turn() itself is synchronous and correctly serializes against OTHER
+# concurrent writers via BEGIN IMMEDIATE (the chain's hash links stay correct
+# no matter which caller's transaction wins the lock race). But a caller that
+# backgrounds each call in its OWN fresh threading.Thread (as engine.py's
+# _record_orchestrator_audit_turn used to) has no ordering guarantee BETWEEN
+# calls: two turns committed close together could have their rows land in
+# whichever order the two independent threads happened to win the SQLite
+# lock, not the order the turns actually happened in. ts still records real
+# wall-clock time either way, so nothing is lost or misattributed, but a
+# reviewer reading the log top-to-bottom could not trust row order for
+# audit/compliance purposes. One persistent worker thread draining one FIFO
+# queue fixes that: enqueue order (fast, no disk I/O) determines write order,
+# not whichever write happens to finish first.
+_write_queue: "queue.Queue[Dict[str, Any]]" = queue.Queue()
+_worker_started = False
+_worker_lock = threading.Lock()
+
+
+def _worker_loop() -> None:
+    while True:
+        kwargs = _write_queue.get()
+        try:
+            record_turn(**kwargs)
+        except Exception:
+            log.debug("orchestrator audit async write failed", exc_info=True)
+        finally:
+            _write_queue.task_done()
+
+
+def _ensure_worker() -> None:
+    global _worker_started
+    if _worker_started:
+        return
+    with _worker_lock:
+        if _worker_started:
+            return
+        threading.Thread(
+            target=_worker_loop, daemon=True, name="eli-orch-audit-writer"
+        ).start()
+        _worker_started = True
+
+
+def record_turn_async(**kwargs: Any) -> None:
+    """Queue a turn for the single serial writer thread instead of writing
+    inline — callers that don't want to block a turn on this write (the
+    normal case) should use this instead of backgrounding record_turn() in
+    their own thread."""
+    _ensure_worker()
+    _write_queue.put(kwargs)
 
 
 def recent_turns(limit: int = 50, db_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:

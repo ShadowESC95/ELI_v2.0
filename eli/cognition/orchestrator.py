@@ -199,18 +199,35 @@ class OrchestratorMemoryAgent:
         semantic_hits: List[Dict[str, Any]] = []
         rag_hits: List[Dict[str, Any]] = []
         kg_hits: List[Dict[str, Any]] = []
+        # Populated whenever the unified call ran, regardless of whether the mode plan
+        # wanted semantic hits kept — see the fetch-plan note below for why.
+        _computed_semantic_hits: List[Dict[str, Any]] = []
 
         if retrieval_plan.get("need_keyword") or retrieval_plan.get("need_semantic"):
             try:
                 from eli.memory.unified_retrieval import orchestrator_retrieve
-                keyword_hits, semantic_hits, _tr = orchestrator_retrieve(
+                # mem.recall_memory() (reached via retrieve_for_turn, memory/retrieval.py)
+                # runs the vector/FAISS search unconditionally — it has no need_semantic
+                # parameter at all. orchestrator_retrieve's need_semantic only decides
+                # whether to KEEP those hits or discard them afterward; fast mode's own
+                # comment ("skip FAISS embedding, saves one LLM call") does not actually
+                # happen on this path — the embedding call already runs regardless.
+                # Request both unconditionally so the thin-evidence check below can use
+                # hits that were already computed, instead of discarding real signal a
+                # fast-mode turn already paid for and then making a genuinely new call.
+                _fetch_plan = dict(retrieval_plan)
+                _fetch_plan["need_keyword"] = True
+                _fetch_plan["need_semantic"] = True
+                keyword_hits, _computed_semantic_hits, _tr = orchestrator_retrieve(
                     self.engine,
                     user_input,
                     hyde_query,
-                    retrieval_plan,
+                    _fetch_plan,
                     session_id=str(getattr(self.engine, "session_id", "") or ""),
                     user_id=str(getattr(self.engine, "user_id", "") or ""),
                 )
+                if retrieval_plan.get("need_semantic"):
+                    semantic_hits = _computed_semantic_hits
                 self._last_turn_retrieval = _tr
                 try:
                     setattr(self.engine, "_last_turn_retrieval", _tr)
@@ -236,6 +253,35 @@ class OrchestratorMemoryAgent:
         if retrieval_plan.get("prefer_identity") or retrieval_plan.get("need_kg", True):
             kg_hits = self.kg_search(
                 user_input, retrieval_plan.get("kg_limit", 8))
+
+        # Evidence-gap fallback: a mode plan that intentionally skipped semantic/rag/kg
+        # (fast mode, mainly) can still leave a turn with almost nothing to answer from.
+        # Mirrors memory/retrieval.py's own _THIN_EVIDENCE precedent (same threshold,
+        # same "ran dry, pull in more" idea) rather than inventing a second, divergent
+        # gating constant. Only turns channels ON that the mode plan had OFF — a channel
+        # that ran and came back thin is not re-run, since repeating it would just
+        # reproduce the same thin result.
+        try:
+            from eli.memory.retrieval import _THIN_EVIDENCE as _thin_evidence
+        except Exception:
+            _thin_evidence = 3
+        _total_hits = len(keyword_hits) + len(semantic_hits) + len(rag_hits) + len(kg_hits)
+        if _total_hits < _thin_evidence:
+            if not retrieval_plan.get("need_semantic") and _computed_semantic_hits:
+                semantic_hits = _computed_semantic_hits
+                log.debug("[ORCHESTRATOR] evidence gap (%d hits) — using already-computed semantic hits",
+                         _total_hits)
+            if not retrieval_plan.get("need_rag") and ltm.rag_ready:
+                rag_hits = self.document_rag_search(
+                    user_input, retrieval_plan.get("rag_limit") or 8)
+                if rag_hits:
+                    log.debug("[ORCHESTRATOR] evidence gap (%d hits) — enabled rag, got %d",
+                             _total_hits, len(rag_hits))
+            if not (retrieval_plan.get("prefer_identity") or retrieval_plan.get("need_kg", True)):
+                kg_hits = self.kg_search(user_input, retrieval_plan.get("kg_limit") or 8)
+                if kg_hits:
+                    log.debug("[ORCHESTRATOR] evidence gap (%d hits) — enabled kg, got %d",
+                             _total_hits, len(kg_hits))
 
         return keyword_hits, semantic_hits, rag_hits, kg_hits
 

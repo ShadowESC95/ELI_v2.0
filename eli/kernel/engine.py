@@ -14836,20 +14836,24 @@ Answer:"""
         user_id = str(getattr(self, "user_id", "") or "")
         reasoning_mode = str(reasoning_mode or "")
 
-        def _write() -> None:
-            try:
-                from eli.runtime import orchestrator_audit_ledger as _oal
-                _oal.record_turn(
-                    request_id=request_id, session_id=session_id, user_id=user_id,
-                    action=action, reasoning_mode=reasoning_mode,
-                    agents_used=",".join(agents_used), confidence=round(float(confidence), 4),
-                    elapsed_ms=(round(float(elapsed_ms), 1) if elapsed_ms is not None else None),
-                    ok=bool(ok), outcome=str(outcome or ""),
-                )
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
-
-        threading.Thread(target=_write, daemon=True, name="eli-orch-audit").start()
+        # record_turn_async queues onto ONE persistent writer thread, so write
+        # order matches call order. This used to spawn a fresh
+        # threading.Thread per call, racing independent threads against each
+        # other for the SQLite write lock with no ordering guarantee between
+        # them — caught by test_consecutive_turns_on_the_same_engine_get_
+        # distinct_request_ids failing once under load (see
+        # orchestrator_audit_ledger.py's own comment for the full story).
+        try:
+            from eli.runtime import orchestrator_audit_ledger as _oal
+            _oal.record_turn_async(
+                request_id=request_id, session_id=session_id, user_id=user_id,
+                action=action, reasoning_mode=reasoning_mode,
+                agents_used=",".join(agents_used), confidence=round(float(confidence), 4),
+                elapsed_ms=(round(float(elapsed_ms), 1) if elapsed_ms is not None else None),
+                ok=bool(ok), outcome=str(outcome or ""),
+            )
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
 
     def _stream_with_followthrough(self, inner, user_input: str,
                                    reasoning_mode: Optional[str] = None,

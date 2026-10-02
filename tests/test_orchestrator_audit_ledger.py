@@ -89,6 +89,34 @@ def test_empty_ledger_verifies_ok():
     assert v["checked"] == 0
 
 
+def test_async_writes_land_in_call_order(ledger_db):
+    """Live bug (2026-10-02): engine.py's _record_orchestrator_audit_turn used
+    to background each call in its OWN fresh threading.Thread — two turns
+    committed close together raced for the SQLite write lock with no
+    ordering guarantee between them, caught by a test failing once under
+    system load. record_turn_async queues onto ONE persistent worker thread
+    instead, so write order matches call (enqueue) order regardless of how
+    long any individual write takes."""
+    import time as _time
+
+    for i in range(5):
+        L.record_turn_async(
+            request_id=f"async-{i}", session_id="s1", user_id="alice",
+            action="CHAT", reasoning_mode="quick", agents_used="",
+            confidence=0.5, elapsed_ms=None, ok=True, outcome="ok",
+            db_path=ledger_db,
+        )
+    for _ in range(50):
+        if len(L.recent_turns(limit=10, db_path=ledger_db)) >= 5:
+            break
+        _time.sleep(0.05)
+
+    rows = L.recent_turns(limit=10, db_path=ledger_db)
+    assert [r["request_id"] for r in rows] == [f"async-{i}" for i in (4, 3, 2, 1, 0)]
+    v = L.verify_chain(db_path=ledger_db)
+    assert v["ok"] is True and v["chained"] == 5
+
+
 def test_no_fabricated_stage_mask_column(ledger_db):
     """Live correction (2026-10-02): a 'stages ran' field was planned from a
     deterministic action+mode rule, not from anything that actually confirmed

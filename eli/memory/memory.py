@@ -1648,6 +1648,10 @@ def _ensure_profile_schema(conn):
         ("pattern_data", "TEXT"),
         ("timestamp", "REAL"),
         ("ts", "REAL"),
+        # Links to memory_claims (eli.memory.claims) — see profile_extractor.py's
+        # ensure_profile_tables(), which creates/migrates this same physical
+        # table independently; kept in step here too.
+        ("claim_id", "INTEGER"),
     ]:
         _add_memory_column(conn, "user_patterns", n, d)
 

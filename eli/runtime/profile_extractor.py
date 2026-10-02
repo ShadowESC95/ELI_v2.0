@@ -66,6 +66,13 @@ def ensure_profile_tables(db_path: Path | None = None) -> None:
         )
         """
     )
+    # One fact, one revision history, one provenance graph: claim_id points this
+    # row at its entry in memory_claims (eli.memory.claims), written alongside
+    # it in _insert_user_pattern rather than backfilled onto existing rows.
+    try:
+        cur.execute("ALTER TABLE user_patterns ADD COLUMN claim_id INTEGER")
+    except sqlite3.OperationalError:
+        pass
 
     # The semantic tier: durable user facts. Four readers depend on it (recall injects these first
     # on identity questions with a +0.5 boost, two status surfaces count them). Nothing wrote it:
@@ -413,6 +420,35 @@ def _supersede_single_valued(cur: sqlite3.Cursor, pattern_type: str,
     return True
 
 
+def _link_pattern_to_claim(cur: sqlite3.Cursor, pattern_type: str, pattern_data: str,
+                          provenance: str, now: float) -> None:
+    """Give this user_patterns row a real entry in the bitemporal claims spine
+    (eli.memory.claims) instead of being a disconnected free-text duplicate.
+    pattern_type/pattern_data are already relation/value-shaped — this is a
+    direct claims.record(), not the first-person-text extraction claims.py
+    also offers, which would re-parse text that's already structured.
+
+    Best-effort: a failure here must never break the user_patterns write it
+    rides alongside, so every exception is swallowed after a debug log.
+    """
+    try:
+        from eli.memory import claims as _claims
+        claim_id = _claims.record(
+            cur, pattern_type, pattern_data,
+            single_valued=pattern_type.lower() in _SINGLE_VALUED_PATTERNS,
+            origin=provenance, now=now,
+        )
+        if claim_id is not None:
+            cur.execute(
+                "UPDATE user_patterns SET claim_id = ? "
+                " WHERE lower(COALESCE(pattern_type, '')) = lower(?) "
+                "   AND lower(COALESCE(pattern_data, '')) = lower(?)",
+                (claim_id, pattern_type, pattern_data),
+            )
+    except Exception:
+        log.debug("could not link user_pattern to a claim", exc_info=True)
+
+
 def _insert_user_pattern(
     cur: sqlite3.Cursor,
     pattern_type: str,
@@ -496,6 +532,7 @@ def _insert_user_pattern(
                 )
         except Exception:
             log.debug("could not upgrade provenance", exc_info=True)
+        _link_pattern_to_claim(cur, pattern_type, pattern_data, provenance, now)
         return False
 
     try:
@@ -520,6 +557,7 @@ def _insert_user_pattern(
     # Must run on BOTH insert paths. An earlier cut returned straight after the
     # new insert and skipped it, so nothing reached the semantic tier at all.
     _promote_to_semantic(cur, pattern_type, pattern_data, now)
+    _link_pattern_to_claim(cur, pattern_type, pattern_data, provenance, now)
     return True
 
 
