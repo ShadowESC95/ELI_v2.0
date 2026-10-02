@@ -18,18 +18,29 @@ README = (REPO / "README.md").read_text(encoding="utf-8")
 PERSONA = (REPO / "eli" / "cognition" / "persona.txt").read_text(encoding="utf-8")
 
 
-def test_fifteen_bus_agents_registered():
+def _builtin_agent_count() -> int:
+    """_ALL_AGENTS is a process-wide mutable global that several OTHER tests
+    legitimately append custom/spec agents to (test_custom_agent_integration.
+    py, test_agent_dispatch_persist.py) — tagged _custom=True, same as a real
+    user-installed custom agent would be. The "15 specialist agents" claim is
+    about the BUILT-IN roster this ships with, not whatever a given process
+    has loaded — live bug (2026-10-02): this file failed under the full suite
+    (16, not 15) purely from test run order/global-state leakage elsewhere,
+    not a real marketing-claim drift. Filtering to non-custom agents tests
+    the actual claim regardless of what else has run in this process."""
     from eli.cognition.agent_bus import _ALL_AGENTS
-    assert len(_ALL_AGENTS) == 15, (
-        f"marketing says 15 agents; _ALL_AGENTS has {len(_ALL_AGENTS)}"
-    )
+    return sum(1 for a in _ALL_AGENTS if not getattr(a, "_custom", False))
+
+
+def test_fifteen_bus_agents_registered():
+    n = _builtin_agent_count()
+    assert n == 15, f"marketing says 15 agents; built-in _ALL_AGENTS has {n}"
 
 
 def test_persona_agent_count_matches_bus():
-    from eli.cognition.agent_bus import _ALL_AGENTS
     m = re.search(r"(\d+)\s+specialist agents", PERSONA)
     assert m, "persona.txt should state specialist agent count"
-    assert int(m.group(1)) == len(_ALL_AGENTS)
+    assert int(m.group(1)) == _builtin_agent_count()
 
 
 def test_twelve_stage_pipeline_stages_exist():
