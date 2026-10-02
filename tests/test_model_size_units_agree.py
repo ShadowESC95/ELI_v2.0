@@ -17,7 +17,8 @@ from eli.core import hardware_profile, moe_offload
 
 def test_discover_models_uses_the_same_binary_base_as_moe_offload(tmp_path):
     model_file = tmp_path / "model.gguf"
-    model_file.write_bytes(b"\0" * (2 * 1024 ** 3))  # exactly 2 GiB on disk
+    with open(model_file, "wb") as f:
+        f.truncate(2 * 1024 ** 3)  # exactly 2 GiB st_size; sparse, so no real disk or RAM used
 
     models = hardware_profile.discover_models(models_dir=tmp_path)
     assert len(models) == 1

@@ -17,7 +17,40 @@ detect_hardware() now reserves their on-disk footprint explicitly.
 """
 from __future__ import annotations
 
+import pytest
+
 from eli.core import mem_units, hardware_profile, moe_offload
+
+# eli/gui/panels/_qt.py re-exports Qt via `from PySide6.QtWidgets import *`. The root
+# conftest's no-PySide6 fallback is a MagicMock stub, which `import *` exposes nothing
+# from, and GUI classes subclassing a MagicMock instance become MagicMocks themselves —
+# so these two genuinely need a real binding. Run under the project .venv they pass.
+_NEEDS_QT = "imports eli.gui, which needs a real Qt binding (PySide6); not installed here"
+
+
+def _require_real_qt() -> None:
+    # Not pytest.importorskip: the conftest stub sits in sys.modules["PySide6"], so
+    # importing it "succeeds" against the MagicMock. Only a real module counts.
+    import importlib
+    import sys
+    import types
+    mod = sys.modules.get("PySide6")
+    if mod is None:
+        try:
+            mod = importlib.import_module("PySide6")
+        except ImportError:
+            mod = None
+    if not isinstance(mod, types.ModuleType):
+        pytest.skip(_NEEDS_QT)
+
+
+def _sparse(path, size: int) -> None:
+    # Every size helper under test reads st_size, so a sparse file is identical to
+    # a real one here. write_bytes(b"\0" * size) built the whole buffer in RAM first
+    # (~20 GB for the 19.71 GiB case) and left it allocated on disk afterwards;
+    # pytest keeps several old basetemp dirs, so repeated runs filled the disk.
+    with open(path, "wb") as f:
+        f.truncate(size)
 
 
 def test_bytes_to_gib_is_the_binary_base():
@@ -27,7 +60,7 @@ def test_bytes_to_gib_is_the_binary_base():
 
 def test_file_size_gib_matches_a_real_file(tmp_path):
     f = tmp_path / "model.gguf"
-    f.write_bytes(b"\0" * (3 * 1024 ** 3))
+    _sparse(f, 3 * 1024 ** 3)
     assert mem_units.file_size_gib(f) == 3.0
 
 
@@ -38,17 +71,17 @@ def test_file_size_gib_is_zero_for_a_missing_file(tmp_path):
 def test_dir_size_gib_sums_every_file_under_the_directory(tmp_path):
     d = tmp_path / "whisper-model"
     d.mkdir()
-    (d / "a.bin").write_bytes(b"\0" * (1024 ** 2 * 512))   # 0.5 GiB
+    _sparse(d / "a.bin", 1024 ** 2 * 512)   # 0.5 GiB
     sub = d / "sub"
     sub.mkdir()
-    (sub / "b.bin").write_bytes(b"\0" * (1024 ** 2 * 512))  # 0.5 GiB
+    _sparse(sub / "b.bin", 1024 ** 2 * 512)  # 0.5 GiB
     assert round(mem_units.dir_size_gib(d), 3) == 1.0
 
 
 def test_discover_models_agrees_with_moe_plan_for_load_for_the_same_file(tmp_path, monkeypatch):
     """The exact incident: two code paths measuring the same file must now agree."""
     model = tmp_path / "qwen-moe.gguf"
-    model.write_bytes(b"\0" * int(19.71 * 1024 ** 3))
+    _sparse(model, int(19.71 * 1024 ** 3))
 
     models = hardware_profile.discover_models(models_dir=tmp_path)
     assert len(models) == 1
@@ -134,10 +167,11 @@ def test_gui_dropdown_and_hardware_profile_discover_agree_on_a_real_file(tmp_pat
     they used to (1024**3 vs 1e9), which the GUI's model dropdown showed side by side
     with the hardware-tuning panel's own figure.
     """
+    _require_real_qt()
     from eli.gui.eli_pro_audio_gui_v2_0 import discover_gguf_models
 
     model = tmp_path / "model.gguf"
-    model.write_bytes(b"\0" * int(5.5 * 1024 ** 3))
+    _sparse(model, int(5.5 * 1024 ** 3))
 
     gui_models = discover_gguf_models(base_dirs=[tmp_path])
     hp_models = hardware_profile.discover_models(models_dir=tmp_path)
@@ -146,6 +180,7 @@ def test_gui_dropdown_and_hardware_profile_discover_agree_on_a_real_file(tmp_pat
 
 
 def test_model_label_does_not_double_convert_an_already_binary_size():
+    _require_real_qt()
     from eli.gui.panels.startup import StartupModelSelectionDialog
 
     label = StartupModelSelectionDialog._model_label(

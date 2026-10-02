@@ -126,7 +126,8 @@ def test_probe_timeout_scales_with_model_size(tmp_path, monkeypatch):
     small = tmp_path / "small.gguf"
     small.write_bytes(b"\0" * (1024 * 1024))
     big = tmp_path / "big.gguf"
-    big.write_bytes(b"\0" * (256 * 1024 * 1024))
+    with open(big, "wb") as f:
+        f.truncate(256 * 1024 * 1024)  # sparse: probe_timeout_for reads st_size only
 
     t_small = lp.probe_timeout_for(str(small), 4096)
     t_big = lp.probe_timeout_for(str(big), 10384)
