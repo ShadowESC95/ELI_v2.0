@@ -1151,13 +1151,16 @@ def _llm_summarise_session(
             "'none'.\n\n"
             f"TRANSCRIPT:\n{transcript}"
         )
-        out = (broker.infer(
-            prompt,
-            system=system,
-            max_tokens=420,
-            temperature=0.3,
-            background=background,
-        ) or "").strip()
+        # Shutdown may already be signalled — this deliberate call is exempt.
+        import eli.cognition.gguf_inference as _gi_allow
+        with _gi_allow.allow_one_call_during_shutdown():
+            out = (broker.infer(
+                prompt,
+                system=system,
+                max_tokens=420,
+                temperature=0.3,
+                background=background,
+            ) or "").strip()
         # Reject degenerate output (a lone '-', whitespace, no letters).
         if len(out) < 20 or not re.search(r"[A-Za-z]", out):
             return ""

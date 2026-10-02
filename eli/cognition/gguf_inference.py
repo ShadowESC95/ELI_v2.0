@@ -673,6 +673,17 @@ def is_shutting_down() -> bool:
     return _SHUTDOWN.is_set()
 
 
+@contextmanager
+def allow_one_call_during_shutdown():
+    """Exempt one deliberate call (the shutdown-time session summary) from the
+    abort-on-shutdown check below, without affecting any other caller."""
+    _bg_tls.allow_during_shutdown = True
+    try:
+        yield
+    finally:
+        _bg_tls.allow_during_shutdown = False
+
+
 def set_background_inference(flag: bool) -> None:
     """Mark the CURRENT thread's generations as background (daemon) work — they
     install a cooperative abort so a foreground turn can preempt them."""
@@ -689,10 +700,13 @@ def _fg_preempt_enabled() -> bool:
 
 def _should_abort_generation(background: bool) -> bool:
     """True when an in-flight generation should yield at the next token: shutdown is
-    signalled (aborts ANY call), the user clicked Stop (aborts ANY call), or — for
+    signalled (aborts ANY call, except one deliberately exempted via
+    allow_one_call_during_shutdown), the user clicked Stop (aborts ANY call), or — for
     BACKGROUND calls with preemption enabled — a foreground turn is waiting on the
     shared lock."""
-    if _SHUTDOWN.is_set() or _USER_CANCEL.is_set():
+    if _USER_CANCEL.is_set():
+        return True
+    if _SHUTDOWN.is_set() and not getattr(_bg_tls, "allow_during_shutdown", False):
         return True
     return bool(background) and _fg_preempt_enabled() and _FG_PRIORITY.is_set()
 

@@ -176,12 +176,16 @@ def spotify_search_type_and_play(query: str) -> bool:
     blindly re-pressing Down+Enter into whatever state that first, unverified
     attempt left the UI in.
     """
-    from eli.system.portable_app_control import focus_app, active_window_matches
+    from eli.system.portable_app_control import focus_app, active_window_matches, window_exists
     from eli.utils.platform_compat import key_press, type_text
 
     if not spotify_launch_if_needed():
         return False
     spotify_wait_running(timeout=8.0)
+    # Process existing isn't window existing yet — Electron apps are slow to map.
+    _win_deadline = time.monotonic() + 12.0
+    while time.monotonic() < _win_deadline and not window_exists("spotify"):
+        time.sleep(0.3)
 
     def _attempt() -> bool:
         focus_app("spotify")

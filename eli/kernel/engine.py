@@ -4130,6 +4130,20 @@ def _ft_summarise_findings(report_text: str, *, max_lines: int = 6) -> str:
     return out
 
 
+# Marks "visible reply done" mid-stream — consumers drop it, never display it.
+MAIN_REPLY_DONE_SENTINEL = "__MAIN_REPLY_DONE__"
+
+
+def _required_pipeline_stages(action_u: str, mode: str) -> set:
+    """Which of the 12 pipeline stages this turn's trace expects to need."""
+    required_ids = {1, 2, 3, 4, 12}
+    if action_u == "CHAT":
+        required_ids.add(11)
+    if mode != "quick":
+        required_ids.update({5, 6, 7, 8, 9, 10, 11})
+    return required_ids
+
+
 class CognitiveEngine:
     def __init__(
         self,
@@ -8596,11 +8610,7 @@ Answer:"""
             (12, "learning_and_state_commit"),
         ]
 
-        required_ids = {1, 2, 3, 4, 12}
-        if action_u == "CHAT":
-            required_ids.add(11)
-        if mode != "quick":
-            required_ids.update({5, 6, 7, 8, 9, 10, 11})
+        required_ids = _required_pipeline_stages(action_u, mode)
 
         stage_matrix = []
         for sid, name in stage_defs:
@@ -11428,7 +11438,9 @@ Answer:"""
                                 reasoning_mode=reasoning_mode, **_mqs_kwargs,
                             )
                             # Extract user-visible text from dict/str/generator result
+                            _mqs_conf = None
                             if isinstance(_mqs_r, dict):
+                                _mqs_conf = _mqs_r.get("confidence")
                                 _mqs_r = (
                                     _mqs_r.get("response") or _mqs_r.get("content")
                                     or _mqs_r.get("text") or ""
@@ -11449,8 +11461,18 @@ Answer:"""
                                     _mqs_r = str(_mqs_r or "").strip()
                             else:
                                 _mqs_r = (_mqs_r or "").strip()
-                            if _mqs_r:
+                            # Drop a low-confidence segment instead of concatenating garbage.
+                            try:
+                                _mqs_low_conf = _mqs_conf is not None and float(_mqs_conf) < 0.5
+                            except (TypeError, ValueError):
+                                _mqs_low_conf = False
+                            if _mqs_r and not _mqs_low_conf:
                                 _mqs_responses.append(_mqs_r)
+                            elif _mqs_r:
+                                log.debug(
+                                    "[ENGINE] multi-question: dropped low-confidence segment "
+                                    "%r (confidence=%s)", _mqs_q[:60], _mqs_conf,
+                                )
                         except Exception as _mqs_sub_err:
                             log.debug("[ENGINE] multi-question sub-call failed: %s", _mqs_sub_err)
                     if len(_mqs_responses) >= 2:
@@ -12951,6 +12973,8 @@ Answer:"""
                             "LIST_EVENTS", "SEARCH_NOTES", "MCP_STATUS", "MCP_TOOLS",
                             "MCP_LIST", "STT_DIAGNOSTICS", "NAME_SOURCE_AUDIT",
                             "ROUTING_FAULT_EXPLAIN",
+                            # RESUME_TASK builds its own staleness-grounded message — same as READ_FILE.
+                            "RESUME_TASK",
                             # SHELL_EXEC delegates to RUN_CMD's handler, which returns the command's
                             # raw stdout+stderr as content/response. Same danger as READ_FILE: an
                             # LLM synthesis pass could misreport what a command printed.
@@ -14416,6 +14440,14 @@ Answer:"""
         except Exception:
             self._store_assistant_turn(final_response)
             self._learn_from_result(intent, result, source=source)
+        self._record_orchestrator_audit_turn(
+            action=str(intent.get("action") or result.get("action") or "CHAT"),
+            agents_used=list(trace.get("agents_used") or []),
+            confidence=float(trace.get("agent_confidence") or 0.0),
+            ok=bool(result.get("ok", True)),
+            outcome=str(result.get("error") or "ok"),
+            reasoning_mode=str(reasoning_mode or ""),
+        )
         result["content"] = final_response
         result["response"] = final_response
         result["trace"] = trace
@@ -14551,6 +14583,39 @@ Answer:"""
             return router_intent
         return {"action": "CHAT", "args": {"message": text}, "confidence": 0.5}
 
+    def _record_orchestrator_audit_turn(
+        self,
+        *,
+        action: str,
+        agents_used: list,
+        confidence: float,
+        ok: bool,
+        outcome: str,
+        reasoning_mode: str = "",
+        elapsed_ms: Optional[float] = None,
+    ) -> None:
+        """Commit one real, completed turn to the tamper-evident audit chain.
+        Called only from genuine turn-completion points — never from a plan."""
+        request_id = str(getattr(self, "_pipeline_req_id", "") or "")
+        session_id = str(getattr(self, "session_id", "") or "")
+        user_id = str(getattr(self, "user_id", "") or "")
+        reasoning_mode = str(reasoning_mode or "")
+
+        def _write() -> None:
+            try:
+                from eli.runtime import orchestrator_audit_ledger as _oal
+                _oal.record_turn(
+                    request_id=request_id, session_id=session_id, user_id=user_id,
+                    action=action, reasoning_mode=reasoning_mode,
+                    agents_used=",".join(agents_used), confidence=round(float(confidence), 4),
+                    elapsed_ms=(round(float(elapsed_ms), 1) if elapsed_ms is not None else None),
+                    ok=bool(ok), outcome=str(outcome or ""),
+                )
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+
+        threading.Thread(target=_write, daemon=True, name="eli-orch-audit").start()
+
     def _stream_with_followthrough(self, inner, user_input: str,
                                    reasoning_mode: Optional[str] = None) -> Generator[str, None, None]:
         """Wrap the CHAT token stream so NO action is faked (engine-level, every
@@ -14566,6 +14631,18 @@ Answer:"""
                 log.debug("suppressed exception", exc_info=True)
             yield tok
         full = "".join(parts).strip()
+        # Unlock input now — any followthrough re-run below can take a while.
+        yield MAIN_REPLY_DONE_SENTINEL
+        if not getattr(self, "_in_followthrough", False):
+            _bus_result = getattr(self, "_last_bus_result", None)
+            self._record_orchestrator_audit_turn(
+                action="CHAT",
+                agents_used=list(getattr(_bus_result, "agents_used", None) or []),
+                confidence=float(getattr(_bus_result, "aggregated_confidence", None) or 0.0),
+                ok=bool(full),
+                outcome="ok" if full else "empty_reply",
+                reasoning_mode=str(reasoning_mode or ""),
+            )
         if not full or getattr(self, "_in_followthrough", False):
             return
         try:

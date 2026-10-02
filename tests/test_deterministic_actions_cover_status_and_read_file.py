@@ -89,6 +89,16 @@ AUDITED_2026_09_18_PASS2 = {
     "CLEAR_CHAT_HISTORY", "REFRESH_USER_INFO", "MESSAGE_TIME_QUERY",
 }
 
+# Fifth pass (2026-10-02): RESUME_TASK, added by the task-continuity bridge
+# (2026-09-29) after this audit shipped, was routable but never added to the
+# verbatim set — the exact gap test_every_routable_action_is_covered_or_
+# documented_excluded exists to catch. Its handler does a real goal_store
+# lookup and builds its own staleness-grounded message; re-narration risks a
+# model inventing staleness the lookup never reported.
+AUDITED_2026_10_02_PASS5 = {
+    "RESUME_TASK",
+}
+
 # Third pass, same day: the remaining confirmation/report/raw-content actions
 # from the full ~186 routable-action sweep.
 AUDITED_2026_09_18_PASS3 = {
@@ -149,6 +159,12 @@ def test_all_pass3_audited_actions_are_in_the_set():
 def test_all_pass4_audited_actions_are_in_the_set():
     actions = _deterministic_direct_payload_actions()
     missing = AUDITED_2026_09_18_PASS4 - actions
+    assert not missing, f"regression: dropped from the verbatim set: {sorted(missing)}"
+
+
+def test_all_pass5_audited_actions_are_in_the_set():
+    actions = _deterministic_direct_payload_actions()
+    missing = AUDITED_2026_10_02_PASS5 - actions
     assert not missing, f"regression: dropped from the verbatim set: {sorted(missing)}"
 
 

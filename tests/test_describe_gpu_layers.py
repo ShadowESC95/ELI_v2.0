@@ -12,11 +12,17 @@ from eli.core import hardware_profile as hp
 
 
 def test_describe_gpu_layers_translates_the_sentinel():
-    assert hp.describe_gpu_layers(99) == "99 (= all layers)"
+    """The raw digit itself must never reach the user — the whole point of
+    this function is that 99 is not a real layer count, so printing "99"
+    anywhere, even annotated, still reads as a number competing with the
+    real one shown elsewhere in the same panel."""
+    assert hp.describe_gpu_layers(99) == "all layers"
+    assert "99" not in hp.describe_gpu_layers(99)
 
 
 def test_describe_gpu_layers_translates_anything_at_or_above_99():
-    assert hp.describe_gpu_layers(120) == "120 (= all layers)"
+    assert hp.describe_gpu_layers(120) == "all layers"
+    assert "120" not in hp.describe_gpu_layers(120)
 
 
 def test_describe_gpu_layers_uses_total_layers_when_known():

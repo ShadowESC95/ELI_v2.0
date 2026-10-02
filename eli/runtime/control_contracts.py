@@ -512,6 +512,40 @@ def _plan_summary(plan: Any) -> str:
     return " ".join(bits)[:300] if bits else "none"
 
 
+def _trace_header_line(trace: Dict[str, Any]) -> str:
+    """One plain-language line before the raw trace below — template-built from
+    fields already in the trace, never LLM-generated (no hallucination risk)."""
+    if not trace:
+        return ""
+    action = str(trace.get("route_action") or trace.get("action") or "").strip()
+    if not action:
+        return ""
+    agg = trace.get("aggregated_confidence")
+    if agg is None:
+        agg = trace.get("confidence")
+    try:
+        agg_val = float(agg) if agg is not None else None
+    except (TypeError, ValueError):
+        agg_val = None
+    label = trace.get("confidence_label") or ""
+    if agg_val is not None and not label:
+        try:
+            from eli.cognition.agent_bus import _confidence_label as _lbl
+            label = _lbl(agg_val)
+        except Exception:
+            pass
+    agents = trace.get("agents_used") or trace.get("agents") or []
+    n_agents = len(agents) if isinstance(agents, (list, tuple)) else 0
+    bits = [f"That was a {action} reply"]
+    if label:
+        bits.append(f"{label} confidence")
+    if n_agents:
+        bits.append(f"{n_agents} agent{'s' if n_agents != 1 else ''}")
+    if trace.get("grounded"):
+        bits.append("grounded")
+    return " — ".join([bits[0], ", ".join(bits[1:])]) + "." if len(bits) > 1 else bits[0] + "."
+
+
 def _trace_text(trace: Dict[str, Any]) -> str:
     if not trace:
         return "Previous-response trace evidence:\n- trace_available: false"
@@ -677,7 +711,10 @@ def build_control_evidence(engine: Any, action: Any, args: Dict[str, Any] | None
 
     if act == "EXPLAIN_LAST_RESPONSE":
         prev = _last_trace(engine)
+        header = _trace_header_line(prev)
         text = _trace_text(prev)
+        if header:
+            text = f"{header}\n\n{text}"
         # Attach real per-cycle telemetry (agent_dispatches timings + runtime_events) so "give me the
         # raw metric breakdowns / agent logs for that cycle" is answered from logged data. Without it
         # the evidence was just the trace summary, so ELI concluded it had "no logs" and made things up.

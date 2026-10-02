@@ -1634,8 +1634,9 @@ def describe_gpu_layers(n_gpu_layers: Optional[int], total_layers: Optional[int]
     n = int(n_gpu_layers)
     if total_layers and n >= int(total_layers):
         return f"all {int(total_layers)} layers"
+    # No total on hand, but still never print the raw sentinel itself.
     if n >= 99:
-        return f"{n} (= all layers)"
+        return "all layers"
     return str(n)
 
 

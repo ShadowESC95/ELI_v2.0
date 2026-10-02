@@ -69,6 +69,37 @@ def test_degenerate_summary_falls_back_to_heuristic(tmp_path):
     assert r["source"] == "session_end_heuristic"
 
 
+def test_summary_survives_shutdown_already_signalled(tmp_path):
+    """closeEvent aborts any stale in-flight generation before calling shutdown()
+    — the summary call must still go through, not get caught by that same flag."""
+    from eli.cognition import gguf_inference as gi
+
+    class _ShutdownAwareBroker:
+        gguf_ready = True
+
+        def infer(self, prompt, system="", max_tokens=512, temperature=0.7,
+                  top_p=0.9, retry=True, **kwargs):
+            if gi._should_abort_generation(background=False):
+                return ""
+            return "SUMMARY: Atlas build 06 progress.\nOPEN THREADS: file the report."
+
+    db = tmp_path / "user.sqlite3"
+    _seed_turns(db)
+    gi.signal_shutdown()
+    try:
+        r = pe.write_llm_session_summary(db_path=db, session_id="s1", broker=_ShutdownAwareBroker())
+    finally:
+        gi.clear_shutdown()
+    assert r["inserted"] and r["llm"]
+
+    # Any OTHER caller (not wrapped in allow_one_call_during_shutdown) still aborts.
+    gi.signal_shutdown()
+    try:
+        assert gi._should_abort_generation(background=False) is True
+    finally:
+        gi.clear_shutdown()
+
+
 def test_session_summary_is_idempotent(tmp_path):
     db = tmp_path / "user.sqlite3"
     _seed_turns(db)

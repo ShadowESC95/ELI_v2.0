@@ -61,7 +61,7 @@ import time
 from pathlib import Path
 import uvicorn
 
-from eli.kernel.engine import get_engine
+from eli.kernel.engine import get_engine, MAIN_REPLY_DONE_SENTINEL
 
 # Bearer-token gate. Enforced ONLY when ELI_API_TOKEN is set — which the launcher does
 # automatically when binding beyond loopback (--lan). Loopback (default) runs tokenless
@@ -853,7 +853,7 @@ def chat_stream(request: ChatRequest, principal: Principal = Depends(require_mem
                              or chunk.get("response") or "")
                     else:
                         t = str(chunk)
-                    if t:
+                    if t and t != MAIN_REPLY_DONE_SENTINEL:
                         yield _frame({"delta": t})
             yield _frame({"done": True})
         except Exception as e:

@@ -115,3 +115,18 @@ def test_focus_app_falls_back_to_xdotool_class_search(monkeypatch):
     result = pac.focus_app("spotify")
     assert result["ok"] is True
     assert ["/usr/bin/xdotool", "search", "--class", "spotify"] in calls
+
+
+def test_window_exists_true_when_class_search_finds_a_window(monkeypatch):
+    monkeypatch.setattr(pac, "_system", lambda: "linux")
+    monkeypatch.setattr(pac.shutil, "which", lambda c: f"/usr/bin/{c}" if c == "xdotool" else None)
+    monkeypatch.setattr(pac, "_run", lambda args, timeout=8.0: (
+        _CP(0, "12345\n") if args[1:3] == ["search", "--class"] else _CP(1, "")))
+    assert pac.window_exists("spotify") is True
+
+
+def test_window_exists_false_when_nothing_found(monkeypatch):
+    monkeypatch.setattr(pac, "_system", lambda: "linux")
+    monkeypatch.setattr(pac.shutil, "which", lambda c: f"/usr/bin/{c}" if c == "xdotool" else None)
+    monkeypatch.setattr(pac, "_run", lambda args, timeout=8.0: _CP(0, ""))
+    assert pac.window_exists("spotify") is False

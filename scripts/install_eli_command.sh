@@ -94,3 +94,14 @@ if [ -n "$resolved" ] && [ "$resolved" != "$TARGET" ]; then
   echo "[install-command] warning: '$NAME' currently resolves to $resolved" >&2
   echo "[install-command] open a new terminal or run 'hash -r'; if it still resolves elsewhere, move $BIN_DIR earlier in PATH." >&2
 fi
+
+# command -v can't see shell aliases — a stale `alias eli=...` wins silently.
+for rc in "$HOME/.bashrc" "$HOME/.bash_aliases" "$HOME/.zshrc" "$HOME/.profile"; do
+  [ -f "$rc" ] || continue
+  hit="$(grep -En "^[[:space:]]*alias[[:space:]]+$NAME=" "$rc" 2>/dev/null | grep -vF "$TARGET" || true)"
+  if [ -n "$hit" ]; then
+    echo "[install-command] warning: $rc defines an 'alias $NAME=' NOT pointing at $TARGET:" >&2
+    echo "  $hit" >&2
+    echo "[install-command] that alias wins over this install in every interactive shell. Remove it (or run scripts/fix_eli_shell_env.sh)." >&2
+  fi
+done

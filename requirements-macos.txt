@@ -84,6 +84,7 @@ urllib3>=2.6
 # ── Server + runtime features (one-click parity across platforms; added 2026-06-18) ──
 fastapi>=0.110
 uvicorn>=0.27
+websockets>=14.0   # pinned explicitly — see requirements.txt for why
 paho-mqtt>=1.6,<3
 zeroconf>=0.70
 bleak>=0.21       # Bluetooth (BLE) device discovery (uses CoreBluetooth on macOS)

@@ -68,3 +68,19 @@ def test_dict_response_field_that_is_a_stream_is_consumed():
     out = to_user_visible_text({"response": _stream(["from", " dict"]), "action": "CHAT"})
     assert out == "from dict"
     assert "generator object" not in out
+
+
+def test_main_reply_done_sentinel_never_appears_in_visible_text():
+    """_stream_with_followthrough appends this marker, as its own plain-string
+    item, after the model's already-cleaned token stream — it must never show up
+    as text for any consumer of the raw generator."""
+    from eli.kernel.engine import MAIN_REPLY_DONE_SENTINEL
+
+    def gen():
+        yield "Real"
+        yield " reply"
+        yield MAIN_REPLY_DONE_SENTINEL
+
+    out = to_user_visible_text(gen())
+    assert out == "Real reply"
+    assert MAIN_REPLY_DONE_SENTINEL not in out

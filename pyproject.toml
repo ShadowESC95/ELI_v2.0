@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "eli-v2.0"
-version = "2.4.95"
+version = "2.4.96"
 description = "ELI v2.0 — Local cognitive runtime, assistant GUI, memory, tools, and GGUF inference"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -94,6 +94,7 @@ docs = [
 server = [
     "fastapi>=0.110",
     "uvicorn>=0.27",
+    "websockets>=14.0",   # pinned explicitly — see requirements.txt for why
     "paho-mqtt>=1.6,<3",  # ELI-native MQTT device server (no Home Assistant)
     "zeroconf>=0.70",     # mDNS device/broker discovery
     "bleak>=0.21",        # Bluetooth (BLE) device discovery (degrades cleanly if no radio)
@@ -142,6 +143,7 @@ media = [
 test = [
     "fastapi>=0.110",
     "uvicorn>=0.27",
+    "websockets>=14.0",   # pinned explicitly — see requirements.txt for why
     "httpx>=0.27",
     "paho-mqtt>=1.6,<3",
     "pyflakes>=3.0",

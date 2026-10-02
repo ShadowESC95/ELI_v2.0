@@ -359,6 +359,14 @@ def agent_db_path() -> Path:
         return Path(override).expanduser().resolve()
     return db_dir() / "agent.sqlite3"
 
+def orchestrator_audit_db_path() -> Path:
+    """Hash-chained orchestrator/DAG audit ledger. Separate from agent.sqlite3
+    on purpose — this one is append-only and must never be pruned."""
+    override = os.environ.get("ELI_ORCHESTRATOR_AUDIT_DB")
+    if override:
+        return Path(override).expanduser().resolve()
+    return db_dir() / "orchestrator_audit.sqlite3"
+
 def memory_db_path() -> Path:
     """Dedicated semantic memory + knowledge store.
 

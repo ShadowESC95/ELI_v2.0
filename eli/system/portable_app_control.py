@@ -96,6 +96,20 @@ def _popen(args: list[str]) -> bool:
         return False
 
 
+def _osa_quote(name: str) -> str:
+    """Escape a string for safe embedding inside a double-quoted AppleScript literal.
+
+    `name` here is ultimately `resolve_app()`'s output — a known installed app's
+    name, or (when nothing matches) the caller's raw query string verbatim. An LLM-
+    routed voice/text command can put arbitrary text in that query; every osascript
+    call in this file that interpolates it must go through this first, or a crafted
+    name containing a `"` can break out of the string and run arbitrary AppleScript
+    (including `do shell script`, i.e. the user's own shell) — command injection, not
+    a theoretical concern once the app name is attacker- or prompt-injection-influenced.
+    """
+    return str(name or "").replace("\\", "\\\\").replace('"', '\\"')
+
+
 def _result(ok: bool, action: str, text: str, **extra) -> dict:
     out = {"ok": bool(ok), "action": action, "content": text, "response": text}
     if not ok:
@@ -320,7 +334,7 @@ def close_app(name: str, force: bool = False) -> dict:
     if sysname == "darwin":
         osascript = shutil.which("osascript")
         if osascript:
-            cp = _run([osascript, "-e", f'tell application "{target.name}" to quit'])
+            cp = _run([osascript, "-e", f'tell application "{_osa_quote(target.name)}" to quit'])
             if cp.returncode == 0:
                 return _result(True, "CLOSE_APP", f"Closed app: {target.name}", resolved=target.__dict__)
 
@@ -371,7 +385,7 @@ def minimize_app(name: str) -> dict:
     if sysname == "darwin":
         osascript = shutil.which("osascript")
         if osascript:
-            script = f'tell application "System Events" to set miniaturized of windows of process "{target.name}" to true'
+            script = f'tell application "System Events" to set miniaturized of windows of process "{_osa_quote(target.name)}" to true'
             cp = _run([osascript, "-e", script])
             if cp.returncode == 0:
                 return _result(True, "MINIMIZE_APP", f"Minimized app/window: {target.name}", resolved=target.__dict__)
@@ -508,7 +522,7 @@ def maximize_app(name: str) -> dict:
         osascript = shutil.which("osascript")
         if osascript:
             script = (
-                f'tell application "System Events" to tell process "{target.name}" to '
+                f'tell application "System Events" to tell process "{_osa_quote(target.name)}" to '
                 f'click (first button whose subrole is "AXZoomButton") of window 1'
             )
             cp = _run([osascript, "-e", script])
@@ -608,7 +622,7 @@ def focus_app(name: str) -> dict:
                 return _result(True, "FOCUS_APP", f"Focused {target.name}.", resolved=target.__dict__)
     if sysname == "darwin":
         osascript = shutil.which("osascript")
-        if osascript and _run([osascript, "-e", f'tell application "{target.name}" to activate']).returncode == 0:
+        if osascript and _run([osascript, "-e", f'tell application "{_osa_quote(target.name)}" to activate']).returncode == 0:
             return _result(True, "FOCUS_APP", f"Focused {target.name}.", resolved=target.__dict__)
     if sysname == "windows":
         ps = shutil.which("powershell") or shutil.which("pwsh")
@@ -676,6 +690,54 @@ def active_window_matches(name: str) -> bool:
             )
             cp = _run([ps, "-NoProfile", "-Command", cmd])
             return cp.returncode == 0 and needle in cp.stdout.strip().lower()
+        return False
+    return False
+
+
+def window_exists(name: str) -> bool:
+    """True when a window matching `name` exists at all — not necessarily
+    focused, just mapped. A launched process can run for several seconds
+    (Electron apps especially) before its window actually appears; calling
+    focus_app()/active_window_matches() during that gap finds nothing to
+    focus and looks identical to the app having failed to launch at all.
+    Poll this first so "give it a moment" waits for the right thing.
+    """
+    target = resolve_app(name)
+    needle = (target.name or str(name or "")).strip().lower()
+    if not needle:
+        return False
+    sysname = _system()
+    if sysname == "linux":
+        xdotool = shutil.which("xdotool")
+        if xdotool:
+            cp = _run([xdotool, "search", "--class", needle])
+            if any(x.strip() for x in cp.stdout.splitlines()):
+                return True
+            cp = _run([xdotool, "search", "--name", needle])
+            return any(x.strip() for x in cp.stdout.splitlines())
+        wmctrl = shutil.which("wmctrl")
+        if wmctrl:
+            cp = _run([wmctrl, "-l"])
+            return needle in cp.stdout.lower()
+        return False
+    if sysname == "darwin":
+        osascript = shutil.which("osascript")
+        if osascript:
+            cp = _run([osascript, "-e",
+                       f'tell application "System Events" to (exists process "{_osa_quote(target.name)}")'])
+            return cp.returncode == 0 and cp.stdout.strip().lower() == "true"
+        return False
+    if sysname == "windows":
+        ps = shutil.which("powershell") or shutil.which("pwsh")
+        if ps:
+            safe = needle.replace("'", "''")
+            cmd = (
+                f"$q='{safe}'; (Get-Process | Where-Object {{ $_.MainWindowHandle -ne 0 -and "
+                "($_.MainWindowTitle -like \"*$q*\" -or $_.ProcessName -like \"*$q*\") } | "
+                "Measure-Object).Count -gt 0"
+            )
+            cp = _run([ps, "-NoProfile", "-Command", cmd])
+            return cp.returncode == 0 and cp.stdout.strip().lower() == "true"
         return False
     return False
 

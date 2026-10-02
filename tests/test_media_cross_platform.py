@@ -80,6 +80,7 @@ def test_spotify_search_type_and_play_drives_real_search_box(monkeypatch):
     import eli.utils.platform_compat as platc
     monkeypatch.setattr(pac, "focus_app", lambda name: calls.append(("focus", name)))
     monkeypatch.setattr(pac, "active_window_matches", lambda name: True)
+    monkeypatch.setattr(pac, "window_exists", lambda name: True)
     monkeypatch.setattr(platc, "key_press", lambda keys: calls.append(("key", keys)) or True)
     monkeypatch.setattr(platc, "type_text", lambda text: calls.append(("type", text)) or True)
 
@@ -102,6 +103,7 @@ def test_spotify_search_type_and_play_false_when_search_shortcut_unavailable(mon
     import eli.utils.platform_compat as platc
     monkeypatch.setattr(pac, "focus_app", lambda name: None)
     monkeypatch.setattr(pac, "active_window_matches", lambda name: True)
+    monkeypatch.setattr(pac, "window_exists", lambda name: True)
     monkeypatch.setattr(platc, "key_press", lambda keys: False)
     assert cp.spotify_search_type_and_play("anything") is False
 
@@ -121,6 +123,7 @@ def test_spotify_search_type_and_play_refuses_to_type_without_confirmed_focus(mo
     import eli.utils.platform_compat as platc
     monkeypatch.setattr(pac, "focus_app", lambda name: {"ok": True})
     monkeypatch.setattr(pac, "active_window_matches", lambda name: False)
+    monkeypatch.setattr(pac, "window_exists", lambda name: True)
     monkeypatch.setattr(platc, "key_press", lambda keys: calls.append(("key", keys)) or True)
     monkeypatch.setattr(platc, "type_text", lambda text: calls.append(("type", text)) or True)
 
@@ -142,6 +145,7 @@ def test_spotify_search_type_and_play_aborts_if_focus_lost_before_typing(monkeyp
     import eli.utils.platform_compat as platc
     monkeypatch.setattr(pac, "focus_app", lambda name: {"ok": True})
     monkeypatch.setattr(pac, "active_window_matches", lambda name: next(focus_checks))
+    monkeypatch.setattr(pac, "window_exists", lambda name: True)
     monkeypatch.setattr(platc, "key_press", lambda keys: True)
     monkeypatch.setattr(platc, "type_text", lambda text: typed.append(text) or True)
 
@@ -172,6 +176,7 @@ def test_spotify_search_type_and_play_does_not_claim_success_without_metadata_ma
     import eli.utils.platform_compat as platc
     monkeypatch.setattr(pac, "focus_app", lambda name: {"ok": True})
     monkeypatch.setattr(pac, "active_window_matches", lambda name: True)
+    monkeypatch.setattr(pac, "window_exists", lambda name: True)
     monkeypatch.setattr(platc, "key_press", lambda keys: True)
     monkeypatch.setattr(platc, "type_text", lambda text: True)
 
@@ -195,6 +200,7 @@ def test_spotify_search_type_and_play_retries_once_then_succeeds(monkeypatch):
     import eli.utils.platform_compat as platc
     monkeypatch.setattr(pac, "focus_app", lambda name: {"ok": True})
     monkeypatch.setattr(pac, "active_window_matches", lambda name: True)
+    monkeypatch.setattr(pac, "window_exists", lambda name: True)
     type_calls = []
     monkeypatch.setattr(platc, "key_press", lambda keys: True)
     monkeypatch.setattr(platc, "type_text", lambda text: type_calls.append(text) or True)

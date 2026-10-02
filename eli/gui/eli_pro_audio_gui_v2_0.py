@@ -4166,6 +4166,7 @@ class EliMainWindow(QMainWindow):
         # and is unrelated to what this one shows.)
         self.create_experimental_tab()
         self.create_eli_world_tab()
+        self.create_audit_tab()
         self.create_settings_tab()
         self.create_top_toolbar()
         self.status_bar = self.statusBar()
@@ -7568,6 +7569,98 @@ class EliMainWindow(QMainWindow):
         ("Advanced",    "⚙️"),
     ]
 
+    def refresh_audit_tab(self):
+        try:
+            from eli.runtime import orchestrator_audit_ledger as _oal
+        except Exception as exc:
+            self.audit_integrity_label.setText(f"⚠️ Audit ledger unavailable: {exc}")
+            return
+        try:
+            v = _oal.verify_chain()
+            if v.get("ok"):
+                self.audit_integrity_label.setText(
+                    f"✅ Chain intact — {v.get('checked', 0)} checked, "
+                    f"{v.get('chained', 0)} chained, keyed={v.get('keyed', False)}"
+                )
+            else:
+                fb = v.get("first_break") or {}
+                self.audit_integrity_label.setText(
+                    f"🛑 Chain broken at row {fb.get('id')}: {fb.get('reason')}"
+                )
+        except Exception as exc:
+            self.audit_integrity_label.setText(f"⚠️ Verify failed: {exc}")
+
+        try:
+            rows = _oal.recent_turns(limit=200)
+        except Exception as exc:
+            log.debug(f"[GUI] audit recent_turns failed: {exc}")
+            rows = []
+        self.audit_table.setRowCount(len(rows))
+        for i, row in enumerate(rows):
+            try:
+                ts_str = datetime.fromtimestamp(float(row.get("ts") or 0)).strftime("%Y-%m-%d %H:%M:%S")
+            except Exception:
+                ts_str = ""
+            conf = row.get("confidence")
+            conf_str = f"{float(conf):.2f}" if conf is not None else ""
+            elapsed = row.get("elapsed_ms")
+            elapsed_str = f"{float(elapsed):.0f}" if elapsed is not None else ""
+            values = [
+                ts_str, str(row.get("request_id") or ""), str(row.get("action") or ""),
+                str(row.get("agents_used") or ""),
+                conf_str, elapsed_str, "✅" if row.get("ok") else "❌", str(row.get("outcome") or ""),
+            ]
+            for col, val in enumerate(values):
+                self.audit_table.setItem(i, col, QTableWidgetItem(val))
+
+    def create_audit_tab(self):
+        widget = QWidget()
+        layout = QVBoxLayout(widget)
+
+        header = QLabel("🔒 Orchestrator Audit")
+        header.setStyleSheet("font-size: 13px; font-weight: bold; padding: 6px;")
+        layout.addWidget(header)
+
+        hint = QLabel("Tamper-evident, metadata-only record of each turn's real outcome — "
+                      "no prompt or response content. HMAC-chained; editing, deleting or "
+                      "reordering a row breaks the chain and Verify Chain reports it.")
+        hint.setWordWrap(True)
+        hint.setStyleSheet("color:#88909c;font-size:10px;padding:2px 6px;")
+        layout.addWidget(hint)
+
+        self.audit_integrity_label = QLabel("Not yet checked.")
+        self.audit_integrity_label.setStyleSheet("padding:4px 6px;")
+        layout.addWidget(self.audit_integrity_label)
+
+        toolbar = QHBoxLayout()
+        refresh_btn = QPushButton("🔄 Refresh")
+        refresh_btn.clicked.connect(self.refresh_audit_tab)
+        toolbar.addWidget(refresh_btn)
+        verify_btn = QPushButton("✅ Verify Chain")
+        verify_btn.clicked.connect(self.refresh_audit_tab)
+        toolbar.addWidget(verify_btn)
+        toolbar.addStretch()
+        layout.addLayout(toolbar)
+
+        self.audit_table = QTableWidget()
+        self.audit_table.setColumnCount(8)
+        self.audit_table.setHorizontalHeaderLabels(
+            ["Time", "Request", "Action", "Agents", "Confidence", "Elapsed(ms)", "OK", "Outcome"])
+        self.audit_table.horizontalHeader().setStretchLastSection(True)
+        select_rows = getattr(
+            getattr(QAbstractItemView, "SelectionBehavior", QAbstractItemView), "SelectRows")
+        self.audit_table.setSelectionBehavior(select_rows)
+        self.audit_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        layout.addWidget(self.audit_table)
+
+        self.refresh_audit_tab()
+        self._audit_tab_timer = QTimer(self)
+        self._audit_tab_timer.setInterval(15_000)
+        self._audit_tab_timer.timeout.connect(self.refresh_audit_tab)
+        self._audit_tab_timer.start()
+
+        self.tabs.addTab(widget, "🔒 Audit")
+
     def create_settings_tab(self):
         root = QWidget()
         self._settings_root = root
@@ -9414,6 +9507,48 @@ class EliMainWindow(QMainWindow):
             return
 
         try:
+            # uvicorn needs websockets>=14 — self-heal an old/unpinned one live.
+            try:
+                from websockets.server import ServerProtocol  # noqa: F401
+            except ImportError:
+                log.warning("[SERVER] websockets package too old for uvicorn's "
+                            "WebSocket support — upgrading in place")
+                _pip_base = [sys.executable, "-m", "pip", "install", "--quiet",
+                             "--upgrade", "websockets>=14.0"]
+                _upgraded = False
+                try:
+                    subprocess.run(_pip_base, timeout=60, check=True,
+                                    capture_output=True, text=True)
+                    _upgraded = True
+                except subprocess.CalledProcessError as _ws_fix_err:
+                    # PEP 668 (bare system python, not our venv) blocks plain pip — retry once.
+                    _stderr = (_ws_fix_err.stderr or "")
+                    if "externally-managed-environment" in _stderr:
+                        try:
+                            subprocess.run(_pip_base + ["--break-system-packages"],
+                                           timeout=60, check=True,
+                                           capture_output=True, text=True)
+                            _upgraded = True
+                        except Exception as _ws_fix_err2:
+                            log.warning("[SERVER] websockets self-upgrade failed even with "
+                                        "--break-system-packages: %s", _ws_fix_err2)
+                    else:
+                        log.warning("[SERVER] websockets self-upgrade failed: %s", _ws_fix_err)
+                except Exception as _ws_fix_err:
+                    log.warning("[SERVER] websockets self-upgrade failed: %s", _ws_fix_err)
+                if _upgraded:
+                    try:
+                        import importlib
+                        import websockets.server as _ws_server
+                        importlib.reload(_ws_server)
+                    except Exception as _ws_fix_err3:
+                        log.warning("[SERVER] websockets reload after upgrade failed: %s",
+                                    _ws_fix_err3)
+                else:
+                    log.warning("[SERVER] could not self-heal websockets — run manually: "
+                                 "%s -m pip install --break-system-packages 'websockets>=14.0'",
+                                 sys.executable)
+
             import uvicorn
             from api.server import app as _app
             # Signal handlers are auto-skipped off the main thread; safe in a Qt app.
@@ -10498,9 +10633,19 @@ class EliMainWindow(QMainWindow):
             # HardwareTuningLogRelay) — one source of truth, not a second figure
             # computed for the panel.
             from eli.core.hardware_profile import describe_gpu_layers as _describe_gpu_rec
+            try:
+                from eli.core import moe_offload as _moe_status_rec
+                _moe_plan_rec = _moe_status_rec.plan_for_load(model_path, True)
+            except Exception:
+                _moe_plan_rec = None
+            _moe_note_rec = (
+                f" ({_moe_plan_rec['resident_gb']:.1f}GB on GPU, "
+                f"{_moe_plan_rec['experts_gb']:.1f}GB of experts always in RAM)"
+                if _moe_plan_rec else ""
+            )
             summary = (
                 f"HW Profile (recommended): ctx={int(rec.n_ctx)} "
-                f"gpu_layers={_describe_gpu_rec(rec.n_gpu_layers)} "
+                f"gpu_layers={_describe_gpu_rec(rec.n_gpu_layers)}{_moe_note_rec} "
                 f"threads={int(rec.n_threads)} batch={int(rec.batch_size)} "
                 f"kv={_ck or 'fp16'}"
             )
@@ -10886,10 +11031,23 @@ class EliMainWindow(QMainWindow):
                             gpu_name=str(getattr(model_manager, 'gpu_name', '') or ''),
                             gpu_vendor=str(getattr(model_manager, 'gpu_vendor', '') or ''),
                         )
+                        # "gpu=40" alone misreads as 40/40 fully resident — for MoE, only
+                        # the small core tensors offload; experts stay in RAM. Show both.
+                        try:
+                            from eli.core import moe_offload as _moe_status
+                            _moe_plan = _moe_status.plan_for_load(model_path, True)
+                        except Exception:
+                            _moe_plan = None
+                        _moe_note = ""
+                        if _moe_plan:
+                            _moe_note = (
+                                f", {_moe_plan['resident_gb']:.1f}GB actually on GPU — "
+                                f"{_moe_plan['experts_gb']:.1f}GB of experts always stay in RAM"
+                            )
                         self.status_signal.emit(
                             f"🟢 Model ready: {model_name_display} "
                             f"(ctx={int(getattr(model_manager, 'n_ctx', 0) or 0)} "
-                            f"gpu={_gpu_disp} "
+                            f"gpu={_gpu_disp}{_moe_note} "
                             f"batch={int(getattr(model_manager, 'n_batch', 0) or 0)})"
                         )
                     else:
@@ -10999,10 +11157,7 @@ class EliMainWindow(QMainWindow):
         else:
             self.send_message()
 
-    def stop_generation(self):
-        """Abort the in-flight model response so a new message can be sent."""
-        if not getattr(self, "is_generating", False):
-            return
+    def _request_generation_cancel(self):
         self._cancel_stream_requested = True
         try:
             from eli.cognition import gguf_inference as _ggi
@@ -11015,6 +11170,12 @@ class EliMainWindow(QMainWindow):
                 _ce.cancel_generation()
         except Exception:
             log.debug("[GUI] cognitive engine cancel failed", exc_info=True)
+
+    def stop_generation(self):
+        """Abort the in-flight model response so a new message can be sent."""
+        if not getattr(self, "is_generating", False):
+            return
+        self._request_generation_cancel()
         self.status_signal.emit("Stopping generation…")
 
     def send_message(self):
@@ -11061,6 +11222,12 @@ class EliMainWindow(QMainWindow):
         backend = self._text_backend_ready(notify=True)
         if backend is None:
             return
+
+        # A prior worker's followthrough tail may still be running — stop it first.
+        _prior_thread = getattr(self, "_generate_thread", None)
+        if _prior_thread is not None and _prior_thread.is_alive():
+            self._request_generation_cancel()
+            _prior_thread.join(timeout=2.0)
 
         self.is_generating = True
         self._cancel_stream_requested = False
@@ -11120,6 +11287,10 @@ class EliMainWindow(QMainWindow):
                 _response_streamed = False
                 _storage_handled = False  # CognitiveEngine stores turns internally
                 _was_cancelled = False
+                try:
+                    from eli.kernel.engine import MAIN_REPLY_DONE_SENTINEL as _MAIN_REPLY_DONE
+                except Exception:
+                    _MAIN_REPLY_DONE = "__MAIN_REPLY_DONE__"
 
                 def _generation_cancelled() -> bool:
                     if getattr(self, "_cancel_stream_requested", False):
@@ -11142,6 +11313,12 @@ class EliMainWindow(QMainWindow):
                                 break
                             token = str(token or "")
                             if not token:
+                                continue
+                            if token == _MAIN_REPLY_DONE:
+                                # Visible reply done — don't make the user wait on followthrough.
+                                self.is_generating = False
+                                self.status_signal.emit('Send enabled')
+                                self.status_signal.emit('🟢 Ready')
                                 continue
                             full_tokens.append(token)
                             if first_token:
@@ -11299,7 +11476,8 @@ class EliMainWindow(QMainWindow):
                 self.status_signal.emit('Send enabled')
                 self.status_signal.emit('🟢 Ready')
 
-        threading.Thread(target=generate_worker, daemon=True).start()
+        self._generate_thread = threading.Thread(target=generate_worker, daemon=True)
+        self._generate_thread.start()
 
     # ---------- Chat management methods ----------
     def clear_chat(self):

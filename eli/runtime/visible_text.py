@@ -4,13 +4,18 @@ from typing import Any
 
 
 def _consume_generator(gen: Any) -> str:
+    try:
+        from eli.kernel.engine import MAIN_REPLY_DONE_SENTINEL as _done
+    except Exception:
+        _done = "__MAIN_REPLY_DONE__"
     parts: list[str] = []
     for chunk in gen:
         if chunk is None:
             continue
 
         if isinstance(chunk, str):
-            parts.append(chunk)
+            if chunk != _done:
+                parts.append(chunk)
             continue
 
         if isinstance(chunk, dict):

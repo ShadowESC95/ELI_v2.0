@@ -27,7 +27,7 @@ import os
 import pytest
 
 from eli.runtime import last_trace as lt
-from eli.runtime.control_contracts import _trace_text
+from eli.runtime.control_contracts import _trace_text, _trace_header_line, build_control_evidence
 
 
 @pytest.fixture(autouse=True)
@@ -132,6 +132,37 @@ def test_a_trace_without_text_still_renders():
 
 def test_no_trace_says_so_rather_than_inventing_one():
     assert "trace_available: false" in _trace_text({})
+
+
+# ── EXPLAIN_LAST_RESPONSE gets a plain-language header before the raw trace ──
+# Live report (2026-10-02): a blunt "what happened?" got a wall of raw telemetry
+# with zero framing. The header is template-built from trace fields already
+# asserted above — never LLM-generated, so no new hallucination surface.
+
+def test_header_line_states_action_confidence_agents_grounded():
+    out = _trace_header_line(_trace(route_action="NEWS_FETCH", confidence_label="very high",
+                                     agents_used=["system", "voice", "file_code"], grounded=True))
+    assert out == "That was a NEWS_FETCH reply — very high confidence, 3 agents, grounded."
+
+
+def test_header_line_empty_for_no_trace():
+    assert _trace_header_line({}) == ""
+
+
+def test_header_line_derives_only_from_fields_already_in_the_trace():
+    """No new data source — every word traces back to a field _trace_text already uses."""
+    t = _trace(route_action="CHAT", confidence_label="low", agents_used=[], grounded=False)
+    out = _trace_header_line(t)
+    assert "CHAT" in out and "low" in out
+    assert "grounded" not in out  # grounded=False must not claim it
+
+
+def test_explain_last_response_leads_with_the_header_then_the_trace():
+    engine = type("E", (), {"_last_request_meta": _trace()})()
+    result = build_control_evidence(engine, "EXPLAIN_LAST_RESPONSE", {}, "what happened?")
+    text = result["content"]
+    assert text.startswith("That was a CHAT reply")
+    assert text.index("That was a CHAT reply") < text.index("Previous-response trace evidence:")
 
 
 # ── the streaming path must persist ─────────────────────────────────────────

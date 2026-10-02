@@ -929,10 +929,9 @@ class StartupModelSelectionDialog(QDialog):
                             )
                         except Exception:
                             log.debug("startup MoE preview lookup failed", exc_info=True)
-                    _fc, _fl, _fb = unified_fit_config(
-                        _size_gb,
-                        _hw.free_vram_mb if _use_gpu else 0,
-                        _hw.available_ram_gb,
+                    from eli.core.runtime_settings import pinned_gpu_layers_for_model
+                    _pin = pinned_gpu_layers_for_model(str(_mp), current_ctx=max(2048, _ctx))
+                    _fit_common = dict(
                         user_ctx=max(2048, _ctx),
                         user_batch=max(128, _batch),
                         reserve_mb=vram_reserve_mb(gpu_integrated=_hw.gpu_integrated),
@@ -943,6 +942,10 @@ class StartupModelSelectionDialog(QDialog):
                         force_cpu=not _use_gpu,
                         moe_resident_gb=(_moe_preview["resident_gb"] if _moe_preview else None),
                     )
+                    _fc, _fl, _fb = unified_fit_config(
+                        _size_gb, _hw.free_vram_mb if _use_gpu else 0, _hw.available_ram_gb,
+                        user_gpu_layers=_pin, **_fit_common,
+                    )
                     _fit_line = (
                         f"  |  preview fit ({_fit_mode}): ctx={_fc} "
                         f"gpu={describe_gpu_layers(_fl)} batch={_fb}"
@@ -951,6 +954,20 @@ class StartupModelSelectionDialog(QDialog):
                         _fit_line += (
                             f" (MoE: ~{_moe_preview['experts_gb']}GB experts stay in RAM)"
                         )
+                    # Show the uncapped fit too, so the pin's headroom gap is explained.
+                    if _pin:
+                        try:
+                            _uc_fc, _uc_fl, _uc_fb = unified_fit_config(
+                                _size_gb, _hw.free_vram_mb if _use_gpu else 0,
+                                _hw.available_ram_gb, user_gpu_layers=None, **_fit_common,
+                            )
+                            if _uc_fl > _fl:
+                                _fit_line += (
+                                    f" (pinned to {_fl} — up to {_uc_fl} would fit; "
+                                    f"change in Hardware Tuning)"
+                                )
+                        except Exception:
+                            log.debug("startup uncapped fit preview failed", exc_info=True)
                 except Exception:
                     log.debug("startup fit preview failed", exc_info=True)
             if not _hw.has_gpu:
