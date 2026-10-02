@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-30T12:03:57",
+  "generated_at": "2026-10-02T22:43:48",
   "total": 229,
   "capabilities": [
     {
@@ -11,7 +11,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.1611028,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "AMBIENT_VISION",
@@ -22,7 +29,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.176678,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "ANALYZE_CSV",
@@ -33,7 +47,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.189013,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "ANALYZE_IMAGE",
@@ -44,7 +65,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.2001688,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "ANALYZE_PDF",
@@ -55,7 +83,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.2127156,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "ANALYZE_PDF_FOLDER",
@@ -66,7 +101,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.223789,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "ANSWER",
@@ -77,7 +119,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977426.233941,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "AUTOPILOT_DEBUG",
@@ -88,7 +137,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.245398,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "AWARENESS_STATUS",
@@ -99,7 +155,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.2560992,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "BACKGROUND_JOBS",
@@ -110,7 +173,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.2666197,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CANCEL_CODE_FIX",
@@ -121,7 +191,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.2769446,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CANCEL_PENDING_REMEDIATION",
@@ -132,7 +209,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977426.287112,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CHAT",
@@ -143,7 +227,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.2974243,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CHECK_CHRONAL_ALIGNMENT",
@@ -154,7 +245,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.3081026,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CHECK_JOB",
@@ -165,7 +263,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.3189683,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CHECK_TARGET_STATUS",
@@ -176,7 +281,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977426.337055,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CLEAR_CHAT_HISTORY",
@@ -187,7 +299,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.3479373,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CLEAR_TONE",
@@ -198,7 +317,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.3586853,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CLOSE_APP",
@@ -209,7 +335,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.3691924,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CLOSE_APPLICATION",
@@ -220,7 +353,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977426.3810115,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CODEBASE_GRAPH",
@@ -231,7 +371,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.3921535,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CODE_CHANGES",
@@ -242,7 +389,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.4020104,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CODE_SOLVE",
@@ -253,7 +407,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.4125626,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "COGNITION_STATUS",
@@ -264,7 +425,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.4237332,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CONFIRM_CODE_FIX",
@@ -275,7 +443,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.4350066,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CONFIRM_HABIT",
@@ -286,7 +461,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.4485388,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CONFIRM_PENDING_REMEDIATION",
@@ -297,7 +479,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977426.4595783,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CONVERT_DOCUMENT",
@@ -308,7 +497,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.4715188,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CPU_USAGE",
@@ -319,7 +515,14 @@
       "plugin": "system_stats",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.483139,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CREATE_DOC",
@@ -330,7 +533,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977426.4962165,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CREATE_DOCUMENT",
@@ -341,7 +551,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.507487,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CREATE_FILE",
@@ -352,7 +569,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.5179303,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CREATE_FOLDER",
@@ -363,7 +587,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.5297093,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CREATE_SCRIPT",
@@ -374,7 +605,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977426.5407388,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "CREATE_VOICE",
@@ -385,7 +623,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.551254,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "DATA_FABRICATOR",
@@ -396,7 +641,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.5626376,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "DATE",
@@ -407,7 +659,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.5744102,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "DECLINE_HABIT",
@@ -418,7 +677,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.584982,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "DESIGN_VOICE",
@@ -429,7 +695,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.598329,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "DIAGNOSE_WRAPPERS",
@@ -440,7 +713,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.6090984,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "DICTATE",
@@ -451,7 +731,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.621044,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "DIRECT_RESPONSE",
@@ -462,7 +749,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977426.6318126,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "DOC_GENERATE",
@@ -473,7 +767,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.6425154,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "DOWNLOAD_VOICE",
@@ -484,7 +785,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.651997,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "ELI_IDENTITY_AUDIT",
@@ -495,7 +803,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.6625853,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "EXAMINE_CODE",
@@ -506,7 +821,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.6727753,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "EXECUTE_GOAL",
@@ -517,7 +839,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.683137,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "EXIT_APP",
@@ -528,7 +857,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977426.693635,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "EXPLAIN_ALL_REASONING_MODES",
@@ -539,7 +875,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.7036853,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "EXPLAIN_COGNITION_RUNTIME",
@@ -550,7 +893,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.7142127,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "EXPLAIN_FAILURE_LOG",
@@ -561,7 +911,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.7263494,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "EXPLAIN_GGUF_DIAGNOSTICS",
@@ -572,7 +929,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.7366562,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "EXPLAIN_LAST_FAILURE",
@@ -583,7 +947,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.7469606,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "EXPLAIN_LAST_RESPONSE",
@@ -594,7 +965,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.760528,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "EXPLAIN_MEMORY_RUNTIME",
@@ -605,7 +983,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.7713075,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "FILE_AUDIT",
@@ -616,7 +1001,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.7816076,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "FIX_FILE",
@@ -627,7 +1019,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.7926416,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "FOCUS_APP",
@@ -638,7 +1037,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.8036165,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "FRONTIER_STATUS",
@@ -649,7 +1055,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.8144603,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GAZE_CALIBRATE",
@@ -660,7 +1073,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.8255436,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GAZE_CLICK",
@@ -671,7 +1091,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.836035,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GAZE_DISABLE",
@@ -682,7 +1109,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.8473058,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GAZE_ENABLE",
@@ -693,7 +1127,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.8590326,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GAZE_STATUS",
@@ -704,7 +1145,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.8698678,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GENERATE_CODE",
@@ -715,7 +1163,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977426.8807554,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GENERATE_DOCUMENT",
@@ -726,7 +1181,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.8927622,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GENERATE_PROJECT",
@@ -737,7 +1199,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.9049554,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GENERATE_SCRIPT",
@@ -748,7 +1217,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.9162683,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GENERATE_TESTS",
@@ -759,7 +1235,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.9277873,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GET_CLIPBOARD",
@@ -770,7 +1253,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.938126,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GET_DATE",
@@ -781,7 +1271,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.9489932,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GET_PROPOSALS",
@@ -792,7 +1289,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.960406,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GET_STATUS",
@@ -803,7 +1307,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.9708993,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GET_TIME",
@@ -814,7 +1325,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.9817295,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GET_WEATHER",
@@ -825,7 +1343,14 @@
       "plugin": "weather",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977426.9941044,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GPU_STATUS",
@@ -836,7 +1361,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.0047703,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "GUI_RUNTIME_AUDIT",
@@ -847,7 +1379,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.0146227,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "HABIT_STATUS",
@@ -858,7 +1397,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.0264478,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "HARDWARE_PROFILE",
@@ -869,7 +1415,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.0390215,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "HELP",
@@ -880,7 +1433,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.0492208,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "HIDE_APP",
@@ -891,7 +1451,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.0605094,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "IMAGE_STATUS",
@@ -902,7 +1469,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.0707264,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "IMPORT_AUDIT",
@@ -913,7 +1487,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.0816936,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "KEYBOARD",
@@ -924,7 +1505,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.0932076,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "LAUNCH_APP",
@@ -935,7 +1523,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977427.103523,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "LISTEN_FOR_COMMAND",
@@ -946,7 +1541,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.1142943,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "LIST_CAPABILITIES",
@@ -957,7 +1559,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.125849,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "LIST_DIR",
@@ -968,7 +1577,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.1362827,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "LIST_EVENTS",
@@ -979,7 +1595,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.14697,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "LIST_NOTES",
@@ -990,7 +1613,14 @@
       "plugin": "notes",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.1575518,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "LIST_VOICES",
@@ -1001,7 +1631,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.1685576,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "LORA_STATUS",
@@ -1012,7 +1649,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.1813416,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "LORA_TRAIN",
@@ -1023,7 +1667,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.1920638,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MAXIMISE_WINDOW",
@@ -1034,7 +1685,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.2023377,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MCP_ADD",
@@ -1045,7 +1703,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.2125678,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MCP_CALL",
@@ -1056,7 +1721,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.2231872,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MCP_DOCTOR",
@@ -1067,7 +1739,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.2338293,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MCP_LIST",
@@ -1078,7 +1757,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.2446165,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MCP_REMOVE",
@@ -1089,7 +1775,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.2553327,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MCP_STATUS",
@@ -1100,7 +1793,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.2661,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MCP_TOOLS",
@@ -1111,18 +1811,32 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.2782948,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MEDIA_CONTROL",
       "source": "executor+router",
       "active": true,
       "health": null,
-      "last_verified_success": null,
+      "last_verified_success": 1790945616.5838883,
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.2914257,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MEMORY_FORGET",
@@ -1133,7 +1847,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.3031473,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MEMORY_RECALL",
@@ -1144,7 +1865,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.316899,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MEMORY_STATS",
@@ -1155,7 +1883,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.3289003,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MEMORY_STATUS",
@@ -1166,7 +1901,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.339129,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MEMORY_STORE",
@@ -1177,7 +1919,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.3620353,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MESSAGE_TIME_QUERY",
@@ -1188,7 +1937,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.3728688,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MINIMISE_ALL",
@@ -1199,7 +1955,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.3835042,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MINIMISE_APP",
@@ -1210,7 +1973,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.3944442,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MINIMISE_WINDOW",
@@ -1221,7 +1991,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.4049575,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MINIMIZE_APP",
@@ -1232,7 +2009,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.4154499,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MINIMIZE_WINDOW",
@@ -1243,7 +2027,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.4259658,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MORNING_REPORT",
@@ -1254,7 +2045,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.4360826,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MOUSE_CONTROL",
@@ -1265,7 +2063,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.4471343,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "MULTI_COMMAND",
@@ -1276,7 +2081,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.4580278,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "NAME_SOURCE_AUDIT",
@@ -1287,18 +2099,32 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.4704335,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "NEWS_FETCH",
       "source": "executor+router",
       "active": true,
       "health": null,
-      "last_verified_success": null,
+      "last_verified_success": 1790946185.6650882,
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.4820755,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "NEW_NOTE",
@@ -1309,7 +2135,14 @@
       "plugin": "notes",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.4926853,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "NEXT_MEDIA",
@@ -1320,7 +2153,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.5035753,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "NEXT_WINDOW",
@@ -1331,7 +2171,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.5146675,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "NOOP",
@@ -1342,18 +2189,32 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977427.5262032,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "NOW_PLAYING",
       "source": "executor+router",
       "active": true,
       "health": null,
-      "last_verified_success": null,
+      "last_verified_success": 1790945924.0223927,
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.5365005,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OCR_IMAGE",
@@ -1364,7 +2225,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.5471258,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_APP",
@@ -1375,7 +2243,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.5584657,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_APPLICATION",
@@ -1386,7 +2261,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977427.569229,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_AUDIO_SETTINGS",
@@ -1397,7 +2279,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.5792532,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_BROWSER",
@@ -1408,7 +2297,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.5897746,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_COMMUNICATION_HUB",
@@ -1419,7 +2315,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.6001365,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_FILE_SYSTEM",
@@ -1430,7 +2333,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.6124923,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_IDE",
@@ -1441,7 +2351,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.6245432,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_IN_IDE",
@@ -1452,7 +2369,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.6351879,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_MEDIA_HUB",
@@ -1463,7 +2387,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.6466646,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_NETWORK_BROWSER",
@@ -1474,7 +2405,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.6575406,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_POWER_SETTINGS",
@@ -1485,7 +2423,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.6678777,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_SYSTEM_SETTINGS",
@@ -1496,7 +2441,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.6784716,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "OPEN_URL",
@@ -1507,7 +2459,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.6897678,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "ORCHESTRATION_STATUS",
@@ -1518,18 +2477,32 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.7019532,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PAUSE_MEDIA",
       "source": "executor+router",
       "active": true,
       "health": null,
-      "last_verified_success": null,
+      "last_verified_success": 1790945546.194734,
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.7120466,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PERSONAL_MEMORY_DEEP_EXPLAIN",
@@ -1540,7 +2513,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.722661,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PERSONAL_MEMORY_SUMMARY",
@@ -1551,7 +2531,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.7330894,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PERSONA_LOCK_CLEAR",
@@ -1562,7 +2549,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.745147,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PERSONA_LOCK_SET",
@@ -1573,7 +2567,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.7549582,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PERSONA_LOCK_STATUS",
@@ -1584,7 +2585,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.7654626,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PERSONA_REFRESH",
@@ -1595,18 +2603,32 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.7766876,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PLAY_MEDIA",
       "source": "executor+router",
       "active": true,
-      "health": null,
-      "last_verified_success": null,
+      "health": 0.7956,
+      "last_verified_success": 1790945719.6825755,
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.786935,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PLUGIN_DISABLE",
@@ -1617,7 +2639,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.7974162,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PLUGIN_ENABLE",
@@ -1628,7 +2657,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.8077261,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PLUGIN_INSTALL",
@@ -1639,7 +2675,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.81797,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PLUGIN_LIST",
@@ -1650,7 +2693,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.8313475,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PLUGIN_SEARCH",
@@ -1661,7 +2711,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.8425548,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PLUGIN_STATUS",
@@ -1672,7 +2729,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.8530214,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PLUGIN_UNINSTALL",
@@ -1683,7 +2747,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.8632238,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "POMODORO_START",
@@ -1694,7 +2765,14 @@
       "plugin": "pomodoro",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.8744261,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "POMODORO_STATUS",
@@ -1705,7 +2783,14 @@
       "plugin": "pomodoro",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.8856287,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "POMODORO_STOP",
@@ -1716,7 +2801,14 @@
       "plugin": "pomodoro",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.8961248,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PREPARE_REMEDIATION",
@@ -1727,7 +2819,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977427.9062457,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PREVIOUS_MEDIA",
@@ -1738,7 +2837,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.916411,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PREVIOUS_WINDOW",
@@ -1749,7 +2855,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.9292102,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PROACTIVE_START",
@@ -1760,7 +2873,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.9395921,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PROACTIVE_STATUS",
@@ -1771,7 +2891,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.9494262,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "PROACTIVE_STOP",
@@ -1782,7 +2909,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.9603145,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "QUIT_APP",
@@ -1793,7 +2927,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977427.9706285,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "RAM_USAGE",
@@ -1804,7 +2945,14 @@
       "plugin": "system_stats",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.9816184,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "READ_FILE",
@@ -1815,7 +2963,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977427.992293,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "REASONING_MODE_STATUS",
@@ -1826,7 +2981,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.002833,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "REFRESH_USER_INFO",
@@ -1837,7 +2999,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.0148265,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "REPEAT_MEDIA",
@@ -1848,7 +3017,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.0269353,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "RESOLVE_RUNTIME_PATHS",
@@ -1859,7 +3035,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.037155,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "RESTORE_WINDOWS",
@@ -1870,7 +3053,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.0485115,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "RESUME_TASK",
@@ -1881,7 +3071,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977428.0594397,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "ROUTING_FAULT_EXPLAIN",
@@ -1892,7 +3089,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977428.0692239,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "RUNTIME_AUDIT",
@@ -1903,7 +3107,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.0799687,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "RUNTIME_STATUS",
@@ -1914,18 +3125,32 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.0903308,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "RUN_CMD",
       "source": "executor",
       "active": true,
-      "health": 0.1434,
+      "health": 0.1461,
       "last_verified_success": 1790337511.4028225,
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.1003573,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "RUN_TESTS",
@@ -1936,7 +3161,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.1110024,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SAY",
@@ -1947,7 +3179,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977428.1210237,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SCHEDULE_TASK",
@@ -1958,7 +3197,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.131926,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SCREENSHOT",
@@ -1969,7 +3215,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.1428502,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SCREEN_LOCATE",
@@ -1980,7 +3233,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.1541548,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SCREEN_READ_ANALYZE",
@@ -1991,7 +3251,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.1661353,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SEARCH_NOTES",
@@ -2002,7 +3269,14 @@
       "plugin": "notes",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.177643,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SELF_ANALYZE",
@@ -2013,7 +3287,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.1883035,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SELF_IMPROVE",
@@ -2024,7 +3305,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.1982224,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SELF_IMPROVEMENT_LOG",
@@ -2035,7 +3323,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.2092834,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SELF_PATCH",
@@ -2046,7 +3341,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.219869,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SELF_REPAIR_PLAYBOOK",
@@ -2057,7 +3359,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.2304676,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SELF_REPORT",
@@ -2068,7 +3377,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.2400367,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SELF_TEST",
@@ -2079,7 +3395,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.251551,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SELF_UPDATE",
@@ -2090,7 +3413,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.2666547,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SELF_UPGRADE",
@@ -2101,7 +3431,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.2773268,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SEQUENCE",
@@ -2112,7 +3449,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.2899,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SET_AI_MODE",
@@ -2123,7 +3467,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.3002877,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SET_ALARM",
@@ -2134,7 +3485,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.3111722,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SET_CLIPBOARD",
@@ -2145,7 +3503,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.3220432,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SET_COMMUNICATION_STYLE",
@@ -2156,7 +3521,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.3325868,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SET_TIMER",
@@ -2167,7 +3539,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.3436778,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SET_TONE",
@@ -2178,7 +3557,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.3537831,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SET_USER_NAME",
@@ -2189,7 +3575,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.364914,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SET_VOICE",
@@ -2200,7 +3593,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.3757362,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SHELL_EXEC",
@@ -2211,7 +3611,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.385754,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SHOW_DIFF",
@@ -2222,7 +3629,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.3952775,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SHUFFLE_MEDIA",
@@ -2233,7 +3647,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.405813,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SKIP_YOUTUBE_AD",
@@ -2244,7 +3665,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.4200552,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SMART_HOME",
@@ -2255,7 +3683,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.431521,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SPEAK",
@@ -2266,7 +3701,14 @@
       "plugin": "tts",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.44206,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "STOP_MEDIA",
@@ -2277,7 +3719,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.4522374,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "STT_DIAGNOSTICS",
@@ -2288,7 +3737,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.462983,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SUMMARIZE_FILE",
@@ -2299,7 +3755,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.4731522,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SWITCH_WORKSPACE",
@@ -2310,7 +3773,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.4835768,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "SYSTEM_STATS",
@@ -2321,7 +3791,14 @@
       "plugin": "system_stats",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.4946268,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "TEST_REVIEW",
@@ -2332,7 +3809,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.504551,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "TILE_WINDOWS",
@@ -2343,7 +3827,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.5155742,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "TIME",
@@ -2354,7 +3845,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.5260189,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "TIMESTAMP_DIAG",
@@ -2365,7 +3863,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977428.536148,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "TRAIN_VOICE",
@@ -2376,7 +3881,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.546551,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "TRANSCRIBE",
@@ -2387,7 +3899,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.5590072,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "USER_IDENTITY_SUMMARY",
@@ -2398,7 +3917,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.5688744,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "USER_INFO_REPORT",
@@ -2409,7 +3935,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.5789397,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "VOICE_DIAGNOSTICS",
@@ -2420,18 +3953,32 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977428.5890782,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "VOLUME",
       "source": "executor+router",
       "active": true,
       "health": null,
-      "last_verified_success": null,
+      "last_verified_success": 1790945622.6583757,
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.5997298,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "WAKE_ENROLL",
@@ -2442,7 +3989,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.6106634,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "WAKE_SET",
@@ -2453,7 +4007,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.6210196,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "WAKE_TRAIN",
@@ -2464,18 +4025,32 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.6317198,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "WEB_SEARCH",
       "source": "executor+router+plugin:web",
       "active": true,
       "health": null,
-      "last_verified_success": null,
+      "last_verified_success": 1790945774.7258997,
       "plugin": "web",
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.6422796,
+      "dependency_ready": null,
+      "permission_state": "undetermined",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "WRITE_CODE",
@@ -2486,7 +4061,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977428.6528716,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "WRITE_DOCUMENT",
@@ -2497,7 +4079,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977428.664994,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "WRITE_NOTE",
@@ -2508,7 +4097,14 @@
       "plugin": null,
       "routable": true,
       "in_dispatch": true,
-      "in_supported_list": true
+      "in_supported_list": true,
+      "discovered_at": 1790977428.6752481,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     },
     {
       "action": "WRITE_SCRIPT",
@@ -2519,7 +4115,14 @@
       "plugin": null,
       "routable": false,
       "in_dispatch": true,
-      "in_supported_list": false
+      "in_supported_list": false,
+      "discovered_at": 1790977428.6855283,
+      "dependency_ready": null,
+      "permission_state": "not_applicable",
+      "reachable": null,
+      "device_available": null,
+      "last_probe_at": null,
+      "evidence_state": null
     }
   ]
 }

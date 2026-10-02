@@ -367,6 +367,15 @@ def orchestrator_audit_db_path() -> Path:
         return Path(override).expanduser().resolve()
     return db_dir() / "orchestrator_audit.sqlite3"
 
+def capability_state_db_path() -> Path:
+    """Incremental per-capability state (eli.runtime.capability_state) — current
+    known state per action, updated in place. Not append-only like the audit
+    ledgers above: this is mutable state, not an event history."""
+    override = os.environ.get("ELI_CAPABILITY_STATE_DB")
+    if override:
+        return Path(override).expanduser().resolve()
+    return db_dir() / "capability_state.sqlite3"
+
 def memory_db_path() -> Path:
     """Dedicated semantic memory + knowledge store.
 

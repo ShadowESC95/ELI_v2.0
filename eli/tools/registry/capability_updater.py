@@ -60,6 +60,35 @@ def extract_plugin_actions(plugins_dir: Path) -> dict:
     return plugin_actions
 
 
+def _plugin_permission_rollup(plugin_id: str) -> str:
+    """permission_state for a plugin-sourced action.
+
+    PermissionStore is keyed by (plugin_id, capability-CLASS) — one of 14
+    generic classes (network, filesystem_write, ...) a plugin declares in
+    its manifest — not by individual action name, and there is no existing
+    mapping from "this action" to "which of those 14 classes it needs" (a
+    plugin can expose several actions under one set of capability grants).
+    So this is a plugin-level rollup, not a per-action lookup: "denied" if
+    the plugin has any deny_always on record (the more cautious signal when
+    grants are mixed), "granted" if it has at least one allow_always and no
+    deny_always, "undetermined" if nothing persistent has been decided yet.
+    Coarser than per-action, but every value here is grounded in a real
+    stored decision — nothing invented to fill in a mapping that doesn't
+    exist.
+    """
+    try:
+        from eli.plugins.permissions import DENY_ALWAYS, ALLOW_ALWAYS, store
+        grants = store().grants_for(plugin_id)
+    except Exception:
+        return "undetermined"
+    decisions = {g.get("decision") for g in grants.values()}
+    if DENY_ALWAYS in decisions:
+        return "denied"
+    if ALLOW_ALWAYS in decisions:
+        return "granted"
+    return "undetermined"
+
+
 def _manifest_matches(path, manifest) -> bool:
     """True when the manifest on disk differs from `manifest` only by generated_at."""
     try:
@@ -74,9 +103,58 @@ def _manifest_matches(path, manifest) -> bool:
            {k: v for k, v in manifest.items() if k != "generated_at"}
 
 
+def _build_capability_entry(action: str, meta: dict) -> dict:
+    from eli.runtime.evidence_ledger import predict_success, last_verified_success
+    from eli.runtime import capability_state as _cs
+
+    # Discovery is re-run fresh every call (AST scan), but the state dimensions
+    # below are incremental — never wiped, only ever added to as real evidence
+    # comes in. touch_discovered is a no-op after the first time this action
+    # was ever seen.
+    _cs.touch_discovered(action)
+
+    plugin = meta.get("plugin")
+    permission_state = _plugin_permission_rollup(plugin) if plugin else "not_applicable"
+    # Permission decisions can change between runs (the operator can grant or
+    # revoke at any time) and are cheap to recompute, unlike probe-sourced
+    # dimensions which need an actual probe to run — so this one is refreshed
+    # unconditionally every call, not left to go stale.
+    _cs.upsert_state(action, permission_state=permission_state)
+
+    state = _cs.get_state(action) or {}
+    # Not proven broken along any dimension capability_state actually tracks —
+    # "missing evidence" (None) counts as not-proven-broken, same as today's
+    # unconditional True, but for a real reason instead of a hardcoded literal.
+    # Already-collected evidence that DOES say broken can flip this to False;
+    # nothing currently probes these dimensions for a real action yet (see
+    # capability_state.py's probe-adapter notes), so in practice this stays
+    # True until something does — the mechanism is real even though nothing
+    # feeds it negative evidence yet.
+    active = not any(state.get(k) is False for k in
+                     ("reachable", "device_available", "dependency_ready"))
+
+    return {
+        "action": action,
+        "source": meta.get("source", "unknown"),
+        "active": active,
+        "health": predict_success(action),
+        "last_verified_success": last_verified_success(action),
+        "plugin": plugin,
+        "routable": bool(meta.get("routable")),
+        "in_dispatch": bool(meta.get("in_dispatch")),
+        "in_supported_list": bool(meta.get("in_supported_list")),
+        "discovered_at": state.get("discovered_at"),
+        "dependency_ready": state.get("dependency_ready"),
+        "permission_state": permission_state,
+        "reachable": state.get("reachable"),
+        "device_available": state.get("device_available"),
+        "last_probe_at": state.get("last_probe_at"),
+        "evidence_state": state.get("evidence_state"),
+    }
+
+
 def update_capability_manifest():
     from eli.runtime.capability_sync import CapabilitySync
-    from eli.runtime.evidence_ledger import predict_success, last_verified_success
 
     sync = CapabilitySync(repo_root=ELI_ROOT)
     capabilities_map = sync.discover()
@@ -85,17 +163,7 @@ def update_capability_manifest():
     manifest_path = ELI_ROOT / "capability_manifest.json"
 
     capabilities = [
-        {
-            "action": action,
-            "source": meta.get("source", "unknown"),
-            "active": True,
-            "health": predict_success(action),
-            "last_verified_success": last_verified_success(action),
-            "plugin": meta.get("plugin"),
-            "routable": bool(meta.get("routable")),
-            "in_dispatch": bool(meta.get("in_dispatch")),
-            "in_supported_list": bool(meta.get("in_supported_list")),
-        }
+        _build_capability_entry(action, meta)
         for action, meta in sorted(capabilities_map.items())
     ]
 
