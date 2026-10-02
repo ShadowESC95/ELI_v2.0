@@ -157,6 +157,18 @@ def test_header_line_derives_only_from_fields_already_in_the_trace():
     assert "grounded" not in out  # grounded=False must not claim it
 
 
+def test_last_request_meta_request_id_uses_dict_get_not_getattr():
+    """Live bug found 2026-10-02: engine.py built _last_request_meta's
+    request_id with getattr(trace, "request_id", "") — trace is a plain
+    dict, so getattr on it always returns the "" default. request_id in
+    the EXPLAIN_LAST_RESPONSE trace has been blank ever since this code
+    path was added. Fixed to (trace or {}).get("request_id")."""
+    import pathlib
+    src = (pathlib.Path(__file__).resolve().parents[1] / "eli" / "kernel" / "engine.py").read_text(encoding="utf-8")
+    assert 'getattr(trace, "request_id"' not in src
+    assert '"request_id": str((trace or {}).get("request_id") or "")' in src
+
+
 def test_explain_last_response_leads_with_the_header_then_the_trace():
     engine = type("E", (), {"_last_request_meta": _trace()})()
     result = build_control_evidence(engine, "EXPLAIN_LAST_RESPONSE", {}, "what happened?")

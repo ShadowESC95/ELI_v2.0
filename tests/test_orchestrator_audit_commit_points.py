@@ -9,6 +9,13 @@ finalize_turn() call site (non-streaming/action turns) and
 _stream_with_followthrough's completion point (streaming CHAT turns) — both
 read confidence/agents_used from data already computed by that point, not a
 rule evaluated in advance.
+
+Second fix, same session: _record_orchestrator_audit_turn originally read
+self._pipeline_req_id for request_id — generated once, reused for every turn
+on the engine singleton, so every row carried the SAME id instead of one per
+turn. request_id is now a required caller-supplied argument, sourced from
+trace["request_id"] (real per-turn, via self._request_counter) at every call
+site instead.
 """
 import sqlite3
 import time
@@ -55,12 +62,12 @@ def test_record_orchestrator_audit_turn_writes_a_real_row(tmp_path):
     from eli.kernel.engine import CognitiveEngine
 
     eng = CognitiveEngine()
-    eng._pipeline_req_id = "req-live-001"
     eng.session_id = "s-live"
     eng.user_id = "u-live"
 
     with patch("eli.core.paths.orchestrator_audit_db_path", return_value=db_path):
         eng._record_orchestrator_audit_turn(
+            request_id="req-live-001",
             action="NEWS_FETCH",
             agents_used=["system", "voice"],
             confidence=0.93,
@@ -78,3 +85,61 @@ def test_record_orchestrator_audit_turn_writes_a_real_row(tmp_path):
     ).fetchone()
     conn.close()
     assert row == ("req-live-001", "s-live", "u-live", "NEWS_FETCH", "system,voice", 0.93, 1, "ok")
+
+
+def test_request_id_is_a_required_argument_not_read_off_self():
+    """Regression: the original version read self._pipeline_req_id, which is
+    generated once and reused for every turn — every audit row carried the
+    same id. request_id must now be a required kwarg with no self.* fallback."""
+    src = ENGINE.read_text(encoding="utf-8")
+    i = src.index("def _record_orchestrator_audit_turn")
+    j = src.index("def _stream_with_followthrough", i)
+    block = src[i:j]
+    assert 'getattr(self, "_pipeline_req_id"' not in block
+    assert "request_id: str," in block
+
+
+def test_each_stream_with_followthrough_call_site_passes_a_real_request_id():
+    """All three call sites must pass request_id sourced from trace["request_id"]
+    (or an equally fresh per-call id) — never left to default to empty."""
+    src = ENGINE.read_text(encoding="utf-8")
+    sites = []
+    idx = 0
+    while True:
+        idx = src.find("self._stream_with_followthrough(", idx)
+        if idx == -1:
+            break
+        # Each call's closing paren is within a few lines — grab a generous window.
+        sites.append(src[idx:idx + 400])
+        idx += 1
+    assert len(sites) == 3, f"expected 3 call sites, found {len(sites)}"
+    for site in sites:
+        assert "request_id=" in site
+
+
+def test_consecutive_turns_on_the_same_engine_get_distinct_request_ids(tmp_path):
+    """The actual bug: self._pipeline_req_id is set once and reused forever on
+    this engine singleton. trace["request_id"] (self._request_counter) must
+    not have that problem — two turns must never share an id."""
+    from eli.kernel.engine import CognitiveEngine
+
+    eng = CognitiveEngine()
+    t1 = eng._next_trace("hello", {"action": "CHAT"}, "quick")
+    t2 = eng._next_trace("world", {"action": "CHAT"}, "quick")
+    assert t1["request_id"] != t2["request_id"]
+
+    db_path = tmp_path / "orch.sqlite3"
+    with patch("eli.core.paths.orchestrator_audit_db_path", return_value=db_path):
+        eng._record_orchestrator_audit_turn(
+            request_id=t1["request_id"], action="CHAT", agents_used=[],
+            confidence=0.5, ok=True, outcome="ok")
+        eng._record_orchestrator_audit_turn(
+            request_id=t2["request_id"], action="CHAT", agents_used=[],
+            confidence=0.5, ok=True, outcome="ok")
+        time.sleep(0.3)
+
+    conn = sqlite3.connect(str(db_path))
+    ids = [r[0] for r in conn.execute("SELECT request_id FROM orchestrator_audit ORDER BY id")]
+    conn.close()
+    assert ids == [t1["request_id"], t2["request_id"]]
+    assert ids[0] != ids[1]

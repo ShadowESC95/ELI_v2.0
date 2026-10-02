@@ -10371,11 +10371,15 @@ Answer:"""
             return result
 
         if _result_is_generator:
+            import uuid as _orch_uuid
+            _orch_req_id = f"orch-{_orch_uuid.uuid4().hex[:12]}"
+
             def _wrapped():
                 parts = []
                 try:
                     stream_iter = self._stream_with_followthrough(
-                        result, user_input, reasoning_mode=reasoning_mode)
+                        result, user_input, reasoning_mode=reasoning_mode,
+                        request_id=_orch_req_id)
                 except Exception as _ft_wrap_err:
                     log.debug(f"[COGNITIVE] orchestrator followthrough wrap failed: {_ft_wrap_err}")
                     stream_iter = result
@@ -13437,7 +13441,11 @@ Answer:"""
                     "- Stage 1 has ingested the user request and runtime mode.\n"
                     "- Do not return this evidence packet raw.\n"
                     "- Use Stage 11/12 final synthesis and learning for the visible answer.\n"
-                    "- Preserve concrete values from evidence and do not invent missing facts."
+                    "- Preserve concrete values from evidence and do not invent missing facts.\n"
+                    "- If asked why a specific past action failed or succeeded and the evidence "
+                    "above has no record of that specific event, say plainly that you have no "
+                    "logged evidence for it. Do not invent an incident name, root-cause mechanism, "
+                    "or reliability percentage that is not written in the evidence above."
                 ).strip()
 
                 _loop_result = self._run_chat_reasoning_loop(
@@ -13501,6 +13509,26 @@ Answer:"""
                 if _synth and _output_violates_evidence(_synth, _ev_text):
                     log.debug(f"[COGNITIVE] Full control synthesis rejected action={action}; retrying compact synthesis")
                     _synth = ""
+                # Live bug (2026-10-02): META_DIAGNOSTIC synthesis invented a specific reliability
+                # percentage and a named "incident" with no basis in the evidence packet. Neither
+                # was caught here because output_violates_evidence is a fixed phrase/path blocklist,
+                # not a figure check. validate_against_evidence already has that figure check
+                # (_unsupported_figures) and was already wired into the two OTHER control-synthesis
+                # paths (_compact_grounded_synthesis, _synthesize_control_with_mode_framing) — this
+                # full-loop path was the one gate that skipped it.
+                if _synth:
+                    try:
+                        from eli.cognition.output_governor import validate_against_evidence as _validate_ctrl_evidence
+                        _ctrl_verdict = _validate_ctrl_evidence(_synth, _ev_text, mode="strip_silent")
+                        if _ctrl_verdict.get("unsafe"):
+                            log.debug(
+                                f"[COGNITIVE] Full control synthesis rejected by evidence validator "
+                                f"action={action} violations={sorted({v.get('kind') for v in _ctrl_verdict.get('violations') or []})}")
+                            _synth = ""
+                        else:
+                            _synth = (_ctrl_verdict.get("sanitized") or _synth)
+                    except Exception:
+                        log.debug("control synthesis evidence validation failed", exc_info=True)
                 if _synth and str(action or "").upper() == "SELF_REPORT" and _eli_bad_identity_self_report_output(user_input, _synth):
                     log.debug("[COGNITIVE] Full control synthesis rejected action=SELF_REPORT; identity answer incomplete or pronoun-drifted")
                     _synth = ""
@@ -13913,7 +13941,7 @@ Answer:"""
         if action in {"CHAT", "chat"}:
             try:
                 self._last_request_meta = {
-                    "request_id": str(getattr(trace, "request_id", "") or ""),
+                    "request_id": str((trace or {}).get("request_id") or ""),
                     "intent": str((intent or {}).get("action") or ""),
                     "intent_confidence": float((intent or {}).get("confidence", 0.0) or 0.0),
                     "reasoning_mode": str(reasoning_mode or "quick"),
@@ -13966,7 +13994,8 @@ Answer:"""
                     self._store_assistant_turn(_fc_hedge)
                     return self._stream_with_followthrough(
                         _fail_closed_stream(),
-                        user_input, reasoning_mode)
+                        user_input, reasoning_mode,
+                        request_id=str(trace.get("request_id") or ""))
                 # Pass the bus memory context and bus_result already built above
                 # so _stream_chat does NOT fire a second agent bus dispatch, and
                 # the synthesiser has the full bus_result to work with.
@@ -13975,7 +14004,8 @@ Answer:"""
                         user_input, args, context, reasoning_mode=reasoning_mode,
                         pre_built_memory_context=bus_memory_context or "",
                         pre_built_bus_result=bus_result),
-                    user_input, reasoning_mode)
+                    user_input, reasoning_mode,
+                    request_id=str(trace.get("request_id") or ""))
 
             try:
                 t_mem = time.perf_counter()
@@ -14441,6 +14471,7 @@ Answer:"""
             self._store_assistant_turn(final_response)
             self._learn_from_result(intent, result, source=source)
         self._record_orchestrator_audit_turn(
+            request_id=str(trace.get("request_id") or ""),
             action=str(intent.get("action") or result.get("action") or "CHAT"),
             agents_used=list(trace.get("agents_used") or []),
             confidence=float(trace.get("agent_confidence") or 0.0),
@@ -14586,6 +14617,7 @@ Answer:"""
     def _record_orchestrator_audit_turn(
         self,
         *,
+        request_id: str,
         action: str,
         agents_used: list,
         confidence: float,
@@ -14594,9 +14626,10 @@ Answer:"""
         reasoning_mode: str = "",
         elapsed_ms: Optional[float] = None,
     ) -> None:
-        """Commit one real, completed turn to the tamper-evident audit chain.
-        Called only from genuine turn-completion points — never from a plan."""
-        request_id = str(getattr(self, "_pipeline_req_id", "") or "")
+        """Commit one real, completed turn to the audit chain. request_id must
+        be the caller's trace["request_id"] — self._pipeline_req_id is stale
+        (set once, reused every turn), never that."""
+        request_id = str(request_id or "")
         session_id = str(getattr(self, "session_id", "") or "")
         user_id = str(getattr(self, "user_id", "") or "")
         reasoning_mode = str(reasoning_mode or "")
@@ -14617,7 +14650,8 @@ Answer:"""
         threading.Thread(target=_write, daemon=True, name="eli-orch-audit").start()
 
     def _stream_with_followthrough(self, inner, user_input: str,
-                                   reasoning_mode: Optional[str] = None) -> Generator[str, None, None]:
+                                   reasoning_mode: Optional[str] = None,
+                                   request_id: str = "") -> Generator[str, None, None]:
         """Wrap the CHAT token stream so NO action is faked (engine-level, every
         consumer). Streams the reply, then — if ELI committed to or faked a task
         ("let me check the news", "fetching…", "[Story 1]") — actually re-runs
@@ -14636,6 +14670,7 @@ Answer:"""
         if not getattr(self, "_in_followthrough", False):
             _bus_result = getattr(self, "_last_bus_result", None)
             self._record_orchestrator_audit_turn(
+                request_id=request_id,
                 action="CHAT",
                 agents_used=list(getattr(_bus_result, "agents_used", None) or []),
                 confidence=float(getattr(_bus_result, "aggregated_confidence", None) or 0.0),

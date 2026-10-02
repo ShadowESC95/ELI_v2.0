@@ -952,7 +952,8 @@ class StartupModelSelectionDialog(QDialog):
                     )
                     if _moe_preview:
                         _fit_line += (
-                            f" (MoE: ~{_moe_preview['experts_gb']}GB experts stay in RAM)"
+                            f" (MoE: ~{_moe_preview['resident_gb']}GB core weights on GPU, "
+                            f"~{_moe_preview['experts_gb']}GB experts stay in RAM)"
                         )
                     # Show the uncapped fit too, so the pin's headroom gap is explained.
                     if _pin:
