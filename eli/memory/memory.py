@@ -2609,7 +2609,14 @@ class Memory(metaclass=_MemoryMeta):
                 try:
                     from eli.memory.knowledge_graph import get_knowledge_graph
                     _kg = get_knowledge_graph()
-                    _kg_ctx = _kg.context_for_prompt(q, max_chars=600)
+                    # A quarter of the KG budget: this rides along as one recall
+                    # hit beside the orchestrator's own KG block. Was a fixed 600.
+                    try:
+                        from eli.core.cognition_tunables import snapshot as _cog_snapshot
+                        _kg_chars = max(600, int(_cog_snapshot().get("cog.kg_max_chars", 3200)) // 4)
+                    except Exception:
+                        _kg_chars = 800
+                    _kg_ctx = _kg.context_for_prompt(q, max_chars=_kg_chars)
                     if _kg_ctx:
                         out.insert(0, {
                             "id": "kg:context",

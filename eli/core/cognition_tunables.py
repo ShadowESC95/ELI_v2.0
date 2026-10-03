@@ -30,8 +30,10 @@ class Tunable:
     group: str = "Knowledge gathering"
 
 
-# NOTE: defaults here MUST match the shipped hardcoded values so behaviour is
-# identical until the user changes something.
+# Pools (the "recalled" counts) are search breadth: only the "shown" counts and
+# per-item characters reach the prompt, and context_budget trims the memory block
+# to the loaded model's window, so a wider pool costs a ranking pass, not context.
+# Raised 2026-10-03; the maxima leave room for tier scaling on large models.
 TUNABLES: List[Tunable] = [
     # ── Model context budget ────────────────────────────────────────────────
     Tunable(
@@ -45,68 +47,88 @@ TUNABLES: List[Tunable] = [
     # ── Memory agent gathering ──────────────────────────────────────────────
     Tunable("cog.mem_semantic_recall", "Memory · semantic facts recalled",
             "How many durable facts the memory agent pulls from the vector/FTS "
-            "store per query (the search pool).", 24, 1, 100, 1, "Memory gathering"),
+            "store per query (the search pool).", 40, 1, 200, 1, "Memory gathering"),
     Tunable("cog.mem_semantic_shown", "Memory · semantic facts shown",
             "How many of the recalled facts are actually placed into the prompt.",
-            24, 1, 100, 1, "Memory gathering"),
+            30, 1, 200, 1, "Memory gathering"),
     Tunable("cog.mem_fact_chars", "Memory · characters per fact",
             "Truncation length for each semantic fact. Lower = fit more facts; "
-            "higher = more detail each.", 200, 60, 800, 10, "Memory gathering"),
+            "higher = more detail each.", 240, 60, 800, 10, "Memory gathering"),
     Tunable("cog.mem_conv_recall", "Memory · conversation hits recalled",
             "Search-pool size for matching past conversation turns.",
-            14, 1, 80, 1, "Memory gathering"),
+            30, 1, 160, 1, "Memory gathering"),
     Tunable("cog.mem_conv_shown", "Memory · conversation hits shown",
             "How many matched conversation turns go into the prompt.",
-            12, 1, 80, 1, "Memory gathering"),
+            16, 1, 160, 1, "Memory gathering"),
     Tunable("cog.mem_conv_chars", "Memory · characters per conversation hit",
             "Truncation length per matched conversation turn.",
-            150, 60, 600, 10, "Memory gathering"),
+            200, 60, 600, 10, "Memory gathering"),
     Tunable("cog.mem_recent_turns", "Memory · recent turns",
             "How many of the most recent conversation turns are included for "
-            "continuity.", 24, 0, 80, 1, "Memory gathering"),
+            "continuity.", 30, 0, 160, 1, "Memory gathering"),
     Tunable("cog.mem_recent_chars", "Memory · characters per recent turn",
-            "Truncation length per recent turn.", 140, 60, 600, 10, "Memory gathering"),
+            "Truncation length per recent turn.", 180, 60, 600, 10, "Memory gathering"),
     Tunable("cog.mem_summaries_recall", "Memory · session summaries recalled",
             "Search pool of prior-session summaries. This is a SEARCH pool, not a "
             "prompt budget — only 'summaries shown' reaches the model, so a wide "
             "pool costs a ranking pass rather than context. At 6 the pool held "
             "barely a week of sessions, so asking about a conversation from a "
             "fortnight ago could not match one no matter how well it scored.",
-            25, 0, 40, 1, "Memory gathering"),
+            40, 0, 120, 1, "Memory gathering"),
     Tunable("cog.mem_summaries_shown", "Memory · session summaries shown",
             "How many session summaries go into the prompt. Kept well below the "
             "search pool deliberately: the pool decides what is REACHABLE, this "
-            "decides what is spent on it.", 8, 0, 40, 1, "Memory gathering"),
+            "decides what is spent on it.", 10, 0, 60, 1, "Memory gathering"),
     Tunable("cog.mem_summary_chars", "Memory · characters per summary",
-            "Truncation length per session summary.", 260, 80, 800, 10, "Memory gathering"),
+            "Truncation length per session summary.", 320, 80, 800, 10, "Memory gathering"),
     Tunable("cog.mem_hop2_recall", "Memory · multi-hop deepen pool",
             "When the first recall is thin, a second hop re-queries using the top "
-            "hit's terms; this is that hop's pool size.", 12, 0, 60, 1, "Memory gathering"),
+            "hit's terms; this is that hop's pool size.", 20, 0, 120, 1, "Memory gathering"),
     Tunable("cog.mem_merge_cap", "Memory · max merged hits",
             "Upper bound on total semantic hits after the multi-hop merge.",
-            28, 1, 120, 1, "Memory gathering"),
+            40, 1, 240, 1, "Memory gathering"),
+    Tunable("cog.mem_exact_token_recall", "Memory · exact-token lookups",
+            "Hits per code, number or quoted phrase looked up exactly as written "
+            "(an embedding can blur 'INC-4471' into its neighbours).",
+            6, 1, 40, 1, "Memory gathering"),
+    Tunable("cog.mem_archive_recall", "Memory · archive hits when evidence is thin",
+            "Faded memories searched when live recall comes back thin.",
+            8, 0, 60, 1, "Memory gathering"),
+    Tunable("cog.mem_observations", "Memory · recent observations",
+            "Recent observations and session summaries the insight agent reads.",
+            10, 0, 60, 1, "Memory gathering"),
 
     # ── Knowledge graph ─────────────────────────────────────────────────────
     Tunable("cog.kg_max_chars", "Knowledge graph · context (characters)",
             "Characters of knowledge-graph facts placed into the prompt.",
-            2200, 0, 8000, 100, "Knowledge graph"),
+            3200, 0, 16000, 100, "Knowledge graph"),
+    Tunable("cog.kg_entities", "Knowledge graph · entities matched",
+            "Entities matched per query before expanding their relations. Was a "
+            "fixed 4-6, so a large character budget could never be filled.",
+            8, 1, 60, 1, "Knowledge graph"),
+    Tunable("cog.kg_relations", "Knowledge graph · relations per entity",
+            "Relations listed for each matched entity (most query-relevant first), "
+            "and chains followed per entity in the multi-hop pass.",
+            8, 1, 40, 1, "Knowledge graph"),
 
     # ── Retrieval pipeline (full 12-stage, standard mode) ───────────────────
     Tunable("cog.orch_keyword_limit", "Pipeline · keyword search limit",
-            "FTS5 keyword hits retrieved in the full pipeline (standard mode).",
-            24, 1, 80, 1, "Retrieval pipeline"),
+            "FTS5 keyword hits retrieved in the full pipeline (standard mode; "
+            "deeper modes multiply it by their mode budget).",
+            32, 1, 160, 1, "Retrieval pipeline"),
     Tunable("cog.orch_semantic_limit", "Pipeline · semantic search limit",
-            "FAISS vector hits retrieved (standard mode).", 24, 1, 80, 1, "Retrieval pipeline"),
+            "FAISS vector hits retrieved (standard mode).", 32, 1, 160, 1, "Retrieval pipeline"),
     Tunable("cog.orch_rag_limit", "Pipeline · RAG recall limit",
-            "Memory recall hits retrieved (standard mode).", 16, 1, 80, 1, "Retrieval pipeline"),
+            "Document RAG hits retrieved (standard mode).", 24, 1, 160, 1, "Retrieval pipeline"),
     Tunable("cog.rerank_top_k", "Pipeline · reranked hits kept",
-            "After cross-encoder reranking, how many top hits are kept for the "
-            "prompt.", 20, 1, 80, 1, "Retrieval pipeline"),
+            "After reranking (term overlap, source priority and rank fusion across "
+            "the retrievers), how many top hits are kept for the prompt.",
+            24, 1, 160, 1, "Retrieval pipeline"),
 
     # ── Personal-memory report ──────────────────────────────────────────────
     Tunable("cog.personal_facts_max", "“What do you know about me” · max facts",
             "Maximum facts listed in the personal-memory report (verbatim, not "
-            "synthesised).", 40, 1, 200, 1, "Personal memory report"),
+            "synthesised).", 60, 1, 400, 1, "Personal memory report"),
 
     # ── Per-reasoning-mode agent time budgets (% of base agent timeouts) ──────
     Tunable("cog.mode_budget_quick", "Mode budget · Quick (%)",
@@ -204,7 +226,9 @@ _GATHER_COUNT_KEYS = (
     "cog.mem_conv_recall", "cog.mem_conv_shown",
     "cog.mem_recent_turns", "cog.mem_summaries_recall",
     "cog.mem_summaries_shown", "cog.mem_hop2_recall", "cog.mem_merge_cap",
-    "cog.kg_max_chars", "cog.orch_keyword_limit", "cog.orch_semantic_limit",
+    "cog.mem_exact_token_recall", "cog.mem_archive_recall", "cog.mem_observations",
+    "cog.kg_max_chars", "cog.kg_entities", "cog.kg_relations",
+    "cog.orch_keyword_limit", "cog.orch_semantic_limit",
     "cog.orch_rag_limit", "cog.rerank_top_k", "cog.personal_facts_max",
 )
 

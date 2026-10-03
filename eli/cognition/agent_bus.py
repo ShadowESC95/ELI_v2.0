@@ -3002,16 +3002,23 @@ class ReflectionAgent(_BaseAgent):
                 _SWLOG.debug("suppressed exception", exc_info=True)
 
             try:
-                obs = list(mem.get_recent_observations(limit=8) or [])
+                from eli.core.cognition_tunables import snapshot as _cog_snapshot
+                _n_obs = max(0, int(_cog_snapshot().get("cog.mem_observations", 10)))
+            except Exception:
+                _n_obs = 10
+            _n_sums = max(1, _n_obs // 2)  # was a fixed 8 observations and 3 summaries
+
+            try:
+                obs = list(mem.get_recent_observations(limit=_n_obs) or []) if _n_obs else []
             except Exception:
                 obs = []
 
             try:
-                sums = list(mem.get_session_summaries(user_id=user_id, limit=3) or [])
+                sums = list(mem.get_session_summaries(user_id=user_id, limit=_n_sums) or [])
             except Exception:
                 sums = []
 
-            for row in obs[:8]:
+            for row in obs[:_n_obs]:
                 text = str(
                     row.get("observation")
                     or row.get("content")
@@ -3021,7 +3028,7 @@ class ReflectionAgent(_BaseAgent):
                 if text:
                     insights.append(text[:220])
 
-            for row in sums[:3]:
+            for row in sums[:_n_sums]:
                 text = str(row.get("summary") or row.get("content") or "").strip()
                 if text:
                     insights.append(text[:220])
@@ -3093,8 +3100,11 @@ class KnowledgeGraphAgent(_BaseAgent):
             except Exception:
                 _query = user_input
 
-            from eli.core.cognition_tunables import get_tunable as _cog_get
-            ctx = kg.context_for_prompt(_query, max_chars=_cog_get("cog.kg_max_chars"))
+            from eli.core.cognition_tunables import snapshot as _cog_snapshot
+            _tn = _cog_snapshot()  # tier-scaled; get_tunable() isn't
+            ctx = kg.context_for_prompt(_query, max_chars=int(_tn.get("cog.kg_max_chars", 3200)))
+            _kg_seeds = max(1, int(_tn.get("cog.kg_entities", 8)) // 2)
+            _kg_chains = max(1, int(_tn.get("cog.kg_relations", 8)))
 
             # Multi-hop reasoning: context_for_prompt is only 1-hop. Traverse the graph
             # 2 hops out from the top matched entities (kg.related BFS) to surface CONNECTED
@@ -3102,11 +3112,11 @@ class KnowledgeGraphAgent(_BaseAgent):
             multihop: List[str] = []
             try:
                 _seen_chain: set = set()
-                for _s in (kg.search_entities(_query, limit=3) or []):
+                for _s in (kg.search_entities(_query, limit=_kg_seeds) or []):
                     _nm = (_s.get("name") if isinstance(_s, dict) else "") or ""
                     if not _nm:
                         continue
-                    for _rel in (kg.related(_nm, hops=2) or [])[:6]:
+                    for _rel in (kg.related(_nm, hops=2) or [])[:_kg_chains]:
                         if not isinstance(_rel, dict):
                             continue
                         _subj = str(_rel.get("subject") or "").strip()
@@ -3130,7 +3140,7 @@ class KnowledgeGraphAgent(_BaseAgent):
             if multihop:
                 kg_block += (("\n" if kg_block else "")
                              + "Connected facts (multi-hop):\n"
-                             + "\n".join(f"- {c}" for c in multihop[:8]))
+                             + "\n".join(f"- {c}" for c in multihop[:_kg_seeds * _kg_chains]))
             # Multi-hop chains are higher-value evidence — reward them in the confidence.
             confidence = min(0.90, conf_from_count(stats["relations"], base=0.4, step=0.02, cap=0.9) + (0.06 if multihop else 0.0))
             log.debug(f"[AGENT:knowledge_graph] {stats['entities']} entities, "

@@ -10659,9 +10659,23 @@ Answer:"""
         except Exception:
             reranked = []
 
+        # Prompt-side counts come from the (tier-scaled) tunables. These were a
+        # fixed 8 reranked hits and 8 recent turns whatever cog.rerank_top_k or
+        # cog.mem_recent_turns said; context_budget still fits the block to the
+        # model's window, dropping reranked evidence before recent turns.
+        try:
+            from eli.core.cognition_tunables import snapshot as _cog_snapshot
+            _tn = _cog_snapshot()
+        except Exception:
+            _tn = {}
+        _rerank_shown = max(1, int(_tn.get("cog.rerank_top_k", 24)))
+        _hit_chars = max(260, int(_tn.get("cog.mem_fact_chars", 240)))
+        _recent_shown = max(1, int(_tn.get("cog.mem_recent_turns", 30)))
+        _recent_chars = max(220, int(_tn.get("cog.mem_recent_chars", 180)))
+
         if reranked:
             hit_lines: List[str] = []
-            for i, hit in enumerate(reranked[:8], 1):
+            for i, hit in enumerate(reranked[:_rerank_shown], 1):
                 if isinstance(hit, dict):
                     txt = str(hit.get("text") or hit.get("content") or hit.get("snippet") or "").strip()
                     src = str(hit.get("source") or hit.get("kind") or hit.get("path") or "").strip()
@@ -10674,7 +10688,7 @@ Answer:"""
                 if not txt:
                     continue
 
-                txt = re.sub(r"\s+", " ", txt)[:260]
+                txt = re.sub(r"\s+", " ", txt)[:_hit_chars]
 
                 score_txt = ""
                 if score not in (None, ""):
@@ -10697,13 +10711,14 @@ Answer:"""
 
         if recent_turns:
             turn_lines: List[str] = []
-            for turn in recent_turns[-8:]:
+            for turn in recent_turns[-_recent_shown:]:
                 try:
                     role = "User" if str(turn.get("role", "")).lower() == "user" else "ELI"
                     content = re.sub(r"\s+", " ", str(turn.get("content", "") or "")).strip()
                     if content:
                         _tw = _evidence_format.when_label(_evidence_format.row_time(turn))
-                        turn_lines.append(f"[{_tw}] {role}: {content[:220]}" if _tw else f"{role}: {content[:220]}")
+                        _c = content[:_recent_chars]
+                        turn_lines.append(f"[{_tw}] {role}: {_c}" if _tw else f"{role}: {_c}")
                 except Exception:
                     continue
             if turn_lines:

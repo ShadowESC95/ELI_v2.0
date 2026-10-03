@@ -52,6 +52,32 @@ class LongTermMemoryRefs:
     rag_ready: bool
 
 
+def _recent_turns_limit() -> int:
+    """This user's recent turns for the orchestrator's short-term memory."""
+    try:
+        from eli.core.cognition_tunables import snapshot as _cog_snapshot
+        return max(4, int(_cog_snapshot().get("cog.mem_recent_turns", 30)))
+    except Exception:
+        return 30
+
+
+def _verified_shown_limit() -> int:
+    try:
+        from eli.core.cognition_tunables import snapshot as _cog_snapshot
+        return max(1, int(_cog_snapshot().get("cog.mem_semantic_shown", 30)))
+    except Exception:
+        return 30
+
+
+def _gap_rag_limit() -> int:
+    """RAG width for the evidence-gap fallback, when the mode planned none."""
+    try:
+        from eli.core.cognition_tunables import snapshot as _cog_snapshot
+        return max(2, int(_cog_snapshot().get("cog.orch_rag_limit", 24)))
+    except Exception:
+        return 24
+
+
 class PlannerAgent:
     def __init__(self, engine):
         self.engine = engine
@@ -91,14 +117,40 @@ class PlannerAgent:
         identity  = any(k in low for k in ("who am i", "my name", "remember me"))
         runtime   = any(k in low for k in ("memory function", "memory work", "cognition", "how do you work"))
 
+        # One tier-scaled read of the tunables. get_tunable() doesn't apply the
+        # model-tier scaling, so this path used to gather at small-model limits on
+        # any model, and deep modes used fixed 20/20/15, below the balanced default.
+        try:
+            from eli.core.cognition_tunables import snapshot as _cog_snapshot
+            _tn = _cog_snapshot()
+        except Exception:
+            _tn = {}
+
+        def _lim(key: str, fallback: int, floor: int, scale: float = 1.0,
+                 by_mode: bool = True) -> int:
+            mult = _budget if by_mode else 1.0
+            return max(floor, int(round(float(_tn.get(key, fallback)) * mult * scale)))
+
+        # Every limit sequential_retrieve and unified_retrieval read, so none of
+        # them falls back to a hardcoded number.
+        common = {
+            "kg_limit":      _lim("cog.kg_entities", 8, 2),
+            # History depth follows the model tier, not the mode: an expert turn
+            # times 2.5 would put ~190 recent turns in front of a slow prefill.
+            "recent_limit":  _lim("cog.mem_recent_turns", 30, 4, by_mode=False),
+            "summary_limit": _lim("cog.mem_summaries_recall", 40, 2, by_mode=False),
+            "hop2_limit":    _lim("cog.mem_hop2_recall", 20, 2),
+            "merge_cap":     _lim("cog.mem_merge_cap", 40, 8),
+        }
+
         if mode == "fast":
-            _kw = max(4, int(round(6 * _budget)))
             return {
+                **common,
                 "need_keyword":   True,
-                "need_semantic":  False,      # skip FAISS embedding (saves one LLM call)
+                "need_semantic":  False,      # not kept unless evidence is thin (see sequential_retrieve)
                 "need_rag":       False,
                 "need_kg":        identity,
-                "keyword_limit":  _kw,
+                "keyword_limit":  _lim("cog.orch_keyword_limit", 32, 4, scale=0.25),
                 "semantic_limit": 0,
                 "rag_limit":      0,
                 "prefer_identity": identity,
@@ -107,31 +159,32 @@ class PlannerAgent:
                 "max_react_iter":  1,
             }
         elif mode == "deep":
-            _kw = max(8, int(round(20 * _budget)))
-            _sem = max(8, int(round(20 * _budget)))
+            # The mode budget (research 200%, expert 250% by default) already
+            # widens these; deep never gathers less than balanced.
             return {
+                **common,
                 "need_keyword":   True,
                 "need_semantic":  True,
                 "need_rag":       doc_query,
                 "need_kg":        True,
-                "keyword_limit":  _kw,
-                "semantic_limit": _sem,
-                "rag_limit":      max(4, int(round(15 * _budget))),
+                "keyword_limit":  _lim("cog.orch_keyword_limit", 32, 8),
+                "semantic_limit": _lim("cog.orch_semantic_limit", 32, 8),
+                "rag_limit":      _lim("cog.orch_rag_limit", 24, 4),
                 "prefer_identity": identity,
                 "prefer_runtime":  runtime,
                 "skip_hyde":       False,
                 "max_react_iter":  3,
             }
         else:  # balanced (default)
-            from eli.core.cognition_tunables import get_tunable as _cog_get
             return {
+                **common,
                 "need_keyword":   True,
                 "need_semantic":  True,
                 "need_rag":       doc_query,
                 "need_kg":        True,
-                "keyword_limit":  max(4, int(round(_cog_get("cog.orch_keyword_limit") * _budget))),
-                "semantic_limit": max(4, int(round(_cog_get("cog.orch_semantic_limit") * _budget))),
-                "rag_limit":      max(2, int(round(_cog_get("cog.orch_rag_limit") * _budget))),
+                "keyword_limit":  _lim("cog.orch_keyword_limit", 32, 4),
+                "semantic_limit": _lim("cog.orch_semantic_limit", 32, 4),
+                "rag_limit":      _lim("cog.orch_rag_limit", 24, 2),
                 "prefer_identity": identity,
                 "prefer_runtime":  runtime,
                 "skip_hyde":       False,
@@ -273,7 +326,7 @@ class OrchestratorMemoryAgent:
                          _total_hits)
             if not retrieval_plan.get("need_rag") and ltm.rag_ready:
                 rag_hits = self.document_rag_search(
-                    user_input, retrieval_plan.get("rag_limit") or 8)
+                    user_input, retrieval_plan.get("rag_limit") or _gap_rag_limit())
                 if rag_hits:
                     log.debug("[ORCHESTRATOR] evidence gap (%d hits) — enabled rag, got %d",
                              _total_hits, len(rag_hits))
@@ -301,9 +354,18 @@ class OrchestratorMemoryAgent:
         try:
             from eli.memory.knowledge_graph import get_knowledge_graph
             _kg = get_knowledge_graph()
-            # Scale max_chars roughly with limit (default ~600 at limit=6)
-            _max_chars = max(400, min(2000, limit * 120))
-            _ctx = _kg.context_for_prompt(query, max_chars=_max_chars)
+            # The KG character budget the user set (tier-scaled). This was
+            # min(2000, limit * 120): ~960 chars at the default limit whatever
+            # cog.kg_max_chars said.
+            try:
+                from eli.core.cognition_tunables import snapshot as _cog_snapshot
+                _max_chars = int(_cog_snapshot().get("cog.kg_max_chars", 3200))
+            except Exception:
+                _max_chars = 3200
+            if _max_chars <= 0:
+                return []
+            _ctx = _kg.context_for_prompt(query, max_chars=_max_chars,
+                                          max_entities=max(1, int(limit)))
             if not _ctx:
                 return []
             return [{
@@ -575,7 +637,7 @@ class AgentOrchestrator:
                 # Unfiltered, an API turn could escalate on another user's turns.
                 recent_turns=getattr(self.engine, "memory", None)
                 and self.engine.memory.get_recent_conversation(
-                    limit=12, user_id=self.engine.user_id) or None,
+                    limit=_recent_turns_limit(), user_id=self.engine.user_id) or None,
             )
             if _esc is None:
                 return None
@@ -671,7 +733,7 @@ class AgentOrchestrator:
             session_id=self.engine.session_id,
             user_id=self.engine.user_id,
             recent_turns=self.engine.memory.get_recent_conversation(
-                limit=12, user_id=self.engine.user_id) or [],
+                limit=_recent_turns_limit(), user_id=self.engine.user_id) or [],
         )
         ltm = LongTermMemoryRefs(
             sqlite_ready=True,
@@ -1052,7 +1114,9 @@ class AgentOrchestrator:
         try:
             from eli.memory.unified_retrieval import format_verified_memory_block
             _tr = getattr(self.memory_agent, "_last_turn_retrieval", None)
-            _verified = format_verified_memory_block(_tr) if _tr else ""
+            # Was the default shown=6 on every orchestrated turn.
+            _verified = format_verified_memory_block(
+                _tr, shown=_verified_shown_limit()) if _tr else ""
             if _verified and _verified not in (wm.assembled_context or ""):
                 wm.assembled_context = (
                     _verified + "\n\n" + str(wm.assembled_context or "").strip()

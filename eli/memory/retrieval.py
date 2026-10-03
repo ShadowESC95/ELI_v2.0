@@ -54,6 +54,15 @@ def invalidate_turn_cache(session_id: str = "") -> None:
 
 
 _THIN_EVIDENCE = 3
+
+
+def _tunable(key: str, fallback: int) -> int:
+    """Tier-scaled tunable (these were a fixed 4)."""
+    try:
+        from eli.core.cognition_tunables import snapshot as _cog_snapshot
+        return max(0, int(_cog_snapshot().get(key, fallback)))
+    except Exception:
+        return fallback
 _EXACT_TOKEN = re.compile(r"[A-Za-z]{2,}-\d{2,}[A-Za-z0-9-]*|\b\d{4,}\b|\"([^\"]{3,60})\"")
 
 
@@ -64,7 +73,8 @@ def _exact_token_hits(mem: Any, query: str, have: List[Dict[str, Any]], verified
     for m in list(_EXACT_TOKEN.finditer(query or ""))[:3]:
         token = m.group(1) or m.group(0)
         try:
-            for h in mem.recall_memory(token, limit=4, verified_only=verified_only) or []:
+            for h in mem.recall_memory(token, limit=_tunable("cog.mem_exact_token_recall", 6),
+                                       verified_only=verified_only) or []:
                 if h.get("id") not in seen and token.lower() in str(h.get("text") or h.get("content") or "").lower():
                     seen.add(h.get("id"))
                     out.append(h)
@@ -78,7 +88,8 @@ def _archive_hits(mem: Any, query: str) -> List[Dict[str, Any]]:
     try:
         return [{"id": f"archive:{r['id']}", "text": r["text"], "content": r["text"], "source": "archive", "kind": "archived",
                  "score": 0.5, "importance": 0.4, "timestamp": r.get("archived_at"), "origin": r.get("origin"),
-                 "verification_status": "verified"} for r in mem.search_archive(query, limit=4)]
+                 "verification_status": "verified"}
+                for r in mem.search_archive(query, limit=_tunable("cog.mem_archive_recall", 8))]
     except Exception:
         log.debug("archive search failed", exc_info=True)
         return []

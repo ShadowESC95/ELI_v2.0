@@ -14,10 +14,29 @@ from eli.utils.log import get_logger
 
 log = get_logger(__name__)
 
+# Phatic turns stay light on purpose ("hi" shouldn't pull a biography). Full turns
+# read the tier-scaled tunables; they were a fixed 12/8/12/4.
 _PHATIC_SEMANTIC_LIMIT = 4
 _PHATIC_CONV_LIMIT = 4
-_NORMAL_SEMANTIC_LIMIT = 12
-_NORMAL_CONV_LIMIT = 8
+
+
+def _full_turn_limits() -> Dict[str, int]:
+    try:
+        from eli.core.cognition_tunables import snapshot as _cog_snapshot
+        tn = _cog_snapshot()
+    except Exception:
+        tn = {}
+    return {
+        "semantic_limit": int(tn.get("cog.mem_semantic_recall", 40)),
+        "conv_limit": int(tn.get("cog.mem_conv_recall", 30)),
+        "recent_limit": int(tn.get("cog.mem_recent_turns", 30)),
+        "summary_limit": int(tn.get("cog.mem_summaries_recall", 40)),
+        "hop2_limit": int(tn.get("cog.mem_hop2_recall", 20)),
+        "merge_cap": int(tn.get("cog.mem_merge_cap", 40)),
+        # Shown, not fetched: these two go into the prompt.
+        "semantic_shown": int(tn.get("cog.mem_semantic_shown", 30)),
+        "conv_shown": int(tn.get("cog.mem_conv_shown", 16)),
+    }
 
 
 @dataclass
@@ -247,19 +266,22 @@ def assemble_turn_dossier(
     if mem is not None and dossier.query:
         try:
             from eli.memory.retrieval import retrieve_for_turn
-            sem_lim = _PHATIC_SEMANTIC_LIMIT if phatic else _NORMAL_SEMANTIC_LIMIT
-            conv_lim = _PHATIC_CONV_LIMIT if phatic else _NORMAL_CONV_LIMIT
+            if phatic:
+                _lims = {"semantic_limit": _PHATIC_SEMANTIC_LIMIT, "conv_limit": _PHATIC_CONV_LIMIT,
+                         "recent_limit": 6, "summary_limit": 2}
+                sem_shown, conv_shown = _PHATIC_SEMANTIC_LIMIT, 3
+            else:
+                _lims = _full_turn_limits()
+                sem_shown = _lims.pop("semantic_shown")
+                conv_shown = _lims.pop("conv_shown")
             result = retrieve_for_turn(
                 mem,
                 dossier.query,
                 user_id=user_id or getattr(engine, "user_id", "") or "",
                 session_id=session_id or getattr(engine, "session_id", "") or "",
-                semantic_limit=sem_lim,
-                conv_limit=conv_lim,
-                recent_limit=6 if phatic else 12,
-                summary_limit=2 if phatic else 4,
                 enable_hop2=not phatic,
                 rerank=True,
+                **_lims,
             )
             dossier.semantic_hits = list(result.semantic_hits or [])
             lines: List[str] = []
@@ -269,13 +291,13 @@ def assemble_turn_dossier(
                 )
             else:
                 lines.append("[MEMORY — retrieved for this turn]")
-            for hit in (result.semantic_hits or [])[:sem_lim]:
+            for hit in (result.semantic_hits or [])[:sem_shown]:
                 text = str(hit.get("text") or hit.get("content") or "").strip()
                 if text:
                     prov = str(hit.get("provenance_kind") or hit.get("source") or "")
                     tag = f" ({prov})" if prov else ""
                     lines.append(f"  • {text[:280]}{tag}")
-            for hit in (result.conv_hits or [])[:3]:
+            for hit in (result.conv_hits or [])[:conv_shown]:
                 text = str(hit.get("text") or hit.get("content") or hit.get("snippet") or "").strip()
                 if text:
                     lines.append(f"  • [past turn] {text[:220]}")

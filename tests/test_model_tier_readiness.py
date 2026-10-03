@@ -47,15 +47,16 @@ def test_format_prompt_routes_by_family():
 
 def test_gather_autoscale_small_unchanged():
     base = snapshot()
-    assert base["cog.mem_semantic_shown"] == 24  # small tier → defaults unchanged
+    assert base["cog.mem_semantic_shown"] == 30  # small tier → defaults unchanged
 
 
 def test_gather_autoscale_large_scales_and_clamps():
     with patch("eli.core.model_tier.tier_scale", return_value=2.5):
         big = snapshot()
-    assert big["cog.mem_semantic_shown"] == 60      # 24 * 2.5
-    assert big["cog.rerank_top_k"] == 50            # 20 * 2.5
-    assert big["cog.mem_semantic_recall"] <= 100    # clamped to max
+    assert big["cog.mem_semantic_shown"] == 75      # 30 * 2.5
+    assert big["cog.rerank_top_k"] == 60            # 24 * 2.5
+    assert big["cog.kg_entities"] == 20             # 8 * 2.5
+    assert big["cog.mem_semantic_recall"] <= 200    # clamped to max
 
 
 def test_gather_autoscale_off_respects_fixed(monkeypatch):
@@ -64,6 +65,6 @@ def test_gather_autoscale_off_respects_fixed(monkeypatch):
     try:
         with patch("eli.core.model_tier.tier_scale", return_value=2.5):
             s = snapshot()
-        assert s["cog.mem_semantic_shown"] == 24  # auto off → unchanged
+        assert s["cog.mem_semantic_shown"] == 30  # auto off → unchanged
     finally:
         C.delete("cog.gather_auto_scale")

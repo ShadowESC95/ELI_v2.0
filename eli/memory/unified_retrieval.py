@@ -68,8 +68,20 @@ def orchestrator_retrieve(
     if mem is None:
         return [], [], empty
 
-    kw_limit = int(retrieval_plan.get("keyword_limit") or 12)
-    sem_limit = int(retrieval_plan.get("semantic_limit") or 12)
+    try:
+        from eli.core.cognition_tunables import snapshot as _cog_snapshot
+        _tn = _cog_snapshot()
+    except Exception:
+        _tn = {}
+
+    def _plan(key: str, tunable: str, fallback: int) -> int:
+        return int(retrieval_plan.get(key) or _tn.get(tunable, fallback))
+
+    kw_limit = _plan("keyword_limit", "cog.orch_keyword_limit", 32)
+    # 0 here (fast mode) does not mean "no semantic search": recall_memory runs the
+    # vector search either way, and sequential_retrieve keeps those hits when the
+    # turn's evidence comes back thin. So 0 falls back to the normal width.
+    sem_limit = _plan("semantic_limit", "cog.orch_semantic_limit", 32)
     merge_limit = max(kw_limit, sem_limit, 8)
     verified_only = not is_explicit_memory_audit_query(user_input)
 
@@ -85,10 +97,10 @@ def orchestrator_retrieve(
         session_id=session_id or str(getattr(engine, "session_id", "") or ""),
         semantic_limit=merge_limit,
         conv_limit=max(4, merge_limit // 2),
-        recent_limit=int(retrieval_plan.get("recent_limit") or 12),
-        summary_limit=int(retrieval_plan.get("summary_limit") or 4),
-        hop2_limit=int(retrieval_plan.get("hop2_limit") or 6),
-        merge_cap=int(retrieval_plan.get("merge_cap") or 24),
+        recent_limit=_plan("recent_limit", "cog.mem_recent_turns", 30),
+        summary_limit=_plan("summary_limit", "cog.mem_summaries_recall", 40),
+        hop2_limit=_plan("hop2_limit", "cog.mem_hop2_recall", 20),
+        merge_cap=_plan("merge_cap", "cog.mem_merge_cap", 40),
         enable_hop2=bool(retrieval_plan.get("enable_hop2", True)),
         rerank=True,
         use_cache=True,

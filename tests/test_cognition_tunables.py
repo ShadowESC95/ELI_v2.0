@@ -20,18 +20,18 @@ def test_registry_integrity():
 
 def test_get_default_when_unset():
     C.delete("cog.mem_semantic_shown")
-    assert T.get_tunable("cog.mem_semantic_shown") == 24
+    assert T.get_tunable("cog.mem_semantic_shown") == 30
 
 
 def test_set_and_clamp_roundtrip():
     assert T.set_tunable("cog.rerank_top_k", 33)
     assert T.get_tunable("cog.rerank_top_k") == 33
     T.set_tunable("cog.rerank_top_k", 99999)          # over max
-    assert T.get_tunable("cog.rerank_top_k") == 80
+    assert T.get_tunable("cog.rerank_top_k") == 160
     T.set_tunable("cog.rerank_top_k", -5)             # under min
     assert T.get_tunable("cog.rerank_top_k") == 1
     T.reset_defaults()
-    assert T.get_tunable("cog.rerank_top_k") == 20
+    assert T.get_tunable("cog.rerank_top_k") == 24
 
 
 def test_unknown_key_rejected():

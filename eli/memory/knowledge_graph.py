@@ -396,14 +396,32 @@ class KnowledgeGraph:
         re.I,
     )
 
-    def context_for_prompt(self, query: str, max_chars: int = 800) -> str:
+    def context_for_prompt(self, query: str, max_chars: int = 800, *,
+                           max_entities: Optional[int] = None,
+                           max_relations: Optional[int] = None) -> str:
         """
         Return a compact KG context block suitable for LLM injection.
         Searches entities matching `query`, then expands one hop.
         Tries the full query first, then individual tokens (skipping stopwords).
         For identity queries, seeds with user identity context if explicitly stored.
+
+        Entity and relation counts default to cog.kg_entities / cog.kg_relations
+        (tier-scaled). They were a fixed 4-6 entities and 5 relations, so a large
+        max_chars could never be filled.
         """
-        hits = self.search_entities(query, limit=4)
+        if max_entities is None or max_relations is None:
+            try:
+                from eli.core.cognition_tunables import snapshot as _cog_snapshot
+                _tn = _cog_snapshot()
+            except Exception:
+                _tn = {}
+            if max_entities is None:
+                max_entities = int(_tn.get("cog.kg_entities", 8))
+            if max_relations is None:
+                max_relations = int(_tn.get("cog.kg_relations", 8))
+        max_entities = max(1, int(max_entities))
+        max_relations = max(1, int(max_relations))
+        hits = self.search_entities(query, limit=max_entities)
         if not hits:
             # Seed with identity entities for first-person queries
             if self._IDENTITY_RE.search(query):
@@ -424,7 +442,7 @@ class KnowledgeGraph:
                     if h["id"] not in seen_ids:
                         seen_ids.add(h["id"])
                         hits.append(h)
-                if len(hits) >= 6:
+                if len(hits) >= max_entities:
                     break
         if not hits:
             return ""
@@ -467,13 +485,13 @@ class KnowledgeGraph:
                  if float(r.get("weight", 1.0) or 0) > 0.1),
                 key=_rel_relevance, reverse=True,
             )
-            for rel in _outbound[:5]:
+            for rel in _outbound[:max_relations]:
                 triple = (name, rel["predicate"], rel["object"])
                 if triple not in seen_triples:
                     seen_triples.add(triple)
                     lines.append(f"  {name} —[{rel['predicate']}]→ {rel['object']}")
             for rel in [r for r in (ent_detail.get("inbound") or [])
-                        if float(r.get("weight", 1.0) or 0) > 0.1][:3]:
+                        if float(r.get("weight", 1.0) or 0) > 0.1][:max(3, max_relations // 2)]:
                 triple = (rel["subject"], rel["predicate"], name)
                 if triple not in seen_triples:
                     seen_triples.add(triple)
