@@ -796,11 +796,12 @@ def _first_run_gpu_offer() -> None:
                 return
 
         if _gp.gpu_pack_looks_installed(dest) or _gp.gpu_pack_operational(dest):
+            # Failing to activate in THIS process is not evidence the pack is broken
+            # (it was verified at install). Deleting its marker here is what made
+            # 2.5.0 throw away working packs and ask for the download again.
             if not _gp.activate_gpu_pack_runtime(dest, verify=True):
-                try:
-                    (dest / ".gpu_pack_ok").unlink(missing_ok=True)
-                except Exception:
-                    pass
+                print("[gpu-pack] installed pack not active this session; "
+                      "running on the bundled runtime")
             return
 
         from eli.core.hardware_profile import detect_hardware, integrated_gpu_label

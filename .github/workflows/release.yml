@@ -35,6 +35,11 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.11"   # newest version with binary wheels for the FULL stack (piper-phonemize, tflite-runtime cap at 3.11)
+  # Every pip install in every job is held to the llama-cpp-python the GPU packs are
+  # built at. Unpinned, pip took the newest upstream (0.3.36 on 2026-10-01) and v2.5.0
+  # crashed on launch wherever a 0.3.35 pack was installed. See the file itself.
+  # Relative on purpose: every pip install runs from the repo root (cd dist comes later).
+  PIP_CONSTRAINT: packaging/llama_cpp_constraints.txt
   PYTHONHASHSEED: "0"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PIP_NO_CACHE_DIR: "1"

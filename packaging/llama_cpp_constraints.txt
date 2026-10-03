@@ -1,0 +1,7 @@
+# The llama-cpp-python every release bundles. It MUST equal the version the GPU
+# packs are built at (.github/workflows/gpu-packs.yml LLAMA_VERSION): a pack and the
+# bundled runtime share native library names, and two different builds in one
+# process crash (v2.5.0 bundled 0.3.36 against 0.3.35 packs: "undefined symbol:
+# ggml_rope_set_offset" on launch). Change both together, and rebuild the packs.
+# tests/test_llama_runtime_pin.py enforces it.
+llama-cpp-python==0.3.35
