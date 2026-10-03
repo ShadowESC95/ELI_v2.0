@@ -35,9 +35,14 @@ def scope_text(searched: Dict[str, Any]) -> str:
 
 def _window_text(window: Dict[str, Any]) -> str:
     day = lambda t: time.strftime("%Y-%m-%d", time.localtime(t))
-    return (f"time-bounded to {day(window['since'])}..{day(window['until'])}: "
+    text = (f"time-bounded to {day(window['since'])}..{day(window['until'])}: "
             f"{window['in_window']} memories ({window['added_by_time']} found by date alone, the rest from "
             f"{window['candidates']} topic matches) and {window['turns']} of your turns fall inside it")
+    if window.get("outside_window"):
+        text += (f". Nothing matched inside those days, so the {window['outside_window']} closest "
+                 "matches from other days are shown with their own dates: if the user named the "
+                 "wrong day, say which day it actually was")
+    return text
 
 
 def block(diag: Optional[Dict[str, Any]]) -> str:

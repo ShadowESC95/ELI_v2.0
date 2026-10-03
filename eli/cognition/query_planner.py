@@ -32,7 +32,7 @@ def _n(tok: str) -> int:
 
 
 _MON = "|".join(list(_MONTHS) + [m[:3] for m in _MONTHS if m != "may"] + ["sept"])
-_DMY = re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s+({_MON})\.?(?:,?\s+(\d{{4}}))?\b")
+_DMY = re.compile(rf"\b(\d{{1,2}})(?:st|nd|rd|th)?\s*(?:of\s*)?({_MON})\.?(?:,?\s+(\d{{4}}))?\b")
 _MDY = re.compile(rf"\b({_MON})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(\d{{4}}))?\b")
 _ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 
@@ -97,12 +97,53 @@ def plan_window(text: str, now: Optional[float] = None) -> Optional[Window]:
     return parse_window(text, now) if asks_about_the_past(text) else None
 
 
+# "if today is saturday the 3rd" states the date; it isn't the period asked about. It
+# used to win over the "thursday ... 29th of sep" the question was actually about.
+_TODAY_IS = re.compile(r"\b(?:if\s+|as\s+|since\s+)?(?:today|it)(?:'s|\s+is)\s+"
+                       r"[^,.;!?()]*?(?=\s+(?:and|but|so)\b|[,.;!?()]|$)")
+
+
+def _negated(low: str, pos: int) -> bool:
+    """"NOT 9 days ago" rules a day out; it doesn't name one."""
+    return bool(re.search(r"\b(?:not|never|wasn'?t|isn'?t)\s+(?:on\s+|the\s+)?$", low[max(0, pos - 12):pos]))
+
+
+def _day_cues(low: str, n: datetime, sod: datetime) -> list:
+    """Every single-day reference in the text, as windows."""
+    out = [(_ts(day), _ts(day + timedelta(days=1)))
+           for pos, day in _explicit_dates(low, n) if not _negated(low, pos)]
+    for m in re.finditer(r"\b(?:on|last)\s+(" + "|".join(_WEEKDAYS) + r")\b", low):
+        if _negated(low, m.start()):
+            continue
+        back = (sod.weekday() - _WEEKDAYS.index(m.group(1))) % 7 or 7
+        day = sod - timedelta(days=back)
+        out.append((_ts(day), _ts(day + timedelta(days=1))))
+    for m in re.finditer(r"\b(\d+|two|three|four|five|six|seven|couple of|few)\s+days?\s+ago\b", low):
+        if _negated(low, m.start()):
+            continue
+        day = sod - timedelta(days=_n(m.group(1)))
+        out.append((_ts(day), _ts(day + timedelta(days=1))))
+    if re.search(r"\bday before yesterday\b", low):
+        out.append((_ts(sod - timedelta(days=2)), _ts(sod - timedelta(days=1))))
+    elif re.search(r"\byesterday\b", low):
+        out.append((_ts(sod - timedelta(days=1)), _ts(sod)))
+    return out
+
+
 def parse_window(text: str, now: Optional[float] = None) -> Optional[Window]:
     """(start, end) epoch seconds for the period a question refers to, or None if it names none."""
-    low = str(text or "").lower()
+    low = _TODAY_IS.sub(" ", str(text or "").lower())
     n = datetime.fromtimestamp(time.time() if now is None else float(now))
     sod = _start_of_day(n)
     end_now = _ts(n)
+
+    days = _explicit_dates(low, n)
+    if not (len(days) >= 2 and re.search(r"\b(?:between|from)\b", low)):
+        # Several day references that disagree ("thursday (2 days ago, the 29th)")
+        # get a window covering all of them, not whichever was checked first.
+        cues = _day_cues(low, n, sod)
+        if len(cues) > 1:
+            return min(c[0] for c in cues), max(c[1] for c in cues)
 
     explicit = _explicit_window(low, n)
     if explicit:

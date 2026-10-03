@@ -165,6 +165,26 @@ delete take start launch close read list get give do look describe explain gener
 skip next previous volume save store remember forget schedule cancel switch enable disable analyze analyse examine fix improve""".split())
 
 
+_SOCIAL_OPENER = re.compile(
+    r"^\s*(?:good\s+)?(?:morning|afternoon|evening|night|hi|hey|hello|hiya|yo|howdy|sup)\b"
+    r"|\b(?:(?:are\s+)?you\s+(?:back|there|awake|alive|up|ok|okay|alright|good|well)"
+    r"|how\s+(?:are|r)\s+(?:you|ya|u)|how'?s\s+(?:it\s+going|the\s+head|you)"
+    r"|what'?s\s+up|how\s+have\s+you\s+been)\b", re.I)
+_ACTION_WORD = re.compile(
+    r"\b(?:open|close|play|pause|stop|skip|set|search|find|look|show|read|start|turn|remind|"
+    r"timer|alarm|volume|news|weather|file|folder|app|launch|send|create|write|make|delete|"
+    r"install|run|check|fetch|download|summari[sz]e|translate|convert)\b", re.I)
+
+
+def is_social_checkin(text: str) -> bool:
+    """A greeting or how-are-you with nothing to act on. The resolver's catalogue prompt
+    is ~3k tokens: "Afternoon Eli, you back to life yet?" spent 34 s in it before the
+    reply even started (live, 2026-10-03, 35B MoE)."""
+    t = " ".join(str(text or "").split())
+    return (len(t.split()) <= 12 and bool(_SOCIAL_OPENER.search(t))
+            and not _ACTION_WORD.search(t))
+
+
 def is_plain_statement(text: str) -> bool:
     """Conversation, not a command: no question, no leading action verb. Nothing for an intent model to resolve.
 

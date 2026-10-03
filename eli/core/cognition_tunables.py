@@ -233,6 +233,27 @@ _GATHER_COUNT_KEYS = (
 )
 
 
+# Quick mode answers in one pass and the prompt is most of its latency: on a 35B MoE
+# with its experts in RAM, ~9.5k prompt tokens took ~2 minutes before the first word
+# (live, 2026-10-03, after these counts were raised). Quick keeps a lean prompt; the
+# deeper modes get the full counts. The pools (what retrieval searches) are not capped.
+_QUICK_PROMPT_COUNTS = {"cog.mem_recent_turns": 8, "cog.rerank_top_k": 12,
+                        "cog.mem_semantic_shown": 12, "cog.mem_conv_shown": 8}
+
+
+def prompt_count(key: str, reasoning_mode: object = None, snap: Dict[str, int] = None) -> int:
+    """How many of `key` go into the prompt for this reasoning mode."""
+    value = int((snap if snap is not None else snapshot()).get(key, _BY_KEY[key].default))
+    try:
+        from eli.cognition.reasoning_modes import canonical_mode
+        quick = canonical_mode(reasoning_mode or "quick") == "quick"
+    except Exception:
+        quick = str(reasoning_mode or "quick").strip().lower() in ("", "quick", "fast")
+    if quick and key in _QUICK_PROMPT_COUNTS:
+        return min(value, _QUICK_PROMPT_COUNTS[key])
+    return value
+
+
 def snapshot() -> Dict[str, int]:
     """All tunables in ONE settings read — use on the hot path (per request).
 
@@ -292,6 +313,6 @@ def groups() -> Dict[str, List[Tunable]]:
 
 
 __all__ = [
-    "Tunable", "TUNABLES", "get_tunable", "snapshot", "set_tunable",
+    "Tunable", "TUNABLES", "get_tunable", "snapshot", "prompt_count", "set_tunable",
     "reset_defaults", "groups",
 ]

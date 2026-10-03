@@ -935,6 +935,16 @@ def _correction_embeds_memory_question(text: str) -> bool:
     ))
 
 
+# A part of a multi-question message counts as a question when it opens like one
+# (after filler such as "ok", "and", "eli,").
+_MQS_QUESTION_START = re.compile(
+    r"(?i)^(?:(?:hey|ok|okay|so|also|and|eli|pal|mate)[,\s]+)*"
+    r"(?:what|what's|whats|who|who's|whose|whom|when|where|why|how|which|"
+    r"is|are|was|were|am|do|does|did|can|could|would|will|should|shall|have|has|had|"
+    r"tell|give|show|explain|list|describe|find|check)\b"
+)
+
+
 def _audit_result_outcome(result: Any) -> tuple:
     """(ok, outcome) for a non-streamed turn's return value."""
     if isinstance(result, dict):
@@ -2921,11 +2931,9 @@ def _eli_pm_engine_wants_personal_memory(low):
 
 
 def _eli_pm_engine_wants_routing_fault(low):
-    import re as _re
-    return bool(
-        _re.search(r"\bwhy\b.*\b(browser|web|online|search)\b", low)
-        or _re.search(r"\bwhy.*go.*browser\b", low)
-    )
+    # One definition with the router's (see wants_routing_fault_explain there).
+    from eli.execution.router_enhanced import wants_routing_fault_explain
+    return wants_routing_fault_explain(low)
 
 
 def _eli_pm_engine_mode_key(self, pargs, kwargs):
@@ -6566,6 +6574,8 @@ Answer:"""
             "- INVENTED PREFERENCES: Do not assert that the user has a preference, habit, memory, or life event (e.g. 'you like coffee', 'you always', 'you mentioned X', 'you had a wild night', 'you've been through a lot') unless it is explicitly present in MEMORY SEARCH RESULTS or the user stated it clearly in this conversation. Free wit and cultural references in casual chat are fine; fabricated user preferences or biography are not.\n"
             "- NO INVENTED SELF-MECHANISM: When asked HOW you work internally — your calibration, confidence scoring, reasoning, memory, or 'what changed/improved' about your own cognition — describe ONLY mechanisms actually present in the provided runtime/cognition evidence or real module names from your codebase. NEVER fabricate named algorithms, mathematical formulas, metrics, thresholds, or 'recalibration functions' to sound authoritative (e.g. inventing an 'Entropy Normalization' softmax equation, a 'context-window pruning' stage, or a specific confidence number you did not actually measure). If you do not have grounded detail about your own internals, say exactly that — e.g. 'I don't have that level of detail on my own runtime' — rather than constructing a plausible-sounding explanation. A confident invented mechanism is a worse failure than an honest 'I don't know how that works under the hood.' This is not a licence to refuse: when the evidence DOES describe your architecture, explain it fully.\n"
             "- NO FALSE SELF-DENIAL: The mirror of the rule above, and just as serious. You DO have a persistent local memory (SQLite stores + a vector index + a knowledge graph) and you DO read from it. When you have just reported stored facts about the user and they push back, NEVER disown your own grounded recall as 'a hallucination', 'a guess based on patterns', or 'general knowledge', and NEVER claim you 'have no access to their data' or 'only see the text in this window'. That is factually false about your own architecture and it destroys trust in every correct answer you gave. Push-back is not proof you were wrong. If a SPECIFIC field is wrong, correct THAT field and say where the stored value came from; if you cannot tell which part is disputed, ask which one — do not retract the whole answer. Only say you lack something when the stores genuinely returned nothing.\n"
+            "- EXPLAINING YOUR OWN MISTAKES: When the user asks why you got something wrong, state a cause only if your evidence shows it (a timestamped line, a retrieval diagnostic, a log entry). Otherwise say plainly that you can't see the cause from here, and correct the fact itself. Never invent mechanisms such as 'vector decay', 'context bleed', 'stale flags' or a confidence figure to explain a mistake.\n"
+            "- DATES: Conversation lines and memories carry their own timestamps and today's date is given. Read days and 'N days ago' from them; never work them out yourself. Anything from before today is history, not the current state (a song that was playing, an app that was open). If the user names a day that disagrees with the timestamps, say so and give the right one.\n"
             "- ANSWER WHOSE PROFILE WAS ASKED FOR: 'what do you know about yourself / your persona / your identity' asks about YOU. 'what do you know about me' asks about the USER. Never answer one with the other. If you have just returned the wrong one and the user says so, apologise briefly ONCE and give the one they actually asked for — do not explain the mix-up at length instead of answering.\n"
             "- PAST SESSION MEMORY: Profile fields labelled 'Recalled past topics' or 'Recalled research areas' are topics from PREVIOUS sessions. They are memory recall context only — never present them as your current ongoing work, never repeat them as the answer to an unrelated question, and never loop back to them when the user is asking about something else. If these topics are directly relevant to the current question, you may reference them as recalled context ('from a previous session...'); otherwise, ignore them and answer the actual question asked.\n"
             "- NO SOCIAL DEFLECTION: Do not end a substantive answer with 'How about you?', 'And yourself?', 'What about you?', or similar social probes. Answer the question; do not redirect it back to the user as a substitute for a real answer.\n"
@@ -7297,12 +7307,16 @@ Answer:"""
                         if len(_thread) >= 2:
                             _block = build_inline_exchange_block(_thread, user_input=_orig_msg)
                             if not _block:
+                                from eli.cognition.evidence_format import turn_stamp as _ts_label
                                 _thread_lines = []
                                 for _t in _thread[-12:]:
                                     _r = "You" if _t.get("role") == "user" else "ELI"
                                     _c = (_t.get("content") or "").replace("\n", " ")[:280]
-                                    _thread_lines.append(f"{_r}: {_c}")
-                                _block = "[Recent session]\n" + "\n".join(_thread_lines)
+                                    _st = _ts_label(_t.get("timestamp"))
+                                    _thread_lines.append(f"[{_st}] {_r}: {_c}" if _st else f"{_r}: {_c}")
+                                _block = ("[Recent conversation — each line is timestamped; earlier "
+                                          "days are history, not the current state]\n"
+                                          + "\n".join(_thread_lines))
                             if _confusion:
                                 _block += (
                                     "\n\n[The user is signalling confusion or asking you to clarify. "
@@ -10664,13 +10678,14 @@ Answer:"""
         # cog.mem_recent_turns said; context_budget still fits the block to the
         # model's window, dropping reranked evidence before recent turns.
         try:
-            from eli.core.cognition_tunables import snapshot as _cog_snapshot
+            from eli.core.cognition_tunables import snapshot as _cog_snapshot, prompt_count
             _tn = _cog_snapshot()
+            _rerank_shown = max(1, prompt_count("cog.rerank_top_k", reasoning_mode, _tn))
+            _recent_shown = max(1, prompt_count("cog.mem_recent_turns", reasoning_mode, _tn))
         except Exception:
             _tn = {}
-        _rerank_shown = max(1, int(_tn.get("cog.rerank_top_k", 24)))
+            _rerank_shown, _recent_shown = 12, 8
         _hit_chars = max(260, int(_tn.get("cog.mem_fact_chars", 240)))
-        _recent_shown = max(1, int(_tn.get("cog.mem_recent_turns", 30)))
         _recent_chars = max(220, int(_tn.get("cog.mem_recent_chars", 180)))
 
         if reranked:
@@ -11795,6 +11810,7 @@ Answer:"""
                 "you've ", "you have been", "why are you", "why did you",
                 "why do you", "have you actually", "have you really",
                 "i am grand", "i don't need", "i dont need",
+                "what the fuck", "what the hell", "wtf", "happened to your",
                 # Challenges. "Are you just saying that, or did you actually read the
                 # files? or are you just providing made up nonsense again? Do you have
                 # timestamps..." was split three ways; one fragment re-ran a Spotify
@@ -11817,6 +11833,12 @@ Answer:"""
                 # isn't one of its own.
                 if any(re.match(r"(?i)(?:or|and|but|so)\b", seg) for seg in _mqs_segs[1:]):
                     _mqs_segs = []
+                # Only questions are split. "What the fuck happened to your memory?? Mos
+                # def was yesterday, and netflix is not open?!" is a complaint and a
+                # correction; split, the complaint ran alone as a diagnostic and came back
+                # as a JSON envelope glued to the other half (live, 2026-10-03).
+                if not all(_MQS_QUESTION_START.match(seg) for seg in _mqs_segs):
+                    _mqs_segs = []
                 if len(_mqs_segs) >= 2:
                     _mqs_segs = _mqs_segs[:4]  # cap at 4
                     log.debug(
@@ -11834,6 +11856,7 @@ Answer:"""
                             )
                             # Extract user-visible text from dict/str/generator result
                             _mqs_conf = None
+                            _mqs_failed = isinstance(_mqs_r, dict) and _mqs_r.get("ok") is False
                             if isinstance(_mqs_r, dict):
                                 _mqs_conf = _mqs_r.get("confidence")
                                 _mqs_r = (
@@ -11861,7 +11884,7 @@ Answer:"""
                                 _mqs_low_conf = _mqs_conf is not None and float(_mqs_conf) < 0.5
                             except (TypeError, ValueError):
                                 _mqs_low_conf = False
-                            if _mqs_r and not _mqs_low_conf:
+                            if _mqs_r and not _mqs_low_conf and not _mqs_failed:
                                 _mqs_responses.append(_mqs_r)
                             elif _mqs_r:
                                 log.debug(
@@ -14908,8 +14931,9 @@ Answer:"""
         # Unmatched → grounded LLM intent resolver (real catalogue, cached). Only
         # adopt a confident, actionable result; otherwise fall through to chat.
         try:
-            from eli.cognition.llm_intent import is_plain_statement
-            if router_intent and _matched_by == "fallback.chat" and is_plain_statement(text):
+            from eli.cognition.llm_intent import is_plain_statement, is_social_checkin
+            if router_intent and _matched_by == "fallback.chat" and (
+                    is_plain_statement(text) or is_social_checkin(text)):
                 return router_intent
         except Exception:
             log.debug("statement check failed", exc_info=True)

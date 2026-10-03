@@ -1544,10 +1544,16 @@ def _eli_web_lookup_prepass(raw: str, low: str):
     ):
         return None
 
+    # "search" as a request, not the noun: a bare `search\b` sent "why the vector search
+    # is drifting" to the web (live, 2026-10-03).
     explicit_search = re.search(
-        r"\b(search\s+(?:the\s+)?(?:web|internet|online)|search\s+for|search\b|"
+        r"\b(search\s+(?:the\s+)?(?:web|internet|online)|search\s+for|"
         r"look\s+(?:it|this|that)?\s*up|google\b|"
-        r"check\s+the\s+(?:internet|web|online)|find\s+out)\b",
+        r"check\s+the\s+(?:internet|web|online)|find\s+out)\b"
+        r"|^\s*(?:(?:hey|ok|okay|please|eli)[,\s]+)*(?:(?:can|could|would|will)\s+you\s+)?"
+        r"(?:please\s+)?search\b"
+        r"|\b(?:you|eli)\s+(?:to\s+)?search\b"
+        r"|\b(?:do|run|make)\s+an?\s+(?:quick\s+|web\s+|internet\s+|online\s+)?search\b",
         low,
     )
     realtime_fact = re.search(
@@ -4592,6 +4598,13 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             return _mk("OPEN_BROWSER", ({"query": _bq} if _bq else {}), 0.98,
                        matched_by="open.browser.literal_preempt")
 
+        # "open cinejoy.pk in web" was taken whole as an app name ("cinejoy.pk in web
+        # is not installed", live 2026-10-02).
+        from eli.execution.portable_intent_contract import web_open_target
+        _web = web_open_target(target)
+        if _web is not None:
+            return _mk(_web[0], _web[1], 0.98, matched_by="open.web.literal_preempt")
+
         canonical = app_aliases.get(target_low, target)
         return _mk("OPEN_APP", {"name": canonical, "target": canonical}, 0.99,
                    matched_by="open.app.literal_preempt")
@@ -5556,11 +5569,28 @@ def _eli_pm_wants_personal_memory(low):
     ))
     return has_memory and has_depth
 
+# "why did you go to the browser / search the web for that": a complaint about ELI's own
+# dispatch. Was any "why ... search/web/online", so "why the vector search is drifting"
+# got a routing-trace dump about an earlier, unrelated command (live, 2026-10-03).
+_ROUTING_FAULT_COMPLAINT_RE = _eli_pm_re.compile(
+    r"\bwhy\b[^.?!]{0,40}?\b(?:did|do|does|are|were|would|have|has)\s+(?:you|eli|it)\b"
+    r"[^.?!]{0,40}?\b(?:go|went|going|open|opened|opening|send|sent|sending|search|searched|"
+    r"searching|use|used|using|launch|launched|pull|pulled|take|took|bring|brought|"
+    r"redirect|redirected)\b[^.?!]{0,40}?\b(?:browser|web|online|internet|google)\b"
+    r"|\bwhy\b[^.?!]{0,30}?\b(?:go|goes|went)\b[^.?!]{0,20}?\bbrowser\b",
+    _eli_pm_re.I,
+)
+
+
+def wants_routing_fault_explain(text: str) -> bool:
+    return bool(_ROUTING_FAULT_COMPLAINT_RE.search(str(text or "")))
+
+
 def _eli_pm_pre_route(text):
     raw = str(text or "").strip()
     low = raw.lower()
 
-    if _eli_pm_re.search(r"\bwhy\b.*\b(browser|web|online|search)\b", low) or _eli_pm_re.search(r"\bwhy.*go.*browser\b", low):
+    if wants_routing_fault_explain(low):
         return _eli_pm_mk(
             "ROUTING_FAULT_EXPLAIN",
             {"question": raw},

@@ -2355,6 +2355,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
                                # fit's (possibly needlessly shrunk) result — captured
                                # unconditionally since the MoE block can run even when
                                # use_gpu_layers is False (GPU present, backend not active)
+    _dense_fit_line = None
     if use_gpu_layers:
         _total_layers_est = layers_for_model(chosen["path"], chosen["size_gb"])
         _fit_ctx, _fit_layers, _fit_batch = unified_fit_config(
@@ -2373,6 +2374,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
         rec.batch_size = max(rec.batch_size, int(_fit_batch))
         chosen_layers = _fit_layers_real
         _fp = fit_priority()
+        _dense_fit_line = len(rec.reasoning)
         rec.reasoning.append(
             f"Fit ({_fp}, joint VRAM+RAM): ctx={rec.n_ctx} "
             f"gpu_layers={rec.n_gpu_layers} batch={rec.batch_size} "
@@ -2456,6 +2458,12 @@ def recommend(hw: Optional[HardwareProfile] = None,
             _full_offload = chosen_layers >= total_layers
 
     if _moe_plan:
+        if _dense_fit_line is not None:
+            # Read as "only 8 layers load" (live, 2026-10-03). It's the whole-layer
+            # calculation, superseded for an MoE model by the line below.
+            rec.reasoning[_dense_fit_line] += (
+                " — whole-layer fit, experts included; NOT used for this mixture-of-experts "
+                "model (see the next line)")
         rec.reasoning.append(
             f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB), mixture-of-experts — "
             f"{chosen_layers}/{total_layers} layers' core weights fit in {hw.free_vram_mb:.0f}MB "

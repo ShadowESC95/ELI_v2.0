@@ -52,21 +52,21 @@ class LongTermMemoryRefs:
     rag_ready: bool
 
 
-def _recent_turns_limit() -> int:
+def _recent_turns_limit(reasoning_mode: object = None) -> int:
     """This user's recent turns for the orchestrator's short-term memory."""
     try:
-        from eli.core.cognition_tunables import snapshot as _cog_snapshot
-        return max(4, int(_cog_snapshot().get("cog.mem_recent_turns", 30)))
+        from eli.core.cognition_tunables import prompt_count
+        return max(4, prompt_count("cog.mem_recent_turns", reasoning_mode))
     except Exception:
-        return 30
+        return 8
 
 
-def _verified_shown_limit() -> int:
+def _verified_shown_limit(reasoning_mode: object = None) -> int:
     try:
-        from eli.core.cognition_tunables import snapshot as _cog_snapshot
-        return max(1, int(_cog_snapshot().get("cog.mem_semantic_shown", 30)))
+        from eli.core.cognition_tunables import prompt_count
+        return max(1, prompt_count("cog.mem_semantic_shown", reasoning_mode))
     except Exception:
-        return 30
+        return 12
 
 
 def _gap_rag_limit() -> int:
@@ -637,7 +637,7 @@ class AgentOrchestrator:
                 # Unfiltered, an API turn could escalate on another user's turns.
                 recent_turns=getattr(self.engine, "memory", None)
                 and self.engine.memory.get_recent_conversation(
-                    limit=_recent_turns_limit(), user_id=self.engine.user_id) or None,
+                    limit=_recent_turns_limit(reasoning_mode), user_id=self.engine.user_id) or None,
             )
             if _esc is None:
                 return None
@@ -733,7 +733,7 @@ class AgentOrchestrator:
             session_id=self.engine.session_id,
             user_id=self.engine.user_id,
             recent_turns=self.engine.memory.get_recent_conversation(
-                limit=_recent_turns_limit(), user_id=self.engine.user_id) or [],
+                limit=_recent_turns_limit(reasoning_mode), user_id=self.engine.user_id) or [],
         )
         ltm = LongTermMemoryRefs(
             sqlite_ready=True,
@@ -1116,7 +1116,7 @@ class AgentOrchestrator:
             _tr = getattr(self.memory_agent, "_last_turn_retrieval", None)
             # Was the default shown=6 on every orchestrated turn.
             _verified = format_verified_memory_block(
-                _tr, shown=_verified_shown_limit()) if _tr else ""
+                _tr, shown=_verified_shown_limit(reasoning_mode)) if _tr else ""
             if _verified and _verified not in (wm.assembled_context or ""):
                 wm.assembled_context = (
                     _verified + "\n\n" + str(wm.assembled_context or "").strip()

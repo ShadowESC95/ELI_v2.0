@@ -20,12 +20,14 @@ _PHATIC_SEMANTIC_LIMIT = 4
 _PHATIC_CONV_LIMIT = 4
 
 
-def _full_turn_limits() -> Dict[str, int]:
+def _full_turn_limits(reasoning_mode: str = "quick") -> Dict[str, int]:
     try:
-        from eli.core.cognition_tunables import snapshot as _cog_snapshot
+        from eli.core.cognition_tunables import snapshot as _cog_snapshot, prompt_count
         tn = _cog_snapshot()
+        shown = {k: prompt_count(k, reasoning_mode, tn)
+                 for k in ("cog.mem_semantic_shown", "cog.mem_conv_shown")}
     except Exception:
-        tn = {}
+        tn, shown = {}, {}
     return {
         "semantic_limit": int(tn.get("cog.mem_semantic_recall", 40)),
         "conv_limit": int(tn.get("cog.mem_conv_recall", 30)),
@@ -34,8 +36,8 @@ def _full_turn_limits() -> Dict[str, int]:
         "hop2_limit": int(tn.get("cog.mem_hop2_recall", 20)),
         "merge_cap": int(tn.get("cog.mem_merge_cap", 40)),
         # Shown, not fetched: these two go into the prompt.
-        "semantic_shown": int(tn.get("cog.mem_semantic_shown", 30)),
-        "conv_shown": int(tn.get("cog.mem_conv_shown", 16)),
+        "semantic_shown": int(shown.get("cog.mem_semantic_shown", 12)),
+        "conv_shown": int(shown.get("cog.mem_conv_shown", 8)),
     }
 
 
@@ -271,7 +273,7 @@ def assemble_turn_dossier(
                          "recent_limit": 6, "summary_limit": 2}
                 sem_shown, conv_shown = _PHATIC_SEMANTIC_LIMIT, 3
             else:
-                _lims = _full_turn_limits()
+                _lims = _full_turn_limits(dossier.reasoning_mode)
                 sem_shown = _lims.pop("semantic_shown")
                 conv_shown = _lims.pop("conv_shown")
             result = retrieve_for_turn(

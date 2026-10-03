@@ -11,10 +11,13 @@ Fix: each segment's result dict is checked for `confidence`; anything below
 """
 from eli.kernel.engine import CognitiveEngine
 
+# Since 2026-10-03 the live message above isn't split at all: only parts that open
+# like a question are, and "Well we just need to..." doesn't. The gate below is still
+# needed when two real questions arrive together, so it's tested with those.
 COMPOUND = (
-    "Well we just need to get head on quantum dynamic encryption, send that "
-    "note to MI5 will you? What is the news headline about cosmic dust and "
-    "venus's atmosphere?"
+    "What is the quickest way to send an encrypted note to someone working at "
+    "MI5 these days? What is the news headline about cosmic dust and venus's "
+    "atmosphere?"
 )
 
 

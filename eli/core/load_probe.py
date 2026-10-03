@@ -286,6 +286,7 @@ _moe_ctx = None
 if cfg.get("moe_expert_offload"):
     try:
         from eli.core import moe_offload as _moe
+        cfg["n_gpu_layers"] = _moe.full_offload_layers(cfg["n_gpu_layers"], cfg["model_path"])
         _moe_ctx = _moe.expert_offload_params()
         _moe_ctx.__enter__()
     except Exception:

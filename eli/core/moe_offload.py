@@ -94,6 +94,17 @@ def plan_for_load(model_path: str, gpu_supported: Optional[bool]) -> Optional[Di
         return None
 
 
+def full_offload_layers(n_gpu_layers: Any, model_path: Optional[str]) -> int:
+    """llama.cpp counts one more layer than the model has blocks (the output layer).
+    Asking for 40 on a 40-block model put the output layer and 39 blocks on the GPU and
+    left block 0's attention on the CPU, while ELI reported "40/40" (live load log,
+    2026-10-03). An expert-offload request for every block asks for every layer."""
+    n = int(n_gpu_layers)
+    prof = profile(model_path)
+    blocks = int(getattr(prof, "block_count", 0) or 0)
+    return blocks + 1 if blocks and 0 < blocks <= n < 99 else n
+
+
 def _zero_copy_experts_wanted() -> bool:
     return (os.environ.get("ELI_MOE_PINNED_EXPERTS") or "").strip().lower() not in {"1", "true", "yes", "on"}
 

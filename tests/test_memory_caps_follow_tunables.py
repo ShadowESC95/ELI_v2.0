@@ -102,23 +102,33 @@ def test_orchestrator_kg_lookup_uses_the_kg_character_budget():
 def test_context_assembly_shows_the_tunable_number_of_reranked_hits_and_turns():
     from eli.kernel.engine import CognitiveEngine
     eng = CognitiveEngine.__new__(CognitiveEngine)
-    wm = SimpleNamespace(assembled_context="", reranked_hits=[
-        {"text": f"evidence row {i}", "source": "vector", "score": 0.5} for i in range(60)])
+    def wm():  # assemble_precise_context writes its result back onto it, so one per call
+        return SimpleNamespace(assembled_context="", reranked_hits=[
+            {"text": f"evidence row {i}", "source": "vector", "score": 0.5} for i in range(60)])
     stm = SimpleNamespace(recent_turns=[
         {"role": "user", "content": f"turn {i}"} for i in range(60)])
     with patch("eli.core.model_tier.tier_scale", return_value=1.0), \
             patch.object(CognitiveEngine, "_build_grounded_evidence_context", return_value=""):
-        ctx, _prompt = eng.assemble_precise_context("q", working_memory=wm, short_term_memory=stm)
-    snap = T.snapshot()
-    assert ctx.count("evidence row") == snap["cog.rerank_top_k"]   # was 8
-    assert ctx.count("User: turn") == snap["cog.mem_recent_turns"]  # was 8
+        deep, _ = eng.assemble_precise_context("q", working_memory=wm(), short_term_memory=stm,
+                                               reasoning_mode="research")
+        quick, _ = eng.assemble_precise_context("q", working_memory=wm(), short_term_memory=stm,
+                                                reasoning_mode="quick")
+        snap = T.snapshot()
+    assert deep.count("evidence row") == snap["cog.rerank_top_k"]   # was a fixed 8
+    assert deep.count("User: turn") == snap["cog.mem_recent_turns"]  # was a fixed 8
+    # Quick keeps a lean prompt (see cognition_tunables.prompt_count).
+    assert quick.count("evidence row") == 12
+    assert quick.count("User: turn") == 8
 
 
 def test_orchestrator_verified_block_uses_the_semantic_shown_tunable():
     from eli.cognition import orchestrator as O
     with patch("eli.core.model_tier.tier_scale", return_value=1.0):
-        assert O._verified_shown_limit() == T.snapshot()["cog.mem_semantic_shown"]  # was 6
-        assert O._recent_turns_limit() == T.snapshot()["cog.mem_recent_turns"]      # was 12
+        snap = T.snapshot()
+        assert O._verified_shown_limit("research") == snap["cog.mem_semantic_shown"]  # was 6
+        assert O._recent_turns_limit("research") == snap["cog.mem_recent_turns"]      # was 12
+        assert O._verified_shown_limit("quick") == 12
+        assert O._recent_turns_limit("quick") == 8
 
 
 def test_new_limits_are_tier_scaled():

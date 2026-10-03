@@ -30,6 +30,24 @@ def _normalise_turn(item: Any) -> tuple[str, str]:
     return role, re.sub(r"\s+", " ", content).strip()
 
 
+def _turn_time(item: Any) -> Any:
+    if isinstance(item, dict):
+        return item.get("timestamp") or item.get("ts") or item.get("event_ts")
+    return None
+
+
+def _stamped(item: Any, text: str) -> str:
+    from eli.cognition.evidence_format import turn_stamp
+    stamp = turn_stamp(_turn_time(item))
+    return f"[{stamp}] {text}" if stamp else text
+
+
+# Turns come from every session of this user, so they are history with times on
+# them, not "this session". Said once, in the header of every block that shows them.
+_HISTORY_NOTE = ("each line is timestamped. Lines from before today are history: what was "
+                 "true then (a song playing, an app open, a plan) is not the current state")
+
+
 def prior_turns_excluding_current(turns: Any, user_input: str = "") -> List[dict]:
     """Chronological turns before the current user message (for injection)."""
     _key = str(user_input or "").strip()[:80]
@@ -40,7 +58,7 @@ def prior_turns_excluding_current(turns: Any, user_input: str = "") -> List[dict
             continue
         if role == "user" and _key and content[:80] == _key:
             continue
-        out.append({"role": role, "content": content})
+        out.append({"role": role, "content": content, "timestamp": _turn_time(item)})
     return out
 
 
@@ -65,14 +83,13 @@ def build_session_thread_block(
         label = "User" if role == "user" else "ELI"
         if len(content) > max_chars_per:
             content = content[: max_chars_per - 3].rstrip() + "..."
-        lines.append(f"{label}: {content}")
+        lines.append(_stamped(item, f"{label}: {content}"))
     if not lines:
         return ""
     return (
-        "[SESSION THREAD — live transcript of THIS session, oldest→newest. "
-        "Use it for continuity: the user may refer to the last message or something "
-        f"several turns back (up to {max_turns} turns shown). "
-        "Do not contradict or forget what appears here.]\n"
+        "[CONVERSATION THREAD — your recent exchanges with this user, oldest→newest "
+        f"(up to {max_turns} turns); {_HISTORY_NOTE}. Use it for continuity: the user may "
+        "refer to the last message or something several turns back.]\n"
         + "\n".join(lines)
     )
 
@@ -94,7 +111,7 @@ def build_inline_exchange_block(
         label = "You" if role == "user" else "ELI"
         if len(content) > max_chars_per:
             content = content[: max_chars_per - 3].rstrip() + "..."
-        lines.append(f"{label}: {content}")
+        lines.append(_stamped(item, f"{label}: {content}"))
     if len(lines) < 2:
         return ""
-    return "[Recent session]\n" + "\n".join(lines)
+    return f"[Recent conversation — {_HISTORY_NOTE}]\n" + "\n".join(lines)

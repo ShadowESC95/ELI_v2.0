@@ -109,6 +109,19 @@ def _pack_off_label(default: str) -> str:
     return default
 
 
+def _pack_is_active() -> bool:
+    """--force (re-download) only for an explicit Reinstall of a pack that's working.
+    Otherwise the installer's own check skips a verified pack and reinstalls only a
+    broken one; the buttons used to force a 1.2 GB download every time."""
+    try:
+        from eli.core.hardware_profile import _llama_gpu_offload_available
+        gp = _import_eli_gpu_pack()
+        return bool(gp.gpu_pack_looks_installed(gp._eli_root() / "runtime" / "gpu")
+                    and _llama_gpu_offload_available())
+    except Exception:
+        return False
+
+
 def _enable_switched_off_pack(parent) -> bool:
     """A verified pack kept off only by an earlier "Use CPU only" choice is switched
     back on, not downloaded again. The Install buttons used to pass --force here and
@@ -1093,7 +1106,7 @@ class StartupModelSelectionDialog(QDialog):
         if _enable_switched_off_pack(self):
             self._refresh_gpu_pack_controls()
             return
-        argv: List[str] = ["--force"]
+        argv: List[str] = ["--force"] if _pack_is_active() else []
         if vulkan:
             argv.append("--vulkan")
         label = "Vulkan" if vulkan else "CUDA"
@@ -1980,7 +1993,7 @@ class FirstBootWizard(QDialog):
         if _enable_switched_off_pack(self):
             self._wiz_refresh_gpu_pack_controls()
             return
-        argv: List[str] = ["--force"]
+        argv: List[str] = ["--force"] if _pack_is_active() else []
         if vulkan:
             argv.append("--vulkan")
         label = "Vulkan" if vulkan else "CUDA"

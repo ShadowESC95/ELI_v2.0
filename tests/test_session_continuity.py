@@ -17,7 +17,7 @@ def test_session_thread_covers_twelve_turns():
         for i in range(14)
     ]
     block = build_session_thread_block(turns, user_input="turn 14")
-    assert "SESSION THREAD" in block
+    assert "CONVERSATION THREAD" in block
     assert "turn 2" in block
     assert "turn 13" in block
     assert "turn 0" not in block

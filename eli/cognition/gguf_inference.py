@@ -1110,6 +1110,8 @@ def load_model(force_reload: bool = False):
         if not _moe or int(effective_n_gpu_layers) <= 0:
             return Llama(**kw)
         from eli.core import moe_offload as _moe_offload
+        kw = dict(kw, n_gpu_layers=_moe_offload.full_offload_layers(
+            kw.get("n_gpu_layers", effective_n_gpu_layers), kw.get("model_path")))
         with _moe_offload.expert_offload_params():
             return Llama(**kw)
 

@@ -48,6 +48,18 @@ def _budget(name: str, default: int, floor: int, ceiling: int) -> int:
 MAX_BRIEF_CHARS    = _budget("context_brief_chars", 2_400, 1_200, 9_000)
 MAX_TURNS_INCLUDED = _budget("context_turns_included", 6, 4, 24)
 MAX_TURN_CHARS     = _budget("context_turn_chars", 200, 120, 900)
+
+
+def _stamp_turn(turn: Any, text: str) -> str:
+    """Prefix a dialogue line with when it was said (turns span sessions and days)."""
+    if not isinstance(turn, dict):
+        return text
+    try:
+        from eli.cognition.evidence_format import turn_stamp
+        stamp = turn_stamp(turn.get("timestamp") or turn.get("ts"))
+    except Exception:
+        stamp = ""
+    return f"[{stamp}] {text}" if stamp else text
 MIN_VECTOR_SCORE   = 0.35
 MAX_MEMORY_ITEMS   = _budget("context_memory_items", 6, 4, 18)
 
@@ -214,7 +226,7 @@ class ContextSynthesiser:
                 pass
             if content:
                 short = textwrap.shorten(content, width=MAX_TURN_CHARS, placeholder="…")
-                lines.append(f"{role}: {short}")
+                lines.append(_stamp_turn(turn, f"{role}: {short}"))
         return "\n".join(lines)
 
     @staticmethod
@@ -667,12 +679,12 @@ def build_persona_handoff(
                 short = textwrap.shorten(
                     content, width=budgets.get("dialogue_turn_chars", 220), placeholder="..."
                 )
-                dialogue_lines.append(f"- {role}: {short}")
+                dialogue_lines.append("- " + _stamp_turn(turn, f"{role}: {short}"))
     except Exception:
         dialogue_lines = []
 
     if dialogue_lines:
-        parts.append("\nRECENT DIALOGUE:")
+        parts.append("\nRECENT DIALOGUE (timestamped; earlier days are history, not the current state):")
         parts.extend(dialogue_lines)
 
     action = str(intent.get("action") or orchestrator_result.get("action") or "CHAT").strip()

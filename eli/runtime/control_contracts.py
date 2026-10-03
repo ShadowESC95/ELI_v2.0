@@ -1056,6 +1056,10 @@ def output_violates_evidence(text: Any, evidence_text: Any = "") -> bool:
 
     return False
 
+NO_USABLE_EVIDENCE_TEXT = ("I couldn't find usable evidence for that in my logs or runtime, "
+                           "so I won't guess at it.")
+
+
 def compact_evidence_answer(action: str, evidence_result: Dict[str, Any]) -> str:
     act = normalise_action(action)
     report = evidence_result.get("report")
@@ -1128,16 +1132,8 @@ def compact_evidence_answer(action: str, evidence_result: Dict[str, Any]) -> str
     if content:
         return content
 
-    return json.dumps(
-        {
-            "surface": "missing_control_evidence",
-            "action": act,
-            "reason": "no_usable_grounded_evidence",
-        },
-        ensure_ascii=False,
-        default=str,
-        indent=2,
-    )
+    # Plain words, never a JSON envelope: this string can be the reply the user reads.
+    return NO_USABLE_EVIDENCE_TEXT
 
 def finalise_control_result(engine: Any, user_input: Any, action: str, evidence_result: Dict[str, Any], trace: Dict[str, Any] | None = None, bus_result: Any = None, synthesized_text: Any = None) -> Dict[str, Any]:
     act = normalise_action(action)
@@ -1193,6 +1189,11 @@ def finalise_control_result(engine: Any, user_input: Any, action: str, evidence_
     # empty.
     if act in direct_evidence_actions and not final_text:
         final_text = compact
+    # Any other action with nothing synthesized (quick mode passes "" by design) answers
+    # from its own evidence too. META_DIAGNOSTIC wasn't in the set above, so every
+    # quick-mode one showed the user a JSON envelope (live, 2026-10-03).
+    if not final_text and compact and compact != NO_USABLE_EVIDENCE_TEXT:
+        final_text = compact
 
     # For control actions, do not let the output governor re-expand with generic chat.
     ok = bool(evidence_result.get("ok", False))
@@ -1245,16 +1246,7 @@ def finalise_control_result(engine: Any, user_input: Any, action: str, evidence_
     # but make `content`/`response` always plain text so a caller that str()s the result still emits
     # the user-facing answer and not the whole envelope.
     if not final_text:
-        final_text = json.dumps(
-            {
-                "surface": "control_result_without_visible_synthesis",
-                "action": action,
-                "reason": "empty_final_text",
-            },
-            ensure_ascii=False,
-            default=str,
-            indent=2,
-        )
+        final_text = NO_USABLE_EVIDENCE_TEXT
 
     return {
         "ok": ok,

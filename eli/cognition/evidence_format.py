@@ -45,6 +45,24 @@ def when_label(ts: Any, now: Optional[float] = None) -> str:
     return f"{stamp}, {age}" if age else stamp
 
 
+def turn_stamp(ts: Any, now: Optional[float] = None) -> str:
+    """Short time label for a conversation line: 'today 14:34', 'yesterday 18:37',
+    'Thu 01 Oct 18:24, 2 days ago'. Empty when the time is unknown.
+
+    History blocks used to show turns from earlier sessions undated, under a
+    "this session" header. The model then reported yesterday's Netflix tab as open
+    and yesterday's song as playing, and did its own wrong date arithmetic."""
+    t = _ts(ts)
+    if t is None:
+        return ""
+    age = age_label(t, now)
+    clock = time.strftime("%H:%M", time.localtime(t))
+    if age in ("today", "yesterday"):
+        return f"{age} {clock}"
+    stamp = time.strftime("%a %d %b %H:%M", time.localtime(t))
+    return f"{stamp}, {age}" if age else stamp
+
+
 def row_time(row: Any) -> Optional[float]:
     """When a row's content happened: event_ts, else ts, else timestamp."""
     if not isinstance(row, dict):

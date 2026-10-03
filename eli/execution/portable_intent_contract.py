@@ -215,9 +215,25 @@ _WEB_SITE_OPEN_ALIASES = {
 }
 
 
+# Dotted names that are files, not websites: "open notes.txt" is a file.
+_FILE_EXTENSIONS = frozenset({
+    "txt", "md", "pdf", "doc", "docx", "odt", "rtf", "xls", "xlsx", "ods", "csv", "tsv",
+    "ppt", "pptx", "odp", "json", "yaml", "yml", "toml", "ini", "cfg", "conf", "log", "xml",
+    "py", "js", "ts", "jsx", "tsx", "sh", "bash", "c", "h", "cpp", "hpp", "rs", "go", "java",
+    "kt", "rb", "php", "lua", "sql", "db", "sqlite", "sqlite3", "gguf", "bin", "safetensors",
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico", "mp3", "wav", "flac", "ogg",
+    "m4a", "mp4", "mkv", "avi", "mov", "webm", "zip", "tar", "gz", "xz", "7z", "rar", "deb",
+    "rpm", "appimage", "exe", "msi", "dmg", "iso", "desktop", "html", "htm", "css", "ipynb",
+})
+# "open cinejoy.pk in web" / "... in the browser": says where to open it, not what it is.
+_IN_WEB_SUFFIX_RE = re.compile(
+    r"\s+(?:in|on|with|using)\s+(?:the\s+|a\s+|my\s+)?(?:web(?:\s+browser)?|browser|"
+    r"internet|chrome|chromium|firefox|brave)\s*$", re.I)
+
+
 def _looks_like_url_target(target: str) -> bool:
     """True when an OPEN target is a web address rather than an app name."""
-    s = str(target or "").strip().lower()
+    s = _IN_WEB_SUFFIX_RE.sub("", str(target or "").strip().lower())
     if not s:
         return False
     if re.match(r"https?://", s):
@@ -227,15 +243,35 @@ def _looks_like_url_target(target: str) -> bool:
     toks = collapsed.split()
     if len(toks) == 2 and toks[1] in _URL_TLDS and re.fullmatch(r"[a-z0-9\-]+", toks[0]):
         return True
-    # Embedded dotted domain, e.g. "github.com", "docs.python.org".
+    # A single dotted name with any real TLD: "github.com", "docs.python.org",
+    # "cinejoy.pk". The fixed TLD list made "open cinejoy.pk" an app to install.
+    m = re.fullmatch(r"(?:www\.)?[a-z0-9\-]+(?:\.[a-z0-9\-]+)*\.([a-z]{2,24})/?(?:[/?#]\S*)?", collapsed)
+    if m and m.group(1) not in _FILE_EXTENSIONS:
+        return True
+    # Embedded dotted domain from the known list, e.g. "github.com page".
     if re.search(r"\b[a-z0-9\-]+\.(?:%s)\b" % "|".join(_URL_TLDS), collapsed):
         return True
     return False
 
 
+def web_open_target(target: str):
+    """(action, args) when an OPEN target is a website or names the browser, else None.
+
+    "cinejoy.pk in web" -> OPEN_URL https://cinejoy.pk; "quantum news in the browser"
+    -> OPEN_BROWSER with that query. Shared by the router's literal pre-empt and the
+    portable contract so the two can't disagree."""
+    raw = str(target or "").strip()
+    if _looks_like_url_target(raw):
+        return "OPEN_URL", {"url": _build_url(raw)}
+    if _IN_WEB_SUFFIX_RE.search(raw):
+        rest = _IN_WEB_SUFFIX_RE.sub("", raw).strip(" .,")
+        return "OPEN_BROWSER", ({"query": rest} if rest else {})
+    return None
+
+
 def _build_url(target: str) -> str:
     """Normalise a dictated web address into a real https URL."""
-    s = str(target or "").strip().lower()
+    s = _IN_WEB_SUFFIX_RE.sub("", str(target or "").strip().lower())
     if re.match(r"https?://", s):
         return s
     s = re.sub(r"\s+dot\s+", ".", s)
@@ -426,6 +462,14 @@ def try_route(text: str) -> Optional[dict]:
                 "args": {"url": _WEB_SITE_OPEN_ALIASES[target.lower().strip()]},
                 "confidence": 0.97,
                 "meta": {"matched_by": "portable_intent_contract.open_named_site"},
+            }
+        elif _IN_WEB_SUFFIX_RE.search(target):
+            _web = web_open_target(target)
+            return {
+                "action": _web[0],
+                "args": _web[1],
+                "confidence": 0.95,
+                "meta": {"matched_by": "portable_intent_contract.open_in_web"},
             }
         elif _browser_open_target(target) is not None:
             _bq = _browser_open_target(target)

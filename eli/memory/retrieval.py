@@ -213,9 +213,24 @@ def retrieve_for_turn(
             added = len(timed)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+        _before_window = list(raw_hits)
         raw_hits = [h for h in raw_hits if window[0] <= (row_time(h) or 0) < window[1]]
+        outside = 0
+        if not raw_hits and _before_window:
+            # Nothing on the days asked about. Keep the closest matches, dated and marked,
+            # so the answer can be "nothing then; the nearest is Fri 02 Oct" instead of an
+            # empty context the model fills in (live: it invented the dates).
+            raw_hits = [dict(h, outside_window=True) for h in _before_window[:6]]
+            outside = len(raw_hits)
+        if window and not conv_hits:
+            try:
+                conv_hits = [dict(t, outside_window=True) for t in
+                             (mem.search_conversations(q, user_id=user_id, limit=int(conv_limit)) or [])]
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
         window_stats = {"since": window[0], "until": window[1], "candidates": candidates,
-                        "added_by_time": added, "in_window": len(raw_hits), "turns": len(conv_hits)}
+                        "added_by_time": added, "in_window": len(raw_hits) - outside,
+                        "outside_window": outside, "turns": len(conv_hits)}
         log.debug("[RETRIEVAL] time window %s..%s: %d in window (%d of %d semantic candidates + %d found by time), %d turns",
                   time.strftime("%Y-%m-%d %H:%M", time.localtime(window[0])),
                   time.strftime("%Y-%m-%d %H:%M", time.localtime(window[1])),

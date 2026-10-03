@@ -1475,6 +1475,8 @@ class LocalModelManager:
                     if not _moe_gui or _cand_gpu_layers <= 0:
                         return Llama(**kw)
                     from eli.core import moe_offload as _moe_offload_gui2
+                    kw = dict(kw, n_gpu_layers=_moe_offload_gui2.full_offload_layers(
+                        kw["n_gpu_layers"], kw.get("model_path")))
                     with _moe_offload_gui2.expert_offload_params():
                         return Llama(**kw)
 
@@ -10735,6 +10737,11 @@ class EliMainWindow(QMainWindow):
                 _applies = _pin_for_model(model_path, _live, current_ctx=_canonical_ctx)
             except Exception:
                 _pin_model, _pin_ctx, _applies = "", 0, (_user_pinned_layers or None)
+            if (_user_pinned_layers and _applies is None
+                    and int(_user_pinned_layers) == int(rec.n_gpu_layers or 0)):
+                # Same number either way: nothing to replace or announce. It printed
+                # "gpu_layers=40 no longer applies - using the tuner's 40".
+                _applies = int(_user_pinned_layers)
             if _user_pinned_layers and _applies is None:
                 if _pin_model and _pin_model != _this_model:
                     _why = f"was pinned for {_pin_model}, not {_this_model}"
