@@ -18,6 +18,7 @@ from eli.core import config
 from eli.runtime.self_improvement import get_self_improvement
 from eli.memory import Memory, get_memory, get_memory_status, resolve_db_paths
 
+import contextvars
 import difflib
 import inspect
 import os
@@ -4355,41 +4356,94 @@ class CognitiveEngine:
     def user_id(self, value: Optional[str]) -> None:
         self._fallback_user_id = value
 
-    # The 5 ContextVar-backed properties below are different from session_id/
-    # user_id above: they are written directly from WITHIN turn-processing
-    # code (self.attr = x), not via a separate process()-level override, and
-    # have no legitimate "persistent single default shared by every thread"
-    # meaning — they are pure per-turn scratch state, true within ONE turn's
-    # synchronous execution and never read again afterward. So the setter
-    # writes the ContextVar itself (not a self.* fallback): every write is
-    # isolated to the calling thread by Python's default contextvars
-    # behavior, with no explicit set/reset plumbing needed anywhere else. A
-    # fallback here would have been a no-op disguised as a fix — the getter
-    # would never see anything but the shared fallback, since nothing else
-    # would ever .set() the ContextVar.
+    # ── per-turn and session-sticky state ──────────────────────────────────
+    # The three in-flight flags at the bottom are true only WITHIN one turn and
+    # are read in the same call chain that set them, so they live in
+    # ContextVars; process() runs each turn in its own Context, so concurrent
+    # turns never see each other's.
     #
-    # 3 MORE properties further down (_prev_bus_result, _last_command_action,
-    # _last_orchestrator_reasoning_mode) are NOT pure per-turn scratch — they
-    # are deliberately sticky across turns, and use session-keyed storage
-    # instead (request_context.get/set_session_sticky), not a ContextVar —
-    # see the comment there for why a ContextVar was the wrong fit (found via
-    # a failing test, 2026-10-02).
+    # Everything else here outlives the turn or is read from another thread:
+    # the GUI runs each message on a fresh thread and reads the confidence
+    # badge (_last_request_meta) on its main thread, the next turn rotates
+    # _last_bus_result into _prev_bus_result, "dive deeper" needs the last
+    # command. Those live in request_context's session store under
+    # _sticky_key(), i.e. this engine instance + this session. Live regression
+    # (2026-10-03): the first version kept _last_request_meta and
+    # _last_bus_result in ContextVars, which left the GUI badge blank and the
+    # previous-turn state None, since every GUI turn runs on a new thread.
+
+    def _sticky_key(self) -> Optional[str]:
+        sid = self.session_id
+        if not sid:
+            return None
+        # Per instance as well as per session: engines built in the same second
+        # share an int(time()) session id, and must not share state any more
+        # than they did when these were plain attributes.
+        ns = self.__dict__.get("_sticky_ns") or self.__dict__.setdefault(
+            "_sticky_ns", uuid.uuid4().hex[:12])
+        return f"{ns}:{sid}"
+
+    def _sticky_get(self, field: str, default: Any = None) -> Any:
+        return _request_context.get_session_sticky(self._sticky_key(), field, default)
+
+    def _sticky_set(self, field: str, value: Any) -> None:
+        _request_context.set_session_sticky(self._sticky_key(), field, value)
 
     @property
     def _last_bus_result(self) -> Any:
-        return _request_context.bus_result_var.get()
+        return self._sticky_get("last_bus_result")
 
     @_last_bus_result.setter
     def _last_bus_result(self, value: Any) -> None:
-        _request_context.bus_result_var.set(value)
+        self._sticky_set("last_bus_result", value)
 
     @property
     def _last_request_meta(self) -> Dict[str, Any]:
-        return _request_context.request_meta_var.get() or {}
+        return self._sticky_get("last_request_meta") or {}
 
     @_last_request_meta.setter
     def _last_request_meta(self, value: Dict[str, Any]) -> None:
-        _request_context.request_meta_var.set(value)
+        self._sticky_set("last_request_meta", value)
+
+    @property
+    def _prev_bus_result(self) -> Any:
+        return self._sticky_get("prev_bus_result")
+
+    @_prev_bus_result.setter
+    def _prev_bus_result(self, value: Any) -> None:
+        self._sticky_set("prev_bus_result", value)
+
+    @property
+    def _last_command_action(self) -> Optional[Dict[str, Any]]:
+        return self._sticky_get("last_command_action")
+
+    @_last_command_action.setter
+    def _last_command_action(self, value: Optional[Dict[str, Any]]) -> None:
+        self._sticky_set("last_command_action", value)
+
+    @property
+    def _last_orchestrator_reasoning_mode(self) -> str:
+        return self._sticky_get("last_orchestrator_reasoning_mode", "quick") or "quick"
+
+    @_last_orchestrator_reasoning_mode.setter
+    def _last_orchestrator_reasoning_mode(self, value: str) -> None:
+        self._sticky_set("last_orchestrator_reasoning_mode", value)
+
+    @property
+    def _reasoning_mode(self) -> Optional[str]:
+        # This turn's mode while a turn runs; between turns, the mode this
+        # session last ran in (for status reads).
+        mode = _request_context.reasoning_mode_var.get()
+        return mode if mode is not None else self._sticky_get("reasoning_mode")
+
+    @_reasoning_mode.setter
+    def _reasoning_mode(self, value: Optional[str]) -> None:
+        # The per-turn var is only touched inside a turn (process() always sets
+        # it first). Outside one, setting it would strand a value on the
+        # caller's thread.
+        if _request_context.reasoning_mode_var.get() is not None:
+            _request_context.reasoning_mode_var.set(value)
+        self._sticky_set("reasoning_mode", value)
 
     @property
     def _in_followthrough(self) -> bool:
@@ -4409,56 +4463,14 @@ class CognitiveEngine:
 
     @property
     def _in_orchestrator(self) -> bool:
-        # orchestrator.py's own recursion guard ("Recursion detected in
-        # orchestrator.run()") was reading/writing this as a plain self.*
-        # flag on the shared engine singleton — two unrelated CONCURRENT
-        # requests, not an actual recursive call, could trip the guard: B
-        # sees True because A set it, raises a false "recursion detected".
-        # Per-thread like the others fixes that without weakening the real
-        # same-call-stack recursion check, which still sees its own set().
+        # orchestrator.run()'s recursion guard. As a plain flag on the singleton,
+        # an unrelated concurrent request tripped "Recursion detected". Per turn
+        # now; the real same-call-chain check still sees its own set().
         return bool(_request_context.in_orchestrator_var.get())
 
     @_in_orchestrator.setter
     def _in_orchestrator(self, value: bool) -> None:
         _request_context.in_orchestrator_var.set(value)
-
-    # These 3 are different from every property above: they are DELIBERATELY
-    # meant to survive from one turn into the next (e.g. "was the previous
-    # command a NEWS_FETCH" has to still be true on the turn where the user
-    # says "dive deeper"). A ContextVar is the wrong primitive for that — it
-    # is scoped to the current thread, not to the session the data actually
-    # belongs to. Live bug (2026-10-02): a test constructing its own engine
-    # subclass inherited a reasoning-mode value an unrelated earlier test had
-    # left on the same thread — found by a failing persona-budget test. Keyed
-    # by session_id instead (request_context.get/set_session_sticky): correct
-    # for a concurrent request (different session_id, no shared slot) AND for
-    # a reused threadpool thread (same session_id still finds its own entry,
-    # whichever thread serves it).
-    @property
-    def _prev_bus_result(self) -> Any:
-        return _request_context.get_session_sticky(self.session_id, "prev_bus_result")
-
-    @_prev_bus_result.setter
-    def _prev_bus_result(self, value: Any) -> None:
-        _request_context.set_session_sticky(self.session_id, "prev_bus_result", value)
-
-    @property
-    def _last_command_action(self) -> Optional[Dict[str, Any]]:
-        return _request_context.get_session_sticky(self.session_id, "last_command_action")
-
-    @_last_command_action.setter
-    def _last_command_action(self, value: Optional[Dict[str, Any]]) -> None:
-        _request_context.set_session_sticky(self.session_id, "last_command_action", value)
-
-    @property
-    def _last_orchestrator_reasoning_mode(self) -> str:
-        return _request_context.get_session_sticky(
-            self.session_id, "last_orchestrator_reasoning_mode", "quick") or "quick"
-
-    @_last_orchestrator_reasoning_mode.setter
-    def _last_orchestrator_reasoning_mode(self, value: str) -> None:
-        _request_context.set_session_sticky(
-            self.session_id, "last_orchestrator_reasoning_mode", value)
 
     def cancel_generation(self) -> None:
         """Stop the in-flight chat generation at the next token (GUI Stop button)."""
@@ -11465,54 +11477,60 @@ Answer:"""
                 reasoning_mode: Optional[str] = None, *,
                 user_id: Optional[str] = None, session_id: Optional[str] = None,
                 **kwargs) -> Any:
-        """Per-request identity wrapper around _process_impl (Phase 1 of the
-        identity/provenance-graph plan). This engine is a process-wide
-        singleton — under concurrent API requests (api/server.py's handlers
-        run genuinely concurrently on FastAPI's threadpool), self.user_id/
-        self.session_id as plain instance state could leak between requests.
+        """Run one turn in its own contextvars.Context.
 
-        user_id/session_id, passed here, are set as ContextVars for the
-        duration of this call only — isolated per thread, so one request
-        can't see or clobber another's identity. Omitted (the GUI,
-        habits_scheduler.py, scheduled_tasks.py — none pass these today):
-        the engine's own single-instance fallback is used, unchanged from
-        before this wrapper existed.
+        This engine is a process-wide singleton, so per-turn state (identity,
+        request id, reasoning mode) can't live on self. user_id/session_id,
+        when given, and the turn's reasoning mode are set inside a fresh copy
+        of the caller's context; nothing is ever set on the caller's own
+        context, so nothing leaks onto its thread afterwards. Callers that pass
+        no identity (the GUI, habits_scheduler.py, scheduled_tasks.py) get the
+        engine's own per-instance defaults.
 
-        A streaming reply's generator body runs AFTER this method has
-        already returned (the caller iterates it later), so a plain
-        try/finally here would reset the identity before the stream ever
-        reads it. _identity_scoped_stream defers the reset to the
-        generator's own exhaustion instead.
+        A streamed reply's body runs after this returns, on whatever thread
+        pulls it: the GUI pulls on its worker thread, and Starlette pulls each
+        chunk of a sync stream through anyio in a fresh copy of the request
+        context. _context_bound_stream resumes every chunk inside this turn's
+        Context, so identity and mode hold for the whole stream. Live
+        regression (2026-10-03): the first version set the vars on the
+        caller's context with reset tokens; under Starlette, every chunk after
+        the first ran as the engine-default user and the stream ended in a
+        "Token was created in a different Context" error frame.
         """
-        tok_u = _request_context.user_id_var.set(user_id) if user_id is not None else None
-        tok_s = _request_context.session_id_var.set(session_id) if session_id is not None else None
-        try:
-            result = self._process_impl(
+        mode = str(reasoning_mode or "quick").strip().lower() or "quick"
+        ctx = contextvars.copy_context()
+
+        def _enter() -> Any:
+            if user_id is not None:
+                _request_context.user_id_var.set(user_id)
+            if session_id is not None:
+                _request_context.session_id_var.set(session_id)
+            _request_context.reasoning_mode_var.set(mode)
+            return self._process_impl(
                 user_input, source=source, stream=stream,
                 reasoning_mode=reasoning_mode, **kwargs)
-        except Exception:
-            if tok_u is not None:
-                _request_context.user_id_var.reset(tok_u)
-            if tok_s is not None:
-                _request_context.session_id_var.reset(tok_s)
-            raise
+
+        result = ctx.run(_enter)
         if inspect.isgenerator(result):
-            return self._identity_scoped_stream(result, tok_u, tok_s)
-        if tok_u is not None:
-            _request_context.user_id_var.reset(tok_u)
-        if tok_s is not None:
-            _request_context.session_id_var.reset(tok_s)
+            return self._context_bound_stream(result, ctx)
         return result
 
-    def _identity_scoped_stream(self, gen: Generator, tok_u: Any, tok_s: Any) -> Generator:
+    @staticmethod
+    def _context_bound_stream(gen: Generator, ctx: "contextvars.Context") -> Generator:
         try:
-            for piece in gen:
+            while True:
+                try:
+                    piece = ctx.run(next, gen)
+                except StopIteration:
+                    return
                 yield piece
         finally:
-            if tok_u is not None:
-                _request_context.user_id_var.reset(tok_u)
-            if tok_s is not None:
-                _request_context.session_id_var.reset(tok_s)
+            # Early close (client disconnect): the inner stream's own cleanup
+            # must also run as this turn, not as whoever closed it.
+            try:
+                ctx.run(gen.close)
+            except Exception:
+                log.debug("stream close failed", exc_info=True)
 
     def _process_impl(self, user_input: str, source: str = "user", stream: bool = False,
 
@@ -11539,6 +11557,8 @@ Answer:"""
             log.debug("phatic fast-path mode check failed", exc_info=True)
         try:
             _eli_live_mode = str(reasoning_mode or "quick").strip().lower() or "quick"
+            # Process-global, so only a fallback for readers outside any turn; in-turn
+            # readers use request_context.reasoning_mode_var (set via the property).
             __import__("os").environ["ELI_CURRENT_REASONING_MODE"] = _eli_live_mode
             self._reasoning_mode = _eli_live_mode
         except Exception:

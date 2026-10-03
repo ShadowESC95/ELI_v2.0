@@ -332,7 +332,17 @@ def _no_think_prefill(*, structured: bool, max_tokens) -> str:
     # Utility calls (structured/JSON or small-budget: routing, reflection, summary, judge) never
     # think, whatever the Think toggle says. The toggle only governs the main answer. Quick mode
     # doesn't think either (a "hey" once thought for 316s). ELI_MODEL_THINK.
-    _quick = os.environ.get("ELI_CURRENT_REASONING_MODE", "").strip().lower() == "quick"
+    # This turn's mode first. The env var is process-global: under concurrent API
+    # requests it holds whichever turn wrote last, so it's only the fallback for
+    # calls made outside a turn.
+    try:
+        from eli.kernel.request_context import reasoning_mode_var as _turn_mode
+        _mode = _turn_mode.get()
+    except Exception:
+        _mode = None
+    if _mode is None:
+        _mode = os.environ.get("ELI_CURRENT_REASONING_MODE", "")
+    _quick = str(_mode).strip().lower() == "quick"
     if structured or _small or _quick:
         disable = True
     else:

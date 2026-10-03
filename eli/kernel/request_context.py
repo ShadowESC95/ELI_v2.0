@@ -1,18 +1,28 @@
-"""Per-request state for CognitiveEngine, via contextvars instead of self.*.
+"""Per-request state for CognitiveEngine.
 
-The engine is a process-wide singleton (get_engine()). Before this, per-turn
-state (session_id, user_id, request_id, bus results) lived as plain instance
-attributes — under concurrent API requests (api/server.py's handlers run on
-FastAPI's threadpool, genuinely concurrent) one request's turn could read or
-overwrite another's mid-flight. ContextVars isolate this per request: anyio's
-to_thread.run_sync (what Starlette uses for sync def handlers) copies the
-caller's context into the worker thread, so a value set before dispatch stays
-correct for that request's thread alone.
+The engine is a process-wide singleton (get_engine()). Per-turn state used to
+live as plain instance attributes, so concurrent API requests (FastAPI runs
+sync handlers on a threadpool) could read or overwrite each other's mid-turn.
 
-None here means "not explicitly set for this call" — callers with no
-request-scoped identity (the GUI, background daemons) fall through to
-CognitiveEngine's own per-instance default, computed once, unchanged from
-before this file existed.
+Two kinds of state live here:
+
+* ContextVars, for values that belong to ONE turn: identity, request id,
+  reasoning mode, and a few in-flight flags. CognitiveEngine.process() runs
+  each turn inside its own contextvars.Context and resumes a streamed reply
+  inside that same Context for every chunk. Binding a turn to "the current
+  thread's context" does NOT work: the GUI starts a fresh thread per message
+  and reads results on the main thread, and Starlette pulls each chunk of a
+  sync stream through anyio in a fresh copy of the request context — both
+  confirmed against the real code, and both broke the first version of this.
+
+* A session-keyed store, for values that must outlive the turn and be seen
+  from other threads: the last request meta (GUI badge, "what was your last
+  message"), the last and previous bus results, the last command action, the
+  last reasoning modes. Keyed by session so concurrent sessions never share.
+
+None in a ContextVar means "not set for this turn" — callers with no request
+identity (the GUI, background daemons) fall through to the engine's own
+per-instance defaults.
 """
 from __future__ import annotations
 
@@ -22,37 +32,25 @@ from typing import Any, Optional
 session_id_var: ContextVar[Optional[str]] = ContextVar("eli_session_id", default=None)
 user_id_var: ContextVar[Optional[str]] = ContextVar("eli_user_id", default=None)
 request_id_var: ContextVar[Optional[str]] = ContextVar("eli_request_id", default=None)
-bus_result_var: ContextVar[Optional[Any]] = ContextVar("eli_bus_result", default=None)
-request_meta_var: ContextVar[Optional[dict]] = ContextVar("eli_request_meta", default=None)
-# None means "not explicitly set" for these two, same as the others above —
-# NOT False. A ContextVar default of False would be indistinguishable from a
-# legitimate "turn just ended" write, since nothing today ever sets these
-# vars directly (only the property setters below, which write the engine's
-# own fallback instead) — see CognitiveEngine's _in_followthrough /
-# _orchestrator_active properties.
+# The current turn's reasoning mode. This used to be os.environ
+# ["ELI_CURRENT_REASONING_MODE"] plus self._reasoning_mode on the singleton: the
+# env var is process-global, so a concurrent quick request could switch a
+# thinking model's <think> off for someone else's expert answer.
+reasoning_mode_var: ContextVar[Optional[str]] = ContextVar("eli_reasoning_mode", default=None)
+# None = not set this turn, not False: False is a legitimate in-turn value.
 in_followthrough_var: ContextVar[Optional[bool]] = ContextVar("eli_in_followthrough", default=None)
 orchestrator_active_var: ContextVar[Optional[bool]] = ContextVar("eli_orchestrator_active", default=None)
 in_orchestrator_var: ContextVar[Optional[bool]] = ContextVar("eli_in_orchestrator", default=None)
 
 
 # ── session-sticky state ─────────────────────────────────────────────────────
-# prev_bus_result, last_command_action, and last_orchestrator_reasoning_mode
-# are DELIBERATELY meant to survive from one turn into the next (unlike every
-# ContextVar above, which is pure within-one-turn scratch) — e.g. "was the
-# previous command a NEWS_FETCH" has to still be true on the turn where the
-# user says "dive deeper". A ContextVar is the wrong primitive for that: it is
-# scoped to the current thread, not to the session the data actually belongs
-# to, so two different CognitiveEngine-like objects (or, in production, a
-# threadpool thread reused for a later, unrelated request) silently share one
-# slot. Live bug (2026-10-02): a test constructing its own engine subclass
-# inherited a reasoning-mode value an unrelated earlier test had left on the
-# same thread, found by a failing persona-budget test, not by inspection.
-#
-# Keyed by session_id instead — correct for both a concurrent request (a
-# different session_id never reads another session's entry) and a reused
-# thread (the same session_id still finds its own entry, wherever it runs).
-# Bounded with simple oldest-first eviction so a long-running process with
-# many distinct sessions doesn't grow this unboundedly.
+# For values that must outlive the turn that set them or be read from another
+# thread — "was the previous command a NEWS_FETCH" on the "dive deeper" turn,
+# the GUI badge reading the last request meta on its main thread. The caller
+# passes a key that already includes the engine instance and the session (see
+# CognitiveEngine._sticky_key), so concurrent sessions never share an entry
+# and the same session finds its own from any thread. Bounded oldest-first so
+# a long-running process with many sessions doesn't grow this forever.
 import threading as _threading
 from collections import OrderedDict as _OrderedDict
 

@@ -66,6 +66,7 @@ import threading
 import logging as _swlog_logging
 _SWLOG = _swlog_logging.getLogger(__name__)
 
+import contextvars
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
@@ -2305,8 +2306,13 @@ class AgentBus:
                 return max(base, 180.0 * _tier_mult)
             return base
 
+        # Each agent runs in a copy of the caller's context, so the turn's
+        # identity, request id and reasoning mode reach agent threads too (a
+        # pool thread otherwise starts with an empty context). One copy per
+        # agent: a Context can't be entered by two threads at once.
         futures = {
-            self._pool.submit(a.run, user_input, intent, session_id, user_id): a
+            self._pool.submit(contextvars.copy_context().run, a.run,
+                              user_input, intent, session_id, user_id): a
             for a in layer_agents
         }
         max_timeout = max((_eff_to(a) for a in layer_agents), default=5.0)

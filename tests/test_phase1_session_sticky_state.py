@@ -22,6 +22,7 @@ long-running process with many distinct sessions doesn't grow it forever.
 """
 from __future__ import annotations
 
+import threading
 from concurrent.futures import ThreadPoolExecutor
 
 from eli.kernel import request_context as rc
@@ -43,26 +44,40 @@ def test_two_different_sessions_never_share_a_sticky_value():
     assert a._last_orchestrator_reasoning_mode == "chain_of_thought"
 
 
-def test_the_same_session_shares_its_sticky_value_across_instances():
-    """This is the actual point of 'sticky' — a reused threadpool thread, or
-    a new engine-like object for the same ongoing session, must still see
-    what that session's last turn set."""
-    first = _engine_for_session("session-X")
-    first._last_command_action = {"action": "NEWS_FETCH"}
+def _on_new_thread(fn):
+    out = {}
+    t = threading.Thread(target=lambda: out.setdefault("v", fn()))
+    t.start()
+    t.join()
+    return out["v"]
 
-    second = _engine_for_session("session-X")
-    assert second._last_command_action == {"action": "NEWS_FETCH"}
+
+def test_the_same_session_shares_its_sticky_value_across_threads():
+    """The actual point of 'sticky': the same engine and session must still
+    see what the last turn set, whichever thread runs the next turn — the GUI
+    starts a fresh thread for every message."""
+    eng = _engine_for_session("session-X")
+    _on_new_thread(lambda: setattr(eng, "_last_command_action", {"action": "NEWS_FETCH"}))
+    assert _on_new_thread(lambda: eng._last_command_action) == {"action": "NEWS_FETCH"}
 
 
 def test_prev_bus_result_is_also_session_keyed():
-    first = _engine_for_session("session-Y")
-    first._prev_bus_result = "turn one's bus result"
-
-    same_session_later = _engine_for_session("session-Y")
-    assert same_session_later._prev_bus_result == "turn one's bus result"
+    eng = _engine_for_session("session-Y")
+    eng._prev_bus_result = "turn one's bus result"
+    assert _on_new_thread(lambda: eng._prev_bus_result) == "turn one's bus result"
 
     other_session = _engine_for_session("session-Z")
     assert other_session._prev_bus_result is None
+
+
+def test_two_engine_instances_never_share_even_with_the_same_session_id():
+    """Engines built in the same second share an int(time()) session id. As
+    plain attributes these were per instance; they must stay that way."""
+    a = _engine_for_session("1790990000")
+    b = _engine_for_session("1790990000")
+    a._last_request_meta = {"confidence": 0.9}
+    assert b._last_request_meta == {}
+    assert a._last_request_meta == {"confidence": 0.9}
 
 
 def test_an_engine_with_no_session_id_never_reads_or_writes_any_sessions_sticky_state():
