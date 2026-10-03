@@ -94,6 +94,32 @@ def plan_for_load(model_path: str, gpu_supported: Optional[bool]) -> Optional[Di
         return None
 
 
+def _zero_copy_experts_wanted() -> bool:
+    return (os.environ.get("ELI_MOE_PINNED_EXPERTS") or "").strip().lower() not in {"1", "true", "yes", "on"}
+
+
+def apply_zero_copy(params: Any) -> Any:
+    """Read the expert tensors straight from the file mapping: no pinned copy, no repack.
+
+    Newer llama.cpp (the 0.3.35 GPU pack) puts CPU-side weights in the GPU backend's
+    pinned host buffer (CUDA_Host) and, failing that, repacks them into a CPU layout.
+    Both COPY the experts. Live, 2026-10-03, Qwen3.6-35B-A3B on 32 GB RAM with the
+    RTX 2060 SUPER: pinning 17.7 GB stalled the load at 12 GB RSS while the system
+    swapped (14 minutes, never finished); repack (14.4 GB) loaded in 265 s and
+    generated 1.6 tok/s; neither loaded in 18 s and generated 18.3 tok/s.
+    ELI_MOE_PINNED_EXPERTS=1 keeps llama.cpp's default, for machines with RAM to spare.
+    Fields an older build doesn't have are left alone.
+    """
+    if not _zero_copy_experts_wanted():
+        return params
+    fields = {f[0] for f in getattr(type(params), "_fields_", ())}
+    if "no_host" in fields:
+        params.no_host = True
+    if "use_extra_bufts" in fields:
+        params.use_extra_bufts = False
+    return params
+
+
 @contextlib.contextmanager
 def expert_offload_params() -> Iterator[None]:
     """While a model is constructed, its parameters carry the override that puts expert tensors in system memory."""
@@ -114,7 +140,7 @@ def expert_offload_params() -> Iterator[None]:
         def patched():
             params = original()
             params.tensor_buft_overrides = ctypes.cast(table, ctypes.c_void_p)
-            return params
+            return apply_zero_copy(params)
         lc.llama_model_default_params = patched
         try:
             yield

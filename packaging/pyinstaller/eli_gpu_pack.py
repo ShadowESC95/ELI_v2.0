@@ -705,6 +705,7 @@ def _activate_staged_gpu_pack(
         encoding="utf-8",
     )
     (dest / ".gpu_pack_ok").write_text("verified", encoding="utf-8")
+    record_gpu_choice(dest.parent)
     _say(f"installed and verified at {dest}")
     _say("done — the model loader will now offload layers to the GPU.")
     return 0
@@ -751,6 +752,44 @@ def gpu_pack_operational(dest: Path | None = None) -> bool:
         return False
     ok, _detail = _verify(dest, require_offload=not _relax_offload_verify(dest))
     return bool(ok)
+
+
+def record_gpu_choice(runtime: Path) -> None:
+    """Installing a pack is choosing the GPU. Without this, a "Use CPU only" answer
+    from an earlier launch stayed in runtime/.gpu_choice, switched the new pack off
+    again at every boot, the load screen said "GPU backend: not installed", and the
+    next Install downloaded the same ~1.2 GB again (live: three times in a day)."""
+    try:
+        runtime.mkdir(parents=True, exist_ok=True)
+        (runtime / ".gpu_choice").write_text("gpu-installed", encoding="utf-8")
+    except Exception:
+        pass
+
+
+def pack_switched_off_by_cpu_choice(root: Path | None = None) -> bool:
+    """A verified pack is on disk, but an earlier CPU-only choice keeps it from loading."""
+    try:
+        root = root or _eli_root()
+    except RuntimeError:
+        return False
+    marker = root / "runtime" / ".gpu_choice"
+    try:
+        choice = marker.read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        return False
+    return choice.startswith("cpu") and gpu_pack_looks_installed(root / "runtime" / "gpu")
+
+
+def enable_installed_pack(root: Path | None = None) -> bool:
+    """Switch an installed pack back on without downloading it. Takes effect next launch."""
+    try:
+        root = root or _eli_root()
+    except RuntimeError:
+        return False
+    if not gpu_pack_looks_installed(root / "runtime" / "gpu"):
+        return False
+    record_gpu_choice(root / "runtime")
+    return True
 
 
 def gpu_pack_looks_installed(dest: Path | None = None) -> bool:

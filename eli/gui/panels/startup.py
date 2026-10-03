@@ -99,6 +99,35 @@ class _GpuPackInstallThread(QThread):
             self.finished_result.emit(1, str(exc))
 
 
+def _pack_off_label(default: str) -> str:
+    """What to call an inactive GPU backend: installed-but-switched-off is not "not installed"."""
+    try:
+        if _import_eli_gpu_pack().pack_switched_off_by_cpu_choice():
+            return "installed, switched off by a CPU-only choice"
+    except Exception:
+        log.debug("gpu pack state lookup failed", exc_info=True)
+    return default
+
+
+def _enable_switched_off_pack(parent) -> bool:
+    """A verified pack kept off only by an earlier "Use CPU only" choice is switched
+    back on, not downloaded again. The Install buttons used to pass --force here and
+    re-fetch ~1.2 GB every time (three times in one day, live). True when handled."""
+    try:
+        gp = _import_eli_gpu_pack()
+        if not gp.pack_switched_off_by_cpu_choice() or not gp.enable_installed_pack():
+            return False
+    except Exception:
+        log.debug("gpu pack enable check failed", exc_info=True)
+        return False
+    QMessageBox.information(
+        parent, "GPU pack switched back on",
+        "The GPU pack is already installed and verified. An earlier \"Use CPU only\" "
+        "choice was keeping it off, so nothing needs downloading.\n\n"
+        "It's switched back on. Restart ELI once to load it.")
+    return True
+
+
 def _query_ollama_tags(host: str, timeout: int = 5):
     """Query an Ollama server's /api/tags. Returns (sorted_names_or_None,
     error_or_None); never raises. Loopback is allowed even with NetGuard on
@@ -983,7 +1012,7 @@ class StartupModelSelectionDialog(QDialog):
                     f"{_kind}  |  RAM: {_hw.ram_gb:.1f} GB  |  "
                     f"shared budget ~{_hw.free_vram_mb} MB  |  "
                     f"model RAM cap ~{_ram_budget} MB  |  "
-                    f"GPU backend: {'active' if _backend else 'not installed (CPU until GPU pack)'}"
+                    f"GPU backend: {'active' if _backend else _pack_off_label('not installed (CPU until GPU pack)')}"
                     f"{_fit_line}"
                 )
             else:
@@ -991,7 +1020,7 @@ class StartupModelSelectionDialog(QDialog):
                     f"{_hw.gpu_name}  |  "
                     f"VRAM {_hw.free_vram_mb}/{_hw.total_vram_mb} MB  |  "
                     f"RAM spill budget ~{_ram_budget} MB ({_ram_pct}%)  |  "
-                    f"GPU backend: {'active' if _backend else 'not installed'}"
+                    f"GPU backend: {'active' if _backend else _pack_off_label('not installed')}"
                     f"{_fit_line}"
                 )
             self.hw_summary_label.setText(txt)
@@ -1017,10 +1046,12 @@ class StartupModelSelectionDialog(QDialog):
             _pack_ok = False
             _pack_backend = ""
             _has_pack_dir = False
+            _switched_off = False
             try:
                 gp = _import_eli_gpu_pack()
                 dest = gp._eli_root() / "runtime" / "gpu"
                 _has_pack_dir = (dest / "llama_cpp").is_dir()
+                _switched_off = bool(gp.pack_switched_off_by_cpu_choice())
                 _pack_ok = gp.gpu_pack_looks_installed(dest) or gp.gpu_pack_operational(dest)
                 if (dest / ".gpu_pack.json").is_file():
                     import json as _json
@@ -1031,6 +1062,10 @@ class StartupModelSelectionDialog(QDialog):
             if _pack_ok and _backend:
                 self.gpu_pack_status_label.setText(
                     f"Active ({_pack_backend or 'GPU'}) — layer offload available.")
+            elif _switched_off:
+                self.gpu_pack_status_label.setText(
+                    "Installed, but switched off by an earlier \"Use CPU only\" choice. "
+                    "Click Enable (no download), then restart ELI.")
             elif _has_pack_dir:
                 self.gpu_pack_status_label.setText(
                     "Installed but CPU-only here — reinstall with the correct backend "
@@ -1040,7 +1075,8 @@ class StartupModelSelectionDialog(QDialog):
                     "Not installed — optional; CPU inference works without it.")
             show_vulkan = vulkan_machine or not nvidia
             show_cuda = nvidia and not bool(getattr(_hw, "gpu_integrated", False))
-            _verb = "Reinstall" if (_pack_ok and _backend) else "Install"
+            _verb = ("Enable" if _switched_off
+                     else "Reinstall" if (_pack_ok and _backend) else "Install")
             self.gpu_pack_vulkan_btn.setText(f"{_verb} Vulkan GPU pack")
             self.gpu_pack_cuda_btn.setText(f"{_verb} CUDA GPU pack")
             self.gpu_pack_vulkan_btn.setVisible(show_vulkan)
@@ -1053,6 +1089,9 @@ class StartupModelSelectionDialog(QDialog):
 
     def _start_gpu_pack_install(self, *, vulkan: bool) -> None:
         if getattr(self, "_gpu_pack_thread", None) is not None and self._gpu_pack_thread.isRunning():
+            return
+        if _enable_switched_off_pack(self):
+            self._refresh_gpu_pack_controls()
             return
         argv: List[str] = ["--force"]
         if vulkan:
@@ -1919,6 +1958,10 @@ class FirstBootWizard(QDialog):
                 dest = gp._eli_root() / "runtime" / "gpu"
                 if (gp.gpu_pack_looks_installed(dest) or gp.gpu_pack_operational(dest)) and _backend:
                     self._wiz_gpu_status.setText("GPU pack active — Vulkan/CUDA offload available.")
+                elif gp.pack_switched_off_by_cpu_choice():
+                    self._wiz_gpu_status.setText(
+                        "GPU pack installed, but switched off by an earlier \"Use CPU only\" "
+                        "choice. Click Install to switch it back on (no download).")
                 elif (dest / "llama_cpp").is_dir():
                     self._wiz_gpu_status.setText(
                         "GPU pack installed but not offloading — try Vulkan on Intel/AMD iGPU.")
@@ -1933,6 +1976,9 @@ class FirstBootWizard(QDialog):
 
     def _wiz_start_gpu_pack_install(self, *, vulkan: bool) -> None:
         if getattr(self, "_wiz_gpu_thread", None) is not None and self._wiz_gpu_thread.isRunning():
+            return
+        if _enable_switched_off_pack(self):
+            self._wiz_refresh_gpu_pack_controls()
             return
         argv: List[str] = ["--force"]
         if vulkan:
