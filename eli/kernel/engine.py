@@ -944,6 +944,15 @@ def _audit_result_outcome(result: Any) -> tuple:
     return bool(text), ("ok" if text else "empty_reply")
 
 
+def _visible_reply_text(result: Any) -> str:
+    """The reply text a non-streamed turn showed the user."""
+    if isinstance(result, dict):
+        return str(result.get("response") or result.get("content") or result.get("text") or "")
+    if isinstance(result, str):
+        return result
+    return ""
+
+
 def _audit_error_outcome(exc: BaseException) -> str:
     if isinstance(exc, GeneratorExit):
         return "cancelled"
@@ -10284,10 +10293,11 @@ Answer:"""
             return ""
 
     def _store_user_turn(self, text: str) -> None:
-        if not text:
+        if not text or self._in_nested_turn():
             return
         try:
             self.memory.add_conversation_turn("user", text, self.session_id, self.user_id)
+            _request_context.note_turn_fact("user_stored", True)
         except Exception as e:
             log.debug(f"[COGNITIVE] User turn store failed: {e}")
         try:
@@ -10325,7 +10335,7 @@ Answer:"""
             return _orig
 
     def _store_assistant_turn(self, text: str) -> None:
-        if not text:
+        if not text or self._in_nested_turn():
             return
         # Govern here so every storage path (canonical + fastpath bypasses) is covered.
         try:
@@ -10365,8 +10375,19 @@ Answer:"""
             log.debug(f"[COGNITIVE] offer-capture skipped: {_prop_err}")
         try:
             self.memory.add_conversation_turn("assistant", text, self.session_id, self.user_id)
+            _request_context.note_turn_fact("assistant_stored", True)
         except Exception as e:
             log.debug(f"[COGNITIVE] Assistant turn store failed: {e}")
+
+    @staticmethod
+    def _in_nested_turn() -> bool:
+        """A turn run inside another (multi-question split, followthrough re-run).
+        Its parent stores the conversation: the user's real message once, and the
+        reply they actually saw. Children storing their own made a sub-question,
+        or ELI's own "fetch the latest news" clause, look like something the user
+        typed."""
+        facts = _request_context.turn_facts_var.get()
+        return bool(facts and facts.get("parent_request_id"))
 
     def _publish_last_response_meta(
         self,
@@ -11533,6 +11554,8 @@ Answer:"""
             "source": ("followthrough" if parent and _request_context.in_followthrough_var.get()
                        else str(source or "")),
             "t0": time.perf_counter(),
+            "user_input": user_input,
+            "autonomous": CognitiveEngine._is_autonomous_source(source),
         }
         ctx = contextvars.copy_context()
 
@@ -11555,6 +11578,7 @@ Answer:"""
             raise
         if inspect.isgenerator(result):
             return self._context_bound_stream(result, ctx, facts)
+        ctx.run(self._finalize_turn_backstop, facts, _visible_reply_text(result), result)
         ok, outcome = _audit_result_outcome(result)
         self._commit_turn_audit(ctx, facts, ok=ok, outcome=outcome, result=result)
         return result
@@ -11582,6 +11606,7 @@ Answer:"""
                     except StopIteration:
                         joined = "".join(text).strip()
                         outcome = (bool(joined), "ok" if joined else "empty_reply")
+                        ctx.run(self._finalize_turn_backstop, facts, joined, None)
                         return
                     if isinstance(piece, str) and piece != MAIN_REPLY_DONE_SENTINEL:
                         text.append(piece)
@@ -11755,6 +11780,13 @@ Answer:"""
                 "you've ", "you have been", "why are you", "why did you",
                 "why do you", "have you actually", "have you really",
                 "i am grand", "i don't need", "i dont need",
+                # Challenges. "Are you just saying that, or did you actually read the
+                # files? or are you just providing made up nonsense again? Do you have
+                # timestamps..." was split three ways; one fragment re-ran a Spotify
+                # pause (2026-10-02).
+                "did you actually", "did you really", "did you even",
+                "are you actually", "are you really", "are you even", "are you just",
+                "made up", "making it up", "making things up", "nonsense",
             )
             _mqs_conversational = any(m in _mqs_low for m in _CONVERSATIONAL_MARKERS)
             # Split compound questions only when the message is long enough to hold several genuine
@@ -11766,6 +11798,10 @@ Answer:"""
                 _mqs_parts = _mqs_raw.split("?")
                 _mqs_segs = [p.strip() for p in _mqs_parts
                              if len(p.strip().split()) >= 6]
+                # "...? or are you just..." continues the previous question; it
+                # isn't one of its own.
+                if any(re.match(r"(?i)(?:or|and|but|so)\b", seg) for seg in _mqs_segs[1:]):
+                    _mqs_segs = []
                 if len(_mqs_segs) >= 2:
                     _mqs_segs = _mqs_segs[:4]  # cap at 4
                     log.debug(
@@ -12602,9 +12638,9 @@ Answer:"""
         # recently, re-run that action. The crisis guard below still wins, it runs after and forces CHAT.
         try:
             if str(action).upper() == "CHAT":
-                from eli.runtime.action_commitment import is_redo_directive as _is_redo
+                from eli.runtime.action_commitment import redo_applies as _redo_applies
                 _last_cmd = getattr(self, "_last_command_action", None)
-                if _last_cmd and _is_redo(user_input):
+                if _redo_applies(user_input, _last_cmd):
                     action = str(_last_cmd.get("action") or "CHAT")
                     args = dict(_last_cmd.get("args") or {})
                     intent = dict(intent or {})
@@ -14946,6 +14982,56 @@ Answer:"""
             return router_intent
         return {"action": "CHAT", "args": {"message": text}, "confidence": 0.5}
 
+    @staticmethod
+    def _turn_action(facts: Dict[str, Any], result: Any = None) -> str:
+        """What this turn did, from what it recorded about itself."""
+        meta = facts.get("meta") if isinstance(facts.get("meta"), dict) else {}
+        trace = facts.get("trace") if isinstance(facts.get("trace"), dict) else {}
+        res = result if isinstance(result, dict) else {}
+        action = (res.get("action") or meta.get("action") or meta.get("intent")
+                  or (trace.get("intent") or {}).get("action") or trace.get("action")
+                  or facts.get("route")
+                  or ("CHAT" if facts.get("streamed") else "UNKNOWN"))
+        return str(action).upper()
+
+    # Turns that answered from conversation rather than running an action: these
+    # get the chat path's episodic-memory and task-event capture.
+    _CHAT_LIKE_ACTIONS = ("CHAT", "UNKNOWN", "DETERMINISTIC_INTROSPECTION")
+
+    def _finalize_turn_backstop(self, facts: Dict[str, Any], reply: str, result: Any) -> None:
+        """Stage 12 for every exit. _process_impl has ~80 exits and only some
+        stored the turn: the orchestrator path (most CHAT turns) never stored
+        ELI's reply, and middleware answers stored nothing at all. A week of real
+        use had 165 user turns and 103 replies. This runs once when a turn ends
+        normally and does only what the turn didn't. Runs as the turn (ctx.run),
+        so the rows carry its own identity. Never raises."""
+        try:
+            if facts.get("parent_request_id") or facts.get("autonomous"):
+                return
+            action = self._turn_action(facts, result)
+            if action == "NOOP":  # fragment guard: internal, never history
+                return
+            user_text = _eli_sanitize_user_input(str(facts.get("user_input") or "")).strip()
+            reply = str(reply or "").strip()
+            self._ensure_user_turn_stored(facts)
+            if reply and not facts.get("assistant_stored"):
+                self._store_assistant_turn(reply)
+            chat_like = action in self._CHAT_LIKE_ACTIONS or action.startswith("MW_")
+            if chat_like and not facts.get("finalized"):
+                if user_text and not facts.get("memory_user"):
+                    self._maybe_store_memory(user_text, role="user")
+                if reply and not facts.get("memory_assistant"):
+                    self._maybe_store_memory(reply, role="assistant")
+            if reply and "meta" not in facts:
+                # Otherwise the badge and "what was your last message" still
+                # describe the turn before this one.
+                self._publish_last_response_meta(
+                    {"request_id": str(facts.get("request_id") or "")},
+                    action=action, result_action=action, response=reply,
+                    user_input=user_text)
+        except Exception:
+            log.debug("turn finalize backstop failed", exc_info=True)
+
     def _record_turn_audit_row(self, facts: Dict[str, Any], ok: bool, outcome: str,
                                result: Any = None) -> None:
         """Build and queue the row. Only ever called through _commit_turn_audit.
@@ -14955,10 +15041,7 @@ Answer:"""
             trace = facts.get("trace") if isinstance(facts.get("trace"), dict) else {}
             bus = facts.get("bus_result")
             res = result if isinstance(result, dict) else {}
-            action = (res.get("action") or meta.get("action") or meta.get("intent")
-                      or (trace.get("intent") or {}).get("action") or trace.get("action")
-                      or facts.get("route")
-                      or ("CHAT" if facts.get("streamed") else "UNKNOWN"))
+            action = self._turn_action(facts, result)
             agents = (meta.get("agents_used") or trace.get("agents_used")
                       or getattr(bus, "agents_used", None) or [])
             # None, not 0.0, when the turn measured nothing — a 0.0 reads as
@@ -14983,7 +15066,7 @@ Answer:"""
                 session_id=str(getattr(self, "session_id", "") or ""),
                 user_id=str(getattr(self, "user_id", "") or ""),
                 source=str(facts.get("source") or ""),
-                action=str(action).upper(),
+                action=action,
                 reasoning_mode=str(_request_context.reasoning_mode_var.get() or ""),
                 agents_used=",".join(str(a) for a in agents),
                 confidence=confidence,
@@ -14994,6 +15077,26 @@ Answer:"""
             )
         except Exception:
             log.debug("audit row write failed", exc_info=True)
+
+    def _store_followthrough_reply(self, main_reply: str, extra: str) -> None:
+        """The re-run is a nested turn and stores nothing itself, so its output
+        is stored here, as ELI's. The main reply goes first if nothing stored it
+        yet (orchestrator streams don't), or the backstop would see a stored
+        reply and skip it."""
+        facts = _request_context.turn_facts_var.get() or {}
+        self._ensure_user_turn_stored(facts)
+        if main_reply and not facts.get("assistant_stored"):
+            self._store_assistant_turn(main_reply)
+        self._store_assistant_turn(extra)
+
+    def _ensure_user_turn_stored(self, facts: Dict[str, Any]) -> None:
+        """The user's message goes in before any reply to it. Most exits store it
+        early; the ones that don't get it here."""
+        if facts.get("user_stored") or facts.get("autonomous"):
+            return
+        text = _eli_sanitize_user_input(str(facts.get("user_input") or "")).strip()
+        if text:
+            self._store_user_turn(text)
 
     def _stream_with_followthrough(self, inner, user_input: str,
                                    reasoning_mode: Optional[str] = None) -> Generator[str, None, None]:
@@ -15061,6 +15164,7 @@ Answer:"""
                     and real_act not in _ft_dump_actions):
                 log.debug(f"[FOLLOWTHROUGH] '{commit.get('matched')}' → executed {real_act}")
                 yield "\n\n" + real_txt
+                self._store_followthrough_reply(full, real_txt)
             elif real_act in _ft_dump_actions:
                 # Suppressing a dump nobody asked for is right. Suppressing one ELI just promised to report
                 # breaks its word (it said "I'll flag any lingering hiccups", found a real defect and dropped
@@ -15076,6 +15180,7 @@ Answer:"""
                 if _ft_findings:
                     log.debug(f"[FOLLOWTHROUGH] {real_act} was promised — surfacing findings only")
                     yield "\n\n" + _ft_findings
+                    self._store_followthrough_reply(full, _ft_findings)
                 else:
                     log.debug(f"[FOLLOWTHROUGH] suppressed status/dump action {real_act} (not a user-requested task)")
         except Exception as _ft_err:
@@ -15703,6 +15808,9 @@ Answer:"""
         return
 
     def _maybe_store_memory(self, text: str, role: str = "user") -> None:
+        if self._in_nested_turn():
+            return
+        _request_context.note_turn_fact(f"memory_{role}", True)
         if role == "user":
             try:
                 from eli.planning.goal_store import capture_task_events

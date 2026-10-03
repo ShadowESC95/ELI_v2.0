@@ -12,7 +12,8 @@ it through the real router→executor so the actual task runs.
 from __future__ import annotations
 
 import re
-from typing import Optional, Dict
+import time
+from typing import Any, Dict, Optional
 
 # Verbs ELI uses when promising to actually perform/redo a task. Deliberately
 # excludes vague ones ("get back to you", "think", "know") to avoid false hits.
@@ -75,6 +76,43 @@ def is_redo_directive(text: str) -> bool:
     if "myself" in s.lower() or re.search(r"\b(?:i|i'?ll|i'?m|we|we'?ll)\b", pre):
         return False
     return True
+
+
+# Re-running the last action on "did you actually X?" is only right when X is
+# that action and it just happened. Live (2026-10-02): "did you actually read the
+# files" re-ran a Spotify pause from seven minutes earlier and paused the music.
+REDO_MAX_AGE_S = 300.0
+
+# Verbs that point back at whatever ELI last did, not at one kind of action.
+_GENERIC_REDO_VERBS = {
+    "do", "doing", "did", "done", "run", "running", "check", "checking", "try",
+    "trying", "go", "look", "looking", "fetch", "fetching", "search", "searching",
+    "it", "that", "again", "work", "working", "happen", "happening",
+}
+
+
+def _redo_verb(text: str) -> Optional[str]:
+    m = _REDO_RE.search(str(text or ""))
+    if not m:
+        return None
+    words = re.findall(r"[a-z]+", m.group(0).lower())
+    return words[-1] if words else None
+
+
+def redo_applies(text: str, last_cmd: Optional[Dict[str, Any]],
+                 now: Optional[float] = None) -> bool:
+    """is_redo_directive, and the last action is recent and is what it's about."""
+    if not last_cmd or not is_redo_directive(text):
+        return False
+    age = (time.time() if now is None else float(now)) - float(last_cmd.get("ts") or 0.0)
+    if age > REDO_MAX_AGE_S:
+        return False
+    verb = _redo_verb(text)
+    if not verb or verb in _GENERIC_REDO_VERBS:
+        return True
+    stem = re.sub(r"(?:ing|ed)$", "", verb)  # pausing -> paus, played -> play
+    tokens = [t for t in str(last_cmd.get("action") or "").lower().split("_") if len(t) >= 3]
+    return any(t.startswith(stem[:4]) or stem.startswith(t[:4]) for t in tokens)
 
 
 # "Go deeper on <topic>" phrasings. When the previous turn was a news briefing,

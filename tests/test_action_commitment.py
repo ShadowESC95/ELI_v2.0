@@ -93,3 +93,32 @@ def test_extract_deepen_topic():
 def test_deepen_topic_ignores_non_deepen():
     for t in ["what is the latest news", "play hubble by someone", "hello there", ""]:
         assert deepen(t) == "", f"false deepen topic on {t!r}: {deepen(t)!r}"
+
+
+from eli.runtime.action_commitment import REDO_MAX_AGE_S, redo_applies
+
+
+def test_redo_only_reruns_a_recent_action_it_is_about():
+    """Live (2026-10-02): "did you actually read the files" re-ran a Spotify
+    pause from seven minutes earlier. A redo needs the last action to be recent
+    and, when the directive names a verb, to be that action."""
+    now = 1_000_000.0
+    pause = {"action": "PAUSE_MEDIA", "args": {}, "ts": now - 30}
+    news = {"action": "NEWS_FETCH", "args": {}, "ts": now - 30}
+    live = "Are you just saying that, or did you actually read the files.orchestrator etc.?"
+    assert not redo_applies(live, pause, now=now)
+    assert not redo_applies(live, dict(pause, ts=now - 420), now=now)
+    assert not redo_applies("did you actually play it?", pause, now=now)
+    assert redo_applies("did you actually pause it?", pause, now=now)
+    assert redo_applies("did you really set the timer?", {"action": "SET_TIMER", "ts": now - 5}, now=now)
+    # Generic directives still re-run whatever just ran.
+    for t in ("did you actually check?", "are you actually fetching the news?", "do it again"):
+        assert redo_applies(t, news, now=now), t
+
+
+def test_redo_never_reruns_a_stale_or_missing_action():
+    now = 1_000_000.0
+    stale = {"action": "NEWS_FETCH", "ts": now - REDO_MAX_AGE_S - 1}
+    assert not redo_applies("do it again", stale, now=now)
+    assert not redo_applies("do it again", {"action": "NEWS_FETCH"}, now=now)  # no timestamp
+    assert not redo_applies("do it again", None, now=now)
