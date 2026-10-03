@@ -41,6 +41,17 @@ reasoning_mode_var: ContextVar[Optional[str]] = ContextVar("eli_reasoning_mode",
 in_followthrough_var: ContextVar[Optional[bool]] = ContextVar("eli_in_followthrough", default=None)
 orchestrator_active_var: ContextVar[Optional[bool]] = ContextVar("eli_orchestrator_active", default=None)
 in_orchestrator_var: ContextVar[Optional[bool]] = ContextVar("eli_in_orchestrator", default=None)
+# What this turn actually did (its trace, bus result, published meta), collected
+# as the turn runs so process() can write the audit row from the turn's own data
+# whichever of its many exits it took. A fresh dict per process() call; a nested
+# call gets its own and never writes into its parent's.
+turn_facts_var: ContextVar[Optional[dict]] = ContextVar("eli_turn_facts", default=None)
+
+
+def note_turn_fact(name: str, value: Any) -> None:
+    facts = turn_facts_var.get()
+    if facts is not None:
+        facts[name] = value
 
 
 # ── session-sticky state ─────────────────────────────────────────────────────

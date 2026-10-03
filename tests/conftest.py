@@ -44,6 +44,13 @@ os.environ["ELI_NOTEBOOK_DIR"]      = str(ROOT / "artifacts" / "_pytest" / "eli_
 os.environ["ELI_WORLD_DIR"] = str(ROOT / "artifacts" / "_pytest" / "world")
 os.environ["ELI_LAST_TRACE_PATH"] = str(ROOT / "artifacts" / "_pytest" / "last_trace.json")
 
+# Both resolve through db_dir() -> data_dir(), which ELI_DB_DIR doesn't touch, so every
+# test turn was appending to the REAL audit chain (fixture rows from a dev run sat in it).
+# The HMAC key likewise came from (or was created in) the real config dir.
+os.environ["ELI_ORCHESTRATOR_AUDIT_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "orchestrator_audit.sqlite3")
+os.environ["ELI_CAPABILITY_STATE_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "capability_state.sqlite3")
+os.environ["ELI_AUDIT_HMAC_KEY"] = "eli-pytest-audit-key-not-a-real-secret"
+
 # Hard isolation guard: fail LOUDLY at collection if any canonical store still resolves
 # to the real artifacts/db tree. This makes "no test can change memory" an enforced
 # invariant, not just configuration that a future refactor could silently break.
@@ -51,7 +58,9 @@ def _assert_db_isolated() -> None:
     from eli.core import paths as _p
     _safe = (ROOT / "artifacts" / "_pytest").resolve()
     for _name, _fn in (("user", _p.user_db_path), ("memory", _p.memory_db_path),
-                       ("agent", _p.agent_db_path)):
+                       ("agent", _p.agent_db_path),
+                       ("orchestrator audit", _p.orchestrator_audit_db_path),
+                       ("capability state", _p.capability_state_db_path)):
         _resolved = Path(_fn()).resolve()
         if _safe not in _resolved.parents:
             raise RuntimeError(

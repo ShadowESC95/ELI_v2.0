@@ -97,8 +97,6 @@ def test_async_writes_land_in_call_order(ledger_db):
     system load. record_turn_async queues onto ONE persistent worker thread
     instead, so write order matches call (enqueue) order regardless of how
     long any individual write takes."""
-    import time as _time
-
     for i in range(5):
         L.record_turn_async(
             request_id=f"async-{i}", session_id="s1", user_id="alice",
@@ -106,10 +104,7 @@ def test_async_writes_land_in_call_order(ledger_db):
             confidence=0.5, elapsed_ms=None, ok=True, outcome="ok",
             db_path=ledger_db,
         )
-    for _ in range(50):
-        if len(L.recent_turns(limit=10, db_path=ledger_db)) >= 5:
-            break
-        _time.sleep(0.05)
+    assert L.flush(timeout=10.0)
 
     rows = L.recent_turns(limit=10, db_path=ledger_db)
     assert [r["request_id"] for r in rows] == [f"async-{i}" for i in (4, 3, 2, 1, 0)]
@@ -130,3 +125,71 @@ def test_no_fabricated_stage_mask_column(ledger_db):
     conn.close()
     assert "stage_mask" not in cols
     assert "stages" not in cols
+
+
+# ── chain v2: source + parent_request_id are signed ─────────────────────────
+
+def test_source_and_parent_are_recorded_and_returned(ledger_db):
+    L.record_turn(request_id="req-child", parent_request_id="req-parent", source="followthrough",
+                  action="NEWS_FETCH", db_path=ledger_db)
+    row = L.recent_turns(limit=1, db_path=ledger_db)[0]
+    assert row["source"] == "followthrough"
+    assert row["parent_request_id"] == "req-parent"
+
+
+@pytest.mark.parametrize("column,forged", [("source", "user"), ("parent_request_id", "")])
+def test_editing_source_or_parent_breaks_the_chain(ledger_db, column, forged):
+    """Relabelling an autonomous action as user-requested (or cutting a child
+    run loose from the request that caused it) must not verify."""
+    L.record_turn(request_id="r1", source="habit", parent_request_id="p1", db_path=ledger_db)
+    L.record_turn(request_id="r2", source="user", db_path=ledger_db)
+    conn = sqlite3.connect(ledger_db)
+    conn.execute(f"UPDATE orchestrator_audit SET {column}=? WHERE id=1", (forged,))
+    conn.commit()
+    conn.close()
+    v = L.verify_chain(db_path=ledger_db)
+    assert v["ok"] is False
+    assert v["first_break"]["id"] == 1
+    assert "tampered" in v["first_break"]["reason"]
+
+
+def _insert_v1_row(db, request_id):
+    """A row as the pre-v2 code wrote it: chain_v NULL, source/parent unsigned."""
+    conn = L._connect(db)
+    try:
+        last = conn.execute("SELECT chain_sig FROM orchestrator_audit ORDER BY id DESC LIMIT 1").fetchone()
+        prev = last[0] if last else L._GENESIS
+        base = (1000.0, request_id, "s", "u", "CHAT", "quick", "", 0.5, 10.0, 1, "ok")
+        sig = L._chain_signature(prev, base, L._audit_key())
+        conn.execute(
+            "INSERT INTO orchestrator_audit (ts, request_id, session_id, user_id, action, "
+            "reasoning_mode, agents_used, confidence, elapsed_ms, ok, outcome, prev_sig, "
+            "chain_sig, keyed) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,1)", base + (prev, sig))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def test_existing_v1_rows_still_verify_after_upgrade(ledger_db):
+    _insert_v1_row(ledger_db, "old-1")
+    _insert_v1_row(ledger_db, "old-2")
+    L.record_turn(request_id="new-1", source="user", db_path=ledger_db)
+    v = L.verify_chain(db_path=ledger_db)
+    assert v["ok"] is True, v
+    assert v["chained"] == 3
+
+
+def test_v1_row_after_a_v2_row_is_a_downgrade(ledger_db):
+    """Someone rewriting the tail in the old format to drop the signed source."""
+    L.record_turn(request_id="new-1", source="habit", db_path=ledger_db)
+    _insert_v1_row(ledger_db, "forged")
+    v = L.verify_chain(db_path=ledger_db)
+    assert v["ok"] is False
+    assert v["first_break"]["id"] == 2
+    assert "downgrade" in v["first_break"]["reason"]
+
+
+def test_flush_reports_a_drained_queue(ledger_db):
+    L.record_turn_async(request_id="f1", db_path=ledger_db)
+    assert L.flush(timeout=10.0) is True
+    assert L.recent_turns(limit=5, db_path=ledger_db)[0]["request_id"] == "f1"

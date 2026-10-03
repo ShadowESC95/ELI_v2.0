@@ -571,8 +571,11 @@ class AgentOrchestrator:
                 self._bus_result_for_escalation(wm),
                 reasoning_mode=reasoning_mode,
                 trace=getattr(wm, "trace", None),
+                # Same scope as the episodic block below: this user, any session.
+                # Unfiltered, an API turn could escalate on another user's turns.
                 recent_turns=getattr(self.engine, "memory", None)
-                and self.engine.memory.get_recent_conversation(8) or None,
+                and self.engine.memory.get_recent_conversation(
+                    limit=12, user_id=self.engine.user_id) or None,
             )
             if _esc is None:
                 return None

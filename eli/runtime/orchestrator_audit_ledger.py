@@ -1,7 +1,8 @@
 """Tamper-evident audit chain for the orchestrator pipeline — metadata only.
 
-One row per turn, written at the turn's real completion: action, agents
-actually used, confidence, timing, outcome. No prompt/response content (see
+One row per turn (every CognitiveEngine.process() call), written when the
+turn really ends: who, from where, action, agents actually used, confidence,
+timing, outcome. No prompt/response content (see
 evidence_ledger for that). No per-stage "ran" column — the pipeline's own
 stage logging only covers 2 of 12 stages today, so that would report a plan,
 not a fact. Reuses evidence_ledger's HMAC key/signature functions directly —
@@ -9,10 +10,12 @@ one key, one trust root for both ledgers.
 """
 from __future__ import annotations
 
+import atexit
 import queue
 import sqlite3
 import threading
 import time
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -57,12 +60,31 @@ def ensure_schema(conn: sqlite3.Connection) -> None:
             outcome TEXT,
             prev_sig TEXT,
             chain_sig TEXT,
-            keyed INTEGER DEFAULT 0
+            keyed INTEGER DEFAULT 0,
+            source TEXT,
+            chain_v INTEGER,
+            parent_request_id TEXT
         )
         """
     )
+    # Additive for chains created before these existed. Old rows keep chain_v NULL
+    # and verify against the original field set; see _signed_fields().
+    have = {r[1] for r in conn.execute("PRAGMA table_info(orchestrator_audit)")}
+    for name, decl in (("source", "TEXT"), ("chain_v", "INTEGER"), ("parent_request_id", "TEXT")):
+        if name not in have:
+            conn.execute(f"ALTER TABLE orchestrator_audit ADD COLUMN {name} {decl}")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orch_audit_ts ON orchestrator_audit(ts)")
     conn.execute("CREATE INDEX IF NOT EXISTS idx_orch_audit_request ON orchestrator_audit(request_id)")
+
+
+# chain_v 2 signs `source` (user, api:<who>, habit, scheduled_task, followthrough...)
+# and `parent_request_id` (set when a turn ran inside another one), so "a person
+# asked" vs "ELI did this on its own" can't be edited after the fact.
+_CHAIN_V = 2
+
+
+def _signed_fields(base: tuple, source: Any, parent_request_id: Any, chain_v: Any) -> tuple:
+    return base + (source, parent_request_id) if (chain_v or 0) >= 2 else base
 
 
 def record_turn(
@@ -77,6 +99,8 @@ def record_turn(
     elapsed_ms: Optional[float] = None,
     ok: bool = True,
     outcome: str = "",
+    source: str = "",
+    parent_request_id: str = "",
     db_path: Optional[str | Path] = None,
     timestamp: Optional[float] = None,
 ) -> int:
@@ -90,8 +114,10 @@ def record_turn(
             "ORDER BY id DESC LIMIT 1"
         ).fetchone()
         prev_sig = last[0] if last and last[0] else _GENESIS
-        ordered = (now, request_id, session_id, user_id, action, reasoning_mode,
-                   agents_used, confidence, elapsed_ms, v_ok, outcome)
+        ordered = _signed_fields(
+            (now, request_id, session_id, user_id, action, reasoning_mode,
+             agents_used, confidence, elapsed_ms, v_ok, outcome),
+            source, parent_request_id, _CHAIN_V)
         key = _audit_key()
         chain_sig = _chain_signature(prev_sig, ordered, key)
         keyed = 1 if key else 0
@@ -100,12 +126,12 @@ def record_turn(
             INSERT INTO orchestrator_audit (
                 ts, request_id, session_id, user_id, action, reasoning_mode,
                 agents_used, confidence, elapsed_ms, ok, outcome,
-                prev_sig, chain_sig, keyed
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                prev_sig, chain_sig, keyed, source, chain_v, parent_request_id
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (now, request_id, session_id, user_id, action, reasoning_mode,
              agents_used, confidence, elapsed_ms, v_ok, outcome,
-             prev_sig, chain_sig, keyed),
+             prev_sig, chain_sig, keyed, source, _CHAIN_V, parent_request_id),
         )
         conn.commit()
         return int(cur.lastrowid or 0)
@@ -153,6 +179,10 @@ def _ensure_worker() -> None:
         threading.Thread(
             target=_worker_loop, daemon=True, name="eli-orch-audit-writer"
         ).start()
+        # Daemon threads still run during atexit, so this drains the queue
+        # before the interpreter (or the GUI's os._exit, which runs atexit
+        # first) kills the writer with rows still in it.
+        atexit.register(flush)
         _worker_started = True
 
 
@@ -165,12 +195,46 @@ def record_turn_async(**kwargs: Any) -> None:
     _write_queue.put(kwargs)
 
 
+def record_direct_action(
+    *,
+    action: str,
+    ok: bool,
+    outcome: str,
+    source: str,
+    session_id: str = "",
+    user_id: str = "",
+    elapsed_ms: Optional[float] = None,
+) -> str:
+    """A row for an action run outside CognitiveEngine.process(): the GUI's voice
+    fast path (OPEN_APP, READ_FILE, SCREENSHOT... straight to the executor) and
+    UI buttons that call an action. Those never reach the engine, so without
+    this they left no record at all. Returns the request id it used."""
+    request_id = f"req-{uuid.uuid4().hex[:12]}"
+    record_turn_async(
+        request_id=request_id, session_id=str(session_id or ""), user_id=str(user_id or ""),
+        source=str(source or ""), action=str(action or "").upper(),
+        elapsed_ms=(round(float(elapsed_ms), 1) if elapsed_ms is not None else None),
+        ok=bool(ok), outcome=str(outcome or "")[:500], timestamp=time.time(),
+    )
+    return request_id
+
+
+def flush(timeout: float = 5.0) -> bool:
+    """Wait for queued rows to be written. The writer is a daemon thread, so
+    anything still queued when the process exits would be lost; registered
+    with atexit by _ensure_worker. True if the queue drained in time."""
+    deadline = time.monotonic() + max(0.0, float(timeout))
+    while _write_queue.unfinished_tasks and time.monotonic() < deadline:
+        time.sleep(0.01)
+    return not _write_queue.unfinished_tasks
+
+
 def recent_turns(limit: int = 50, db_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
     conn = _connect(db_path)
     try:
         rows = conn.execute(
             "SELECT id, ts, request_id, session_id, user_id, action, reasoning_mode, "
-            "agents_used, confidence, elapsed_ms, ok, outcome "
+            "agents_used, confidence, elapsed_ms, ok, outcome, source, parent_request_id "
             "FROM orchestrator_audit ORDER BY id DESC LIMIT ?",
             (int(limit or 50),),
         ).fetchall()
@@ -181,6 +245,7 @@ def recent_turns(limit: int = 50, db_path: Optional[str | Path] = None) -> List[
             "id": r[0], "ts": r[1], "request_id": r[2], "session_id": r[3], "user_id": r[4],
             "action": r[5], "reasoning_mode": r[6], "agents_used": r[7],
             "confidence": r[8], "elapsed_ms": r[9], "ok": bool(r[10]), "outcome": r[11],
+            "source": r[12] or "", "parent_request_id": r[13] or "",
         }
         for r in rows
     ]
@@ -194,7 +259,8 @@ def verify_chain(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
         rows = conn.execute(
             "SELECT id, ts, request_id, session_id, user_id, action, reasoning_mode, "
             "agents_used, confidence, elapsed_ms, ok, outcome, "
-            "prev_sig, chain_sig, keyed FROM orchestrator_audit ORDER BY id ASC"
+            "prev_sig, chain_sig, keyed, source, chain_v, parent_request_id "
+            "FROM orchestrator_audit ORDER BY id ASC"
         ).fetchall()
     finally:
         conn.close()
@@ -204,6 +270,7 @@ def verify_chain(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
     chained = 0
     legacy = 0
     keyed_seen = False
+    max_v_seen = 0
     prev_chain = _GENESIS
     first_break: Optional[Dict[str, Any]] = None
     for r in rows:
@@ -226,7 +293,12 @@ def verify_chain(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
         if row_keyed and key is None:
             first_break = {"id": rid, "reason": "HMAC key unavailable — cannot verify a keyed row"}
             break
-        ordered = r[1:12]
+        row_v = int(r[16] or 0)
+        if row_v < max_v_seen:
+            first_break = {"id": rid, "reason": "downgrade attempt — an older-format row after "
+                                                "a newer one (chain may have been rewritten)"}
+            break
+        ordered = _signed_fields(tuple(r[1:12]), r[15], r[17], row_v)
         recomputed = _chain_signature(stored_prev, ordered, key if row_keyed else None)
         if recomputed != str(stored_chain):
             first_break = {"id": rid, "reason": "content tampered (a field was edited "
@@ -234,6 +306,7 @@ def verify_chain(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
             break
         chained += 1
         keyed_seen = keyed_seen or row_keyed
+        max_v_seen = max(max_v_seen, row_v)
         prev_chain = stored_chain
 
     return {

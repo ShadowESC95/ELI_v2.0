@@ -28,6 +28,7 @@ import sys
 import time
 import threading
 import uuid
+import weakref
 from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 from eli.cognition.context_synthesiser import build_persona_handoff
@@ -932,6 +933,21 @@ def _correction_embeds_memory_question(text: str) -> bool:
         r"do you (?:remember|recall)|what do you remember|memory recall)\b",
         (text or "").lower(),
     ))
+
+
+def _audit_result_outcome(result: Any) -> tuple:
+    """(ok, outcome) for a non-streamed turn's return value."""
+    if isinstance(result, dict):
+        ok = bool(result.get("ok", True))
+        return ok, str(result.get("error") or ("ok" if ok else "failed"))
+    text = str(result or "").strip()
+    return bool(text), ("ok" if text else "empty_reply")
+
+
+def _audit_error_outcome(exc: BaseException) -> str:
+    if isinstance(exc, GeneratorExit):
+        return "cancelled"
+    return f"error: {type(exc).__name__}: {str(exc)[:300]}"
 
 
 def _is_brief_phatic_prompt(text: str) -> bool:
@@ -4396,6 +4412,7 @@ class CognitiveEngine:
     @_last_bus_result.setter
     def _last_bus_result(self, value: Any) -> None:
         self._sticky_set("last_bus_result", value)
+        _request_context.note_turn_fact("bus_result", value)
 
     @property
     def _last_request_meta(self) -> Dict[str, Any]:
@@ -4404,6 +4421,7 @@ class CognitiveEngine:
     @_last_request_meta.setter
     def _last_request_meta(self, value: Dict[str, Any]) -> None:
         self._sticky_set("last_request_meta", value)
+        _request_context.note_turn_fact("meta", value)
 
     @property
     def _prev_bus_result(self) -> Any:
@@ -5031,12 +5049,14 @@ class CognitiveEngine:
         self._request_counter += 1
         # request_id used to be f"req-{self._request_counter:06d}" — a non-atomic
         # read-modify-write on this singleton engine's shared counter, so two
-        # concurrent threads could get the same request_id. A fresh uuid per call
-        # has no shared state to race on. Set on the contextvar too, so code deep
-        # in the call stack that used to read the stale self._pipeline_req_id can
-        # read the real per-turn id instead (see that attribute's read sites).
-        req_id = f"req-{uuid.uuid4().hex[:12]}"
-        _request_context.request_id_var.set(req_id)
+        # concurrent threads could get the same request_id. process() now issues
+        # the turn's id before anything runs, so the trace, the published meta and
+        # the audit row all carry the same one. Outside a turn, a fresh uuid, and
+        # nothing is set on the caller's context.
+        in_turn = _request_context.turn_facts_var.get() is not None
+        req_id = (in_turn and _request_context.request_id_var.get()) or f"req-{uuid.uuid4().hex[:12]}"
+        if in_turn:
+            _request_context.request_id_var.set(req_id)
         trace = {
             "request_id": req_id,
             "session_id": getattr(self, "session_id", str(int(time.time()))),
@@ -5050,6 +5070,7 @@ class CognitiveEngine:
             "final": {},
         }
         self._last_trace = trace
+        _request_context.note_turn_fact("trace", trace)
         log.debug(
             f"[COGNITIVE][TRACE] request_id={trace['request_id']} mode={trace['reasoning_mode']}")
         return trace
@@ -10545,15 +10566,11 @@ Answer:"""
             return result
 
         if _result_is_generator:
-            import uuid as _orch_uuid
-            _orch_req_id = f"orch-{_orch_uuid.uuid4().hex[:12]}"
-
             def _wrapped():
                 parts = []
                 try:
                     stream_iter = self._stream_with_followthrough(
-                        result, user_input, reasoning_mode=reasoning_mode,
-                        request_id=_orch_req_id)
+                        result, user_input, reasoning_mode=reasoning_mode)
                 except Exception as _ft_wrap_err:
                     log.debug(f"[COGNITIVE] orchestrator followthrough wrap failed: {_ft_wrap_err}")
                     stream_iter = result
@@ -11496,8 +11513,27 @@ Answer:"""
         caller's context with reset tokens; under Starlette, every chunk after
         the first ran as the engine-default user and the stream ended in a
         "Token was created in a different Context" error frame.
+
+        Every call writes exactly one audit-chain row, when the turn really
+        ends: on return, on an exception, and for a stream when it's drained,
+        closed early, or dropped unread. _process_impl has ~80 exits; the
+        chain used to be written from two of them, so most turns (commands,
+        fast paths, refusals) were never recorded. A call made from inside
+        another turn (multi-question split, followthrough) gets its own row
+        carrying its parent's request id.
         """
         mode = str(reasoning_mode or "quick").strip().lower() or "quick"
+        parent = _request_context.turn_facts_var.get() or {}
+        facts: Dict[str, Any] = {
+            "request_id": f"req-{uuid.uuid4().hex[:12]}",
+            "parent_request_id": str(parent.get("request_id") or ""),
+            # A followthrough re-run is ELI acting on its own reply, not a new
+            # request; it keeps source="user" for the pipeline, but the record
+            # says what it was.
+            "source": ("followthrough" if parent and _request_context.in_followthrough_var.get()
+                       else str(source or "")),
+            "t0": time.perf_counter(),
+        }
         ctx = contextvars.copy_context()
 
         def _enter() -> Any:
@@ -11506,31 +11542,87 @@ Answer:"""
             if session_id is not None:
                 _request_context.session_id_var.set(session_id)
             _request_context.reasoning_mode_var.set(mode)
+            _request_context.request_id_var.set(facts["request_id"])
+            _request_context.turn_facts_var.set(facts)
             return self._process_impl(
                 user_input, source=source, stream=stream,
                 reasoning_mode=reasoning_mode, **kwargs)
 
-        result = ctx.run(_enter)
+        try:
+            result = ctx.run(_enter)
+        except BaseException as e:
+            self._commit_turn_audit(ctx, facts, ok=False, outcome=_audit_error_outcome(e))
+            raise
         if inspect.isgenerator(result):
-            return self._context_bound_stream(result, ctx)
+            return self._context_bound_stream(result, ctx, facts)
+        ok, outcome = _audit_result_outcome(result)
+        self._commit_turn_audit(ctx, facts, ok=ok, outcome=outcome, result=result)
         return result
 
-    @staticmethod
-    def _context_bound_stream(gen: Generator, ctx: "contextvars.Context") -> Generator:
-        try:
-            while True:
-                try:
-                    piece = ctx.run(next, gen)
-                except StopIteration:
-                    return
-                yield piece
-        finally:
-            # Early close (client disconnect): the inner stream's own cleanup
-            # must also run as this turn, not as whoever closed it.
+    def _context_bound_stream(self, gen: Generator, ctx: "contextvars.Context",
+                              facts: Dict[str, Any]) -> Generator:
+        # A stream dropped without ever being started never runs this body,
+        # so its row is written by a finalizer instead. Bound to `facts`, not
+        # the generator, so it holds nothing that keeps the stream alive.
+        wrapper_state = {"started": False}
+        text: List[str] = []
+        facts["streamed"] = True
+
+        def _drained_unread() -> None:
+            if not wrapper_state["started"]:
+                self._commit_turn_audit(ctx, facts, ok=False, outcome="abandoned")
+
+        def _body() -> Generator:
+            wrapper_state["started"] = True
+            outcome = None
             try:
-                ctx.run(gen.close)
-            except Exception:
-                log.debug("stream close failed", exc_info=True)
+                while True:
+                    try:
+                        piece = ctx.run(next, gen)
+                    except StopIteration:
+                        joined = "".join(text).strip()
+                        outcome = (bool(joined), "ok" if joined else "empty_reply")
+                        return
+                    if isinstance(piece, str) and piece != MAIN_REPLY_DONE_SENTINEL:
+                        text.append(piece)
+                    elif isinstance(piece, dict):
+                        text.append(str(piece.get("token") or piece.get("content") or ""))
+                    yield piece
+            except GeneratorExit:
+                outcome = (False, "cancelled")
+                raise
+            except BaseException as e:
+                outcome = (False, _audit_error_outcome(e))
+                raise
+            finally:
+                # Early close (client disconnect): the inner stream's own cleanup
+                # must also run as this turn, not as whoever closed it.
+                try:
+                    ctx.run(gen.close)
+                except Exception:
+                    log.debug("stream close failed", exc_info=True)
+                ok, why = outcome or (False, "cancelled")
+                self._commit_turn_audit(ctx, facts, ok=ok, outcome=why)
+
+        body = _body()
+        weakref.finalize(body, _drained_unread)
+        return body
+
+    def _commit_turn_audit(self, ctx: "contextvars.Context", facts: Dict[str, Any], *,
+                           ok: bool, outcome: str, result: Any = None) -> None:
+        """Queue this turn's one audit row, built from what the turn itself
+        recorded (published meta, trace, bus result). Runs as the turn, so
+        identity and the mode actually used are the turn's own."""
+        if facts.get("committed"):
+            return
+        facts["committed"] = True
+        try:
+            ctx.run(self._record_turn_audit_row, facts, ok, outcome, result)
+        except RuntimeError:
+            # ctx is already entered on this thread, so this is running as the
+            # turn anyway. _record_turn_audit_row never raises, so this can
+            # only be ctx.run refusing to re-enter.
+            self._record_turn_audit_row(facts, ok, outcome, result)
 
     def _process_impl(self, user_input: str, source: str = "user", stream: bool = False,
 
@@ -11572,6 +11664,10 @@ Answer:"""
         _eli_pipeline_req = ""
 
         def _eli_pipe(event: str, **fields) -> None:
+            if event.endswith("_hit"):
+                # The audit row's action for a middleware answer, which returns
+                # a bare string with no action of its own.
+                _request_context.note_turn_fact("route", event[:-4])
             if not _eli_pipeline_trace:
                 return
             try:
@@ -11589,7 +11685,10 @@ Answer:"""
             # life). Still a plain self.* write — fine here since it only ever feeds an
             # opt-in debug tracer (_eli_pipe above), never the audit chain or memory
             # writes, which already read trace["request_id"] instead.
-            _eli_pipeline_req = f"eng-{uuid.uuid4().hex[:10]}"
+            # The turn's own id, so debug traces, the published meta and the
+            # audit row can be matched up.
+            _eli_pipeline_req = (_request_context.request_id_var.get()
+                                 or f"eng-{uuid.uuid4().hex[:10]}")
             self._pipeline_req_id = _eli_pipeline_req
         except Exception:
             _eli_pipeline_req = f"eng-{int(time.time() * 1000)}"
@@ -12156,6 +12255,7 @@ Answer:"""
                                     "reasoning_mode": "quick",
                                     "source": "eli.runtime.deterministic_introspection",
                                 }
+                                _request_context.note_turn_fact("trace", self._last_trace)
                             except Exception:
                                 log.debug("suppressed exception", exc_info=True)
                             if stream:
@@ -14235,8 +14335,7 @@ Answer:"""
                     self._store_assistant_turn(_fc_hedge)
                     return self._stream_with_followthrough(
                         _fail_closed_stream(),
-                        user_input, reasoning_mode,
-                        request_id=str(trace.get("request_id") or ""))
+                        user_input, reasoning_mode)
                 # Pass the bus memory context and bus_result already built above
                 # so _stream_chat does NOT fire a second agent bus dispatch, and
                 # the synthesiser has the full bus_result to work with.
@@ -14245,8 +14344,7 @@ Answer:"""
                         user_input, args, context, reasoning_mode=reasoning_mode,
                         pre_built_memory_context=bus_memory_context or "",
                         pre_built_bus_result=bus_result),
-                    user_input, reasoning_mode,
-                    request_id=str(trace.get("request_id") or ""))
+                    user_input, reasoning_mode)
 
             try:
                 t_mem = time.perf_counter()
@@ -14706,24 +14804,13 @@ Answer:"""
                 grounding_confidence=float(trace.get("grounding_confidence") or 0.0),
                 agents_used=list(trace.get("agents_used") or []),
                 # Was self._pipeline_req_id — generated once per engine instance and
-                # reused forever (same staleness bug as _record_orchestrator_audit_turn's
-                # request_id, fixed earlier this session). trace["request_id"] is the
-                # real per-turn id.
+                # reused forever. trace["request_id"] is the real per-turn id.
                 req_id=str(trace.get("request_id") or ""),
                 source=source,
             )
         except Exception:
             self._store_assistant_turn(final_response)
             self._learn_from_result(intent, result, source=source)
-        self._record_orchestrator_audit_turn(
-            request_id=str(trace.get("request_id") or ""),
-            action=str(intent.get("action") or result.get("action") or "CHAT"),
-            agents_used=list(trace.get("agents_used") or []),
-            confidence=float(trace.get("agent_confidence") or 0.0),
-            ok=bool(result.get("ok", True)),
-            outcome=str(result.get("error") or "ok"),
-            reasoning_mode=str(reasoning_mode or ""),
-        )
         result["content"] = final_response
         result["response"] = final_response
         result["trace"] = trace
@@ -14859,48 +14946,57 @@ Answer:"""
             return router_intent
         return {"action": "CHAT", "args": {"message": text}, "confidence": 0.5}
 
-    def _record_orchestrator_audit_turn(
-        self,
-        *,
-        request_id: str,
-        action: str,
-        agents_used: list,
-        confidence: float,
-        ok: bool,
-        outcome: str,
-        reasoning_mode: str = "",
-        elapsed_ms: Optional[float] = None,
-    ) -> None:
-        """Commit one real, completed turn to the audit chain. request_id must
-        be the caller's trace["request_id"] — self._pipeline_req_id is stale
-        (set once, reused every turn), never that."""
-        request_id = str(request_id or "")
-        session_id = str(getattr(self, "session_id", "") or "")
-        user_id = str(getattr(self, "user_id", "") or "")
-        reasoning_mode = str(reasoning_mode or "")
-
-        # record_turn_async queues onto ONE persistent writer thread, so write
-        # order matches call order. This used to spawn a fresh
-        # threading.Thread per call, racing independent threads against each
-        # other for the SQLite write lock with no ordering guarantee between
-        # them — caught by test_consecutive_turns_on_the_same_engine_get_
-        # distinct_request_ids failing once under load (see
-        # orchestrator_audit_ledger.py's own comment for the full story).
+    def _record_turn_audit_row(self, facts: Dict[str, Any], ok: bool, outcome: str,
+                               result: Any = None) -> None:
+        """Build and queue the row. Only ever called through _commit_turn_audit.
+        Never raises: a failed audit write must not fail the user's turn."""
         try:
+            meta = facts.get("meta") if isinstance(facts.get("meta"), dict) else {}
+            trace = facts.get("trace") if isinstance(facts.get("trace"), dict) else {}
+            bus = facts.get("bus_result")
+            res = result if isinstance(result, dict) else {}
+            action = (res.get("action") or meta.get("action") or meta.get("intent")
+                      or (trace.get("intent") or {}).get("action") or trace.get("action")
+                      or facts.get("route")
+                      or ("CHAT" if facts.get("streamed") else "UNKNOWN"))
+            agents = (meta.get("agents_used") or trace.get("agents_used")
+                      or getattr(bus, "agents_used", None) or [])
+            # None, not 0.0, when the turn measured nothing — a 0.0 reads as
+            # "measured and found worthless".
+            confidence = None
+            for c in (meta.get("confidence"), meta.get("aggregated_confidence"),
+                      trace.get("agent_confidence"), getattr(bus, "aggregated_confidence", None),
+                      res.get("confidence")):
+                try:
+                    if c is not None:
+                        confidence = round(float(c), 4)
+                        break
+                except (TypeError, ValueError):
+                    continue
+
+            # record_turn_async queues onto ONE writer thread, so rows land in
+            # the order turns end, not whichever write wins the SQLite lock.
             from eli.runtime import orchestrator_audit_ledger as _oal
             _oal.record_turn_async(
-                request_id=request_id, session_id=session_id, user_id=user_id,
-                action=action, reasoning_mode=reasoning_mode,
-                agents_used=",".join(agents_used), confidence=round(float(confidence), 4),
-                elapsed_ms=(round(float(elapsed_ms), 1) if elapsed_ms is not None else None),
-                ok=bool(ok), outcome=str(outcome or ""),
+                request_id=str(facts.get("request_id") or ""),
+                parent_request_id=str(facts.get("parent_request_id") or ""),
+                session_id=str(getattr(self, "session_id", "") or ""),
+                user_id=str(getattr(self, "user_id", "") or ""),
+                source=str(facts.get("source") or ""),
+                action=str(action).upper(),
+                reasoning_mode=str(_request_context.reasoning_mode_var.get() or ""),
+                agents_used=",".join(str(a) for a in agents),
+                confidence=confidence,
+                elapsed_ms=round((time.perf_counter() - float(facts.get("t0") or 0.0)) * 1000.0, 1),
+                ok=bool(ok),
+                outcome=str(outcome or "")[:500],
+                timestamp=time.time(),
             )
         except Exception:
-            log.debug("suppressed exception", exc_info=True)
+            log.debug("audit row write failed", exc_info=True)
 
     def _stream_with_followthrough(self, inner, user_input: str,
-                                   reasoning_mode: Optional[str] = None,
-                                   request_id: str = "") -> Generator[str, None, None]:
+                                   reasoning_mode: Optional[str] = None) -> Generator[str, None, None]:
         """Wrap the CHAT token stream so NO action is faked (engine-level, every
         consumer). Streams the reply, then — if ELI committed to or faked a task
         ("let me check the news", "fetching…", "[Story 1]") — actually re-runs
@@ -14916,17 +15012,6 @@ Answer:"""
         full = "".join(parts).strip()
         # Unlock input now — any followthrough re-run below can take a while.
         yield MAIN_REPLY_DONE_SENTINEL
-        if not getattr(self, "_in_followthrough", False):
-            _bus_result = getattr(self, "_last_bus_result", None)
-            self._record_orchestrator_audit_turn(
-                request_id=request_id,
-                action="CHAT",
-                agents_used=list(getattr(_bus_result, "agents_used", None) or []),
-                confidence=float(getattr(_bus_result, "aggregated_confidence", None) or 0.0),
-                ok=bool(full),
-                outcome="ok" if full else "empty_reply",
-                reasoning_mode=str(reasoning_mode or ""),
-            )
         if not full or getattr(self, "_in_followthrough", False):
             return
         try:
@@ -15054,7 +15139,10 @@ Answer:"""
         prompt = str((args or {}).get("message") or user_input or "").strip()
         started = _time.perf_counter()
         _eli_pipeline_trace = str(__import__("os").environ.get("ELI_PIPELINE_TRACE", "")).strip().lower() in {"1", "true", "yes", "on"}
-        _eli_pipeline_req = str(getattr(self, "_pipeline_req_id", "") or "n/a")
+        # Read the turn's own id; self._pipeline_req_id is shared across
+        # concurrent turns on this singleton.
+        _eli_pipeline_req = str(_request_context.request_id_var.get()
+                                or getattr(self, "_pipeline_req_id", "") or "n/a")
 
         def _eli_pipe_stream(stage: str, **fields) -> None:
             if not _eli_pipeline_trace:

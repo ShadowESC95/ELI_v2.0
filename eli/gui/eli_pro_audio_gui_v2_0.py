@@ -3686,6 +3686,7 @@ class EliMainWindow(QMainWindow):
                     log.debug(f"[GUI_DIRECT_EXEC][USER_APPEND_FAIL] {_user_ui_e}")
 
                 log.debug(f"[GUI_DIRECT_EXEC] route={_route}")
+                _direct_t0 = time.perf_counter()
                 _res = _eli_voice_executor.execute_action(_action, _args)
                 _ok = bool((_res or {}).get("ok", True)) if isinstance(_res, dict) else True
         
@@ -3695,6 +3696,20 @@ class EliMainWindow(QMainWindow):
                     _reply = str(_res)
         
                 log.debug(f"[GUI_DIRECT_EXEC] {_reply}")
+                # This path skips CognitiveEngine.process(), so it writes its own
+                # audit row. NOOP is the fragment guard, not an action.
+                if _action != "NOOP":
+                    try:
+                        from eli.runtime import orchestrator_audit_ledger as _oal
+                        _why = "ok"
+                        if not _ok:
+                            _why = str((_res.get("error") if isinstance(_res, dict) else "") or "failed")
+                        _oal.record_direct_action(
+                            action=_action, ok=_ok, outcome=_why,
+                            source="voice_direct", session_id=_session_id, user_id=_user_id,
+                            elapsed_ms=(time.perf_counter() - _direct_t0) * 1000.0)
+                    except Exception:
+                        log.debug("[GUI_DIRECT_EXEC] audit row failed", exc_info=True)
                 # NOOP (fragment guard) responses must not enter conversation
                 # history, be spoken, or be displayed — they are internal
                 # routing events.  Storing the fragment-guard JSON as an
@@ -7457,8 +7472,31 @@ class EliMainWindow(QMainWindow):
                 return
             fmt = self._convert_formats[self.convert_format_combo.currentIndex()][1]
             self.convert_status_label.setText(f"Converting {Path(path).name} → {fmt}…")
-            res = self.execute_action("CONVERT_DOCUMENT", {"source": path, "format": fmt})
-            self.convert_status_label.setText(str(res))
+            # Called self.execute_action, which this window has never had (it's
+            # ExecutorBridge's), so the button failed with an AttributeError.
+            from eli.execution.executor_enhanced import execute as _execute
+            _t0 = time.perf_counter()
+            res = _execute("CONVERT_DOCUMENT", {"source": path, "format": fmt})
+            if isinstance(res, dict):
+                _ok = bool(res.get("ok", True))
+                _msg = str(res.get("response") or res.get("content") or res.get("message")
+                           or res.get("error") or "")
+            else:
+                _ok, _msg = bool(res), str(res or "")
+            self.convert_status_label.setText(_msg or ("Converted." if _ok else "Convert failed."))
+            # A button, not a turn through the engine, so it writes its own audit row.
+            try:
+                from eli.runtime import orchestrator_audit_ledger as _oal
+                _ce = getattr(self, "_cognitive_engine", None)
+                _oal.record_direct_action(
+                    action="CONVERT_DOCUMENT", ok=_ok,
+                    outcome="ok" if _ok else (_msg[:300] or "failed"),
+                    source="gui_button",
+                    session_id=str(getattr(_ce, "session_id", "") or ""),
+                    user_id=str(getattr(_ce, "user_id", "") or ""),
+                    elapsed_ms=(time.perf_counter() - _t0) * 1000.0)
+            except Exception:
+                log.debug("convert audit row failed", exc_info=True)
         except Exception as e:
             self.convert_status_label.setText(f"Convert failed: {e}")
 
@@ -7606,7 +7644,8 @@ class EliMainWindow(QMainWindow):
             elapsed = row.get("elapsed_ms")
             elapsed_str = f"{float(elapsed):.0f}" if elapsed is not None else ""
             values = [
-                ts_str, str(row.get("request_id") or ""), str(row.get("action") or ""),
+                ts_str, str(row.get("request_id") or ""), str(row.get("source") or ""),
+                str(row.get("parent_request_id") or ""), str(row.get("action") or ""),
                 str(row.get("agents_used") or ""),
                 conf_str, elapsed_str, "✅" if row.get("ok") else "❌", str(row.get("outcome") or ""),
             ]
@@ -7621,8 +7660,10 @@ class EliMainWindow(QMainWindow):
         header.setStyleSheet("font-size: 13px; font-weight: bold; padding: 6px;")
         layout.addWidget(header)
 
-        hint = QLabel("Tamper-evident, metadata-only record of each turn's real outcome — "
-                      "no prompt or response content. HMAC-chained; editing, deleting or "
+        hint = QLabel("Tamper-evident, metadata-only record of every turn's real outcome — "
+                      "one row per request, including commands, background tasks and "
+                      "followthrough runs (Parent links a run to the request that caused it). "
+                      "No prompt or response content. HMAC-chained; editing, deleting or "
                       "reordering a row breaks the chain and Verify Chain reports it.")
         hint.setWordWrap(True)
         hint.setStyleSheet("color:#88909c;font-size:10px;padding:2px 6px;")
@@ -7643,9 +7684,10 @@ class EliMainWindow(QMainWindow):
         layout.addLayout(toolbar)
 
         self.audit_table = QTableWidget()
-        self.audit_table.setColumnCount(8)
+        self.audit_table.setColumnCount(10)
         self.audit_table.setHorizontalHeaderLabels(
-            ["Time", "Request", "Action", "Agents", "Confidence", "Elapsed(ms)", "OK", "Outcome"])
+            ["Time", "Request", "Source", "Parent", "Action", "Agents", "Confidence",
+             "Elapsed(ms)", "OK", "Outcome"])
         self.audit_table.horizontalHeader().setStretchLastSection(True)
         select_rows = getattr(
             getattr(QAbstractItemView, "SelectionBehavior", QAbstractItemView), "SelectRows")
