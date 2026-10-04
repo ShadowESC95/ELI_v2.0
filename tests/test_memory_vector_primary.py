@@ -94,6 +94,13 @@ class TestFAISSPrimaryRetrieval:
             ],
         )
 
+        # Vector hits must belong to live memory rows (see the deleted/telemetry test below).
+        conn = mem._get_connection()
+        for i, word in enumerate(("alpha", "beta", "gamma", "delta", "epsilon"), 1):
+            conn.execute("INSERT INTO memories (id, text, tags, timestamp) VALUES (?, ?, ?, ?)",
+                         (i, f"vector result {word}", "", 0))
+        conn.commit()
+
         with patch("eli.memory.vector_store.get_vector_store", return_value=mock_vs):
             results = mem.recall_memory("alpha", limit=5)
 
@@ -102,6 +109,27 @@ class TestFAISSPrimaryRetrieval:
         assert any("vector" in t for t in texts), (
             f"Vector results not found in output: {texts}"
         )
+
+    def test_vector_hits_for_deleted_or_bookkeeping_rows_are_dropped(self, tmp_path):
+        """The index outlives rows: a forgotten memory, or one of ELI's own "Top topics" insights
+        embedded before the storage policy, must not come back as something the user said.
+        Live: 372 of 542 vectors were telemetry and topped a "past 3 days" recall."""
+        mem = _make_memory(tmp_path)
+        conn = mem._get_connection()
+        conn.execute("INSERT INTO memories (id, text, tags, timestamp) VALUES (1, 'I play guitar on weekends', '', 0)")
+        conn.execute("INSERT INTO memories (id, text, tags, source, kind, timestamp) VALUES "
+                     "(2, 'Top topics: guitar, weekends', 'eli_insight,auto', 'eli_reflection', 'insight', 0)")
+        conn.commit()
+        mock_vs = _make_vector_store_mock(ntotal=3, search_results=[
+            {"memory_id": 2, "text": "Top topics: guitar, weekends", "tags": "eli_insight,auto", "score": 0.95},
+            {"memory_id": 3, "text": "a forgotten guitar memory", "tags": "", "score": 0.9},
+            {"memory_id": 1, "text": "I play guitar on weekends", "tags": "", "score": 0.8},
+        ])
+        with patch("eli.memory.vector_store.get_vector_store", return_value=mock_vs):
+            results = mem.recall_memory("guitar weekends", limit=5)
+        texts = [r.get("text", "") for r in results]
+        assert "I play guitar on weekends" in texts
+        assert not any("Top topics" in t or "forgotten" in t for t in texts), texts
 
     def test_fts5_supplements_when_faiss_returns_too_few(self, tmp_path):
         """If FAISS returns < limit//2 results, keyword search also runs."""

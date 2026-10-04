@@ -12,7 +12,7 @@ from __future__ import annotations
 import json
 import pathlib
 
-from eli.cognition.llm_intent import _catalogue, _INTERNAL_ACTIONS
+from eli.cognition.llm_intent import _catalogue, _EXPLICIT_ONLY_ACTIONS, _INTERNAL_ACTIONS
 from eli.execution.executor_enhanced import SUPPORTED_ACTIONS
 
 _PORTED = (
@@ -28,10 +28,21 @@ def test_the_ported_actions_are_listed():
 
 
 def test_the_ported_actions_are_reachable_by_the_resolver():
-    """The catalogue is what the grammar is built from — absence means unreachable."""
+    """The catalogue is what the grammar is built from — absence means unreachable.
+    Explicit-only actions (renaming the user, changing ELI's own settings) are left out on
+    purpose: the router reaches them from the user's exact words."""
     cat = set(_catalogue())
-    missing = [a for a in _PORTED if a not in cat]
+    missing = [a for a in _PORTED if a not in cat and a not in _EXPLICIT_ONLY_ACTIONS]
     assert not missing, f"not reachable by llm_intent: {missing}"
+
+
+def test_a_model_guess_can_never_rename_the_user_or_change_elis_setup():
+    """Live 2026-10-03: "Eli, can you not tell me who i am??" was guessed as
+    PERSONA_LOCK_CLEAR and the agent bus ran it before the turn fell back to chat."""
+    leaked = sorted(set(_catalogue()) & _EXPLICIT_ONLY_ACTIONS)
+    assert not leaked, f"explicit-only actions offered to the resolver: {leaked}"
+    assert {"PERSONA_LOCK_CLEAR", "SET_USER_NAME", "SHELL_EXEC", "PLUGIN_UNINSTALL"} <= _EXPLICIT_ONLY_ACTIONS
+    assert not (_EXPLICIT_ONLY_ACTIONS - set(SUPPORTED_ACTIONS)), "names an action that doesn't exist"
 
 
 def test_every_supported_action_has_a_real_dispatch_branch():

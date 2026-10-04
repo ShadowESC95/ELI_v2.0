@@ -68,3 +68,64 @@ def row_time(row: Any) -> Optional[float]:
     if not isinstance(row, dict):
         return None
     return next((v for v in (_ts(row.get(k)) for k in ("event_ts", "ts", "timestamp")) if v), None)
+
+
+def latest_user_message(prompt: str) -> str:
+    """The user's own message when recent history has been put in front of it
+    ("...\n\nYou: <message>"). Tone and date reading used the whole thing, so a "!!"
+    two turns back made a calm question read as "ecstatic"."""
+    text = str(prompt or "")
+    i = text.rfind("\n\nYou: ")
+    return text[i + len("\n\nYou: "):] if i >= 0 else text
+
+
+def date_facts(text: str, now: Optional[float] = None) -> str:
+    """Every calendar date the user wrote, with its weekday and distance from today, worked
+    out here rather than by the model ("how many days ago was 09-09-2026" was answered with
+    the date alone, then "24 days" by hand). '' when the message names no date."""
+    import re
+    from datetime import datetime
+    try:
+        from eli.cognition import query_planner as qp
+    except Exception:
+        return ""
+    low = str(text or "").lower()
+    n = datetime.fromtimestamp(time.time() if now is None else float(now))
+    today = n.replace(hour=0, minute=0, second=0, microsecond=0)
+    seen, parts = set(), []
+
+    def rel(day: datetime) -> str:
+        delta = (today - day).days
+        return ("today" if delta == 0 else "yesterday" if delta == 1 else "tomorrow" if delta == -1
+                else f"{delta} days before today" if delta > 0 else f"{-delta} days after today")
+
+    def say(label: str, day: datetime) -> None:
+        key = (label, day.date())
+        if key in seen:
+            return
+        seen.add(key)
+        parts.append(f"{label} = {day.strftime('%A %d %B %Y')}, {rel(day)}")
+
+    numeric = qp.numeric_dates(low)
+    by_pos: dict = {}
+    for pos, y, mo, d in numeric:
+        try:
+            by_pos.setdefault(pos, []).append(datetime(int(y), mo, d))
+        except ValueError:
+            pass
+    for pos, days in by_pos.items():
+        raw = re.match(r"\S+", low[pos:]).group(0).rstrip("?.,!)")
+        if len(days) > 1:
+            parts.append(f"{raw} reads two ways (ask which if it matters): "
+                         + " or ".join(f"{d.strftime('%A %d %B %Y')} ({rel(d)})" for d in days))
+            continue
+        say(raw, days[0])
+    numeric_spans = [(p, p + 10) for p in by_pos]
+    for pos, day in qp._explicit_dates(low, n):
+        if any(a <= pos < b for a, b in numeric_spans):
+            continue
+        say(day.strftime("%d %B %Y"), day)
+    if not parts:
+        return ""
+    return ("DATE FACTS (worked out from the calendar; use these, do not recompute): "
+            + "; ".join(parts) + f". Today is {today.strftime('%A %d %B %Y')}.")

@@ -343,6 +343,37 @@ def recent_events(
     return out
 
 
+def actions_between(since: float, until: float, *, limit: int = 200, user_id: str = "",
+                    include_unattributed: bool = True,
+                    db_path: Optional[str | Path] = None) -> List[Dict[str, Any]]:
+    """Every action ELI ran in [since, until), oldest first: what it was and what it reported.
+
+    The ledger records each execution once as an executor_action; this is the log a
+    "what did I play yesterday" or "what did you do today" question is answered from.
+    With `user_id`, only that user's rows, plus rows that name no user when
+    `include_unattributed` (rows written before executions carried one belong to the owner)."""
+    who, params = "", [float(since), float(until)]
+    if user_id:
+        who = (" AND (user_id = ? OR COALESCE(user_id, '') = '')" if include_unattributed
+               else " AND user_id = ?")
+        params.append(_norm(user_id, 200))
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT COALESCE(ts, timestamp, 0), action, content, outcome FROM runtime_events "
+            "WHERE event_type = 'executor_action' AND COALESCE(ts, timestamp, 0) >= ? "
+            "AND COALESCE(ts, timestamp, 0) < ?" + who +
+            " ORDER BY COALESCE(ts, timestamp, 0) ASC LIMIT ?",
+            (*params, int(limit)),
+        ).fetchall()
+    except sqlite3.Error:
+        return []
+    finally:
+        conn.close()
+    return [{"ts": float(r[0] or 0), "action": str(r[1] or ""), "content": str(r[2] or ""),
+             "outcome": str(r[3] or "")} for r in rows]
+
+
 def verify_chain(db_path: Optional[str | Path] = None) -> Dict[str, Any]:
     """Walk the tamper-evident hash chain and report its integrity.
 

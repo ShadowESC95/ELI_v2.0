@@ -111,6 +111,22 @@ SIM_RELATIVE_FLOOR = 0.94
 SIM_MIN_KEEP = 3
 
 
+def _entry_id(entry: Dict[str, Any]) -> Any:
+    """The memory row an index entry belongs to. add() stores it as memory_id and the rebuild
+    stored it as id; tombstones only ever read id, so 483 deleted memories kept being found."""
+    return entry.get("memory_id", entry.get("id"))
+
+
+def _embeddable_sql(con: Any) -> str:
+    """Rows the storage policy embeds (not ELI's telemetry), as a WHERE fragment. The rebuild
+    used to embed every row, so the index filled with "Top topics: ..." bookkeeping."""
+    try:
+        cols = {r[1] for r in con.execute("PRAGMA table_info(memories)")}
+    except Exception:
+        return ""
+    return " AND COALESCE(origin, '') != 'telemetry'" if "origin" in cols else ""
+
+
 def _trim_weak_tail(results, min_ratio=None):
     """Drop candidates far below the best hit for this query.
 
@@ -184,7 +200,7 @@ class VectorStore:
                     try:
                         _sqlite_count = _con.execute(
                             "SELECT COUNT(*) FROM memories "
-                            "WHERE length(COALESCE(text, content, '')) > 10"
+                            "WHERE length(COALESCE(text, content, '')) > 10" + _embeddable_sql(_con)
                         ).fetchone()[0]
                     except Exception:
                         _sqlite_count = 0
@@ -247,7 +263,7 @@ class VectorStore:
             if idx < 0 or idx >= len(self._meta):
                 continue
             entry = dict(self._meta[idx])
-            _mid = entry.get("id")
+            _mid = _entry_id(entry)
             if _mid is not None:
                 try:
                     if int(_mid) in self._tombstone_ids:
@@ -307,12 +323,12 @@ class VectorStore:
             live = set()
             for entry in self._meta:
                 try:
-                    live.add(int(entry.get("id")))
+                    live.add(int(_entry_id(entry)))
                 except (TypeError, ValueError):
                     log.debug("suppressed exception", exc_info=True)
         keep = [
             e for e in self._meta
-            if int(e.get("id", -1)) in live and int(e.get("id", -1)) not in self._tombstone_ids
+            if int(_entry_id(e) or -1) in live and int(_entry_id(e) or -1) not in self._tombstone_ids
         ]
         if len(keep) == len(self._meta) and not self._tombstone_ids:
             return 0
@@ -376,7 +392,7 @@ class VectorStore:
                     "SELECT COALESCE(text, content, ''), COALESCE(source,'user'), "
                     "COALESCE(tags,''), COALESCE(kind,'memory'), id "
                     "FROM memories "
-                    "WHERE length(COALESCE(text, content, '')) > 10 "
+                    "WHERE length(COALESCE(text, content, '')) > 10" + _embeddable_sql(con) + " "
                     "ORDER BY id"
                 ).fetchall()
             finally:
@@ -387,7 +403,8 @@ class VectorStore:
         if not raw:
             return
         entries = [
-            {"text": row[0].strip(), "source": row[1], "tags": row[2], "kind": row[3], "id": row[4]}
+            {"text": row[0].strip(), "source": row[1], "tags": row[2], "kind": row[3],
+             "memory_id": row[4], "id": row[4]}
             for row in raw if row[0].strip()
         ]
         log.debug(f"[VECTOR_STORE] Auto-rebuilding index from {len(entries)} memories…")

@@ -29,13 +29,14 @@ internals), with live counts for each layer.
 
 | File | Lines | Role |
 |---|---:|---|
-| `memory.py` | 6,003 | the `Memory` class (85 public methods), schema, `DBPaths`, upkeep, module facade |
+| `memory.py` | 6,034 | the `Memory` class (85 public methods), schema, `DBPaths`, upkeep, module facade |
 | `policy.py` | 128 | pure storage-policy functions (origin, dedupe key, strength, archive, merge) |
-| `retrieval.py` | 253 | shared turn retrieval (`retrieve_for_turn`), turn cache, time window |
+| `retrieval.py` | 310 | shared turn retrieval (`retrieve_for_turn`), turn cache, time window (turns and executed actions) |
 | `claims.py` | 266 | dated claims about the user: valid-from and valid-to, learned-at, supersession |
-| `unified_retrieval.py` | 168 | the orchestrator stages consume `retrieve_for_turn` through it; formats the verified-memory block |
-| `vector_store.py` | 660 | FAISS index, embedder, tombstones |
-| `knowledge_graph.py` | 643 | entity and relation graph |
+| `unified_retrieval.py` | 371 | the orchestrator stages consume `retrieve_for_turn` through it; formats the verified-memory block and the period log |
+| `document_index.py` | 687 | every document ELI has read, stored whole and searched by passage |
+| `vector_store.py` | 677 | FAISS index, embedder, tombstones |
+| `knowledge_graph.py` | 703 | entity and relation graph |
 | `system_index.py` | 278 | indexed apps, executables, files |
 | `memory_truth.py` | 188 | read-only inspection used by status surfaces |
 | `memory_adapter.py` | 131 | compatibility adapter |
@@ -212,8 +213,19 @@ budgets.
   (`query_planner.parse_window`), memories dated inside it are fetched by date
   (`Memory.memories_between`, ordered by importance × weight) and merged with the topic hits,
   hits outside the window are dropped, and the user's turns inside the window are read from
-  `conversation_turns`. The result carries `window_stats` (candidates, added by date, in
-  window, turns) and the orchestrator logs and reports it (`memory_diag`).
+  `conversation_turns`, and what ELI did in the window is read from the evidence ledger
+  (`evidence_ledger.actions_between`: every executed action with the executor's own result
+  text, scoped to the asking user). The result carries `window_stats` (candidates, added by
+  date, in window, turns, actions) and the orchestrator logs and reports it (`memory_diag`).
+- **The period log.** `unified_retrieval.format_period_log` renders the window's turns and
+  actions as one dated block ("What happened in that period"), in every mode including Quick.
+  The actions the question is about (media, apps, web, timers, files) are listed first with a
+  digest of distinct tracks; when the period is larger than the budget the selection is
+  balanced across its days and a per-day tally says what was left out. A follow-up with no
+  period of its own ("check again in full") keeps the previous turn's period for 15 minutes.
+- **Vector hits are re-checked.** A FAISS hit is used only if its memory row still exists and
+  passes the same origin and verification filters as the SQL channels; telemetry rows are not
+  embedded, and tombstones apply to either id field an entry carries.
 - **Only questions get a window.** `plan_window` applies a period only to a question or recall request, so a
   statement that says "last night" or "today" cannot narrow retrieval to that period.
 - **Explicit dates.** `parse_window` reads ISO dates ("2026-03-03"), "3 March", "March 3rd 2025",
@@ -239,6 +251,39 @@ The primitive `retrieve_for_turn()` builds on:
    weight reset to 1.0; the recall is written to `recall_log` with its `memory_id`.
 
 Column detection (`_memory_table_columns`) guards against schema drift between versions.
+
+## Document index (`document_index.py`)
+
+What ELI has read, kept whole. The document reader hands a reply the first 8,000 characters of
+the first 20 pages; the index stores the full text, so a question about page 40 has something
+to be answered from.
+
+- **One SQLite file** (`documents.sqlite3`, `paths.document_index_db_path`): `documents`,
+  `passages` (text and a float16 vector each) and an FTS5 table kept in step by triggers.
+  Removing a document cascades to every passage and vector made from it.
+- **What gets indexed.** Anything an action reads, summarises or writes (`READ_FILE`,
+  `SUMMARIZE_FILE`, `ANALYZE_PDF`, `CREATE_DOCUMENT`, `DOC_GENERATE`, `GENERATE_DOCUMENT`,
+  `CONVERT_DOCUMENT`, `WRITE_NOTE`, `NEW_NOTE`; hooked in the executor's post-dispatch), a
+  file handed over with a message (`[File: path]`), and ELI's own `documents/` and `notes/`
+  folders on first use. PDF, DOCX, ODT, EPUB and prose text formats only; names that look
+  like secrets (`.env`, keys, credentials, wallets) and files over 96 MB are never stored.
+  An unchanged file is not stored twice; a changed one replaces its passages.
+- **How.** A worker thread extracts the whole text (`document_reader.document_sections`, with
+  page numbers for PDFs), cuts it into ~900-character passages that overlap and start on a
+  word, and embeds them with the embedder the memory store already loads. Embedding waits
+  while a conversation turn is live. Wording search works as soon as the text is stored.
+- **Search** (`search`): FTS5 BM25 over the question's content words and cosine over the
+  vectors, fused by reciprocal rank. A question that names a document by a word of its title
+  stays inside that document; "that file" means the one read last; a file attached to the
+  message is stored before the search and the search stays inside it. Asked nothing about
+  documents (`strict`), a passage is offered only at cosine >= 0.70, or >= 0.64 with at least
+  half the question's content words in it (thresholds measured on the nomic embedder, where
+  unrelated text scores up to 0.66).
+- **Scope.** Documents carry the user id of the turn that read them; another API user never
+  sees them. Indexing and removal are written to the evidence ledger.
+- **Forgetting.** "forget the X document" lists matching documents and, on
+  "confirm forget documents <ids>", removes them from the index. The file on disk is untouched.
+- **Off switch.** `ELI_DOCUMENT_INDEX=0`.
 
 ## Vector store (`vector_store.py`)
 

@@ -999,6 +999,25 @@ _FACT_REJECT = re.compile(
 )
 
 
+# About ELI itself or this conversation with it: not a fact about the user.
+_ABOUT_THIS_SOFTWARE = re.compile(
+    r"\beli(?:'s|’s)?\b|\bthis (?:assistant|software|session|conversation)\b|\bthe assistant's\b", re.I)
+_QUOTED = re.compile(r"\"[^\"]{12,}\"|“[^”]{12,}”")
+_WORK_STOP = frozenset("""the a an and or of to in on for with from by about into over is are was were be been
+their they user users working work currently actively specifically technical reasons behind""".split())
+
+
+def _said_by_user(claim: str, user_text: str) -> bool:
+    """Whether the user's own words carry this claim. Text they quote back ("...") is ELI's:
+    a user who pasted ELI's offer of "a deep dive into why the vector search is drifting" and
+    said yes had that stored as their project."""
+    own = _QUOTED.sub(" ", str(user_text or "")).lower()
+    words = {w for w in re.findall(r"[a-z]{4,}", str(claim or "").lower()) if w not in _WORK_STOP}
+    if len(words) < 3:
+        return True
+    return sum(1 for w in words if w[:6] in own) >= (len(words) + 1) // 2
+
+
 def _fact_pattern_type(line: str) -> str:
     """Classify a durable user fact into a promotable pattern type.
 
@@ -1041,7 +1060,7 @@ def _route_facts_to_patterns(cur: "sqlite3.Cursor", facts_text: str) -> int:
         # Too short to be a fact, or no letters at all.
         if len(line) < 12 or not re.search(r"[A-Za-z]", line):
             continue
-        if _FACT_REJECT.search(line):
+        if _FACT_REJECT.search(line) or _ABOUT_THIS_SOFTWARE.search(line):
             log.debug("profile_extractor: dropped self-referential 'fact': %s", line[:80])
             continue
         key = line.lower()
@@ -1065,7 +1084,7 @@ def _summary_section_meaningful(s: str) -> bool:
     )
 
 
-def _route_summary_to_profile(cur: "sqlite3.Cursor", llm_summary: str) -> None:
+def _route_summary_to_profile(cur: "sqlite3.Cursor", llm_summary: str, user_text: str = "") -> None:
     """Route the DYNAMIC 'CURRENT WORK' / 'USER PREFERENCES' the model inferred from the
     REAL conversation into fresh user_patterns — the replacement for the removed hard-coded
     project facts. Re-derived every session, so the proactive 'active_project' signal tracks
@@ -1076,6 +1095,13 @@ def _route_summary_to_profile(cur: "sqlite3.Cursor", llm_summary: str) -> None:
                 for m in _SUMMARY_SECTION_RE.finditer(llm_summary)}
     work = _clean(sections.get("CURRENT_WORK", ""), 300)
     prefs = _clean(sections.get("USER_PREFERENCES", ""), 300)
+    # A session spent troubleshooting ELI is not the user's work. Stored as their project, ELI's
+    # own invented diagnosis ("vector search drift ... embedding model decay") came back in every
+    # prompt as a recalled topic and was repeated as fact.
+    if _ABOUT_THIS_SOFTWARE.search(work) or (user_text and not _said_by_user(work, user_text)):
+        log.debug("profile_extractor: current work is about ELI or not in the user's words, not stored: %s",
+                  work[:80])
+        work = ""
     if _summary_section_meaningful(work):
         # Keep only the LATEST dynamic project signal — purge the frozen canned ones
         # (incl. legacy 'project.eli*' rows) so the daemon never reads a stale fact.
@@ -1180,7 +1206,8 @@ def _llm_summarise_session(
             "DECISIONS: concrete decisions that were made.\n"
             "OPEN THREADS: unfinished work or agreed next steps.\n"
             "USER PREFERENCES: how the user wants things done.\n"
-            "CURRENT WORK: what the user is actively working on.\n"
+            "CURRENT WORK: what the user is working on in their own life or projects. "
+            "Troubleshooting or criticising ELI is not their work; write 'none' for it.\n"
             "USER FACTS: durable facts about the USER that would still be true "
             "next month — who they are, what they work on, what they care about. "
             "One per line, in your own words, drawn ONLY from what the USER said "
@@ -1271,7 +1298,9 @@ def write_llm_session_summary(
             # Route the dynamically-inferred CURRENT WORK / USER PREFERENCES into fresh
             # user_patterns so the proactive 'active_project' signal is live, not canned.
             try:
-                _route_summary_to_profile(cur, llm_summary)
+                _route_summary_to_profile(
+                    cur, llm_summary,
+                    user_text=" ".join(str(r["content"] or "") for r in rows if str(r["role"]).lower() == "user"))
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
         else:

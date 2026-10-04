@@ -34,12 +34,28 @@ _INTERNAL_ACTIONS = frozenset({
 })
 
 
+# Actions that change who ELI thinks the user is, how ELI itself is set up, its code, or the
+# machine, or that erase data. They need the user to have said so (the router's exact phrases),
+# never a model's guess: "Eli, can you not tell me who i am??" was guessed as PERSONA_LOCK_CLEAR,
+# and the agent bus ran it before the turn was downgraded to chat.
+_EXPLICIT_ONLY_ACTIONS = frozenset({
+    "PERSONA_LOCK_SET", "PERSONA_LOCK_CLEAR", "PERSONA_REFRESH", "SET_USER_NAME", "SET_AI_MODE",
+    "SET_VOICE", "SET_TONE", "CLEAR_TONE", "SET_COMMUNICATION_STYLE", "CLEAR_CHAT_HISTORY",
+    "MEMORY_FORGET", "PLUGIN_INSTALL", "PLUGIN_UNINSTALL", "PLUGIN_ENABLE", "PLUGIN_DISABLE",
+    "MCP_ADD", "MCP_REMOVE", "MCP_CALL", "SELF_PATCH", "SELF_UPDATE", "SELF_UPGRADE",
+    "RUN_CMD", "SHELL_EXEC", "LORA_TRAIN", "TRAIN_VOICE", "WAKE_SET", "WAKE_ENROLL",
+    "WAKE_TRAIN", "GAZE_CALIBRATE", "GAZE_CLICK", "GAZE_ENABLE", "GAZE_DISABLE",
+    "PROACTIVE_START", "PROACTIVE_STOP",
+})
+
+
 def _catalogue() -> List[str]:
-    """The live action catalogue, minus internal/confirm surfaces. Lazy import
-    avoids a circular dependency at module load."""
+    """The live action catalogue, minus internal/confirm surfaces and explicit-only
+    actions. Lazy import avoids a circular dependency at module load."""
     try:
         from eli.execution.executor_enhanced import SUPPORTED_ACTIONS
-        acts = [a for a in SUPPORTED_ACTIONS if a not in _INTERNAL_ACTIONS]
+        acts = [a for a in SUPPORTED_ACTIONS
+                if a not in _INTERNAL_ACTIONS and a not in _EXPLICIT_ONLY_ACTIONS]
         # stable, de-duplicated
         seen, out = set(), []
         for a in acts:
@@ -297,6 +313,25 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
         except Exception:
             conf = 0.6
         conf = max(0.0, min(1.0, conf))
+        if action == "MEMORY_RECALL":
+            # A question about a period ("your exact memory over the past 3 days") is answered
+            # by the chat path, which reads every turn and action in it. MEMORY_RECALL is a topic
+            # search with no dates: live it returned a 25 September row for "past 3 days".
+            try:
+                from eli.cognition.query_planner import parse_window
+                if parse_window(text):
+                    action = "CHAT"
+            except Exception:
+                log.debug("window check failed", exc_info=True)
+        if action in ("DATE", "TIME"):
+            # The clock action answers with the date and nothing else; a question that also
+            # asks "how many days ago was ..." needs chat (the router already declines it).
+            try:
+                from eli.cognition.query_planner import asks_date_arithmetic
+                if asks_date_arithmetic(text):
+                    action = "CHAT"
+            except Exception:
+                log.debug("date check failed", exc_info=True)
         if action == "CHAT":
             args = {"message": text}
         elif action == "MEMORY_RECALL" and not str(args.get("query") or "").strip():

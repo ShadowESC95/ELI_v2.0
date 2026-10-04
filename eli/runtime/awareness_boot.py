@@ -107,8 +107,11 @@ class AwarenessState:
             from eli.runtime.evidence_ledger import unreliable_actions
             bad = unreliable_actions()
             if bad:
+                # p is a smoothed success estimate, not a count: "51% of 6 runs" was read back to
+                # the user as "a 51% failure rate".
                 return "  Unreliable lately (measured): " + ", ".join(
-                    f"{b['action']} ({b['p']:.0%} of {b['n']} runs)" for b in bad)
+                    f"{b['action']} (est. {b['p']:.0%} chance of success, from {b['n']} recent runs)"
+                    for b in bad)
         except Exception:
             log.debug("reliability line unavailable", exc_info=True)
         return ""
@@ -125,6 +128,16 @@ class AwarenessState:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
         bits.append("4 local SQLite stores")
+        # What ELI can actually quote from: a count, so it neither denies having read a document
+        # nor claims one it has not been given.
+        try:
+            from eli.memory.document_index import get_document_index
+            _docs = get_document_index()
+            _ds = _docs.stats() if _docs else {}
+            if _ds.get("documents"):
+                bits.append(f"{_ds['documents']} documents read and indexed ({_ds['passages']} passages)")
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
         try:
             from eli.runtime.live_introspection import _runtime_core
             _c = _runtime_core() or {}
@@ -140,6 +153,9 @@ class AwarenessState:
         head = "[Live self-model: " + ", ".join(bits) + "]" if bits else "[Live self-model: ready]"
         head += (" You have no record of what specific fixes were made to you unless they are listed under recent code changes"
                  " or in evidence: do not say fixes were applied, or what they were, on the strength of being told so.")
+        # Told "log everything", a model promised to switch on logging that was never off.
+        head += (" Logging is always on and is not something a reply can change: every action you run is written to"
+                 " the evidence ledger and every turn to the audit chain, both signed. Asked to log more, say that.")
         # Room lives at ws["avatar"]["room"], not top-level — reuse the same
         # thresholds choose_room()/map_persona() already use for the avatar.
         try:

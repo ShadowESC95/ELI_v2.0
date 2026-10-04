@@ -2369,10 +2369,11 @@ class Memory(metaclass=_MemoryMeta):
                     _ntotal = int(getattr(_idx, 'ntotal', 0) or 0)
                     _vector_index_populated = _ntotal > 0
                     if _vs is not None and _ntotal > 0:
-                        _hits = _vs.search(q, top_k=limit) or []
+                        # Over-fetch: ELI's own records and deleted rows are dropped below.
+                        _hits = _vs.search(q, top_k=limit * 3) or []
                         for h in _hits:
                             vector_results.append({
-                                'id': h.get('memory_id', f"vec:{h.get('pos', 0)}"),
+                                'id': h.get('memory_id', h.get('id', f"vec:{h.get('pos', 0)}")),
                                 'ts': h.get('ts', 0),
                                 'timestamp': h.get('ts', 0),
                                 'text': h.get('text', ''),
@@ -2383,6 +2384,25 @@ class Memory(metaclass=_MemoryMeta):
                             })
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
+                # The keyword channels filter out ELI's own records and unverified rows in SQL; vector
+                # hits skipped that, and the index still holds 372 telemetry rows embedded before the
+                # storage policy ("Top topics: days, past, memory" was the top recall). Same filters,
+                # one query; rows deleted since they were indexed drop out too.
+                _vec_ids = [int(v['id']) for v in vector_results if str(v.get('id')).isdigit()]
+                if _vec_ids:
+                    try:
+                        _ok_rows = conn.execute(
+                            f"SELECT m.id, COALESCE(m.timestamp, m.ts, 0) FROM memories m "
+                            f"WHERE m.id IN ({','.join('?' * len(_vec_ids))}) {_kind_filter}{_verify_filter}",
+                            (*_vec_ids, *_kind_params),
+                        ).fetchall()
+                        _ok = {int(r[0]): r[1] for r in _ok_rows}
+                        vector_results = [
+                            dict(v, ts=v.get('ts') or _ok[int(v['id'])], timestamp=v.get('ts') or _ok[int(v['id'])])
+                            for v in vector_results if str(v.get('id')).isdigit() and int(v['id']) in _ok
+                        ][:limit]
+                    except Exception:
+                        log.debug("vector hit filter skipped", exc_info=True)
 
             # Stage 6: FTS5 keyword search runs alongside vectors, not as a fallback. FAISS IndexFlat has no
             # similarity threshold and always returns top_k, so the fallback never ran and a fully built

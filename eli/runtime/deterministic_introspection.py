@@ -328,6 +328,18 @@ def handle_diagnostic_action(action: str, text: str, engine: Any = None) -> Opti
         )
 
     if action == "USER_IDENTITY_SUMMARY":
+        # "what is my name?" asks for a name. It used to get the whole memory dump: database
+        # path, row counts, preferences.
+        _low = str(text or "").lower()
+        if (re.search(r"\bmy name\b|\bwhat (?:do|should) you call me\b", _low)
+                and not re.search(r"\b(?:about me|who am i|who i am|know me|everything)\b", _low)):
+            try:
+                from eli.kernel.state import get_user_name
+                _name = get_user_name().strip()
+            except Exception:
+                _name = ""
+            return (f"Your name is {_name}." if _name else
+                    "I don't have your name saved. Tell me (\"my name is ...\") and I'll keep it.")
         try:
             from eli.runtime.personal_memory_surface import personal_memory_surface
             return str(personal_memory_surface(text))

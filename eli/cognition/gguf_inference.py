@@ -1359,6 +1359,16 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
         full_prompt = _fit_prompt
     last_exc = None
     bg = is_background_inference()
+    if not bg:
+        # On the turn's audit row: how many times the model ran and how much it was given to read.
+        try:
+            from eli.kernel.request_context import turn_facts_var as _turn_facts
+            _facts = _turn_facts.get()
+            if _facts is not None:
+                _facts["model_calls"] = int(_facts.get("model_calls") or 0) + 1
+                _facts["prompt_chars"] = int(_facts.get("prompt_chars") or 0) + len(full_prompt or "")
+        except Exception:
+            _SWLOG.debug("suppressed exception", exc_info=True)
     if bg:
         # Background work does not start while a conversation is live or has just finished: it would take the
         # single model the next message needs, and prompt evaluation cannot be interrupted once begun.

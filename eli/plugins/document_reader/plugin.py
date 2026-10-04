@@ -16,6 +16,11 @@ _TEXT_SUFFIXES = {
 # to the plain-text branch and came back as decoded zip bytes with ok=True —
 # mojibake presented as the document's contents rather than an honest refusal.
 _MAX_CHARS = 8000
+_MAX_PAGES = 20
+_MAX_PARTS = 50
+# The document index stores a document whole; a reply only ever gets the preview above.
+_WHOLE_CHARS = 4_000_000
+_WHOLE_PAGES = 5000
 
 
 def _localname(tag: str) -> str:
@@ -94,11 +99,38 @@ def _html_to_text(markup: str) -> str:
     return parser.text()
 
 
+def _starts(pages: list) -> list:
+    """Where each page begins in the pages joined by newlines."""
+    out, at = [], 0
+    for page in pages:
+        out.append(at)
+        at += len(page) + 1
+    return out
+
+
+def document_sections(path) -> list:
+    """A document's whole readable text as (where, text) parts: one per PDF page ("p. 3"), one
+    part for any other format. `read()` gives a reply the first 8000 characters; this is what
+    the document index stores. Empty when the file can't be read."""
+    out = DocumentReaderPlugin(_WHOLE_CHARS, _WHOLE_PAGES, _WHOLE_PAGES).read({"path": str(path)})
+    text = str(out.get("content") or "") if out.get("ok") else ""
+    if not text.strip():
+        return []
+    starts = out.get("page_starts") or []
+    if len(starts) > 1:
+        ends = starts[1:] + [len(text)]
+        return [(f"p. {i}", text[a:b]) for i, (a, b) in enumerate(zip(starts, ends), 1) if text[a:b].strip()]
+    return [("", text)]
+
+
 class DocumentReaderPlugin(Plugin):
     name = "document_reader"
     description = "Read and optionally index local documents (txt, md, PDF, docx, odt, epub)."
 
-    def __init__(self):
+    def __init__(self, max_chars: int = _MAX_CHARS, max_pages: int = _MAX_PAGES, max_parts: int = _MAX_PARTS):
+        self._max_chars = int(max_chars)
+        self._max_pages = int(max_pages)
+        self._max_parts = int(max_parts)
         self.actions = {
             "read": self.read,
             "index_document": self.index_document_action,
@@ -176,8 +208,8 @@ class DocumentReaderPlugin(Plugin):
 
     def _text_result(self, p: Path, text: str) -> dict:
         return {
-            "ok": True, "content": text[:_MAX_CHARS], "response": text[:_MAX_CHARS],
-            "path": str(p), "length": len(text), "truncated": len(text) > _MAX_CHARS,
+            "ok": True, "content": text[:self._max_chars], "response": text[:self._max_chars],
+            "path": str(p), "length": len(text), "truncated": len(text) > self._max_chars,
         }
 
     def _bad_container(self, p: Path, why: str) -> dict:
@@ -228,7 +260,7 @@ class DocumentReaderPlugin(Plugin):
         try:
             with zipfile.ZipFile(str(p)) as z:
                 parts = []
-                for name in self._epub_documents(z)[:50]:
+                for name in self._epub_documents(z)[:self._max_parts]:
                     try:
                         raw = z.read(name)
                     except KeyError:
@@ -236,7 +268,7 @@ class DocumentReaderPlugin(Plugin):
                     chunk = _html_to_text(raw.decode("utf-8", errors="ignore"))
                     if chunk:
                         parts.append(chunk)
-                        if sum(len(x) for x in parts) > _MAX_CHARS:
+                        if sum(len(x) for x in parts) > self._max_chars:
                             break
         except zipfile.BadZipFile:
             return self._bad_container(p, "Not a valid EPUB file (bad zip container).")
@@ -309,21 +341,23 @@ class DocumentReaderPlugin(Plugin):
         try:
             import pypdf
             reader = pypdf.PdfReader(str(p))
-            pages = [page.extract_text() or "" for page in reader.pages[:20]]
+            pages = [page.extract_text() or "" for page in reader.pages[:self._max_pages]]
             text = "\n".join(pages)
-            truncated = len(text) > 8000
+            truncated = len(text) > self._max_chars or len(reader.pages) > self._max_pages
             return {
-                "ok": True, "content": text[:8000], "response": text[:8000],
+                "ok": True, "content": text[:self._max_chars], "response": text[:self._max_chars],
                 "path": str(p), "pages": len(reader.pages), "truncated": truncated,
+                "page_starts": _starts(pages),
             }
         except ImportError:
             pass
         try:
             import pdfplumber
             with pdfplumber.open(str(p)) as pdf:
-                pages = [page.extract_text() or "" for page in pdf.pages[:20]]
+                pages = [page.extract_text() or "" for page in pdf.pages[:self._max_pages]]
             text = "\n".join(pages)
-            return {"ok": True, "content": text[:8000], "response": text[:8000], "path": str(p)}
+            return {"ok": True, "content": text[:self._max_chars], "response": text[:self._max_chars],
+                    "path": str(p), "page_starts": _starts(pages)}
         except ImportError:
             pass
         return {
@@ -351,9 +385,9 @@ class DocumentReaderPlugin(Plugin):
                 if any(cells):
                     parts.append(" | ".join(cells))
         text = "\n".join(t for t in parts if t)
-        truncated = len(text) > 8000
+        truncated = len(text) > self._max_chars
         return {
-            "ok": True, "content": text[:8000], "response": text[:8000],
+            "ok": True, "content": text[:self._max_chars], "response": text[:self._max_chars],
             "path": str(p), "truncated": truncated,
             "paragraphs_found": len(doc.paragraphs),
             "tables_found": len(doc.tables),

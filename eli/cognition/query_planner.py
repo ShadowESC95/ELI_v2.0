@@ -37,8 +37,41 @@ _MDY = re.compile(rf"\b({_MON})\.?\s+(\d{{1,2}})(?:st|nd|rd|th)?(?:,?\s+(\d{{4}}
 _ISO = re.compile(r"\b(\d{4})-(\d{2})-(\d{2})\b")
 
 
+_NUMERIC = re.compile(r"\b(\d{1,2})[/.-](\d{1,2})[/.-](\d{4})\b")
+
+
+def numeric_dates(low: str) -> list:
+    """09-09-2026, 3/10/2026, 25.09.2026 as (position, year, month, day). Day-first and
+    month-first are both in use, so a date that reads either way ("10-03-2026") gives both;
+    one with a part over 12 has only one reading. ELI is used in both conventions."""
+    out = []
+    for m in _NUMERIC.finditer(low):
+        a, b, y = int(m.group(1)), int(m.group(2)), m.group(3)
+        readings = {(b, a)} if a > 12 else {(a, b)} if b > 12 else {(b, a), (a, b)}
+        for mo, d in sorted(readings):
+            if 1 <= mo <= 12 and 1 <= d <= 31:
+                out.append((m.start(), y, mo, d))
+    return out
+
+
 def _month_no(name: str) -> int:
     return [m[:3] for m in _MONTHS].index(name[:3]) + 1
+
+
+_DATE_ARITHMETIC = re.compile(
+    r"\bhow\s+(?:many|long)\b|\b(?:days?|weeks?|months?)\s+(?:ago|since|until|between|left|away)\b", re.I)
+
+
+def asks_date_arithmetic(text: str) -> bool:
+    """"What date is it, and how many days ago was 09-09-2026?" wants more than the date."""
+    return bool(_DATE_ARITHMETIC.search(str(text or "")))
+
+
+def _ruled_out(low: str, pos: int) -> bool:
+    """A date inside a "not ..." clause is excluded, not asked about: "(3 DAYS WHICH DOES NOT
+    MEAN GIVING ME LOGS FROM THE 09-25-2026)" became the window."""
+    start = max(low.rfind(c, 0, pos) for c in ".,;!?()") + 1
+    return bool(re.search(r"\b(?:not|never|isn'?t|wasn'?t|doesn'?t|don'?t|didn'?t)\b", low[start:pos][-80:]))
 
 
 def _explicit_dates(low: str, n: datetime) -> list:
@@ -46,6 +79,8 @@ def _explicit_dates(low: str, n: datetime) -> list:
     found = []
 
     def add(pos, y, mo, d):
+        if _ruled_out(low, pos):
+            return
         try:
             day = datetime(int(y) if y else n.year, mo, d)
             if not y and day > n:
@@ -55,6 +90,16 @@ def _explicit_dates(low: str, n: datetime) -> list:
             pass
     for m in _ISO.finditer(low):
         add(m.start(), m.group(1), int(m.group(2)), int(m.group(3)))
+    # A date that reads both ways: the reading nearest today, never the span between them.
+    by_pos: dict = {}
+    for pos, y, mo, d in numeric_dates(low):
+        try:
+            by_pos.setdefault(pos, []).append(datetime(int(y), mo, d))
+        except ValueError:
+            pass
+    for pos, cands in by_pos.items():
+        day = min(cands, key=lambda c: (c > n, abs((n - c).total_seconds())))
+        add(pos, day.year, day.month, day.day)
     for m in _DMY.finditer(low):
         add(m.start(), m.group(3), _month_no(m.group(2)), int(m.group(1)))
     for m in _MDY.finditer(low):
@@ -83,7 +128,9 @@ def _explicit_window(low: str, n: datetime) -> Optional[Window]:
 
 _RECALL_CUE = re.compile(
     r"\b(?:what|when|which|who|how\s+(?:many|much|long|often)|did\s+(?:i|we|you)|do\s+you\s+(?:remember|recall)|remember|recall|"
-    r"tell\s+me|show\s+me|list|summari[sz]e|remind\s+me|earlier|before|back\s+then)\b", re.I)
+    r"tell\s+me|show\s+me|give\s+me|list|summari[sz]e|remind\s+me|earlier|before|back\s+then|"
+    r"memor(?:y|ies)|logs?|timestamps?|history|recap|catch\s+me\s+up|go\s+(?:over|through)|"
+    r"run\s+(?:me\s+)?through)\b", re.I)
 
 
 def asks_about_the_past(text: str) -> bool:

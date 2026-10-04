@@ -2413,7 +2413,7 @@ class _GUIEngineAdapter:
         self._lock          = inference_lock  # class-level GUI lock (thread-safe)
         self._ce            = cognitive_engine
         self._in_orchestrator = False
-        self.document_rag   = None            # optional RAG — not wired yet
+        self.document_rag   = getattr(cognitive_engine, "document_rag", None)  # the document index
         self.session_id     = f"gui-{int(time.time())}"
         self.user_id        = self._load_user_id()
 
@@ -12577,6 +12577,13 @@ class EliMainWindow(QMainWindow):
         # Identity + image studio defaults
         try:
             _gui_user_name = str(s.get("user_name", "") or "").strip()
+            try:
+                # A stored value that isn't a name ("listed", written by a since-fixed
+                # misroute) is not shown as one.
+                from eli.kernel.state import _clean_name as _cn_gui
+                _gui_user_name = _cn_gui(_gui_user_name)
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
             if not _gui_user_name:
                 try:
                     from eli.kernel.state import get_user_name as _gun

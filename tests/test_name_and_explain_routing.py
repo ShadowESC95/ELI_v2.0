@@ -47,6 +47,10 @@ def test_set_user_name_rejects_a_command(tmp_path, monkeypatch):
     saved = {}
     monkeypatch.setattr(state, "save_user_profile", lambda p, uid=None: saved.update(p))
     monkeypatch.setattr(state, "sync_identity_to_world_model", lambda **k: None)
+    # set_user_name also mirrors the name into settings.json; without this the suite
+    # blanked user_name in the repo's own config/settings.json on every run.
+    from types import SimpleNamespace
+    monkeypatch.setattr("eli.core.paths.get_paths", lambda: SimpleNamespace(config_dir=tmp_path))
     returned = state.set_user_name("pause spotify")
     assert returned == ""
     assert not saved.get("name")

@@ -427,6 +427,13 @@ def govern_output(text: str, is_grounded: bool = False,
     # An invented health report is the same class of fault as a fabricated
     # action claim, so it is governed at the same choke point.
     result = drop_unverified_self_status(result, is_grounded=is_grounded).strip()
+    # A setting or table ELI doesn't have, or "logging is now active" when nothing ran.
+    try:
+        from eli.cognition.self_claims import drop_invented_self_claims
+        result = drop_invented_self_claims(result, evidence or "").strip()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug("self-claim check skipped", exc_info=True)
     result = repair_embodied_self_claims(result).strip()
     # ELI holds the clock; asking the user for it is handing back work it had.
     result = drop_questions_for_facts_already_held(result).strip()

@@ -83,8 +83,9 @@ The deterministic control path:
 non-Quick compact synthesis path uses it and falls back to the deterministic evidence text.
 `contracts/grounded_control.py` owns which actions never fall back to a clarifying question.
 
-### `runtime/evidence_ledger.py` (701 lines)
+### `runtime/evidence_ledger.py` (732 lines)
 A persistent SQLite ledger of evidence events: `record_event`, `recent_events`,
+`actions_between` (what ELI executed in a period, per user, for the period log),
 `repeated_event_signals` (detect recurring issues over N days), `status_evidence`,
 `artifact_snapshot`. Gives ELI a durable, queryable record of what actually
 happened.
@@ -187,7 +188,52 @@ bug (asserts `evidence_complete_for_action` now returns `False` on it).
 
 ---
 
+## ELI's account of its own behaviour (`cognition/self_claims.py`, 564 lines)
+
+Routing, retrieval and escalation run before the model is called and never reach it, so asked
+"why did you search the web?" a model can only invent. Live, a 35B model blamed "vector search
+drift", offered a `verbose_media_logging` setting and an `action_logs` table that do not
+exist, and said "the audit trail is now active" for logging that was always on.
+
+- **The turn record.** Each turn notes what the pipeline did (`request_context.note_turn_fact`):
+  the rule that routed it, a downgrade to chat, what retrieval found, whether it escalated to
+  the web and why, every action that ran, how often the model ran and on how many prompt
+  characters. `describe_turn` writes that into the turn's signed audit row
+  (`orchestrator_audit_ledger`), so the row answers "why did you do that" later.
+- **Asked about itself, ELI is handed the record.** For a question or complaint about its own
+  behaviour (`asks_about_own_behaviour`), the orchestrator puts the recent audit rows, each
+  paired with what the user asked, at the top of the context. Direct questions about the last
+  turn ("why did that take so long", "what did you just do", "why did you search the web") are
+  answered from those rows with no model call (`ROUTING_FAULT_EXPLAIN`). None of these turns
+  is ever escalated to a web search.
+- **The claim check** (`gate_stream` on streamed replies, `drop_invented_self_claims` in
+  `govern_output`). A sentence is dropped when it reports a change nothing made ("logging is
+  now active", when no action ran); promises a standing change a reply cannot make ("no web
+  search from now on"); names a setting, table, module or file ELI does not have (checked
+  against the real actions, settings, tunables, tables, modules and the filesystem); proposes
+  a fix ELI has no action for; or, on a fault question, explains a cause the record does not
+  carry (most of the sentence's content has to be written in the audit rows or the period
+  log). A sentence that rests on a dropped one ("That is why...", "Want me to run that now?")
+  goes with it, and a heading left with nothing under it is removed. ELI's own earlier
+  replies are never counted as evidence. When sentences were dropped the reply says so and
+  gives the recorded rows instead; code blocks are never touched.
+- **The self-model says so too.** The live self-model line states that logging is always on
+  (every action in the evidence ledger, every turn in the audit chain) and is not something a
+  reply can change.
+- **ELI's diagnoses are not the user's facts.** A session summary's "current work" is stored as
+  the user's project only if the user's own words carry it; text they quote back from ELI
+  does not count, and work that is about ELI itself is not stored.
+
 ## Behaviours that keep answers grounded
+- **Admin and persona actions are explicit only.** The LLM intent resolver cannot choose
+  `SET_USER_NAME`, persona locks, tone and voice changes, memory deletion, plugin or MCP
+  changes, self-patching, shell or training actions (`llm_intent._EXPLICIT_ONLY_ACTIONS`);
+  only a router rule matching the user's words can. A guessed `PERSONA_LOCK_CLEAR` once ran
+  before the turn was downgraded to chat.
+- **A name is set only by a declaration.** One extractor
+  (`identity_validation.extract_explicit_identity_facts`) is shared by the router, the
+  knowledge graph, working memory and the executor; hypotheticals and negations ("if my name
+  is listed as unknown...", "my name is not listed") set nothing.
 - **Self-patch only patches what it can ground.** `generate_code_patch` extracts the target
   file from the error traceback; when a failure has no in-project file (e.g. an HTTP/connection
   error, "No commands to run"), it used to ask the model anyway, which **invented** a path

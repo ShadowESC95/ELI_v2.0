@@ -30,17 +30,20 @@ at a depth chosen by `mode_orchestrator_depth()` and `orchestrator_planner_mode(
 (`reasoning_modes.py`). Components:
 
 - **`PlannerAgent.plan_retrieval()`** produces a mode-aware retrieval plan:
-  - `fast`: keyword only, no FAISS or RAG, knowledge graph only for identity, one ReAct
-    iteration, no HyDE;
-  - `balanced` (default): keyword, semantic and knowledge graph, RAG for document queries,
-    three ReAct iterations;
+  - `fast`: keyword only, no FAISS, document passages only when the question is about a
+    document, knowledge graph only for identity, one ReAct iteration, no HyDE;
+  - `balanced` (default): keyword, semantic and knowledge graph, document passages (the best
+    ones when the question is about a document, otherwise only passages that clearly bear on
+    it), three ReAct iterations;
   - `deep`: everything, large budgets, full HyDE, three ReAct iterations.
   The orchestrator then attaches the time window found in the question
   (`query_planner.parse_window`) to the plan.
 - **`OrchestratorMemoryAgent`** delegates to `retrieve_for_turn()` in `memory/retrieval.py`
-  (shared with the bus): HyDE expansion, keyword and FTS5, FAISS semantic, document RAG and
-  knowledge graph, `hybrid_merge`, then a heuristic rerank (`rerank_candidates`). Sequential by
-  design: the llama.cpp embedder is not thread-safe.
+  (shared with the bus): HyDE expansion, keyword and FTS5, FAISS semantic and knowledge
+  graph, `hybrid_merge`, then a heuristic rerank (`rerank_candidates`). Document passages come
+  from `engine.document_rag` (`memory/document_index.py`) and are not merged into the evidence
+  rows: they are shown whole, best first, in their own block. Sequential by design: the
+  llama.cpp embedder is not thread-safe.
 - **`ExecutorAgent`** is a thin wrapper over `executor_enhanced.execute`.
 
 Flow inside `AgentOrchestrator.run()`:
@@ -55,7 +58,10 @@ Flow inside `AgentOrchestrator.run()`:
   returned as is.
 - **CHAT**: planner → shared retrieval → `dispatch_specialists()` (mode-aware fan-out; memory
   skipped when already prefetched) → context assembly and a retrieval-diagnostics block →
-  persona handoff → generation. Private reasoning modes (Normal, Advanced, Research, Expert)
+  persona handoff → generation. The assembled context is ordered by what must survive a trim
+  (`context_budget._BLOCK_PRIORITY`): retrieval diagnostics, the turn record (only when the
+  user asks about ELI's own behaviour), the period log, document passages, verified memories,
+  reranked evidence, recent turns. Private reasoning modes (Normal, Advanced, Research, Expert)
   hand off to `engine._run_chat_reasoning_loop`. The bus is composed on the CHAT path and is
   not bypassed in Quick mode.
 

@@ -3020,8 +3020,17 @@ def _is_origin_question(msg: str) -> bool:
     return any(t in low for t in triggers)
 
 
+def _state_user_name(st: Dict[str, Any]) -> str:
+    """The stored name if it is one; "listed" and other since-rejected values read as unset."""
+    try:
+        from eli.kernel.state import _clean_name
+        return _clean_name(str(st.get("user_name") or ""))
+    except Exception:
+        return str(st.get("user_name") or "").strip()
+
+
 def _origin_facts(st: Dict[str, Any]) -> str:
-    name = (st.get("user_name") or "").strip() or "the user"
+    name = _state_user_name(st) or "the user"
     return (
         f"Factual note: {name} assembled/configured ELI; ELI runs locally via Ollama using base model weights. "
         f"Don't claim any company 'created ELI' as a shipped product."
@@ -4438,13 +4447,19 @@ def set_user_name(name: str) -> Dict[str, Any]:
         "name", "call", "called", "calling", "named",
     })
     _tokens = n.split()
+    try:
+        from eli.runtime.identity_validation import normalize_identity_candidate as _nic
+        _not_a_name = not _nic(n)
+    except Exception:
+        _not_a_name = False
     # Reject if: too long (> 25 chars), too many tokens (> 3 words for a name),
-    # or any token matches a sentence-signal word
+    # any token matches a sentence-signal word, or the shared validator refuses it
     _is_phrase = (
         len(n) > 25
         or len(_tokens) > 3
         or any(t.lower() in _NAME_SENTENCE_SIGNALS for t in _tokens)
         or bool(_re_sun.search(r"[^A-Za-z0-9'\-\. ]", n))  # exotic punctuation
+        or _not_a_name
     )
     if _is_phrase:
         log.debug(f"[EXECUTOR] set_user_name: rejected phrase-like name {n!r}")
@@ -4513,7 +4528,7 @@ def get_status() -> Dict[str, Any]:
     return {
         "ok": True,
         "action": "GET_STATUS",
-        "user_name": st.get("user_name", ""),
+        "user_name": _state_user_name(st),
         "chat_model_default": DEFAULT_CHAT_MODEL,
         "persona_lock": st.get("persona_lock") or None,
         "ollama_ps": ps,
@@ -5709,7 +5724,46 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = ("Forgotten: " + ", ".join(_parts) + ".") if _rep.get("memories") else "Nothing matched those ids, so nothing was deleted."
             return {"ok": bool(_rep.get("memories")), "action": a, "report": _rep, "content": msg, "response": msg}
         query = str(args.get("query") or "").strip()
+        # Documents ELI has read are stored whole in the document index: forgetting one takes it
+        # and every passage and vector made from it out. The file on disk is left alone.
+        _dindex, _duid, _docs = None, "", []
+        try:
+            from eli.kernel import request_context as _rc_forget
+            from eli.memory.document_index import get_document_index
+            _dindex, _duid = get_document_index(), str(_rc_forget.user_id_var.get() or "")
+        except Exception:
+            log.debug("document index unavailable for forget", exc_info=True)
+        if args.get("confirm") and args.get("document_ids"):
+            _gone = _dindex.remove(args.get("document_ids"), user_id=_duid) if _dindex else []
+            try:
+                from eli.runtime.pending_proposal import clear_pending_proposal
+                clear_pending_proposal()
+            except Exception:
+                log.debug("pending forget not cleared", exc_info=True)
+            msg = ("Removed from the document index: " + ", ".join(f"{d['title']} ({d['passages']} passages)" for d in _gone)
+                   + ". The files themselves are untouched.") if _gone else "No indexed document has those ids, so nothing was removed."
+            return {"ok": bool(_gone), "action": a, "documents": _gone, "content": msg, "response": msg}
+        if _dindex and query:
+            try:
+                _docs = _dindex.matching(query, _duid)
+            except Exception:
+                log.debug("document match failed", exc_info=True)
+        _doc_note = ""
+        if _docs:
+            _doc_note = ("\nIndexed documents that match:\n" + "\n".join(
+                f"- document #{d['id']}: {d['title']} ({d['passages']} passages)" for d in _docs)
+                + "\nSay confirm forget documents " + " ".join(str(d["id"]) for d in _docs)
+                + " to remove them from the index (the files stay on disk).")
         found = _mem_f.forget_candidates(query) if query else []
+        if not found and _docs:
+            try:
+                from eli.runtime.pending_proposal import set_pending_proposal
+                set_pending_proposal("confirm forget documents " + " ".join(str(d["id"]) for d in _docs),
+                                     summary="forget documents")
+            except Exception:
+                log.debug("pending forget not set", exc_info=True)
+            msg = f"No stored memory matches '{query}'." + _doc_note
+            return {"ok": True, "action": a, "matches": [], "documents": _docs, "content": msg, "response": msg}
         if not found:
             msg = f"I found nothing stored that matches '{query}', so there is nothing to forget."
             return {"ok": True, "action": a, "matches": [], "content": msg, "response": msg}
@@ -5721,8 +5775,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             log.debug("pending forget not set", exc_info=True)
         lines = "\n".join(f"- #{f['id']}: {f['text']}" for f in found)
         msg = (f"These stored memories match '{query}':\n{lines}\nSay yes to delete them and everything derived from them "
-               f"(summaries, profile items, index entries, claims), or say confirm forget memories with the ids you want gone.")
-        return {"ok": True, "action": a, "matches": found, "content": msg, "response": msg}
+               f"(summaries, profile items, index entries, claims), or say confirm forget memories with the ids you want gone."
+               + _doc_note)
+        return {"ok": True, "action": a, "matches": found, "documents": _docs, "content": msg, "response": msg}
 
     if a == "MEMORY_STORE":
         txt = str(args.get("text") or args.get("content") or args.get("message") or "").strip()
@@ -12252,6 +12307,13 @@ def _action_pre_dispatch(
 _SESSION_FAILURE_COUNTS: "Dict[str, int]" = {}
 
 
+_INDEXED_AFTER = frozenset((
+    "READ_FILE", "SUMMARIZE_FILE", "ANALYZE_PDF", "CREATE_DOCUMENT", "DOC_GENERATE", "GENERATE_DOCUMENT",
+    "CONVERT_DOCUMENT", "WRITE_NOTE", "NEW_NOTE",
+))
+_DOCUMENT_PATH_KEYS = ("path", "file", "output", "output_path", "saved_to", "pdf_path")
+
+
 def _action_post_dispatch(
     action: str,
     args: "Optional[Dict[str, Any]]",
@@ -12267,6 +12329,13 @@ def _action_post_dispatch(
     """
     try:
         from eli.runtime.evidence_ledger import record_event as _eli_record_event
+        # Whose turn ran it, so a period log on a shared install shows each user their own.
+        try:
+            from eli.kernel import request_context as _rc_who
+            _who = str(_rc_who.user_id_var.get() or "")
+            _sess = str(_rc_who.session_id_var.get() or "")
+        except Exception:
+            _who = _sess = ""
 
         _eli_record_event(
             "executor_action",
@@ -12284,7 +12353,30 @@ def _action_post_dispatch(
             severity="info" if bool((result or {}).get("ok", True)) else "error",
             outcome="ok" if bool((result or {}).get("ok", True)) else "failed",
             reusable=True,
+            user_id=_who,
+            session_id=_sess,
         )
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    # A document ELI has just read or written is kept whole in the document index; the reply
+    # itself only ever saw its first 8000 characters.
+    if str(action or "").upper() in _INDEXED_AFTER and bool((result or {}).get("ok", True)):
+        try:
+            from eli.kernel import request_context as _rc_doc
+            from eli.memory.document_index import note_document
+            _uid = str(_rc_doc.user_id_var.get() or "")
+            _seen = {str((src or {}).get(key) or "") for src in (result, args) for key in _DOCUMENT_PATH_KEYS}
+            for _doc in sorted(_seen - {""}):
+                note_document(_doc, user_id=_uid, source=str(action).upper())
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+    # The turn's audit row names what really ran: the agent bus can execute an action
+    # and the turn still end as CHAT (live: PERSONA_LOCK_CLEAR ran, the row said CHAT).
+    try:
+        from eli.kernel import request_context as _rc_exec
+        _turn = _rc_exec.turn_facts_var.get()
+        if _turn is not None:
+            _turn.setdefault("executed_actions", []).append(str(action or "").upper())
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 

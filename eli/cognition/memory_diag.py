@@ -37,7 +37,9 @@ def _window_text(window: Dict[str, Any]) -> str:
     day = lambda t: time.strftime("%Y-%m-%d", time.localtime(t))
     text = (f"time-bounded to {day(window['since'])}..{day(window['until'])}: "
             f"{window['in_window']} memories ({window['added_by_time']} found by date alone, the rest from "
-            f"{window['candidates']} topic matches) and {window['turns']} of your turns fall inside it")
+            f"{window['candidates']} topic matches) and {window['turns']} of your turns"
+            + (f" and {window['actions']} actions ELI ran" if window.get("actions") else "")
+            + " fall inside it")
     if window.get("outside_window"):
         text += (f". Nothing matched inside those days, so the {window['outside_window']} closest "
                  "matches from other days are shown with their own dates: if the user named the "

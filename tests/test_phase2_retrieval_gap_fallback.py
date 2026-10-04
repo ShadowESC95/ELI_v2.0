@@ -93,7 +93,8 @@ def test_thin_result_enables_rag_when_ready_and_not_already_requested():
             "query", "hyde", plan, _ltm(rag_ready=True))
 
     assert rag_hits == _hits(4, "rag")
-    agent.document_rag_search.assert_called_once_with("query", 8)
+    # strict: the question did not ask about a document, so only passages that clearly bear on it
+    agent.document_rag_search.assert_called_once_with("query", 8, strict=True)
 
 
 def test_thin_result_does_not_enable_rag_when_not_ready():

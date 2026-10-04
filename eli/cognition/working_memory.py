@@ -44,6 +44,8 @@ MAX_PINS = 20          # hard cap on pinned items
 MAX_AGE_TURNS = 40     # evict if not referenced for this many turns
 MAX_AGE_SECONDS = 86400.0 * 3  # wall-clock backstop -- see _evict_stale
 IMPORTANCE_THRESHOLD = 0.65  # auto-pin memories above this score
+_RECALL_PIN_TURNS = 1  # a recalled pin is shown on the turn it came back and the next
+_RECALL_PIN_SHOWN = 5
 
 # Executor command echoes ("SET_USER_NAME: Got it. I'll call you SCREENSHOT.") are ALL-CAPS token +
 # colon. They are tool output, not user facts, and pinning them made the model call the user
@@ -198,14 +200,20 @@ class WorkingMemory:
                     self.pin(fact, source="user_explicit", importance=0.95)
                 return  # only process first trigger per message
 
-        # Identity extraction: "my name is X", "I am X", "I work at X"
+        # A name only through the shared extractor: the old "my name is (.+)" pinned
+        # "User identity: my name is not fucking listed", and "i'm X" pinned moods.
+        try:
+            from eli.runtime.identity_validation import extract_explicit_identity_facts
+            _facts = extract_explicit_identity_facts(user_input)
+            _nm = _facts.get("preferred_name") or _facts.get("name") or _facts.get("nickname")
+            if _nm:
+                self.pin(f"User's name is {_nm}", source="identity_extract", importance=0.85)
+        except Exception:
+            pass
         _identity = (
-            r"my name is (\w[\w\s\-]{1,40})",
-            r"i'?m\s+(\w[\w\s\-]{2,30})(?:\s+and|\s*$)",
             r"i\s+work\s+(?:at|for|as)\s+(.+?)(?:\s+and|\.|,|$)",
             r"i\s+prefer\s+(.+?)(?:\s+and|\.|,|$)",
             r"i\s+like\s+(.+?)(?:\s+and|\.|,|$)",
-            r"call\s+me\s+(\w[\w\s\-]{1,30})",
         )
         for pat in _identity:
             m = re.search(pat, low, re.IGNORECASE)
@@ -238,10 +246,27 @@ class WorkingMemory:
             return ""
         now = time.time()
         lines = ["WORKING MEMORY (pinned facts for this session):"]
-        for fact in sorted(self._facts.values(),
-                           key=lambda f: f.importance, reverse=True):
+        # A recalled memory is pinned when a search returns it and stays relevant while searches
+        # keep returning it. Shown every turn regardless, a session filled the block with weeks-old
+        # quotes ("i got high ... last night") whatever was being asked.
+        _recalled = [f for f in self._facts.values() if f.source == "memory_recall"
+                     and self._turn - f.last_hit_turn <= _RECALL_PIN_TURNS]
+        _recalled = sorted(_recalled, key=lambda f: (f.last_hit_turn, f.importance),
+                           reverse=True)[:_RECALL_PIN_SHOWN]
+        shown = [f for f in self._facts.values() if f.source != "memory_recall"] + _recalled
+        if not shown:
+            return ""
+        for fact in sorted(shown, key=lambda f: f.importance, reverse=True):
             src = f"({fact.source})" if fact.source != "auto" else ""
             age = _age_label(now - fact.ts)
+            if fact.source == "memory_recall":
+                # ts is when it was said; "pinned 19d ago" let "last night" in it read as last night
+                try:
+                    from eli.cognition.evidence_format import turn_stamp
+                    said = turn_stamp(fact.ts, now)
+                    age = f"(said {said})" if said else age
+                except Exception:
+                    pass
             suffix = " ".join(p for p in (src, age) if p)
             lines.append(f"  • {fact.text} {suffix}".rstrip())
         return "\n".join(lines)
@@ -285,15 +310,24 @@ class WorkingMemory:
                     saved_at REAL
                 )
             """)
+            if "last_hit" not in {r[1] for r in conn.execute("PRAGMA table_info(working_memory_pins)")}:
+                conn.execute("ALTER TABLE working_memory_pins ADD COLUMN last_hit REAL")
             conn.execute("DELETE FROM working_memory_pins")
             for key, fact in self._facts.items():
+                # A recalled memory is already in long-term memory and comes back when it is
+                # relevant. Carried over as a pin it showed up in every prompt of every later
+                # session, 59 days on ("i got high ... last night").
+                if fact.source == "memory_recall":
+                    continue
                 if fact.importance >= 0.65:
                     # saved_at stores the fact's original pin time (fact.ts), not the flush time, so
                     # a restored fact isn't made to look as old as its last persist() call.
                     conn.execute(
                         "INSERT OR REPLACE INTO working_memory_pins "
-                        "(key, text, source, importance, hit_count, saved_at) VALUES (?,?,?,?,?,?)",
-                        (key, fact.text, fact.source, fact.importance, fact.hit_count, fact.ts),
+                        "(key, text, source, importance, hit_count, saved_at, last_hit) "
+                        "VALUES (?,?,?,?,?,?,?)",
+                        (key, fact.text, fact.source, fact.importance, fact.hit_count, fact.ts,
+                         fact.last_hit_ts),
                     )
             conn.commit()
             conn.close()
@@ -307,9 +341,12 @@ class WorkingMemory:
         try:
             conn = sqlite3.connect(str(db_path))
             try:
+                cols = {r[1] for r in conn.execute("PRAGMA table_info(working_memory_pins)")}
+                last_hit = "last_hit" if "last_hit" in cols else "saved_at"
                 rows = conn.execute(
-                    "SELECT key, text, source, importance, hit_count, saved_at "
-                    "FROM working_memory_pins ORDER BY importance DESC LIMIT ?",
+                    "SELECT key, text, source, importance, hit_count, saved_at, " + last_hit + " "
+                    "FROM working_memory_pins WHERE COALESCE(source, '') != 'memory_recall' "
+                    "ORDER BY importance DESC LIMIT ?",
                     (MAX_PINS,),
                 ).fetchall()
             except Exception:
@@ -317,7 +354,7 @@ class WorkingMemory:
                 return 0
             conn.close()
             for row in rows:
-                key, text, source, importance, hit_count, saved_at = row
+                key, text, source, importance, hit_count, saved_at, last_hit_ts = row
                 if text and text.strip():
                     # saved_at is this fact's real original pin time, written
                     # by persist() -- preserve it instead of reporting every
@@ -325,8 +362,14 @@ class WorkingMemory:
                     fact = _PinnedFact(text, source or "auto", self._turn,
                                        float(importance or 0.5), ts=saved_at)
                     fact.hit_count = int(hit_count or 1)
+                    # When it was last used, not "now": a restore used to make every pin look
+                    # freshly reaffirmed, so nothing carried over ever aged out.
+                    if last_hit_ts:
+                        fact.last_hit_ts = float(last_hit_ts)
                     self._facts[key or self._key(text)] = fact
                     loaded += 1
+            self._evict_stale()
+            loaded = min(loaded, len(self._facts))
         except Exception:
             pass
         return loaded

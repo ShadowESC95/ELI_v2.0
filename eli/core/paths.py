@@ -376,6 +376,14 @@ def capability_state_db_path() -> Path:
         return Path(override).expanduser().resolve()
     return db_dir() / "capability_state.sqlite3"
 
+def document_index_db_path() -> Path:
+    """The document index (eli.memory.document_index): the text, passages and vectors of every
+    document ELI has read. Its own file so removing a document is one delete."""
+    override = os.environ.get("ELI_DOCUMENT_INDEX_DB")
+    if override:
+        return Path(override).expanduser().resolve()
+    return db_dir() / "documents.sqlite3"
+
 def memory_db_path() -> Path:
     """Dedicated semantic memory + knowledge store.
 

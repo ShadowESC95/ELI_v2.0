@@ -8,7 +8,9 @@ from typing import List, Optional
 CHARS_PER_TOKEN = 3.5
 HEADROOM = 0.20
 MIN_MEMORY_CHARS = 400
-_BLOCK_PRIORITY = ("retrieval diagnostics", "verified stored memories", "reranked evidence", "recent turns")
+_BLOCK_PRIORITY = ("retrieval diagnostics", "what you did on recent turns", "what happened in that period",
+                   "passages from documents", "verified stored memories",
+                   "reranked evidence", "recent turns")
 _KEEP_TAIL = ("recent turns",)
 
 _RECALL_RE = re.compile(

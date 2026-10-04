@@ -50,6 +50,10 @@ os.environ["ELI_LAST_TRACE_PATH"] = str(ROOT / "artifacts" / "_pytest" / "last_t
 os.environ["ELI_ORCHESTRATOR_AUDIT_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "orchestrator_audit.sqlite3")
 os.environ["ELI_CAPABILITY_STATE_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "capability_state.sqlite3")
 os.environ["ELI_AUDIT_HMAC_KEY"] = "eli-pytest-audit-key-not-a-real-secret"
+# The document index stores whatever a turn reads and embeds it on a worker thread. Off by
+# default here; the tests for it build their own on a tmp path.
+os.environ["ELI_DOCUMENT_INDEX_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "documents.sqlite3")
+os.environ.setdefault("ELI_DOCUMENT_INDEX", "0")
 
 # Hard isolation guard: fail LOUDLY at collection if any canonical store still resolves
 # to the real artifacts/db tree. This makes "no test can change memory" an enforced

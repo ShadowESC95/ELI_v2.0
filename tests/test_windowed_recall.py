@@ -8,7 +8,7 @@ import pytest
 from eli.cognition.evidence_format import when_label
 from eli.cognition.query_planner import parse_window
 from eli.memory.memory import Memory
-from eli.memory.unified_retrieval import orchestrator_retrieve
+from eli.memory.unified_retrieval import format_period_log, orchestrator_retrieve
 
 DAY = 86400.0
 
@@ -36,9 +36,11 @@ def _plan(q):
 
 
 def test_only_the_period_asked_about_is_returned(engine):
+    """The period's own turns reach the prompt through the period log, whole and in order
+    (mixed into the semantic hits they were cut, and quick mode dropped them entirely)."""
     q = "What movies or series was i watching the past week or two?"
     kw, sem, tr = orchestrator_retrieve(engine, q, q, _plan(q))
-    said = " ".join(h["text"] for h in kw + sem)
+    said = format_period_log(tr, q) + " ".join(h["text"] for h in kw + sem)
     assert "dune" in said and "arrival" in said
     assert "severance" not in said
 
@@ -52,9 +54,11 @@ def test_without_a_period_nothing_is_filtered_by_time(engine):
 def test_every_hit_exposes_its_date_to_ranking_and_display(engine):
     q = "what was i watching in the past week"
     kw, sem, tr = orchestrator_retrieve(engine, q, q, _plan(q))
-    turns = [h for h in sem if h["source"] == "conversation"]
+    turns = tr.conv_hits
     assert turns and all(h.get("timestamp") for h in turns)
     assert all(when_label(h["timestamp"]).count(",") == 1 for h in turns)
+    log_lines = format_period_log(tr, q).splitlines()[1:]
+    assert log_lines and all(line.startswith("[") for line in log_lines)
 
 
 def test_turns_from_earlier_user_ids_are_still_found(engine):

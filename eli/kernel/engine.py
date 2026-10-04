@@ -43,6 +43,16 @@ log = get_logger(__name__)
 from eli.core.paths import path_get as _eli_path_get
 
 
+def _date_facts_line(user_input: Any) -> str:
+    """Weekday and days-from-today for every date the user's own message names."""
+    try:
+        from eli.cognition.evidence_format import date_facts, latest_user_message
+        facts = date_facts(latest_user_message(str(user_input or "")))
+        return f"\n{facts}" if facts else ""
+    except Exception:
+        return ""
+
+
 def _eli_test_mode() -> bool:
     if os.environ.get("ELI_TEST_MODE", "").strip().lower() in {
         "1", "true", "yes", "on"
@@ -3634,8 +3644,56 @@ class _RepeatDetected(Exception):
     """
 
 
+_LEAK_MIN_SENTENCE_CHARS = 30
+
+
+def _instruction_sentences(*texts) -> set:
+    """Normalised sentences of the instruction prose given to the model, evidence lines
+    (bullets, tagged and numbered rows) left out."""
+    out = set()
+    for text in texts:
+        for line in str(text or "").splitlines():
+            line = line.strip()
+            if not line or line[0] in "-•*[" or re.match(r"\d{1,3}\.", line):
+                continue
+            for sentence in _SENTENCE_SPLIT_RE.split(line):
+                norm = _clarifier_norm(sentence)
+                if len(norm) >= _LEAK_MIN_SENTENCE_CHARS:
+                    out.add(norm)
+    return out
+
+
+def _strip_prompt_leak(opening: str, leak: set):
+    """(`opening` without a leading run that recites the instructions, still_inside_it).
+
+    Live on a 35B model: a quick reply began "Friday 02 October 2026, 18:34 IST (evening).
+    Night is 21:00-05:00, morning 05:00-12:00, ... never claim you don't track dates", the
+    clock paragraph of its own prompt, before the answer. Everything up to the last recited
+    sentence goes; regenerating would cost a second full generation."""
+    if not leak:
+        return opening, False
+    parts = _split_sentences_with_gaps(str(opening or ""))
+    last = -1
+    for i, (sentence, _gap) in enumerate(parts[:8]):
+        norm = _clarifier_norm(sentence)
+        if len(norm) >= _LEAK_MIN_SENTENCE_CHARS and norm in leak:
+            last = i
+        elif i > last + 2:
+            break
+    if last < 0:
+        # the stream may have stopped mid-way through the first recited sentence
+        norm = _clarifier_norm(parts[-1][0]) if parts else ""
+        inside = (len(parts) <= 2 and len(norm) >= 20 and any(l.startswith(norm) for l in leak))
+        return opening, inside
+    rest = "".join(sent + gap for sent, gap in parts[last + 1:]).lstrip()
+    tail = _clarifier_norm(parts[-1][0]) if len(parts) > last + 1 else ""
+    inside = (not rest) or (len(parts) == last + 2 and len(tail) >= 12
+                            and any(l.startswith(tail) for l in leak))
+    return rest, inside
+
+
 def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool,
-                                 salvage: bool = False, echo_sources=None):
+                                 salvage: bool = False, echo_sources=None, leak=None):
     """Yield `stream`, withholding the opening until it is cleared as non-repeating.
 
     Module-level and dependency-free so the guard can be driven directly by tests;
@@ -3652,7 +3710,7 @@ def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool,
     something novel arrives. A reply that is repeat all the way down still gets
     served whole — an honest duplicate beats an empty turn.
     """
-    head, released, salvaging = [], False, False
+    head, released, salvaging, leaking = [], False, False, False
     for chunk in stream:
         piece = str(chunk or "")
         if not piece:
@@ -3664,6 +3722,21 @@ def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool,
         if sum(len(h) for h in head) < _REPEAT_HEAD_CHARS:
             continue
         opening = "".join(head)
+        if leak:
+            # An opening that recites the instructions: hold on until it ends, then serve
+            # what follows.
+            _rest, _inside = _strip_prompt_leak(opening, leak)
+            if _rest != opening or _inside:
+                leaking = True
+                if _inside or len(_clarifier_norm(_rest)) < _REPEAT_MIN_SENTENCE_CHARS:
+                    continue
+                released = True
+                yield _rest
+                continue
+            if leaking:
+                released = True
+                yield opening
+                continue
         # The user's own sentence coming back in ELI's voice is caught here too:
         # same buffered-head mechanism, same retry, different corpus.
         if not salvaging and echo_sources and _opens_by_echoing(opening, echo_sources):
@@ -3695,6 +3768,10 @@ def _stream_holding_back_repeats(stream, recent_replies, *, allow_retry: bool,
     if not released:
         # The stream ended inside the buffer: a short reply, still worth checking.
         opening = "".join(head)
+        if opening and leak:
+            _rest, _ = _strip_prompt_leak(opening, leak)
+            if len(_clarifier_norm(_rest)) >= _REPEAT_MIN_SENTENCE_CHARS:
+                opening = _rest
         if opening:
             # An echoed opening is usually SHORT — "I'm still on loop, season 3
             # now." never fills the 200-char buffer — so this path, not the one
@@ -4495,6 +4572,17 @@ class CognitiveEngine:
     @_orchestrator_active.setter
     def _orchestrator_active(self, value: bool) -> None:
         _request_context.orchestrator_active_var.set(value)
+
+    @property
+    def document_rag(self):
+        """The document index the orchestrator's document channel searches; None when switched off."""
+        from eli.memory.document_index import get_document_index
+        index = get_document_index()
+        if index is not None:
+            # ELI's own notes and the documents it has written, and anything edited since it last ran.
+            from eli.core.paths import documents_dir, notes_dir
+            index.refresh_once((documents_dir(), notes_dir()))
+        return index
 
     @property
     def _in_orchestrator(self) -> bool:
@@ -6324,6 +6412,19 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
+        # Each line of evidence and dialogue once: the memory block, the brief and the history in
+        # front of the user's message all render the same turns and memories.
+        try:
+            from eli.cognition.prompt_dedupe import dedupe_prompt_parts
+            _mc_before, _sb_before = len(memory_context or ""), len(situation_brief or "")
+            memory_context, situation_brief = dedupe_prompt_parts(
+                str(memory_context or ""), str(situation_brief or ""), others=(str(user_input or ""),))
+            _saved = _mc_before + _sb_before - len(memory_context) - len(situation_brief)
+            if _saved > 0:
+                log.debug(f"[COGNITIVE] prompt dedupe: dropped {_saved} chars of repeated lines")
+        except Exception:
+            log.debug("prompt dedupe skipped", exc_info=True)
+
         # Real-time speaker tone from the user's voice this turn, published by the STT loop
         # (eli/perception/voice_profile). With a fresh, confident read, prepend a short cue so ELI adapts
         # its delivery (energy, emotion, question vs statement). ELI_VOICE_TONE=0 turns it off.
@@ -6358,7 +6459,8 @@ Answer:"""
         try:
             from eli.cognition import tone_adaptor as _ta
             if _ta.enabled():
-                _ta.note_user_text(user_input or "")
+                from eli.cognition.evidence_format import latest_user_message as _lum
+                _ta.note_user_text(_lum(user_input or ""))
                 _dir = _ta.text_directive()
                 _cur = _ta.current_tone()
                 if _dir and _cur.get("tone") != "neutral":
@@ -6701,7 +6803,8 @@ Answer:"""
             enhanced_system += (
                 f"\n\nCURRENT TIME: {_now} on {_date}."
                 " You always know today's weekday and date from this — never claim otherwise."
-                "\nWhen the user says 'me' or 'my', they mean themselves (the user), not you (ELI)."
+                + _date_facts_line(user_input)
+                + "\nWhen the user says 'me' or 'my', they mean themselves (the user), not you (ELI)."
                 + ("\nThe user wants depth — provide a full, detailed answer." if _compact_wants_depth
                    else "\nFor technical queries, stay focused. For casual check-ins, engage naturally in ELI\'s persona; no sterile status report.")
                 + "\nWhen reporting time, use the value above exactly."
@@ -6779,7 +6882,8 @@ Answer:"""
         ))
         enhanced_system += (
             f"\n\nCURRENT TIME (authoritative, do not approximate): {_now} on {_date}."
-            "\n\nRESPONSE DISCIPLINE — obey on every reply:"
+            + _date_facts_line(user_input)
+            + "\n\nRESPONSE DISCIPLINE — obey on every reply:"
             "\n- Answer what the user actually asked. For opinion, banter, callbacks, and cultural references, respond in ELI persona rather than treating the message as a support ticket."
             "\n- NEVER start your response by echoing or paraphrasing what the user just said."
             "\n- NEVER include a 'Memory System' section unless explicitly asked."
@@ -7351,7 +7455,12 @@ Answer:"""
     f"[COGNITIVE] Stream: clamping {_req_s}→{_safe_max} (est={_pt}, n_ctx={_n_ctx})")
                 # Hard guard: if combined prompt still exceeds n_ctx, truncate
                 # before calling generate() — an oversized prompt causes segfault.
-                _max_stream_chars = max(400, (_n_ctx - _safe_max - 64) * 3)
+                # Keep room for the answer too: a prompt just under the limit left 253 tokens
+                # to reply in, and older history is what goes first.
+                _answer_floor = max(1024, _n_ctx // 8)
+                if _req_s > 0:
+                    _answer_floor = min(_answer_floor, _req_s)
+                _max_stream_chars = max(400, (_n_ctx - max(_safe_max, _answer_floor) - 64) * 3)
                 if len(enhanced_system) + len(prompt) > _max_stream_chars:
                     # Keep persona HEAD + evidence TAIL (same as non-stream path).
                     # Tail-only truncation was dropping voice/constraints and leaving
@@ -11253,19 +11362,25 @@ Answer:"""
         except Exception:
             log.debug("[ANTI-REPEAT] recent-reply fetch failed", exc_info=True)
         _echo_sources = [prompt] + _recent_user
+        _leak = _instruction_sentences(situation_brief)
 
         if _user_asked_for_a_repeat(prompt):
             log.debug("[ANTI-REPEAT] user asked for a repeat — guard stood down")
             yield from stream_factory(situation_brief, memory_context, None)
             return
 
+        # Sentences that invent a setting ELI doesn't have, or report a change nothing made, are
+        # held back as they stream (the buffered modes get the same check in govern_output).
+        from eli.cognition.self_claims import gate_stream as _gate
+        _claims_evidence = f"{memory_context or ''}\n{situation_brief or ''}"
         try:
-            yield from _stream_holding_back_repeats(
+            yield from _gate(_stream_holding_back_repeats(
                 stream_factory(situation_brief, memory_context, None),
                 _recent_eli,
                 allow_retry=True,
                 echo_sources=_echo_sources,
-            )
+                leak=_leak,
+            ), _claims_evidence)
             return
         except _RepeatDetected:
             log.debug("[ANTI-REPEAT] opening matched a recent reply — regenerating")
@@ -11286,13 +11401,14 @@ Answer:"""
             len(memory_context or ""), len(_retry_context or ""),
             (_retry_gen or {}).get("temperature", "unchanged"),
         )
-        yield from _stream_holding_back_repeats(
+        yield from _gate(_stream_holding_back_repeats(
             stream_factory(_retry_brief, _retry_context, _retry_gen),
             _recent_eli,
             allow_retry=False,
             salvage=True,
             echo_sources=_echo_sources,
-        )
+            leak=_leak,
+        ), _claims_evidence)
 
 
     def generate_stream_from_assembled_prompt(self, prompt: str,
@@ -12628,6 +12744,7 @@ Answer:"""
         _pipe_conf_s1 = float(intent.get("confidence") or 0.0)
         _pipe_matched_s1 = str((intent.get("meta") or {}).get("matched_by") or "unknown")[:50]
         log.debug(f"[PIPELINE] Stage 1: Intent → {_pipe_action_s1} (conf={_pipe_conf_s1:.2f} via={_pipe_matched_s1})")
+        _request_context.note_turn_fact("via", _pipe_matched_s1)
 
         trace = self._next_trace(user_input, intent, reasoning_mode)
 
@@ -13209,6 +13326,7 @@ Answer:"""
                         _meta = dict(intent.get("meta") or {})
                         _meta["downgraded_from"] = action
                         intent["meta"] = _meta
+                        _request_context.note_turn_fact("downgraded_from", action)
                         intent["action"] = "CHAT"
                         intent["args"] = {"message": user_input}
                         action = "CHAT"
@@ -15081,6 +15199,18 @@ Answer:"""
             bus = facts.get("bus_result")
             res = result if isinstance(result, dict) else {}
             action = self._turn_action(facts, result)
+            # What the pipeline did, so the row can answer "why did you do that" later: the
+            # model is never shown its own routing and otherwise invents the reason.
+            try:
+                from eli.cognition.self_claims import describe_turn
+                _did = describe_turn(facts)
+                if _did:
+                    outcome = f"{outcome or 'ok'}; {_did}"
+            except Exception:
+                log.debug("turn description skipped", exc_info=True)
+            ran = [a for a in dict.fromkeys(facts.get("executed_actions") or []) if a and a != action]
+            if ran:
+                outcome = f"{outcome or 'ok'}; also executed: {','.join(ran)}"
             agents = (meta.get("agents_used") or trace.get("agents_used")
                       or getattr(bus, "agents_used", None) or [])
             # None, not 0.0, when the turn measured nothing — a 0.0 reads as

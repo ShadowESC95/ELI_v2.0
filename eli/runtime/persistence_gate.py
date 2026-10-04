@@ -76,6 +76,10 @@ _REPORT_DUMP_MARKERS = (
     "(grounded local matrix)",
     "long-term memory rows:",
     "fts memory rows:",
+    # The JSON envelope 2.4.99 sent as a reply (fixed in 2.5.0); the stored rows kept coming
+    # back in "recent conversation".
+    '"surface": "control_result_without_visible_synthesis"',
+    "personal memory summary from active local db",
 )
 
 

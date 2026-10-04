@@ -967,11 +967,22 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
         if _re.search(_npat, low, _re.IGNORECASE):
             return None
 
-    # "my name is X", "call me X", "i'm X" / "i am X" (followed by end or punctuation)
+    # "my name is X" / "call me X" go through the same extractor as the profile and the
+    # graph: it rejects "If my name is listed as unknown, ..." (renamed a user "listed").
+    from eli.runtime.identity_validation import (
+        _DECLARATION_RE, _drop_hypothetical_clauses, extract_explicit_identity_facts)
+    _said = _drop_hypothetical_clauses(_re.sub(r"(?i)\bmy name's\b", "my name is", raw))
+    # The last declaration wins: "my name is speak, my name is alex" means alex.
+    _decls = list(_DECLARATION_RE.finditer(_said))
+    _facts = extract_explicit_identity_facts(_said[_decls[-1].start():]) if _decls else {}
+    _declared = _facts.get("name") or _facts.get("preferred_name") or _facts.get("nickname") or ""
+    if _declared and _declared.lower() not in {"you", "eli"}:
+        return _mk("SET_USER_NAME", {"name": _declared}, 0.97, matched_by="identity.set_user_name")
+    if _re.search(r"\b(?:my name is|my name's|call me)\b", low):
+        return None
+
+    # "i'm X" / "i am X" as the whole message, or a bare capitalised name
     _patterns = (
-        r"(?:my name is|my name's)\s+([A-Za-z][A-Za-z\-']{1,30})\b",
-        r"call me\s+([A-Za-z][A-Za-z\-']{1,30})\b",
-        r"(?:you can call me|please call me)\s+([A-Za-z][A-Za-z\-']{1,30})\b",
         r"^(?:i'?m|i am)\s+([A-Z][a-z]{2,24})\s*[.,!?]?\s*$",
         # Bare name as full message: require actual uppercase first char (typed, not STT-lowercased)
         r"^([A-Z][a-z]{3,24})\s*[.,!?]?\s*$",
@@ -1015,9 +1026,9 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
             candidate = m.group(1).strip().rstrip(".,!?")
             _clow = candidate.lower()
             _has_vowel = any(c in "aeiou" for c in _clow)
-            # Bare-word pattern (index 4): require actual uppercase first letter in raw text.
+            # Bare-word pattern (index 1): require actual uppercase first letter in raw text.
             # STT produces all-lowercase; a typed name would be capitalised.
-            if i == 4 and (not raw or not raw[0].isupper()):
+            if i == 1 and (not raw or not raw[0].isupper()):
                 continue
             if _clow not in _bad and len(candidate) >= 3 and _has_vowel:
                 return _mk(
@@ -2218,10 +2229,17 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # phrase that resolves to a real tone, so "be comedic" fires but "that joke was comedic gold"
     # doesn't. The verb list used to include more/less/get/go, so "i am not sad eli, i am just
     # trying to get your codebas correct" set the tone to sad. "be more cheerful" still works via `be`.
-    if re.search(r"\b(be|sound|talk|speak|act|use|make it|keep it)\b", low):
+    # The tone has to follow the verb ("be more cheerful", "use a sarcastic tone"). Both anywhere
+    # in the message was enough before: "how fast does a serious incident have to be reported"
+    # set the tone to serious.
+    # And the verb has to be an instruction to ELI, not part of a question ("what would be a
+    # playful name for a cat").
+    for _tone_m in re.finditer(
+            r"(?:^|[.,;:!?]\s*|\b(?:please|just|you|and|then|now|eli|always|also|you to|can you|could you|will you)\s+)"
+            r"(?:be|sound|talk|speak|act|use|make it|keep it)\s+((?:[\w'-]+[ \t]*){1,5})", low):
         try:
             from eli.cognition.emotion_palette import resolve_tone as _rt
-            _tone = _rt(raw)
+            _tone = _rt(_tone_m.group(1))
             if _tone and _tone != "neutral" and not _tone_is_negated(low, _tone):
                 return _mk("SET_TONE", {"tone": _tone}, 0.9, matched_by="tone.set")
         except Exception:
@@ -2792,6 +2810,14 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         r"\bremember\s+what\s+we\s+(?:were\s+)?(?:talking|discussing)\b",
         low,
     ):
+        # A named period ("last week", "yesterday", "on thursday") goes to chat, like
+        # memory.temporal_recall_as_chat: that path reads the period's turns and actions.
+        try:
+            from eli.cognition.query_planner import parse_window as _pw_rc
+            if _pw_rc(text):
+                return _mk("CHAT", {"message": text}, 0.98, matched_by="memory.temporal_recall_as_chat")
+        except Exception:
+            _SWLOG.debug("suppressed exception", exc_info=True)
         return _mk(
             "MEMORY_RECALL",
             {"query": text.strip()},
@@ -3279,6 +3305,10 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("WRITE_NOTE", {"text": _note_m2.group(
             1).strip()}, 0.95, matched_by="notes.add_early")
 
+    m = re.match(r"^confirm\s+forget\s+documents?\s+([\d\s,]+)$", raw.strip(), re.I)
+    if m:
+        return _mk("MEMORY_FORGET", {"document_ids": [int(x) for x in re.findall(r"\d+", m.group(1))], "confirm": True},
+                   1.0, matched_by="memory.forget_document_confirm")
     m = re.match(r"^confirm\s+forget\s+memor(?:y|ies)\s+([\d\s,]+)$", raw.strip(), re.I)
     if m:
         ids = [int(x) for x in re.findall(r"\d+", m.group(1))]
@@ -3630,7 +3660,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             return _mk("CREATE_FILE", {"path": _cf_path, "content": _cf_content},
                        0.96, matched_by="fs.create_file")
 
-    if (not _is_date_conv and not _file_command and not _wallclock_meta
+    # "What date is it, and how many days ago was 09-09-2026?" asks for arithmetic as well; DATE
+    # answered only the date. Chat answers both, with the days worked out for it (date facts).
+    from eli.cognition.query_planner import asks_date_arithmetic
+    _date_and_more = asks_date_arithmetic(low)
+    if (not _is_date_conv and not _file_command and not _wallclock_meta and not _date_and_more
             and any(re.search(p, low) for p in _WALLCLOCK_DATE_PATTERNS)):
         return _mk("DATE", {"original_query": text}, 1.0, matched_by="system.date")
 
@@ -5616,6 +5650,30 @@ def _eli_pm_pre_route(text):
             0.98,
             "routing_fault.dispatch_question",
         )
+
+    # "why did that take so long", "what exactly did you do to answer that": the last turn's audit
+    # row has its route, what ran, the model calls and the time. Sent to chat, this was web-searched.
+    if len(low.split()) <= 30 and (
+        _eli_pm_re.search(
+            r"\bwhy\s+(?:the\s+\w+\s+)?(?:did|does|is|was)\s+(?:(?:it|that|this)\s+tak\w+\s+(?:you\s+)?|you\s+tak\w+\s+)"
+            r"(?:so|that)\s+long(?:\s+to\s+(?:answer|reply|respond|do|get|come|load|think|say|work)\b[^?,]*)?\s*(?:\?|$|,|\band\b)", low)
+        or _eli_pm_re.search(r"\bwhy\s+(?:are|were|was|is)\s+(?:you|that|it)\s+(?:so\s+|that\s+)?slow\b", low)
+        or _eli_pm_re.search(
+            r"\bwhat\s+(?:exactly\s+)?did\s+you\s+(?:just\s+|actually\s+)?do\s*"
+            r"(?:\?|$|there\b|to\s+(?:answer|get)\b|just\s+now\b|for\s+that\b|with\s+that\b)", low)
+    ):
+        try:
+            from eli.cognition.query_planner import parse_window as _pw_last
+            _asks_period = bool(_pw_last(raw))
+        except Exception:
+            _asks_period = False
+        if not _asks_period:
+            return _eli_pm_mk(
+                "ROUTING_FAULT_EXPLAIN",
+                {"question": raw},
+                0.98,
+                "routing_fault.last_turn_question",
+            )
 
     if _eli_pm_re.search(r"\bstop giving me data dumps\b|\bwe are not in quick mode\b|\bfull and personalised response\b|\bfull and personalized response\b", low):
         return _eli_pm_mk(

@@ -143,10 +143,15 @@ _META_SELF_RE = re.compile(
 # it doesn't swallow a real current-events query ("what is going on in Ukraine"). Only reached
 # on a low-grounding CHAT turn, where persona CHAT is right, never the web/hedge ladder.
 _RELATIONAL_VENT_RE = re.compile(
-    r"\bwhat(?:'?s|\s+is|\s+are)?\s+(?:going\s+on|happening|the\s+matter)\b"
+    r"\bwhat(?:'?s|\s+is|\s+are|'?s\s+been|\s+has\s+been|\s+have\s+been)?\s+(?:going\s+on|happening|the\s+matter)\b"
     r"(?!\s+(?:in|at|to|on|about|across|around|over)\b)"
+    r"(?!\s+with\s+(?!(?:you|u|me|us|this|it|that|eli)\b))"
     r"|\bwhat(?:'?s|\s+is)?\s+(?:wrong|up)\s+with\s+(?:you|u|this|it|that)\b"
-    r"|\bwhat(?:'?s|\s+is)?\s+(?:your|the)\s+(?:problem|deal|issue)\b",
+    r"|\bwhat(?:'?s|\s+is)?\s+(?:your|the)\s+(?:problem|deal|issue)\b"
+    # "What is with all the issues?" (live, 2026-10-03: answered by a web search)
+    r"|\bwhat(?:'?s|\s+is|\s+are)\s+with\s+(?:all\s+)?(?:the|these|those|this|your)\s+"
+    r"(?:issues?|problems?|errors?|bugs?|mistakes?|failures?|crashes?)\b"
+    r"|\b(?:catch\s+me\s+up|recap)\b",
     re.I)
 # Conversational meta: questions about this conversation or past utterances in it ("when did
 # I ask for that", "what did I say", "I never asked for that", "did you mention X earlier").
@@ -490,6 +495,16 @@ def escalate(
     target = _mode_target(reasoning_mode)
     very_low = grounding < _very_low_grounding_floor()
 
+    # Why ELI did something, or a complaint about it, is answered from its own audit record.
+    # Nothing on the web explains it: "why did it take you so long to answer that?" was searched.
+    try:
+        from eli.cognition.self_claims import asks_about_own_behaviour as _about_eli
+        if _about_eli(user_input):
+            log.debug("[ESCALATION] question about ELI's own behaviour: answered from the turn record")
+            return None
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+
     # Self-action / artifact-state confabulation floor. ELI claiming an action or artifact it has
     # no grounding for (saved a file, finished a job) is the worst confabulation. When such a
     # question reaches CHAT with essentially no grounding, HEDGE in any mode (quick too) instead of
@@ -503,6 +518,7 @@ def escalate(
             _online = False
         log.debug(f"[ESCALATION] self-action/state claim grounding={grounding:.2f} "
                   f"< floor → honest hedge (no confabulated status/path)")
+        _note_escalation(f"declined to guess about its own action or state (grounding {grounding:.2f})")
         return _result(_hedge("local", _online), grounded=False,
                        mode=_canon_mode(reasoning_mode), trace=trace)
 
@@ -574,6 +590,9 @@ def escalate(
         return None
 
     tiers = (["web", "hedge"] if domain == "external" else ["local_deepen", "hedge"])
+    # Recorded on the turn (audit row), so "why did you search the web?" has a true answer.
+    _why = (f"the question was classed as {'an outside' if domain == 'external' else 'a local'} fact and "
+            f"grounding was {grounding:.2f}, below the {target:.2f} this mode needs")
     log.debug(f"[ESCALATION] factual={is_fact} web_candidate={web_candidate} domain={domain} "
               f"grounding={grounding:.2f} very_low={very_low} online={online} tiers={tiers}")
 
@@ -598,10 +617,12 @@ def escalate(
                             evidence, user_input, reasoning_mode=reasoning_mode,
                             action="WEB_SEARCH")
                         if answer and not _is_degenerate(answer):
+                            _note_escalation(f"searched the web and answered from the results ({_why})")
                             return _result(answer, grounded=True, mode="escalation_web", trace=trace)
                         # Synthesis failed — surface raw web results rather than guessing.
                         _raw = str(res.get("response") or res.get("content") or "").strip()
                         if _raw and not _is_degenerate(_raw):
+                            _note_escalation(f"searched the web and showed the raw results ({_why})")
                             return _result(_raw, grounded=True, mode="escalation_web_raw", trace=trace)
                     else:
                         log.debug(f"[ESCALATION] web results off-topic (relevance={rel:.2f} "
@@ -645,12 +666,18 @@ def escalate(
                             evidence, user_input, reasoning_mode=cur_mode,
                             action="SELF_REPORT")
                         if answer and not _is_degenerate(answer):
+                            _note_escalation(f"gathered more local evidence and answered from it ({_why})")
                             return _result(answer, grounded=True,
                                            mode="escalation_local", trace=trace)
                 continue
 
             if tier == "hedge":
                 msg = _hedge(domain, online, searched=web_searched)
+                _note_escalation(
+                    ("searched the web, the results did not match the question, so declined to guess"
+                     if web_searched else
+                     "declined to guess: the network is off" if domain == "external" and not online else
+                     "declined to guess: no grounded evidence") + f" ({_why})")
                 return _result(msg, grounded=False, mode="ungrounded_hedge", trace=trace)
         except Exception as _tier_err:
             log.debug(f"[ESCALATION] tier {tier} failed: {_tier_err}")
@@ -681,6 +708,14 @@ def _redispatch_broad(engine: Any, user_input: str, intent: Dict[str, Any],
     except Exception as e:
         log.debug(f"[ESCALATION] broad re-dispatch failed: {e}")
         return None
+
+
+def _note_escalation(what: str) -> None:
+    try:
+        from eli.kernel.request_context import note_turn_fact
+        note_turn_fact("escalation", what)
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
 
 
 def _result(text: str, grounded: bool, mode: str, trace: Optional[Dict[str, Any]]) -> Dict[str, Any]:

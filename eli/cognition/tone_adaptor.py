@@ -47,9 +47,14 @@ _SEMANTIC_RULES: "list[Tuple[str, str]]" = [
     (r"\b(kill myself|end it all|want to die|self[- ]harm)\b", "sad"),   # safety-adjacent → tender response
     (r"\b(so sad|depressed|heartbroken|grieving|lost (my|someone)|miss (him|her|them))\b", "sad"),
     (r"\b(furious|livid|so angry|pissed off|fed up|sick of|hate this|infuriating)\b", "angry"),
+    # Swearing at ELI. Live, "YOU DO NOT NEED TO SEARCH THE FUCKING WEB...!!" read as ecstatic.
+    (r"\b(what the fuck|why the fuck|the fuck are you|wtf|for fuck'?s sake|fuck off|"
+     r"you(?:'re| are)? (?:a )?(?:fucking )?(?:liar|lying|useless|idiot|stupid)|lying to me|"
+     r"making shit up|piece of shit|fucking (?:liar|useless|idiot|joke))\b", "angry"),
     (r"\b(annoyed|irritating|ugh|frustrat\w+|come on|seriously\?)\b", "irritated"),
     (r"\b(lol|lmao|rofl|haha+|hehe|so funny|hilarious|joking|kidding)\b", "comedic"),
-    (r"\b(amazing|incredible|can'?t wait|so excited|let'?s go+|yes+!+|woo+)\b|!{2,}", "ecstatic"),
+    # "!!" alone is emphasis, not joy: it is as often furious.
+    (r"\b(amazing|incredible|can'?t wait|so excited|let'?s go+|yes+!+|woo+)\b", "ecstatic"),
     (r"\b(thank you so much|so happy|love (this|it)|brilliant|made my day)\b", "joyful"),
     (r"\b(confused|don'?t (get|understand)|makes no sense|lost|what do you mean)\b", "confused"),
     (r"\b(curious|wonder|how (does|do)|why does|what if|fascinat\w+|interesting)\b", "curious"),
@@ -64,6 +69,11 @@ def detect_text_emotion(text: str) -> Tuple[Optional[str], float]:
     raw = str(text or "").lower()
     if len(raw.strip()) < 2:
         return (None, 0.0)
+    # Shouting a complaint or an order in capitals.
+    letters = [c for c in str(text or "") if c.isalpha()]
+    if (len(letters) >= 12 and sum(c.isupper() for c in letters) / len(letters) >= 0.6
+            and re.search(r"\b(you|why|not|never|stop|don'?t|didn'?t|wrong|fuck\w*)\b", raw)):
+        return ("angry", 0.7)
     for pat, emo in _SEMANTIC_RULES:
         if re.search(pat, raw):
             return (emo, 0.7)

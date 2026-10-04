@@ -401,20 +401,32 @@ def build_routing_fault_explanation(user_input: str = "") -> str:
         lines.append("How those inputs route right now (re-run through the live router):")
         lines.extend(probe_lines)
 
-    # What the last completed turn actually did.
+    # What the recent turns actually did, as the pipeline recorded it in the audit ledger: which
+    # rule routed each, what ran, whether it went to the web and why.
+    recorded: List[str] = []
     try:
-        from eli.runtime.last_trace import load_last_trace
-        trace = load_last_trace() or {}
-        if trace:
-            act = trace.get("result_action") or trace.get("route_action") or trace.get("action")
-            conf = trace.get("aggregated_confidence", trace.get("confidence"))
-            conf_s = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "n/a"
-            if act:
-                lines.append(f"Last completed turn: {act} (confidence {conf_s}).")
+        from eli.cognition.self_claims import turn_record_lines
+        from eli.memory.memory import get_memory
+        recorded = turn_record_lines(get_memory(), limit=4)
     except Exception:
-        log.debug("last trace unavailable", exc_info=True)
+        log.debug("turn record unavailable", exc_info=True)
+    if recorded:
+        lines.append("What the last turns did (from the audit ledger):")
+        lines.extend(f"- {r}" for r in recorded)
+    else:
+        try:
+            from eli.runtime.last_trace import load_last_trace
+            trace = load_last_trace() or {}
+            if trace:
+                act = trace.get("result_action") or trace.get("route_action") or trace.get("action")
+                conf = trace.get("aggregated_confidence", trace.get("confidence"))
+                conf_s = f"{float(conf):.2f}" if isinstance(conf, (int, float)) else "n/a"
+                if act:
+                    lines.append(f"Last completed turn: {act} (confidence {conf_s}).")
+        except Exception:
+            log.debug("last trace unavailable", exc_info=True)
 
-    if re.search(r"\b(browser|web|online|search)\b", low):
+    if not recorded and re.search(r"\b(browser|web|online|search)\b", low):
         lines.append(
             "This kind of message should be answered locally from the runtime "
             "evidence — not sent to the browser or a web search."
@@ -424,10 +436,22 @@ def build_routing_fault_explanation(user_input: str = "") -> str:
         return ("I have no recorded routing evidence for that yet — nothing in the "
                 "trace or the recent-turn log to explain from.")
 
-    lines.append(
-        "A different phrasing landing on a different action means a router rule "
-        "matched, not that anything learned or changed between the two tries."
-    )
+    if probe_lines:
+        lines.append(
+            "A different phrasing landing on a different action means a router rule "
+            "matched, not that anything learned or changed between the two tries."
+        )
+    if recorded:
+        lines.append("Each row is what the pipeline wrote as the turn ran: the rule that routed it, what it "
+                     "retrieved, whether it went to the web and why, how often the model ran and for how long. "
+                     "Where a row gives no reason, none was recorded, and I won't guess one.")
+        # In the slower modes the model rewords this answer; what it writes is held to these rows.
+        try:
+            from eli.kernel.request_context import note_turn_fact
+            note_turn_fact("_record_lines", list(recorded))
+            note_turn_fact("_record", "\n".join(lines))
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
     return "\n".join(lines)
 
 __all__ = [

@@ -1036,9 +1036,10 @@ class BusMemoryAgent(_BaseAgent):
                     if txt:
                         hits_text.append(f"  - [{ts_str}] {txt}")
                 if hits_text:
+                    from eli.memory.unified_retrieval import VERIFIED_SCOPE_NOTE
                     context_parts.append(
                         f"Verified stored memories ({len(raw_hits)} found — "
-                        f"ground user-specific claims ONLY from these rows):\n"
+                        f"{VERIFIED_SCOPE_NOTE}):\n"
                         + "\n".join(hits_text))
 
             if conv_hits:

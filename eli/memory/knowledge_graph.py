@@ -140,6 +140,28 @@ def _connect(path: Path) -> sqlite3.Connection:
 
 # ── KnowledgeGraph class ─────────────────────────────────────────────────────
 
+_NOT_A_KIND = frozenset("""not just still only well actually your the in all good happy high awake
+pretty certain it doing saying so too very really""".split())
+
+
+def _junk_name_relation(rel: Dict[str, Any]) -> bool:
+    """A relation an earlier extractor stored that isn't a fact: a has_name/nickname whose value
+    isn't a name ("listed as unknown", "not fucking listed"), or an is_a that is a mood or an
+    activity ("going to bed now", "not happy"). Hidden from the prompt rather than deleted."""
+    predicate = str(rel.get("predicate") or "").lower()
+    obj = str(rel.get("object") or "").strip()
+    if predicate == "is_a":
+        first = (obj.split() or [""])[0].lower()
+        return first in _NOT_A_KIND or first.endswith("ing") or len(obj.split()) > 4
+    if predicate not in ("has_name", "nickname"):
+        return False
+    try:
+        from eli.runtime.identity_validation import normalize_identity_candidate
+        return not normalize_identity_candidate(obj)
+    except Exception:
+        return False
+
+
 class KnowledgeGraph:
     """SQLite-backed entity-relation knowledge graph."""
 
@@ -482,7 +504,7 @@ class KnowledgeGraph:
             # has_name conflict handler) so a corrected name never leaks back in.
             _outbound = sorted(
                 (r for r in (ent_detail.get("outbound") or [])
-                 if float(r.get("weight", 1.0) or 0) > 0.1),
+                 if float(r.get("weight", 1.0) or 0) > 0.1 and not _junk_name_relation(r)),
                 key=_rel_relevance, reverse=True,
             )
             for rel in _outbound[:max_relations]:
@@ -536,8 +558,9 @@ class KnowledgeGraph:
             (r"(?:user\s+)?likes?\s+([A-Za-z0-9 _\-\.]{2,40})(?:[.,]|$)", "prefers"),
             # "X uses Y" — relaxed: any word, any case
             (r"([A-Za-z][a-zA-Z0-9]{1,20})\s+uses?\s+([A-Za-z0-9 _\-\.]{2,40})(?:[.,]|$)", "uses"),
-            # "I am a X" / "I'm a X"
-            (r"(?:i\s+am|i'm)\s+(?:a\s+|an\s+)?([A-Za-z][a-zA-Z ]{2,30})(?:[.,]|$)", "is_a"),
+            # "I am a X" / "I'm an X". The article is required: without it every "I'm going to
+            # bed now" / "I'm not happy" became a fact (44 of a user's 83 relations).
+            (r"(?:i\s+am|i'm)\s+(?:a|an)\s+([A-Za-z][a-zA-Z ]{2,30})(?:[.,]|$)", "is_a"),
         ]
 
         # Only extract identity predicates from user-authored text, never from
@@ -546,11 +569,30 @@ class KnowledgeGraph:
         _identity_predicates = {"has_name", "nickname"}
         _trusted_sources = {"user", "user_explicit", "identity_extract"}
 
+        # Names come from the shared extractor, which refuses "my name is listed as unknown"
+        # and "my name is not fucking listed" (both were stored as the user's name).
+        _declared: Dict[str, str] = {}
+        if source in _trusted_sources:
+            try:
+                from eli.runtime.identity_validation import extract_explicit_identity_facts
+                _facts = extract_explicit_identity_facts(text)
+                if _facts.get("name"):
+                    _declared["has_name"] = _facts["name"]
+                if _facts.get("nickname") or _facts.get("preferred_name"):
+                    _declared["nickname"] = _facts.get("nickname") or _facts["preferred_name"]
+            except Exception:
+                log.debug("identity extraction unavailable", exc_info=True)
+
         for pattern, predicate in patterns:
             if predicate in _identity_predicates and source not in _trusted_sources:
                 continue
-            for m in re.finditer(pattern, text, re.I):
+            matches = list(re.finditer(pattern, text, re.I))
+            if predicate in _identity_predicates:
+                matches = matches[:1] if predicate in _declared else []
+            for m in matches:
                 groups = m.groups()
+                if predicate in _identity_predicates:
+                    groups = (_declared[predicate],)
                 if predicate in ("has_name", "nickname", "prefers", "is_a"):
                     # subject is implicit "User"
                     obj = groups[-1].strip()
