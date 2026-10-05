@@ -55,11 +55,9 @@ ENGINE_PY = Path(__file__).resolve().parents[1] / "eli" / "kernel" / "engine.py"
 
 
 def _deterministic_direct_payload_actions() -> set[str]:
-    text = ENGINE_PY.read_text(encoding="utf-8")
-    start = text.index("_deterministic_direct_payload_actions = {")
-    end = text.index("\n                        }", start)
-    block = text[start:end]
-    return set(re.findall(r'"([A-Z_]+)"', block))
+    # one module-level list now, shared by every path that returns an action's result
+    from eli.kernel.engine import _DIRECT_RESULT_ACTIONS
+    return set(_DIRECT_RESULT_ACTIONS)
 
 
 AUDITED_2026_09_18 = {

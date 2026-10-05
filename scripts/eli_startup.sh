@@ -102,6 +102,7 @@ if [ ! -x "$PY" ]; then
   echo "[startup] run: bash scripts/eli_setup.sh   (or ./ELI_Setup.sh)" >&2
   exit 1
 fi
+eli_env_ready "$ROOT" || exit 1
 
 # llama-cpp: import succeeding is NOT enough — prebuilt wheels SIGILL in
 # ggml_cpu_init on CPUs without AVX-VNNI. Same probe policy as GPU offload.

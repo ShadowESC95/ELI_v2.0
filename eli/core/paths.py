@@ -384,6 +384,20 @@ def document_index_db_path() -> Path:
         return Path(override).expanduser().resolve()
     return db_dir() / "documents.sqlite3"
 
+def agenda_db_path() -> Path:
+    """ELI's own calendar and reminders (eli.runtime.agenda)."""
+    override = os.environ.get("ELI_AGENDA_DB")
+    if override:
+        return Path(override).expanduser().resolve()
+    return db_dir() / "agenda.sqlite3"
+
+def calendar_ics_path() -> Path:
+    """The agenda's events as a standard calendar file, for any calendar app to open."""
+    override = os.environ.get("ELI_CALENDAR_FILE")
+    if override:
+        return Path(override).expanduser().resolve()
+    return data_dir() / "calendar.ics"
+
 def memory_db_path() -> Path:
     """Dedicated semantic memory + knowledge store.
 

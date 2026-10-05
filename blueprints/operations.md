@@ -20,7 +20,7 @@ so the number below is reasoned from the boot sequence, not measured.
 | **GGUF model load** | **dominant** | 4.36 GB (7B) / **15.6 GB (24B)** off disk + GPU offload |
 | **Vision (Moondream) RESIDENT** | medium | loaded at boot, co-resident; **caps ctx 28672→18432** and holds VRAM even if unused |
 | faster-whisper `small.en` | low–med | CPU int8 |
-| daemons + 229-cap manifest + persona_updater | low | DB/CPU |
+| daemons + 230-cap manifest + persona_updater | low | DB/CPU |
 | **embedder (nomic) + FAISS** | **lazy** | load on **first message**, not boot → turn-1 latency bump |
 
 **Estimate *(est.)*:** ~15–40 s warm-cache on the 7B (dominated by model +

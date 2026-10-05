@@ -326,12 +326,48 @@ and ELI opens or reports the right thing.
 
 ### 🌐 Information
 - "what time is it?" · "what's the date?" · "weather in Paris"
+- "what's the weather in Dublin tomorrow?" → that day's forecast. With no place ELI asks "Where?"
+  once and remembers it for the session.
 - "what's the news?" / "catch me up" → a **synthesised** briefing, not a raw dump
 - "search the web for X" (goes online — ELI tells you) · "gpu status" · "system stats"
 
+### ✅ Saying yes, picking, answering
+Whatever ELI offers or asks, your next message is read against it. This is the same for every
+topic, not only reminders.
+- **"yes" does it.** "Want me to walk you through how that works?" → "yes please" and ELI does
+  exactly that. So do "go ahead", "sounds good", "do it".
+- **Pick from a list.** When ELI lists steps and asks whether to go ahead, "do 2", "1 and 3",
+  "the second one" or "the abstract one" runs just those; "yes" runs them all. Steps ELI can
+  act on are carried out; steps it does by writing are written.
+- **Answer in a word.** After "Which one, A or B?" a bare "B" is the answer. After "Is it formal
+  or casual?" so is "formal".
+- **"no thanks" drops it.**
+- A few things ELI will not do on a "yes" to its own offer (clearing a persona lock, deleting
+  memories, running a shell command). It tells you the words to say instead.
+- An offer lapses after 30 minutes, or as soon as ELI says something else.
+
 ### ⏰ Reminders, timers, calendar, scheduling
-- "set an alarm for 7am" · "set a timer for 10 minutes"
-- "add an event tomorrow at 3pm" · "list my events" · "start a pomodoro"
+- "set an alarm for 7am" · "set a timer for 10 minutes" · "remind me at 4pm to go over my slides" ·
+  "remind me in 20 minutes to stretch"
+- **Calendar.** ELI keeps its own calendar on your machine: no account, nothing leaves the
+  computer. "add dentist appointment on friday at 2:30pm to my calendar" · "what's on today?" ·
+  "what have I got on this week?". A timed event gets a reminder 30 minutes before and one at the
+  start: a desktop notification with a sound, and a line in the chat. Reminders survive a restart;
+  one that came due while ELI was closed is shown as missed when ELI next starts (up to 18 hours
+  later).
+- **Changing it.** "i meant 8pm" or "move the dentist to next monday" moves the event and its
+  reminders. "cancel the dentist appointment" removes it; "clear my reminders" removes them all.
+  When more than one entry matches, ELI lists them and asks which.
+- **Mention it and ELI offers.** Say "I have a presentation at 7.30pm" in passing and ELI asks
+  whether to put it in the calendar; "yes" adds it.
+- **When ELI has to ask, answer in a word.** "add dentist appointment to my calendar" gets
+  "When is it?"; "friday at 3pm" finishes the job. "cancel the dentist" with two entries gets a
+  numbered choice; "the second one" or "the check-up" picks.
+- ELI knows what is coming up: "how long until the presentation?" is answered from the calendar
+  and the clock, not from the web.
+- The calendar is also written to `calendar.ics` in ELI's data folder, which any calendar app can
+  import. Repeating events are not supported.
+- "start a pomodoro"
 - "research the best solar inverters overnight" · "build me a script at 2am" → **background jobs**
 - "show background jobs" · "check job 5"
 

@@ -598,8 +598,11 @@ _HR_PHRASE_REPLACEMENTS = (
     (re.compile(r"[^.!?\n]*\bI(?:'d| would) be (?:happy|pleased|glad) to\b[^.!?\n]*[.!?]?\s*", re.I), ""),
     # Strip "Don't hesitate to ask [...]."
     (re.compile(r"[^.!?\n]*\bdon'?t hesitate to ask\b[^.!?\n]*[.!?]?\s*", re.I), ""),
-    # Strip "Let me know if [you need anything / you have questions]."
-    (re.compile(r"[^.!?\n]*\blet me know if (?:you|there)[^.!?\n]*[.!?]?\s*", re.I), ""),
+    # Strip "Let me know if [you need anything / you have questions]." An offer of a particular
+    # thing ("let me know if you'd like me to draft it") is not filler: it was being deleted from
+    # what ELI remembered saying, so the user's "yes" had nothing to refer to.
+    (re.compile(r"[^.!?\n]*\blet me know if (?!you(?:'d| would)? (?:like|want|need) me to\b)(?:you|there)[^.!?\n]*[.!?]?\s*",
+                re.I), ""),
     # Strip "Is there anything else I can [help/assist] [you with]?"
     (re.compile(r"[^.!?\n]*\bis there anything else I can\b[^.!?\n]*[.!?]?\s*", re.I), ""),
     (re.compile(r"\ba wealth of information\b", re.I), "stored information"),

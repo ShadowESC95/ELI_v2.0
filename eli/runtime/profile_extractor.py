@@ -1018,6 +1018,84 @@ def _said_by_user(claim: str, user_text: str) -> bool:
     return sum(1 for w in words if w[:6] in own) >= (len(words) + 1) // 2
 
 
+_SENTENCE_END = re.compile(r"(?<=[.!?])\s+")
+# A project stored from a session that was really about fixing the assistant.
+_TROUBLESHOOTING = re.compile(
+    r"\b(?:resolv\w+ (?:a |the )?(?:conflict|issue|problem|bug)|debugg\w+|troubleshoot\w+|missing \w+ logs?|"
+    r"persistent storage|correcting the|fix(?:ing)? (?:the|its|his|her|their) (?:memory|name|identity|logs?|dates?))\b", re.I)
+
+
+def purge_software_talk(db_path: Path | None = None) -> int:
+    """Take out of the stored profile what is about ELI rather than about the user.
+
+    Before the summariser was told otherwise, a session spent troubleshooting ELI was stored as
+    the user's project ("Analyzing the technical reasons behind vector search drift") and as
+    facts about them ("in a period of high frustration with ELI's temporal awareness"). Those
+    rows feed the user model, the profile and so every prompt: two days later a small model
+    answered a remark about a presentation with a lecture on vector decay.
+
+    A project is kept only if the user's own words around that time carry it. Sentences about
+    ELI are cut from the other rows; a row left empty is deleted. Returns how many rows changed."""
+    db = db_path or _user_db()
+    changed = 0
+    try:
+        con = sqlite3.connect(str(db), timeout=5.0)
+    except Exception:
+        return 0
+    try:
+        cur = con.cursor()
+        if not _table_exists(cur, "user_patterns"):
+            return 0
+        rows = cur.execute(
+            "SELECT id, pattern_type, COALESCE(pattern_data, ''), COALESCE(ts, timestamp, 0) FROM user_patterns "
+            "WHERE pattern_type LIKE 'project%' OR pattern_type LIKE 'identity.%' OR pattern_type LIKE 'research%'").fetchall()
+        for row_id, ptype, data, ts in rows:
+            keep = str(data)
+            if str(ptype).startswith("project"):
+                said = ""
+                if _table_exists(cur, "conversation_turns") and ts:
+                    said = " ".join(r[0] or "" for r in cur.execute(
+                        "SELECT content FROM conversation_turns WHERE lower(role)='user' AND "
+                        "COALESCE(ts, timestamp, 0) BETWEEN ? AND ?", (float(ts) - 86400, float(ts) + 3600)))
+                if (_ABOUT_THIS_SOFTWARE.search(keep) or _TROUBLESHOOTING.search(keep)
+                        or (said and not _said_by_user(keep, said))):
+                    keep = ""
+            else:
+                keep = " ".join(x for x in _SENTENCE_END.split(keep) if x and not _ABOUT_THIS_SOFTWARE.search(x)).strip()
+            if keep == str(data):
+                continue
+            if keep:
+                cur.execute("UPDATE user_patterns SET pattern_data=? WHERE id=?", (keep, row_id))
+            else:
+                cur.execute("DELETE FROM user_patterns WHERE id=?", (row_id,))
+            changed += 1
+            log.debug("profile_extractor: removed talk about ELI from profile row %s (%s)", row_id, ptype)
+        con.commit()
+    except Exception:
+        log.debug("profile purge failed", exc_info=True)
+    finally:
+        con.close()
+    if changed:
+        # what is built from those rows is rebuilt now, not at the next lucky refresh
+        try:
+            from eli.runtime.user_model import refresh_user_model_brief
+            refresh_user_model_brief(db_path=db_path)
+        except Exception:
+            log.debug("user model refresh after purge skipped", exc_info=True)
+        try:
+            from eli.kernel.state import update_user_profile
+            con = sqlite3.connect(str(db), timeout=5.0)
+            try:
+                left = [r[0] for r in con.execute(
+                    "SELECT pattern_data FROM user_patterns WHERE pattern_type LIKE 'project%' ORDER BY id DESC LIMIT 4")]
+            finally:
+                con.close()
+            update_user_profile({"active_projects": left})
+        except Exception:
+            log.debug("profile refresh after purge skipped", exc_info=True)
+    return changed
+
+
 def _fact_pattern_type(line: str) -> str:
     """Classify a durable user fact into a promotable pattern type.
 

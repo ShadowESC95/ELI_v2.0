@@ -5,7 +5,16 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$SCRIPT_DIR/.venv"
-PYTHON="${PYTHON:-python3}"
+# The Python this install is built with. PYTHON=... still decides when given. Left to itself
+# the installer used whatever `python3` was, even with a version that has ready-made packages
+# for the inference engine sitting next to it (scripts/eli_env.py pick).
+if [ -z "${PYTHON:-}" ]; then
+    _boot_py="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
+    if [ -n "$_boot_py" ] && [ -f "$SCRIPT_DIR/scripts/eli_env.py" ]; then
+        PYTHON="$("$_boot_py" "$SCRIPT_DIR/scripts/eli_env.py" pick 2>/dev/null || true)"
+    fi
+    PYTHON="${PYTHON:-python3}"
+fi
 export ELI_PROJECT_ROOT="$SCRIPT_DIR"
 export ELI_DATA_DIR="${ELI_DATA_DIR:-$SCRIPT_DIR/artifacts}"
 export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$SCRIPT_DIR/config}"
@@ -383,13 +392,19 @@ fi
 _venv_ok() {
     [ -x "$VENV/bin/python" ] \
         && "$VENV/bin/python" -c "import sys" >/dev/null 2>&1 \
-        && "$VENV/bin/python" -m pip --version >/dev/null 2>&1
+        && "$VENV/bin/python" -m pip --version >/dev/null 2>&1 \
+        && "$PYTHON" "$SCRIPT_DIR/scripts/eli_env.py" status "$SCRIPT_DIR" >/dev/null 2>&1
 }
+# An environment whose Python was replaced by a system upgrade can often be pointed back at
+# an interpreter of its own version with nothing reinstalled. Try that before rebuilding.
+if [ -d "$VENV" ] && ! _venv_ok; then
+    "$PYTHON" "$SCRIPT_DIR/scripts/eli_env.py" repair "$SCRIPT_DIR" 2>/dev/null || true
+fi
 if [ -d "$VENV" ] && _venv_ok; then
     echo "[OK] Virtual environment already exists."
 else
     if [ -d "$VENV" ]; then
-        echo "[..] Existing .venv is broken (built for a different machine/path) — rebuilding..."
+        echo "[..] Existing .venv no longer matches this system (moved, copied, or the system Python changed) — rebuilding..."
         rm -rf "$VENV"
     else
         echo "[..] Creating virtual environment..."

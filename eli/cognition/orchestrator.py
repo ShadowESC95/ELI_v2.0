@@ -19,6 +19,7 @@ _VALID_ACTIONS = {str(a).strip().upper() for a in (_SUPPORTED_ACTIONS or [])}
 
 from eli.cognition import memory_diag as _memory_diag
 from eli.cognition import query_planner as _query_planner
+from eli.cognition.evidence_format import this_conversation as _this_conversation
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
@@ -819,8 +820,9 @@ class AgentOrchestrator:
         stm = ShortTermEpisodic(
             session_id=self.engine.session_id,
             user_id=self.engine.user_id,
-            recent_turns=self.engine.memory.get_recent_conversation(
-                limit=_recent_turns_limit(reasoning_mode), user_id=self.engine.user_id) or [],
+            # this conversation's turns; earlier days come in through retrieval and the period log
+            recent_turns=_this_conversation(self.engine.memory.get_recent_conversation(
+                limit=_recent_turns_limit(reasoning_mode), user_id=self.engine.user_id) or []),
         )
         ltm = LongTermMemoryRefs(
             sqlite_ready=True,

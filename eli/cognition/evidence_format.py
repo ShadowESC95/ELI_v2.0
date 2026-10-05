@@ -129,3 +129,68 @@ def date_facts(text: str, now: Optional[float] = None) -> str:
         return ""
     return ("DATE FACTS (worked out from the calendar; use these, do not recompute): "
             + "; ".join(parts) + f". Today is {today.strftime('%A %d %B %Y')}.")
+
+
+def time_facts(text: str, now: Optional[float] = None) -> str:
+    """Every time of day the user wrote, as a clock time today and how far off it is, worked out
+    here rather than by the model. Live, at 09:06: "the original meeting at 10 AM has passed".
+    '' when the message names no time."""
+    from datetime import datetime
+    try:
+        from eli.runtime.agenda import _clock_candidates
+        found = _clock_candidates(str(text or ""))[:4]
+    except Exception:
+        return ""
+    if not found:
+        return ""
+    n = datetime.fromtimestamp(time.time() if now is None else float(now))
+    parts, seen = [], set()
+    for a, b, h, mi, ap in found:
+        if ap == "pm" and h < 12:
+            h += 12
+        elif ap == "am" and h == 12:
+            h = 0
+        elif ap is None and 1 <= h <= 6:
+            h += 12
+        at = n.replace(hour=h % 24, minute=mi, second=0, microsecond=0)
+        if at in seen:
+            continue
+        seen.add(at)
+        mins = int(round(abs((at - n).total_seconds()) / 60.0))
+        gap = (f"{mins // 60} h {mins % 60} min" if mins >= 60 and mins % 60 else f"{mins // 60} h" if mins >= 60
+               else f"{mins} min")
+        parts.append(f"{str(text)[a:b].strip()} = {at.strftime('%H:%M')} today, "
+                     + (f"{gap} from now" if at > n else f"{gap} ago" if mins else "now"))
+    return ("TIME FACTS (worked out from the clock; use these, do not recompute): " + "; ".join(parts)
+            + f". It is now {n.strftime('%H:%M')}.")
+
+
+# A conversation ends when nothing is said for this long, or when its turns are this old.
+_CONVERSATION_GAP_S = 3 * 3600
+_CONVERSATION_MAX_AGE_S = 12 * 3600
+
+
+def this_conversation(turns: Any, now: Optional[float] = None) -> list:
+    """The tail of `turns` (oldest first) that belongs to the conversation going on now.
+
+    The dialogue put in front of the model was "the last N turns", whenever they were said. On
+    a Monday morning that was Saturday's argument, ELI's invented diagnoses included, and a
+    small model answered a remark about a presentation by continuing it. Earlier days are still
+    reachable: a question about them gets the period log, and a topic is found by retrieval."""
+    rows = [t for t in (turns or []) if isinstance(t, dict)]
+    if not rows:
+        return []
+    n = time.time() if now is None else float(now)
+    out: list = []
+    newer = n
+    for t in reversed(rows):
+        ts = row_time(t)
+        if not ts:
+            out.append(t)       # undated: nothing to judge it by
+            continue
+        if n - ts > _CONVERSATION_MAX_AGE_S or newer - ts > _CONVERSATION_GAP_S:
+            break
+        out.append(t)
+        newer = ts
+    out.reverse()
+    return out

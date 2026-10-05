@@ -246,6 +246,39 @@ exist, and said "the audit trail is now active" for logging that was always on.
 - **Compact grounded synthesis carries a VOICE primer** (pulled live from the canonical persona)
   so factual/introspection answers sound like ELI without losing the EXACT-FACTS contract that
   pins every number/path/table/DB to the evidence.
+- **Rules only where they apply.** The grounding and conversation rules live in
+  `kernel/prompt_rules.py`; `select_rules` puts each guard in the prompt only on a turn it can
+  apply to (self-mechanism rules when the user asks about ELI, the dates rule when dated
+  evidence is present). The whole block used to precede every prompt, 6,800 characters in
+  front of "morning eli", and a small model answered the rules instead of the user.
+  `all_rules()` is the full text, used if selection fails.
+- **The clock and the calendar are facts in the prompt.** `evidence_format.time_facts` works
+  out every clock time the user's message names against now ("7.30pm = 19:30 today, 10 h 24 min
+  from now"), and `agenda.prompt_line` lists what is on the calendar for the next 36 hours. A
+  question about either is never escalated to a web search
+  (`grounding_escalation`: `asks_date_arithmetic` or `agenda.about_agenda`).
+- **A compound time question is not answered with the clock alone.** "what time is it and how
+  long until the presentation?" goes to the model with those facts instead of to `TIME`.
+- **The profile holds what the user said about themselves.** `profile_extractor.
+  purge_software_talk` runs at start and removes profile rows that are ELI's own
+  troubleshooting stored as facts about the user ("currently frustrated with ELI's memory
+  retrieval"), then rebuilds the user model from what is left.
+- **A report about ELI answers a question about ELI.** "help me with my essay" is a request
+  for help, not for the capability list (`HELP` needs a bare "help" or a question about
+  commands). "what is a knowledge graph" and "how does memory work in the brain" are questions
+  about the world, not about ELI's memory (`EXPLAIN_MEMORY_RUNTIME` needs ELI as the subject or
+  an unmistakable reference to its own stores). "how do i improve my memory" is about the
+  user's own. A duration ("in 20 minutes") is not a complaint about speed.
+- **A word on its own is not the user's name.** A lone capitalised word set the name
+  ("Dublin", "Tuesday"). It does so only when ELI's last message asked what to call them.
+- **A day says what a request is about, not when to do it.** "plan a study session for
+  tonight" and "check the weather for tomorrow" are answered now. A background job needs a
+  clock time, a delay, "overnight", a named report, or a word that asks for it later
+  (`_EXPLICIT_WHEN_RX`, `_DEFER_RX`); with one, "build me a script at 2am" and "run the test
+  suite tonight" are queued instead of run on the spot.
+- **Asked about tomorrow, the weather answer is tomorrow's.** `GET_WEATHER` returns the
+  forecast for the day named, not the current conditions; with no place it asks "Where?" once
+  and remembers the answer for the session.
 
 ## Deterministic reports are surfaced verbatim; examiner correctness
 - **Verbatim guard for deterministic grounded reports.** `_get_chat_response` now returns the

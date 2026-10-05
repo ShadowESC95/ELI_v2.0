@@ -26,7 +26,7 @@ completely offline.
 | Requirement | Details |
 |---|---|
 | A computer | Linux is the best-tested. Windows and macOS installers exist too. |
-| Python 3.10 or newer | Most modern Linux systems already have it. Check with `python3 --version` |
+| Python 3.10 or newer | Only for the from-source install; the release packages bring their own. Most systems already have it (`python3 --version`). 3.10 to 3.12 install fastest; a newer one (3.13, 3.14) works too and builds one component itself. |
 | Disk space | ~2 GB for ELI itself, plus 2–5 GB for a model (more if you pick a big one) |
 | A GPU (graphics card) | **Optional but recommended.** NVIDIA is best supported. Without one, ELI still works — just slower. |
 | Internet | Only for the install itself and the one-time model download. |
@@ -72,7 +72,8 @@ That one command does all of this for you:
 2. **Shows you a plan** — what it's going to install and why — and asks permission
    before touching anything.
 3. **Creates a private workspace** (a "virtual environment" in a `.venv` folder) so it
-   never interferes with the rest of your system.
+   never interferes with the rest of your system. If you have more than one Python, it picks
+   the one that installs fastest; `PYTHON=python3.11 bash install.sh` chooses for it.
 4. **Installs the AI engine** built for *your* hardware — CUDA build for NVIDIA, ROCm
    for AMD, Metal for Mac, or a plain CPU build.
 5. **Verifies the GPU actually works** — and warns you loudly if you ended up with the
@@ -192,7 +193,7 @@ desktop icons on Linux), so you can start it with a click like any other program
 
 Type in the chat box, or speak — say the wake word (you can set your own; train it in
 Settings) and just talk. Ask it *"what can you do?"* and it will list everything —
-all 229 of its capabilities, generated from what's genuinely wired in.
+all 230 of its capabilities, generated from what's genuinely wired in.
 
 ### The phone / tablet view (optional)
 
@@ -293,9 +294,10 @@ These are the promises the software makes, in plain terms:
 | Symptom | The fix |
 |---|---|
 | "Python 3.10+ required" | Install Python from python.org (Windows) or your package manager (`sudo apt install python3`). |
+| ELI stopped starting after a system or Python upgrade | The workspace was built for the Python you had before. ELI says so when you start it and, if that Python is still installed somewhere, points the workspace back at it with nothing reinstalled. Otherwise run `bash install.sh` (`install.bat` on Windows) to rebuild it: your models, memory and settings are not touched. The release packages are not affected. |
 | ELI is painfully slow | Your AI engine is probably running on CPU. Re-run `bash install.sh --install-cuda` (NVIDIA). The installer tells you at the end whether GPU offload is on. |
 | `.venv not found — run install.sh first` | You skipped the install, or you're in the wrong folder. `cd` into the ELI folder and run `./scripts/eli_setup.sh` (GUI) or `bash install.sh` (terminal). |
-| No sound / voice doesn't work | Run `.venv/bin/python -m eli.runtime.voice_assets`, and make sure `ffmpeg` and `portaudio` installed (the installer prints the exact command if it couldn't do it itself). |
+| No sound / voice doesn't work | ELI uses the Piper that was installed with it, not one that happens to be on your system. Run `.venv/bin/python -m eli.runtime.voice_assets`, and make sure `ffmpeg` and `portaudio` installed (the installer prints the exact command if it couldn't do it itself). |
 | First reply after launch is slow | Normal — the model loads into memory on first use. A big model can take a minute. |
 | Out-of-memory / crashes mid-answer | Your model is too big for your GPU/RAM. Download a smaller one (`--auto` picks a safe size). |
 | Phone can't reach the web app | Use `--lan`, make sure both devices are on the same Wi-Fi, and check your firewall allows port 8081. |

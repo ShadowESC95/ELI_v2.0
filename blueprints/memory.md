@@ -34,7 +34,7 @@ internals), with live counts for each layer.
 | `retrieval.py` | 310 | shared turn retrieval (`retrieve_for_turn`), turn cache, time window (turns and executed actions) |
 | `claims.py` | 266 | dated claims about the user: valid-from and valid-to, learned-at, supersession |
 | `unified_retrieval.py` | 371 | the orchestrator stages consume `retrieve_for_turn` through it; formats the verified-memory block and the period log |
-| `document_index.py` | 687 | every document ELI has read, stored whole and searched by passage |
+| `document_index.py` | 706 | every document ELI has read, stored whole and searched by passage |
 | `vector_store.py` | 677 | FAISS index, embedder, tombstones |
 | `knowledge_graph.py` | 703 | entity and relation graph |
 | `system_index.py` | 278 | indexed apps, executables, files |
@@ -273,8 +273,9 @@ to be answered from.
   word, and embeds them with the embedder the memory store already loads. Embedding waits
   while a conversation turn is live. Wording search works as soon as the text is stored.
 - **Search** (`search`): FTS5 BM25 over the question's content words and cosine over the
-  vectors, fused by reciprocal rank. A question that names a document by a word of its title
-  stays inside that document; "that file" means the one read last; a file attached to the
+  vectors, fused by reciprocal rank. A question that names a document stays inside that
+  document: two words of its title, or one when the question is about a document or a pack
+  ("the harbour pack"). One title word said in passing no longer pulls the document in; "that file" means the one read last; a file attached to the
   message is stored before the search and the search stays inside it. Asked nothing about
   documents (`strict`), a passage is offered only at cosine >= 0.70, or >= 0.64 with at least
   half the question's content words in it (thresholds measured on the nomic embedder, where
@@ -384,3 +385,8 @@ The user-facing tunable `cog.mem_recent_turns` (Settings ▸ Cognition; default 
 controls how many recent turns enter the prompt. `RECENT_HISTORY_CAP` no longer exists (the old
 memory-evidence module was removed); the prompt assembler and `context_budget` do the
 budgeting, and a recall question keeps a floor of a third of the window for memory context.
+
+The window holds this conversation only (`evidence_format.this_conversation`): turns older than
+12 hours, or on the far side of a 3-hour silence, are left out of the dialogue block. Earlier
+days still reach the prompt, dated, through retrieval and the period log. Without this a
+two-day-old argument sat in the prompt as if it were still going on.

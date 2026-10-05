@@ -16,6 +16,7 @@ source "$ROOT/scripts/eli_isolate_env.sh"
 eli_isolate_env "$ROOT"
 PY="$ROOT/.venv/bin/python"
 [ -x "$PY" ] || { echo "[eli] .venv not found — run ./scripts/eli_setup.sh or bash install.sh first."; exit 1; }
+eli_env_ready "$ROOT" || exit 1
 
 MODE="${1:-gui}"
 [ $# -gt 0 ] && shift || true

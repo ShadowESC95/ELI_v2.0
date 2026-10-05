@@ -16,6 +16,18 @@ $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
 $Py = Join-Path $Root ".venv\Scripts\python.exe"
 if (-not (Test-Path $Py)) { Write-Host "[eli-serve] .venv not found - run install.ps1 first."; exit 1 }
+# The Python this environment was built from may have been removed or upgraded since.
+$EnvOk = $false
+try { & $Py -c "import sys" 2>$null | Out-Null; $EnvOk = ($LASTEXITCODE -eq 0) } catch { $EnvOk = $false }
+if (-not $EnvOk) {
+    $BootPython = $null
+    if (Get-Command py -ErrorAction SilentlyContinue) { $BootPython = "py" }
+    elseif (Get-Command python -ErrorAction SilentlyContinue) { $BootPython = "python" }
+    if ($BootPython) {
+        try { & $BootPython (Join-Path $Root "scripts\eli_env.py") repair $Root; $EnvOk = ($LASTEXITCODE -eq 0) } catch { $EnvOk = $false }
+    }
+    if (-not $EnvOk) { Write-Host "[eli-serve] ELI's Python environment cannot start - run install.bat to rebuild it."; exit 1 }
+}
 
 $env:ELI_PROJECT_ROOT = $Root
 $env:ELI_DATA_DIR = if ($env:ELI_DATA_DIR) { $env:ELI_DATA_DIR } else { Join-Path $Root "artifacts" }

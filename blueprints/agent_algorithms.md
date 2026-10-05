@@ -84,7 +84,7 @@ on-topic). Env `ELI_AGENT_BUS_RELEVANCE_GATE` disables it.
   Deterministic whole-system audit.
 
 ### 7. `plugin` — plugin effector  · 6.0s
-- **Gate:** `action ∈ PLUGIN_ACTIONS` (ADD_EVENT, GET_WEATHER, LIST_EVENTS).
+- **Gate:** `action ∈ PLUGIN_ACTIONS` (ADD_EVENT, GET_WEATHER, LIST_EVENTS, REMOVE_EVENT).
 - **Algorithm:** `execute(action, args)` into the plugin layer; silent skip
   otherwise.
 

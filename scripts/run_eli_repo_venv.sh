@@ -17,6 +17,7 @@ fi
 # shellcheck disable=SC1091
 source "$ROOT/scripts/eli_isolate_env.sh"
 eli_isolate_env "$ROOT"
+eli_env_ready "$ROOT" || exit 1
 
 # Project-local Python environment.
 # shellcheck disable=SC1091

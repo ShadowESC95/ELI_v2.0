@@ -145,6 +145,7 @@ jobs:
           tests/test_pyproject_packaging.py
           tests/test_device_names.py
           tests/test_install_script.py
+          tests/test_env_repair.py
           tests/test_platform_profile.py
           tests/test_intel_igpu_detection.py
           tests/test_document_formats.py

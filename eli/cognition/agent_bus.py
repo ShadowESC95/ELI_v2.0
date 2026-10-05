@@ -1488,7 +1488,7 @@ class PluginAgent(_BaseAgent):
     timeout_s = 6.0
 
     PLUGIN_ACTIONS: Set[str] = {
-        "GET_WEATHER", "LIST_EVENTS", "ADD_EVENT",
+        "GET_WEATHER", "LIST_EVENTS", "ADD_EVENT", "REMOVE_EVENT",
     }
 
     def run(self, user_input: str, intent: Dict[str, Any],

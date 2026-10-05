@@ -319,3 +319,20 @@ def test_passages_that_open_alike_are_not_taken_for_copies_of_each_other():
     ])
     memory, brief = dedupe_prompt_parts(block, "Brief line that is long enough to be keyed by the dedupe.")
     assert "part 25 of 35" in memory and "within 15 days" in memory
+
+
+def test_one_word_of_a_file_name_in_passing_does_not_pull_the_document_in(index, tmp_path):
+    """Live on 2.5.2: "I thought I had a presentation at 10am for <course>" put six passages of a
+    coursework file into a chat prompt, because the course name is in the file name."""
+    doc = tmp_path / "Sam_Jones_HARBOUR_High_Risk_Use_Case_Definition_Pack_Week_1_summary.md"
+    doc.write_text("# Use case pack\n\n" + FILLER + "\n\n" + FACT)
+    index.add(doc)
+    for said in ("I thought i had a presentation at 10am for HARBOUR, but it is not until 7.30pm haha",
+                 "give me a summary of this week", "what a week, high risk of rain"):
+        assert not index.mentions(said), said
+    assert index.mentions("what does the HARBOUR pack say about biometric identification")
+    assert index.mentions("the sam jones harbour work")           # two of the title's own words
+    _, planner, _, _ = _orchestrator(index)
+    plan = planner.plan_retrieval("I thought i had a presentation at 10am for HARBOUR, but it is not until 7.30pm haha",
+                                  {"action": "CHAT"}, "", None, reasoning_mode="quick")
+    assert not plan["need_rag"]

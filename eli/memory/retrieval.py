@@ -184,7 +184,13 @@ def retrieve_for_turn(
 
     recent: List[Dict[str, Any]] = []
     try:
+        from eli.cognition.context_budget import is_recall_question
+        from eli.cognition.evidence_format import this_conversation
         recent = list(mem.get_recent_conversation(limit=int(recent_limit), user_id=user_id) or [])
+        # A question about the past ("what did we talk about earlier?") keeps earlier sessions'
+        # turns. Anything else gets this conversation only, not the last argument.
+        if not is_recall_question(q):
+            recent = this_conversation(recent)
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 

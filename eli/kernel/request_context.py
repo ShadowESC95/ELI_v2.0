@@ -39,6 +39,10 @@ request_id_var: ContextVar[Optional[str]] = ContextVar("eli_request_id", default
 reasoning_mode_var: ContextVar[Optional[str]] = ContextVar("eli_reasoning_mode", default=None)
 # None = not set this turn, not False: False is a legitimate in-turn value.
 in_followthrough_var: ContextVar[Optional[bool]] = ContextVar("eli_in_followthrough", default=None)
+# Set while a turn carries out what the user agreed to ("yes please" to an offer ELI does by
+# writing): {"said", "offer", "message", "done"}. The turn it is set for runs with the offered
+# task as its message.
+agreed_task_var: ContextVar[Optional[dict]] = ContextVar("eli_agreed_task", default=None)
 orchestrator_active_var: ContextVar[Optional[bool]] = ContextVar("eli_orchestrator_active", default=None)
 in_orchestrator_var: ContextVar[Optional[bool]] = ContextVar("eli_in_orchestrator", default=None)
 # What this turn actually did (its trace, bus result, published meta), collected

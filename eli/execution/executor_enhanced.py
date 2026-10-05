@@ -2443,6 +2443,7 @@ SUPPORTED_ACTIONS = [
     'LIST_CAPABILITIES',
     'LIST_DIR',
     'LIST_EVENTS',
+    'REMOVE_EVENT',
     'LIST_NOTES',
     'MAXIMISE_WINDOW',
     'MEDIA_CONTROL',
@@ -7476,7 +7477,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         seq_id, done_ok = seq["sequence_id"], seq["done_ok"]
 
         n = len(cmds)
-        deps = infer_dependencies(cmds)
+        # Steps ELI listed and the user agreed to stand on their own; no model call to order them.
+        deps = {} if (args or {}).get("results_only") else infer_dependencies(cmds)
         try:
             from eli.core.dag import build_dag
             g = build_dag({str(i): [str(d) for d in deps.get(i, [])] for i in range(n)})
@@ -7515,10 +7517,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 except Exception as e:
                     txt, ok, all_ok = f"failed: {e}", False, False
                 ok_flags[i] = ok
-                parts[i] = f"• {c.strip()} →\n{(txt or '(done)').strip()}"
+                # Steps ELI offered and the user agreed to: the outcome is what matters, not
+                # ELI's own sentence read back.
+                parts[i] = ((txt or "Done.").strip() if (args or {}).get("results_only")
+                            else f"• {c.strip()} →\n{(txt or '(done)').strip()}")
                 mark_step(seq_id, i, ok, parts[i])
         finish(seq_id, all_ok)
-        msg = "\n\n".join(parts)
+        msg = ("\n" if (args or {}).get("results_only") else "\n\n").join(parts)
         return {"ok": all_ok, "action": a, "content": msg, "response": msg,
                 "meta": {"commands": cmds, "resumed": seq["resumed"], "dependencies": deps}}
 
@@ -8918,17 +8923,37 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         try:
             location = str((args or {}).get("location") or (args or {}).get("city") or "").strip()
 
+            from eli.plugins.weather.plugin import clean_place as _clean_place
+            _raw = str((args or {}).get("_raw_user_text") or (args or {}).get("query") or "").strip()
+            location = _clean_place(location)
             if not location:
-                _raw = str((args or {}).get("_raw_user_text") or (args or {}).get("query") or "").strip()
                 for _p in _LOC_PATS:
                     _m = _p.search(_raw)
                     if _m:
-                        location = _m.group(1).strip().rstrip("?.!, ")
-                        break
+                        location = _clean_place(_m.group(1))
+                        if location:
+                            break
 
+            # The day asked about ("tomorrow", "on friday"), so the answer is that day's forecast.
+            _day = None
+            try:
+                from eli.runtime.agenda import parse_when as _when_in
+                _asked_when = _when_in(_raw) if _raw else None
+                if _asked_when is not None and _asked_when.has_date:
+                    _day = _asked_when.start.date()
+            except Exception:
+                log.debug("weather: day not read", exc_info=True)
+
+            from eli.kernel import request_context as _rc_weather
+            _sid = _rc_weather.session_id_var.get()
             if not location:
-                _msg = "I need a location. Try: 'What's the weather in Paris?'"
-                return {"ok": False, "action": a, "error": "missing_location", "content": _msg, "response": _msg}
+                # the place last asked about in this session, before asking again
+                location = str(_rc_weather.get_session_sticky(_sid, "weather_place") or "")
+            if not location:
+                _msg = "Where? Give me a town or city."
+                return {"ok": False, "action": a, "error": "missing_location", "content": _msg, "response": _msg,
+                        "asks_user": True,
+                        "awaiting": {"command": f"{_raw or 'weather'} in {{answer}}", "action": a, "needs": "place"}}
 
             # Network gate: weather is a live open-meteo call. Refuse honestly
             # when the Net toggle is off rather than confabulating a reading.
@@ -8938,11 +8963,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
             from eli.plugins.weather.plugin import get_weather as _gw
             try:
-                result = _gw(location)
+                result = _gw(location, _day)
             except OfflineError:
                 return offline_response(a, "check the weather")
             if isinstance(result, dict):
                 result.setdefault("action", a)
+                if result.get("location"):
+                    _rc_weather.set_session_sticky(_sid, "weather_place", str(result["location"]).split(",")[0])
                 return result
             return {"ok": True, "action": a, "content": str(result), "response": str(result)}
 
@@ -8991,6 +9018,17 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
     # ---- SET_ALARM / SET_TIMER ----
+    if a == "SET_ALARM" and str(args.get("text") or "").strip():
+        # "remind me at 4pm to prepare for the presentation": a labelled reminder that survives a restart
+        try:
+            from eli.runtime import agenda as _agenda
+            _who, _earlier = _agenda_turn_context(args)
+            return _agenda.do_remind(args, user_id=_who, earlier=_earlier)
+        except Exception as e:
+            log.debug("reminder failed", exc_info=True)
+            msg = f"The reminder could not be saved: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+
     if a in ("SET_ALARM", "SET_TIMER"):
         try:
             duration = args.get("duration") or args.get("seconds")
@@ -9050,18 +9088,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         target = target + _td(days=1)   # timedelta (safe across month/year ends)
                     alarm_time = f"{target_h:02d}:{target_m:02d}"
                     secs = int((target - now).total_seconds())
-                    def _alarm_fire():
-                        time.sleep(secs)
-                        try:
-                            notify("ELI Alarm", f"Alarm! It's {alarm_time} - {label}")
-                        except Exception:
-                            log.debug("suppressed exception", exc_info=True)
-                        try:
-                            play_alarm_sound()
-                        except Exception:
-                            log.debug("suppressed exception", exc_info=True)
-                    t = threading.Thread(target=_alarm_fire, daemon=True)
-                    t.start()
+                    # Kept in the agenda, not in a sleeping thread: an alarm set for 7am has to
+                    # survive ELI being closed and reopened before then.
+                    from eli.runtime import agenda as _agenda
+                    _agenda.add_reminder(args.get("label") or f"Alarm ({alarm_time})", target.timestamp(),
+                                         user_id=_agenda_turn_context(args)[0], source="SET_ALARM")
                     msg = f"Alarm set for {alarm_time} ({secs}s from now)."
                     return {"ok": True, "action": a, "content": msg, "response": msg}
                 except Exception as e:
@@ -9071,14 +9102,26 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
-    # ---- LIST_EVENTS / ADD_EVENT (calendar integration not configured) ----
-    if a == "LIST_EVENTS":
-        msg = "Calendar integration is not configured. Use your calendar app directly or wire a provider first."
-        return {"ok": True, "action": a, "content": msg, "response": msg}
-
-    if a == "ADD_EVENT":
-        msg = "Calendar integration is not configured. Use your calendar app directly or wire a provider first."
-        return {"ok": True, "action": a, "content": msg, "response": msg}
+    # ---- LIST_EVENTS / ADD_EVENT: ELI's own calendar (eli.runtime.agenda) ----
+    # Both used to return "Calendar integration is not configured" marked ok, which the model
+    # then reworded as "no events are scheduled according to your calendar".
+    if a in ("LIST_EVENTS", "ADD_EVENT", "REMOVE_EVENT"):
+        try:
+            from eli.runtime import agenda as _agenda
+            _who, _earlier = _agenda_turn_context(args)
+            if a == "REMOVE_EVENT":
+                return _agenda.do_remove(args, user_id=_who)
+            if a == "LIST_EVENTS":
+                _listed = _agenda.do_list_events(args, user_id=_who, earlier=_earlier)
+                if _listed.get("offer"):
+                    from eli.runtime.pending_proposal import set_pending_proposal
+                    set_pending_proposal(_listed["offer"], summary="add the event to the calendar")
+                return _listed
+            return _agenda.do_add_event(args, user_id=_who, earlier=_earlier)
+        except Exception as e:
+            log.debug("agenda action failed", exc_info=True)
+            msg = f"The calendar could not be read or written: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
     # ---- ANALYZE_PDF ----
     if a == "ANALYZE_PDF":
@@ -12307,6 +12350,29 @@ def _action_pre_dispatch(
 _SESSION_FAILURE_COUNTS: "Dict[str, int]" = {}
 
 
+def _agenda_turn_context(args):
+    """(user id, the user's own recent messages newest first) for a calendar action: "add it"
+    names nothing itself, so the event is looked for in what they said in the last half hour."""
+    who, earlier = "", []
+    try:
+        from eli.kernel import request_context as _rc_agenda
+        who = str(_rc_agenda.user_id_var.get() or "")
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    try:
+        from eli.memory import get_memory
+        current = " ".join(str((args or {}).get("text") or "").split()).lower()
+        turns = get_memory(db_path=_get_memory_path()).get_recent_conversation(
+            limit=12, user_id=who or None, since=time.time() - 1800, role="user") or []
+        for t in reversed(turns):
+            said = str((t or {}).get("content") or "").strip()
+            if said and " ".join(said.split()).lower() != current:
+                earlier.append(said)
+    except Exception:
+        log.debug("recent turns unavailable for the agenda", exc_info=True)
+    return who, earlier
+
+
 _INDEXED_AFTER = frozenset((
     "READ_FILE", "SUMMARIZE_FILE", "ANALYZE_PDF", "CREATE_DOCUMENT", "DOC_GENERATE", "GENERATE_DOCUMENT",
     "CONVERT_DOCUMENT", "WRITE_NOTE", "NEW_NOTE",
@@ -12368,6 +12434,17 @@ def _action_post_dispatch(
             _seen = {str((src or {}).get(key) or "") for src in (result, args) for key in _DOCUMENT_PATH_KEYS}
             for _doc in sorted(_seen - {""}):
                 note_document(_doc, user_id=_uid, source=str(action).upper())
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+    # An action that asked the user something ("When is it?", "Which one?") keeps the request
+    # open, so the reply completes it instead of starting a new conversation. A handler says so
+    # by returning `awaiting` ({"command", "action"}) and, for a choice, `choices`.
+    if isinstance(result, dict) and (result.get("awaiting") or result.get("choices")):
+        try:
+            from eli.runtime.pending_proposal import set_pending_proposal
+            _asked = re.findall(r"[^.!?\n]+\?", str(result.get("response") or result.get("content") or ""))
+            set_pending_proposal("", items=list(result.get("choices") or []), awaiting=result.get("awaiting"),
+                                 question=_asked[0].strip() if _asked else "")
         except Exception:
             log.debug("suppressed exception", exc_info=True)
     # The turn's audit row names what really ran: the agent bus can execute an action

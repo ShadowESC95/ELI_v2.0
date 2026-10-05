@@ -243,12 +243,19 @@ def test_a_non_site_in_the_browser_is_a_browser_search():
 
 def test_the_mirror_rule_still_follows_the_rule_it_mirrors():
     """NO FALSE SELF-DENIAL opens "The mirror of the rule above": it must come
-    straight after NO INVENTED SELF-MECHANISM. The two rules added here were
-    first inserted between them."""
-    from pathlib import Path
-    src = (Path(__file__).resolve().parents[1] / "eli/kernel/engine.py").read_text()
-    a = src.index('"- NO INVENTED SELF-MECHANISM:')
-    b = src.index('"- NO FALSE SELF-DENIAL:')
-    between = src[a:b]
-    assert between.count('"- ') == 1, "another rule sits between the two"
-    assert src.index('"- EXPLAINING YOUR OWN MISTAKES:') > b and src.index('"- DATES:') > b
+    straight after NO INVENTED SELF-MECHANISM, in the full block and in any
+    selection that carries both. The two rules added here were first inserted
+    between them."""
+    from eli.kernel import prompt_rules as pr
+
+    def names(block):
+        return [line.split(":")[0] for line in block.splitlines() if line.startswith("- ")]
+
+    full = names(pr.all_rules())
+    at = full.index("- NO INVENTED SELF-MECHANISM")
+    assert full[at + 1] == "- NO FALSE SELF-DENIAL", "another rule sits between the two"
+    assert full.index("- EXPLAINING YOUR OWN MISTAKES") > at + 1 and full.index("- DATES") > at + 1
+    picked = names(pr.select_rules(user_input="how does your memory actually work? you got that wrong",
+                                   memory_context="", profile_text=""))
+    if "- NO INVENTED SELF-MECHANISM" in picked and "- NO FALSE SELF-DENIAL" in picked:
+        assert picked.index("- NO FALSE SELF-DENIAL") == picked.index("- NO INVENTED SELF-MECHANISM") + 1

@@ -227,6 +227,7 @@ def build_dag(dependencies: Dict[str, Iterable[str]]) -> DAG:
 # as before by default: layers run in parallel, nodes can retry, time out, cache and be skipped.
 # Pure stdlib, no LLM or IO in here, that's the node callables' job.
 import time as _time
+import contextvars
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FTimeout
 from dataclasses import dataclass as _dc, field as _fld
 from typing import Callable as _Callable
@@ -431,7 +432,11 @@ class Orchestrator:
             else:
                 _late: Dict[Any, "Task"] = {}
                 with ThreadPoolExecutor(max_workers=max(workers, 1)) as ex:
-                    futs = {ex.submit(self._run_one, t, snapshot, shared): t for t in runnable}
+                    # Each task runs in a copy of the caller's context: a pool thread otherwise
+                    # starts with an empty one, and an action run from here was missing from the
+                    # turn's audit row and carried no user id.
+                    futs = {ex.submit(contextvars.copy_context().run, self._run_one, t, snapshot, shared): t
+                            for t in runnable}
                     for fut, task in futs.items():
                         try:
                             o = fut.result(timeout=task.timeout)

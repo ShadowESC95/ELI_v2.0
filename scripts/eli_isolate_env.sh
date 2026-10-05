@@ -53,3 +53,31 @@ eli_isolate_env() {
     export PATH="$root/.venv/Scripts:$PATH"
   fi
 }
+
+# True when this install's Python environment can run ELI. A system upgrade that replaces
+# the Python it was built with leaves it starting and finding no packages, and every launch
+# ended in "No module named ...". Say what happened, mend it when that needs no download
+# (scripts/eli_env.py repair), and otherwise say what rebuilds it.
+eli_env_ready() {
+  local root="${1:?eli_env_ready requires install root}"
+  local py="$root/.venv/bin/python"
+  if [ -x "$py" ] && "$py" -c 'import os,sys;sys.exit(0 if any("site-packages" in p and os.path.isdir(p) and os.path.realpath(p).startswith(os.path.realpath(sys.prefix)) for p in sys.path) else 1)' >/dev/null 2>&1; then
+    return 0
+  fi
+  local helper="${ELI_ENV_HELPER:-$root/scripts/eli_env.py}" any_py="" cand
+  for cand in python3 python "$py"; do
+    if command -v "$cand" >/dev/null 2>&1 && "$cand" -c 'import sys' >/dev/null 2>&1; then
+      any_py="$cand"
+      break
+    fi
+  done
+  if [ -n "$any_py" ] && [ -f "$helper" ]; then
+    "$any_py" "$helper" repair "$root" && return 0
+  else
+    echo "[ELI] ELI's Python environment cannot start. Run  bash install.sh  in $root  to rebuild it."
+    echo "[ELI] Your models, memory and settings are not touched."
+  fi
+  command -v notify-send >/dev/null 2>&1 && \
+    notify-send "ELI" "ELI's Python environment needs rebuilding. In $root run: bash install.sh" 2>/dev/null || true
+  return 1
+}

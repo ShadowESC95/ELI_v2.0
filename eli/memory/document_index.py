@@ -76,15 +76,34 @@ def _terms(text: str) -> List[str]:
     return out[:24]
 
 
-def _named(terms: Sequence[str], titles: Dict[int, str]) -> List[int]:
-    """Documents whose title shares a word with the question ("the harbour pack", "my garden file")."""
-    asked = {t[:6] for t in terms if len(t) >= 4}
+# Words a file name is full of that say nothing about which document it is.
+_TITLE_FILLER = frozenset("""week weeks summary pack case cases high risk definition final draft copy version part chapter
+page pages update updated new old use guide intro introduction overview main full short long plan""".split())
+
+
+_CONTAINER = (r"(?:pack|deck|brief|sheet|worksheet|draft|proposal|paper|doc|document|file|pdf|report|notes|summary|"
+              r"write-?up|assignment|submission|manual|guide|policy|plan|spec|contract|chapter|book|essay|thesis)")
+
+
+def _named(query: str, titles: Dict[int, str]) -> List[int]:
+    """Documents the question names by its title: two of the title's own words, or one when the
+    question is plainly about a document ("the harbour pack", "what does the garden file say").
+
+    One shared word used to be enough. "I thought I had a presentation for RAIMS" then pulled
+    six passages of a coursework file into a chat prompt because its file name has RAIMS in it,
+    and a title with "week" or "summary" in it would match nearly anything."""
+    low = str(query or "").lower()
+    asked = {t[:6] for t in _terms(low) if len(t) >= 4 and t not in _TITLE_FILLER}
     if not asked:
         return []
+    about = asks_about_documents(low)
     out = []
     for doc_id, title in titles.items():
-        words = {w[:6] for w in re.findall(r"[a-z0-9]{4,}", Path(str(title)).stem.lower()) if w not in _STOP}
-        if asked & words:
+        words = {w[:6] for w in re.findall(r"[a-z0-9]{4,}", Path(str(title)).stem.lower())
+                 if w not in _STOP and w not in _TITLE_FILLER}
+        shared = asked & words
+        if len(shared) >= 2 or (shared and (about or any(
+                re.search(rf"\b{re.escape(w)}\w*\s+{_CONTAINER}\b", low) for w in shared))):
             out.append(int(doc_id))
     return out
 
@@ -421,7 +440,7 @@ class DocumentIndex:
             listed = con.execute(f"SELECT d.id, d.title, d.added_at FROM documents d WHERE {where}", args).fetchall()
             titles = {r[0]: r[1] for r in listed}
             if doc_ids is None and listed:
-                named = _named(terms, titles)
+                named = _named(query, titles)
                 if not named and _THAT_ONE.search(query):
                     named = [max(listed, key=lambda r: r[2])[0]]  # "that file": the one read last
                 if named:
@@ -518,7 +537,7 @@ class DocumentIndex:
 
     def mentions(self, query: str, user_id: Optional[str] = None) -> bool:
         """The question names an indexed document by a word of its title."""
-        return bool(_named(_terms(query), {d["id"]: d["title"] for d in self.documents(user_id)}))
+        return bool(_named(query, {d["id"]: d["title"] for d in self.documents(user_id)}))
 
     def documents(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         where, args = self._scope(user_id)

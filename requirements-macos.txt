@@ -47,6 +47,8 @@ soundfile>=0.13
 faster-whisper>=1.2
 SpeechRecognition>=3.16
 PyAudio>=0.2
+# audioop left the standard library in Python 3.13 and the microphone path imports it.
+audioop-lts>=0.2.1; python_version >= "3.13"
 
 # Image generation
 diffusers>=0.37

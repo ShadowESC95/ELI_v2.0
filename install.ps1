@@ -57,9 +57,21 @@ Write-Host "  100% local - private - offline-by-default" -ForegroundColor DarkGr
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Check Python
+# Check Python. A version with ready-made packages for the inference engine is preferred to
+# whatever `python` happens to be (scripts\eli_env.py pick).
+$Python = "python"
+$BootPython = $null
+if (Get-Command python -ErrorAction SilentlyContinue) { $BootPython = "python" }
+elseif (Get-Command py -ErrorAction SilentlyContinue) { $BootPython = "py" }
+$EnvHelper = Join-Path $ScriptDir "scripts\eli_env.py"
+if ($BootPython -and (Test-Path $EnvHelper)) {
+    try {
+        $Picked = & $BootPython $EnvHelper pick 2>$null
+        if ($LASTEXITCODE -eq 0 -and $Picked) { $Python = ("$Picked").Trim() }
+    } catch { $Python = "python" }
+}
 try {
-    $pyVer = & python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
+    $pyVer = & $Python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
     if ([Version]$pyVer -lt [Version]"3.10") {
         throw "Python 3.10+ required, found $pyVer"
     }
@@ -156,12 +168,25 @@ if (-not $Yes) {
     }
 }
 
-# Create venv
+# Create venv. One whose Python has been removed or replaced exists but cannot start: mend it
+# in place when an interpreter of its version is still installed, else rebuild it.
+$VenvOk = $false
 if (Test-Path "$Venv\Scripts\activate.ps1") {
+    try {
+        & $Python $EnvHelper status $ScriptDir | Out-Null
+        if ($LASTEXITCODE -ne 0) { & $Python $EnvHelper repair $ScriptDir | Out-Null }
+        $VenvOk = ($LASTEXITCODE -eq 0)
+    } catch { $VenvOk = $true }
+    if (-not $VenvOk) {
+        Write-Host "[..] Existing .venv no longer matches this system - rebuilding..." -ForegroundColor Yellow
+        Remove-Item -Recurse -Force $Venv
+    }
+}
+if ($VenvOk) {
     Write-Host "[OK] Virtual environment already exists." -ForegroundColor Green
 } else {
     Write-Host "[..] Creating virtual environment..."
-    & python -m venv $Venv
+    & $Python -m venv $Venv
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to create virtual environment at $Venv"
     }

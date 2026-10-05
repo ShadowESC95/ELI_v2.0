@@ -310,3 +310,30 @@ same code in-process.
 
 `requirements.txt` gained `peft`, `datasets` and (non-macOS) `bitsandbytes`. See
 `installation.md`.
+
+## The Python environment (`scripts/eli_env.py`)
+
+One standard-library file decides everything about the interpreter ELI runs on, for Linux,
+macOS and Windows. It is run by whatever Python can be found, because it is needed exactly
+when ELI's own environment cannot start.
+
+- `pick`: the interpreter a new install is built with. 3.12, 3.11 and 3.10 come first (ready
+  made packages for the inference engine); 3.13 and newer are used when they are all there is.
+  `install.sh` and `install.ps1` call it unless `PYTHON` is set.
+- `status`: whether `.venv` can run ELI, and in plain words why not. A system upgrade that
+  replaces the Python an environment was built with (Ubuntu 24.04 to 26.04: 3.12 to 3.14)
+  leaves it starting as the new version and finding no packages.
+- `repair`: if an interpreter of the environment's own version is still installed anywhere
+  (PATH, the `py` launcher, uv, pyenv, Homebrew, python.org), the environment is pointed back
+  at it and nothing is reinstalled. Otherwise it says to run the installer.
+
+Every launcher checks before starting (`eli_env_ready` in `scripts/eli_isolate_env.sh`;
+`eli.bat`; `scripts/eli_serve.ps1`), so the user sees one sentence and the fix instead of a
+traceback. The installers run `status` on an existing `.venv`, try `repair`, and rebuild only
+if that fails. The frozen release packages carry their own Python and never go through this.
+
+The Piper speech engine is found the same way round: ELI's own copy beside the running
+interpreter first, then PATH, and a candidate is used only if it starts and is Piper
+(`tts_router._find_piper_bin`). PATH used to come first and only the name was checked, so a
+`piper` left by a removed Python, or the unrelated mouse-configuration tool of the same name
+on some Linux distributions, was run as the speech engine.

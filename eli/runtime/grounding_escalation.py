@@ -504,6 +504,16 @@ def escalate(
             return None
     except Exception:
         log.debug("suppressed exception", exc_info=True)
+    # The clock and the user's own calendar are local facts already in the prompt: "what time is
+    # it and how long until the presentation?" was sent to the web.
+    try:
+        from eli.cognition.query_planner import asks_date_arithmetic
+        from eli.runtime.agenda import about_agenda
+        if asks_date_arithmetic(user_input) or about_agenda(user_input):
+            log.debug("[ESCALATION] a question about the clock or the user's calendar: answered locally")
+            return None
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
 
     # Self-action / artifact-state confabulation floor. ELI claiming an action or artifact it has
     # no grounding for (saved a file, finished a job) is the worst confabulation. When such a

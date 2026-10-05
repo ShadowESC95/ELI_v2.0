@@ -16,7 +16,9 @@ from __future__ import annotations
 import logging
 import os
 import re
+import shutil
 import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -153,6 +155,38 @@ def _strip_ansi(text: str) -> str:
     return _ANSI_RE.sub("", str(text or ""))
 
 
+_PYTEST_PYTHON: Dict[str, Optional[str]] = {}
+
+
+def _python_with_pytest(root: Path) -> Optional[str]:
+    """An interpreter that can run this repo's tests: the repo's own environment, else the one
+    running ELI, else what is on PATH. None when none of them has pytest.
+
+    The repo's .venv was used unchecked. After a system Python upgrade it could no longer
+    import pytest, python exited with status 1, and 1 is also pytest's "a test failed": a run
+    that never started was reported as a reproduced failure."""
+    key = str(root)
+    if key not in _PYTEST_PYTHON:
+        candidates = [str(root / ".venv" / "bin" / "python"), str(root / ".venv" / "Scripts" / "python.exe")]
+        if not getattr(sys, "frozen", False) and sys.executable:
+            candidates.append(sys.executable)
+        candidates += [shutil.which("python3") or "", shutil.which("python") or ""]
+        found = None
+        for py in candidates:
+            if not py or not Path(py).is_file():
+                continue
+            try:
+                usable = subprocess.run([py, "-c", "import pytest"], capture_output=True, timeout=60).returncode == 0
+            except Exception:
+                log.debug("autopilot: interpreter probe failed for %s", py, exc_info=True)
+                usable = False
+            if usable:
+                found = py
+                break
+        _PYTEST_PYTHON[key] = found
+    return _PYTEST_PYTHON[key]
+
+
 def _run_pytest(root: Path, targets: List[str], timeout: int = 300,
                 with_status: bool = False):
     """Actually run pytest on the targets and return its output (only when asked).
@@ -163,9 +197,11 @@ def _run_pytest(root: Path, targets: List[str], timeout: int = 300,
     still not a pass, and the text alone cannot tell the difference.
     """
     try:
-        py = str(root / ".venv" / "bin" / "python")
-        if not Path(py).is_file():
-            py = "python"
+        py = _python_with_pytest(root)
+        if py is None:
+            # Nothing here can run a test, so nothing was run. Not a failure, not a pass.
+            log.debug("autopilot: no interpreter with pytest; no run")
+            return ("", None) if with_status else ""
         cmd = [py, "-m", "pytest", "-x", "--tb=short", "-q", "--color=no",
                "-p", "no:cacheprovider", *targets]
         env = dict(os.environ)

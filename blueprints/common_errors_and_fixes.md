@@ -11,6 +11,43 @@ symptom → cause → the exact fix. Add new ones as they surface.
 
 ---
 
+## ELI stopped starting after a system upgrade: `No module named ...`
+
+**Symptom (from-source install, any OS):** ELI worked, the operating system or Python was
+upgraded, and now every start ends in `ModuleNotFoundError: No module named 'requests'` (or
+`eli`, `PySide6`, ...). On Windows the message is `No Python at '...\python.exe'`.
+**Cause:** ELI's workspace (`.venv`) is tied to the Python it was built with. An upgrade that
+replaces that Python (Ubuntu 24.04 to 26.04 swaps 3.12 for 3.14; uninstalling or upgrading
+Python on Windows or macOS does the same) leaves the workspace starting as the new version,
+which cannot see a single installed package.
+**Fix:** start ELI the usual way. The launcher now says what happened and, if the old Python
+version is still installed anywhere (PATH, the `py` launcher, uv, pyenv, Homebrew), points the
+workspace back at it with nothing reinstalled. If it is not, run the installer once:
+
+```bash
+bash install.sh          # Linux / macOS
+install.bat              # Windows
+```
+
+It rebuilds the workspace on the Python you have now. Models, memory and settings are not
+touched. To check or repair by hand: `python3 scripts/eli_env.py status` / `repair`.
+The release packages (AppImage, Setup.exe, dmg) bring their own Python and are not affected.
+
+---
+
+## Voice is silent although a `piper` program is installed
+
+**Symptom:** no speech, and the log shows `piper failed rc=1` or a traceback from a `piper`
+outside ELI's folder.
+**Cause:** more than one program is called `piper`. Some Linux distributions ship an unrelated
+one that configures gaming mice, and a `piper` installed for a Python that has since been
+removed still sits on PATH. ELI used to take the first one it found by name.
+**Fix (this version):** ELI uses the Piper that was installed with it, and tries any other only
+if it starts and is the speech engine. Nothing to do. `ELI_PIPER_BINARY=/path/to/piper` still
+forces a particular one.
+
+---
+
 ## GPU pack: `libcudart.so.12: cannot open shared object file`
 
 **Symptom:** AppImage or portable dies (or `eli` CLI dies) with

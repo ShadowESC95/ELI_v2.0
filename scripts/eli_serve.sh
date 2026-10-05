@@ -19,6 +19,7 @@ source "$ROOT/scripts/eli_isolate_env.sh"
 eli_isolate_env "$ROOT"
 PY="$ROOT/.venv/bin/python"
 [ -x "$PY" ] || { echo "[eli-serve] .venv not found — run ./scripts/eli_setup.sh or bash install.sh first."; exit 1; }
+eli_env_ready "$ROOT" || exit 1
 
 HOST="127.0.0.1"
 # Default port: explicit env wins, else the user's saved api_port setting, else 8081.

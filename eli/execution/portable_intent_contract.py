@@ -185,7 +185,17 @@ def _looks_like_app_target(target: str) -> bool:
     # First token must look like an app/binary name: letters/digits/dot/dash/underscore.
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._\-+]{0,40}", tokens[0]):
         return False
+    # "start over", "run away", "start with the outline": the verb is not opening anything.
+    if tokens[0].lower() in _NOT_AN_APP_NAME:
+        return False
     return True
+
+
+# Words that follow "start"/"run"/"open" in ordinary speech and are never what gets opened.
+_NOT_AN_APP_NAME = frozenset((
+    "over", "again", "away", "now", "up", "off", "out", "with", "by", "from", "on", "at", "in", "to", "through",
+    "that", "this", "it", "them", "me", "us", "as", "for", "into", "around", "ahead", "fresh", "afresh", "here", "there",
+))
 
 
 # Common TLDs the user might dictate. STT drops the dot, so "open github com"

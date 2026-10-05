@@ -271,6 +271,7 @@ _add("Tasks, time & planning", "SET_ALARM", "Set an alarm", "“set an alarm for
 _add("Tasks, time & planning", "SET_TIMER", "Set a timer", "“set a timer for 10 minutes”")
 _add("Tasks, time & planning", "ADD_EVENT", "Add a calendar event", "“add an event tomorrow at 3pm”")
 _add("Tasks, time & planning", "LIST_EVENTS", "List events", "“list my events”")
+_add("Tasks, time & planning", "REMOVE_EVENT", "Remove a calendar event or reminder", "“cancel the dentist appointment”")
 _add("Tasks, time & planning", "POMODORO_START", "Start a pomodoro", "“start a pomodoro”")
 _add("Tasks, time & planning", "POMODORO_STOP", "Stop the pomodoro", "“stop the pomodoro”")
 _add("Tasks, time & planning", "POMODORO_STATUS", "Pomodoro status", "“pomodoro status”")

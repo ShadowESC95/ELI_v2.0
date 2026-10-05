@@ -52,7 +52,7 @@ Flow inside `AgentOrchestrator.run()`:
   observation loop**: run the executor, ask the loaded model for `ANSWER` or
   `TOOL:<action> <args>`, chain to the next tool and accumulate observations. One iteration in
   fast mode, up to three otherwise. The proposed tool is validated against the executor's
-  `SUPPORTED_ACTIONS` (206 actions) and the loop stops on an unknown action; `intent["args"]`
+  `SUPPORTED_ACTIONS` (207 actions) and the loop stops on an unknown action; `intent["args"]`
   are merged rather than overwritten. For "grounded synthesis" actions the observations are
   assembled into context and passed to the model; for direct actions the executor result is
   returned as is.
@@ -65,13 +65,79 @@ Flow inside `AgentOrchestrator.run()`:
   hand off to `engine._run_chat_reasoning_loop`. The bus is composed on the CHAT path and is
   not bypassed in Quick mode.
 
+**Following up on what ELI said.** Whatever a reply offers, asks or proposes, the user's next
+message is read against it, in code, whatever the conversation is about
+(`runtime/pending_proposal.py`).
+
+*What a reply leaves open.* `_store_assistant_turn` calls `read_reply` on every reply and stores the
+result, replacing the last one (it lapses after 30 minutes):
+
+- **steps** ELI offered, each with the number it was listed under. A step is an *action* when
+  the router has a rule for its words; a *task* when ELI would do it by writing (explain,
+  draft, compare, plan); *explicit* when it is something only the user's own words may start
+  (`llm_intent._EXPLICIT_ONLY_ACTIONS`). An action is kept wherever ELI names it. A task is
+  kept only where ELI asked for a go-ahead: its own offer, as a question ("Want me to walk you
+  through it?") or as a statement ("let me know if you'd like me to draft it", "I can turn
+  this into a checklist if you'd like"), or the items of a list its question points at ("Shall
+  I go ahead with any of these?"). A list of facts followed by an unrelated offer is not a set
+  of tasks, and "can I help with anything else?" offers nothing to carry out.
+- the **question** the reply ended on, if it ended on one.
+- a **detail an action asked for**. A handler that returns `awaiting` ({command, action,
+  needs}) or `choices` has it stored by the executor ("When is it?", "Which should go?",
+  "Where?"). `engine._asks_the_user` keeps such a result out of the failure log and the
+  re-plan, and shows its text as it is; so is any not-ok result whose text ends by asking.
+
+Offers are read from the reply as the user saw it. The stored copy has closing filler removed
+by the output governor, which used to delete "let me know if you'd like me to ..." along with
+"let me know if you need anything else"; a particular offer is now kept.
+
+*What the next message does* (`router._stage_pending_proposal_confirm`):
+
+- a decline drops what was offered;
+- consent (`is_consent`: "yes please", "go ahead", "sounds good", "do 1-3") covers the steps
+  picked by number or by name, else all of them (`chosen_items`);
+- a pick needs no "yes" (`selection`: "the second one", "2 and 3", "the abstract one");
+- the detail an action asked for (`is_the_detail`: a day or time, or a place) runs the original
+  request again with it;
+- anything else is a new message. One word is then an answer, not a fragment to ask again
+  about.
+
+*Carrying it out* (`engine._carry_out_agreed`): agreed actions run through the executor
+(`MULTI_COMMAND` with `results_only`, so the reply is each step's outcome). Agreed tasks run as
+a nested turn whose message is the task in the user's voice (`task_message`), so retrieval,
+budget and the reply are about the task and not about the words "yes please"; that turn is CHAT
+without routing or resolving ELI's words again, and `engine._follow_up_line` tells the model the user
+agreed and what has already been done. An explicit-only step is never run and never handed to
+the model: the reply says which words to use. The outer turn stores what the user typed and
+the reply they saw.
+
+A short reply after a question that is not a pick or a detail goes to the model with the
+question stated (`engine._follow_up_line`: "your last message ended by asking ...; their message is the
+answer; act on it").
+
+Three older rules still hold. *One routing per turn*: `engine._route_once` caches the router's
+answer, because routing has an effect (a "yes" spends the offer it confirms). *ELI's own
+sentence is not a command*: `_stream_with_followthrough` runs a promise in a reply only when it is a read
+(`_FOLLOWTHROUGH_READS`) or something the user's message asked for. *A mention with a clock
+time* that is not on the calendar gets a fixed offer sentence (`_agenda_offer`); a part of the
+day ("tonight") is not offered back as a time.
+
+DAG pool tasks run inside a copy of the caller's context (`core/dag.py`), so an action executed
+on a worker thread is recorded on the turn and carries the user id.
+
 **The direct-versus-synthesise decision** is a set membership test in `eli/kernel/engine.py`:
 
-- `_deterministic_direct_payload_actions` (192 entries): the executor's `content` or `response`
-  is returned verbatim in quick mode; in other modes such an action may be re-narrated by
+- `_DIRECT_RESULT_ACTIONS` (194 entries, module level; the control path reads it as
+  `_deterministic_direct_payload_actions`): the executor's `content` or `response` is returned
+  verbatim in quick mode; in other modes such an action may be re-narrated by
   `_compact_grounded_synthesis()` (constrained to quote from evidence, validated against it,
   falling back to the raw evidence).
 - `_verbatim_always_actions` (16 entries): verbatim in every mode.
+- `_shown_as_is(action, reasoning_mode)` is the same decision for the two other places an
+  action result is returned (the agent-bus path and the general executor path). They used to
+  keep shorter lists of their own, so a calendar or timer result went through a full generation
+  there and came back reworded. `_ALWAYS_AS_IS` (calendar, alarm, timer, `MULTI_COMMAND`,
+  `SEQUENCE`) is verbatim in every mode on those paths.
 - `eli/runtime/response_contracts.py::_QUICK_ACTIONS` (8 entries) only feeds the prompt header
   and never decides verbatim versus synthesis.
 
@@ -141,6 +207,11 @@ Execution (`AgentBus.dispatch`):
 
 Stage 12 side effects (store the turn, publish meta, `_learn_from_result`) run through
 `learning_coordinator.finalize_turn()`, one entry point for every CHAT exit.
+Exits that never reach it (the orchestrator stream, middleware answers) are completed by
+`engine._finalize_turn_backstop`, which runs once when a top-level turn ends normally and does
+only what the turn did not: the user's message, then the reply, episodic memory for chat-like
+turns, and the response meta. Nested turns (a multi-question split, a follow-through re-run)
+store nothing; their parent stores the real message and the reply the user saw.
 
 ## Planning artifacts
 

@@ -11,8 +11,8 @@
 > conversational summaries of a 195,242-line project (`eli/`, measured 2026-09-30) keep undershooting; this is the
 > persisted, exhaustive map.
 >
-> **Method.** Action list comes from the live `capability_manifest.json` (**229**
-> entries; 188 routable, 206 in the executor's supported list, 212 in either),
+> **Method.** Action list comes from the live `capability_manifest.json` (**230**
+> entries; 189 routable, 207 in the executor's supported list, 213 in either),
 > verified against the `executor_enhanced.py` dispatch. **The always-current,
 > auto-generated action list with activation phrases is
 > `capabilities_and_actions.md`** — this catalogue is the deeper module-level read.
@@ -24,9 +24,9 @@
 
 ---
 
-## Headline finding: 229 is real but aliased
+## Headline finding: 230 is real but aliased
 
-The manifest's 229 entries are honest (*measured* by `capability_sync`, not asserted)
+The manifest's 230 entries are honest (*measured* by `capability_sync`, not asserted)
 but inflated by **alias families** — multiple action names routing to one
 behaviour. Collapsed, there are roughly **~110 distinct capabilities**. Alias
 families are grouped below so the real surface is visible.
@@ -188,7 +188,7 @@ families are grouped below so the real surface is visible.
 | `WEB_SEARCH` | web | DuckDuckGo/SearXNG web search (toggle-gated). |
 | `GET_WEATHER` | weather | Local geocode + open-meteo (toggle-gated). |
 | `NEW_NOTE`/`WRITE_NOTE`, `LIST_NOTES`, `SEARCH_NOTES` | notes | Markdown notes with FTS. |
-| `ADD_EVENT`, `LIST_EVENTS` | calendar | ICS calendar events. |
+| `ADD_EVENT`, `LIST_EVENTS`, `REMOVE_EVENT` | calendar | ELI's own local calendar and reminders (`runtime/agenda.py`): add, move, list, remove. Mirrored to `calendar.ics`. |
 | `POMODORO_START`, `POMODORO_STOP`, `POMODORO_STATUS` | pomodoro | Focus timers. |
 | `CPU_USAGE`, `RAM_USAGE`, `SYSTEM_STATS` | system_stats | CPU/RAM/disk/network. |
 | `SMART_HOME` | executor and device server | Smart-home control via ELI's own MQTT device server (ESPHome / Tasmota / Zigbee2MQTT); rooms, scenes, real automations. Home Assistant removed. |
@@ -253,13 +253,14 @@ layer that wraps the probabilistic model. Grouped by function:
 | Module | LOC | Role |
 |---|---|---|
 | `awareness_boot.py` | 367 | Boots all awareness subsystems at startup, returns an `AwarenessState` the engine queries. |
-| `action_commitment.py` | 182 | Detects when ELI's reply COMMITS to an action (so the pipeline re-runs and actually does it — no fake actions). |
+| `action_commitment.py` | 220 | Detects when ELI's reply commits to an action. The engine then runs it only if it is a read (news, weather, calendar listing) or something the user's own message asked for; anything that changes state waits for a "yes". |
 
 ## Autonomy / operator (governed)
 | Module | LOC | Role |
 |---|---|---|
 | `operator_state.py`, `operator_feed.py` | ~177 | Operator console state: proposals, goals, self-model status, event feed. |
-| `pending_proposal.py` | 155 | Pending-proposal state (extract/set/clear). |
+| `pending_proposal.py` | 577 | What ELI's last reply left open, for 30 minutes: the steps it offered (`read_reply`: actions, tasks ELI does by writing, explicit-only), the question it ended on, a detail an action asked for. Reads the user's reply against it: `is_consent`, `chosen_items`, `selection`, `is_the_detail`. |
+| `agenda.py` | 1051 | ELI's calendar and reminders: SQLite store, plain-language dates and times (`parse_when`), a notifier thread that delivers what is due (and what was missed while shut), `calendar.ics` mirror, the next 36 hours as a prompt line. |
 | `approval_engine.py` | 103 | Who may propose / evaluate a proposal record (governance). |
 
 ## Response surfaces & governance
@@ -276,7 +277,7 @@ layer that wraps the probabilistic model. Grouped by function:
 | `personal_memory_surface.py` | 452 | "Is this a personal-memory query" + surface builder. |
 | `personal_memory_clean_response.py` | 338 | Clean "what do you know about me" report (reset-aware, poison-filtered, dynamic-fact aging). |
 | `personal_memory_deep_response.py` | 450 | Deep memory-internals explain (schema/tables/functions) + routing-fault explain. |
-| `profile_extractor.py` | 1519 | Extracts user facts from turns (role/interests/field/"remember that I…"), writes user_patterns + LLM session summaries; recency refresh. `_SINGLE_VALUED_PATTERNS` (single source of truth, `user_model.py` imports it) gets belief-weighed supersession with revision history on a correction, not accumulation of contradictory rows. |
+| `profile_extractor.py` | 1667 | Extracts user facts from turns (role/interests/field/"remember that I…"), writes user_patterns + LLM session summaries; recency refresh. `_SINGLE_VALUED_PATTERNS` (single source of truth, `user_model.py` imports it) gets belief-weighed supersession with revision history on a correction, not accumulation of contradictory rows. |
 | `identity_validation.py` | 176 | Validate identity candidates. |
 
 ## Typed pipeline plumbing (evidence/packets)
@@ -545,7 +546,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `correction_patterns.py` | 224 | Shared patterns for user correction / dispute turns. |
 | `emotion_palette.py` | 254 | Emotion / tone palette — the shared taxonomy ELI expresses through. |
 | `emotion_timeline.py` | 452 | Emotion timeline — the durable record of how the USER has been feeling. |
-| `evidence_format.py` | 52 | Dates on evidence lines, from each row's own timestamp. |
+| `evidence_format.py` | 196 | Dates on evidence lines, from each row's own timestamp; `time_facts` (clock times in the user's message worked out against now); `this_conversation` (the dialogue block holds this conversation, not turns from days ago). |
 | `expression_state.py` | 63 | Live avatar/expression state — the thin bridge that lets ELI's face react in |
 | `memory_diag.py` | 73 | What memory retrieval actually did this turn, from telemetry, so ELI never has to guess why. |
 | `model_identity.py` | 237 | Model-agnostic identity: chat family + thinking from GGUF metadata. |
@@ -707,7 +708,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 ## `plugins/`
 | Module | Lines | Role |
 |---|---:|---|
-| `calendar/plugin.py` | 109 | Calendar plugin: `ADD_EVENT` and `LIST_EVENTS` over ICS events. |
+| `calendar/plugin.py` | 27 | Calendar plugin: hands `ADD_EVENT` and `LIST_EVENTS` to `runtime/agenda.py`. |
 | `document_reader/plugin.py` | 355 | Document reader plugin: reads and indexes PDF and docx files. |
 | `integrity.py` | 291 | Integrity and publisher identity for community plugins. |
 | `manifest.py` | 302 | Plugin manifests: what a plugin says it is, checked against what it does. |
@@ -721,7 +722,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `subprocess_sandbox.py` | 308 | Containment for child processes — the gap netguard structurally cannot cover. |
 | `system_stats/plugin.py` | 74 | System stats plugin: `CPU_USAGE`, `RAM_USAGE`, `SYSTEM_STATS`. |
 | `tts/plugin.py` | 43 | TTS (Text-to-Speech) plugin for ELI. |
-| `weather/plugin.py` | 132 | Weather plugin: `GET_WEATHER` (geocode plus open-meteo, toggle-gated). |
+| `weather/plugin.py` | 187 | Weather plugin: `GET_WEATHER` (geocode plus open-meteo, toggle-gated). Current conditions, or the forecast for a named day; a day word is never the place. |
 | `web/plugin.py` | 617 | Web plugin: `WEB_SEARCH` (toggle-gated). |
 | `web_automation/plugin.py` | 92 | Web Automation plugin for ELI – lazy Playwright import, safe under broken installs. |
 

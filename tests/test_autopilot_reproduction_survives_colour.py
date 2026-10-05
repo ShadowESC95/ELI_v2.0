@@ -83,3 +83,17 @@ def test_a_passing_test_is_not_called_a_reproduction(monkeypatch):
 def test_no_targets_is_not_a_run():
     assert dbg._run_validation(dbg._repo_root(), []) == {
         "ran": False, "failed": False, "output": ""}
+
+
+def test_the_interpreter_chosen_to_run_tests_can_import_pytest():
+    import subprocess
+    dbg._PYTEST_PYTHON.clear()
+    py = dbg._python_with_pytest(dbg._repo_root())
+    assert py and subprocess.run([py, "-c", "import pytest"], capture_output=True).returncode == 0
+
+
+def test_no_interpreter_with_pytest_is_no_run_and_no_verdict(monkeypatch):
+    """A python that cannot import pytest exits 1, which is also pytest's "a test failed"."""
+    monkeypatch.setattr(dbg, "_python_with_pytest", lambda root: None)
+    assert dbg._run_pytest(dbg._repo_root(), ["tests/test_anything.py"], with_status=True) == ("", None)
+    assert dbg._run_pytest(dbg._repo_root(), ["tests/test_anything.py"]) == ""

@@ -334,11 +334,16 @@ def _eli_weather_prepass(user_text: str):
         re.I)
     if m:
         loc = m.group(1).strip().rstrip("?.!, ")
+        # "weather for tomorrow", "forecast for this weekend": a day, not a place
+        loc = re.sub(r"(?i)\b(?:today|tonight|tomorrow|now|later|this (?:morning|afternoon|evening|weekend|week)|"
+                     r"next week|the weekend|the week|(?:on |next |this )?(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b",
+                     " ", loc)
+        loc = re.sub(r"(?i)^(?:in|at|for|near)\s+", "", re.sub(r"\s+", " ", loc).strip(" ,")).strip(" ,") or None
         return {
             "action": "GET_WEATHER",
             "args": {"location": loc, "_raw_user_text": user_text},
             "confidence": 0.97,
-            "meta": {"matched_by": "weather.prepass", "entities": {"location": loc}},
+            "meta": {"matched_by": "weather.prepass", "entities": {"location": loc} if loc else {}},
         }
     return None
 
@@ -414,6 +419,18 @@ _SCHEDULE_TIME_RX = re.compile(
     r"|(?:for|by|at)\s+\d{1,2}[:\s]\d{2}\s*(?:am|pm)?"   # 'for 7 15', 'at 7:15'
     r"|(?:for|by|at)\s+\d{1,2}\s*(?:am|pm)"               # 'for 7am'
     r"|in\s+\d+\s*(?:hours?|hrs?|minutes?|mins?))\b", re.I)
+# When the work is to be done, said outright: a clock time, a delay, "overnight", "every morning".
+_EXPLICIT_WHEN_RX = re.compile(
+    r"\b(overnight|later tonight"
+    r"|every\s+(?:morning|day|night|evening|week)|each\s+(?:morning|day|night)"
+    r"|at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?"
+    r"|(?:for|by|at)\s+\d{1,2}[:\s]\d{2}\s*(?:am|pm)?"
+    r"|(?:for|by|at)\s+\d{1,2}\s*(?:am|pm)"
+    r"|in\s+\d+\s*(?:hours?|hrs?|minutes?|mins?))\b", re.I)
+# Words that ask for something to be done later rather than now.
+_DEFER_RX = re.compile(
+    r"\b(schedule|queue|remind|run|upgrade|update yourself|reflect|later|while\s+i(?:'m|\s+am)\s+(?:asleep|sleeping|out|away)"
+    r"|when\s+i\s+wake|by\s+(?:tomorrow|tonight|morning|the\s+morning)|ready\s+(?:for|by))\b", re.I)
 # Heavy/agentic task verbs (NOT 'set'/'get' — those would hijack alarms, weather,
 # forecasts). Only unambiguous scheduling verbs are added.
 _SCHEDULE_VERB_RX = re.compile(
@@ -492,6 +509,97 @@ def _eli_final_clause(text: str) -> str:
 
 
 
+_AG_CAL = r"(?:calendar|calender|calander|diary|agenda|schedule)"
+_AG_ITEM = r"(?:events?|appointments?|meetings?|reminders?|alarms?)"
+_AG_WHOSE = r"(?:my|your|our|the)"
+_AG_POLITE = r"(?:(?:please|pls|eli|hey|ok(?:ay)?|so|now|then|just|you|can you|could you|would you|will you|let'?s|let me)[\s,]+)*"
+_AG_DAY = r"(?:today|tonight|tomorrow|this (?:morning|afternoon|evening|week)|next week|(?:on\s+)?(?:mon|tues|wednes|thurs|fri|satur|sun)day)"
+_AG_LIST_RX = re.compile(
+    rf"^{_AG_POLITE}(?:show|list|check|read|double-?check|look at|go through|pull up|what(?:'s| is)(?:\s+(?:on|in))?)\s+(?:me\s+)?{_AG_WHOSE}\s+{_AG_CAL}\b"
+    rf"|^{_AG_POLITE}(?:show|list|check|read)\s+(?:me\s+)?(?:{_AG_WHOSE}|all {_AG_WHOSE}|any)\s+(?:upcoming\s+)?{_AG_ITEM}\b"
+    rf"|\bwhat(?:'s| is| have i got| do i have)\s+(?:on|planned|scheduled|coming up)\b[^?]{{0,40}}\b{_AG_DAY}\b"
+    rf"|\bwhat(?:'s| is| does)\s+my\s+(?:{_AG_CAL}|day|week)\b"
+    rf"|\bdo i have\s+(?:anything|something|any\s+{_AG_ITEM}|an?\s+{_AG_ITEM})\b[^?]{{0,40}}(?:\b(?:on|planned|scheduled)\b|\b{_AG_DAY}\b|\?|$)"
+    rf"|\bwhat\s+{_AG_ITEM}\s+do i have\b|\bwhat are my\s+{_AG_ITEM}\b|\bany(?:thing)?\s+on\s+{_AG_DAY}\b"
+    rf"|\b(?:am i|are we)\s+free\b[^?]{{0,30}}\b{_AG_DAY}\b",
+    re.I)
+_AG_NOT_LIST_RX = re.compile(r"\b(?:tv|telly|television|netflix|cinema|radio|the news|spotify|youtube)\b", re.I)
+_AG_REMIND_RX = re.compile(
+    rf"\bremind\s+(?:me|us)\b|^{_AG_POLITE}(?:set|add|create|make|setting)\s+(?:up\s+)?(?:(?:a|an|another|the)\s+)?reminders?\b"
+    r"|^(?:consider\s+)?setting\s+(?:(?:a|an|another)\s+)?reminders?\b|^reminder\b", re.I)
+_AG_REMIND_QUESTION_RX = re.compile(r"\bremind\s+(?:me|us)\s+(?:again\s+)?(?:what|why|how|who|where|which|whether|if)\b", re.I)
+_AG_ADD_RX = re.compile(
+    rf"\b(?:add|put|pop|stick|create|make|schedule|book|pencil in|save|log)\b[^?!\n]{{0,160}}?"
+    rf"(?:\b(?:in|into|to|on|onto)\s+{_AG_WHOSE}\s+{_AG_CAL}\b|\b(?:an?|the|new)\s+(?:calendar\s+)?(?:event|entry|appointment)\b)", re.I)
+_AG_BOOK_RX = re.compile(
+    rf"^{_AG_POLITE}(?:schedule|book|pencil in)\s+(?:a|an|my|the|our)\s+(?:[\w'-]+\s+){{0,2}}?"
+    r"(?:presentation|meeting|appointment|interview|exam|class|lecture|call|session|dinner|lunch|breakfast|brunch|party|"
+    r"flight|gig|concert|match|seminar|workshop|check-?up|review|demo|stand-?up|webinar|tutorial|haircut|dentist|doctor|"
+    r"gp|physio|vet|drinks|trip|rehearsal|training|table)\b", re.I)
+_AG_ADD_IT_RX = re.compile(
+    rf"^{_AG_POLITE}(?:add|put|pop|stick|schedule|save|log|book)\s+(?:it|that|this|them|those|the event)\b"
+    rf"(?:\s+(?:in|into|to|on|onto)(?:\s+{_AG_WHOSE})?\s+{_AG_CAL})?(?:\s+(?:then|please|now|for me|in))*[\s.!]*$", re.I)
+
+
+_AG_NOUN = (r"(?:event|reminder|appointment|meeting|alarm|presentation|interview|exam|class|lecture|call|session|dinner|"
+            r"lunch|breakfast|brunch|party|flight|gig|concert|match|seminar|workshop|check-?up|review|demo|stand-?up|"
+            r"webinar|tutorial|haircut|dentist|doctor|gp|physio|vet|drinks|trip|rehearsal|training)s?")
+_AG_REMOVE_RX = re.compile(
+    rf"^{_AG_POLITE}(?:cancel|delete|remove|drop|scrap|clear|wipe)\b[^?!\n]{{0,120}}?"
+    rf"(?:\b{_AG_NOUN}\b|\b(?:from|in|on|off)\s+{_AG_WHOSE}\s+{_AG_CAL}\b|\b{_AG_WHOSE}\s+{_AG_CAL}\b)", re.I)
+_AG_MOVE_RX = re.compile(
+    rf"^{_AG_POLITE}(?:no[,.!\s]+|sorry[,.!\s]+|actually[,.!\s]+|wait[,.!\s]+|cancel that[,.!\s]+)*"
+    r"(?:i meant|i mean|make (?:it|that)|change (?:it|that|the [\w' -]{2,40}?) to|move (?:it|that|the [\w' -]{2,40}?) to|"
+    r"push (?:it|that|the [\w' -]{2,40}?) (?:back |forward )?to|reschedule (?:it|that|the [\w' -]{2,40}?)(?: (?:to|for))?|"
+    r"it'?s actually(?: at| on)?|it is actually(?: at| on)?)\s+\S"
+    r"|^(?:no|sorry|actually|wait)[,.!\s]+(?:it'?s|it is|that'?s)\s+(?:at|on)\s+\S", re.I)
+_AG_ASKING_RX = re.compile(
+    r"^(?:did|have|has|had|was|were|is|are)\s+(?:you|it|that|this|the|my|there)\b[^?]*\b(?:add|added|put|set|saved|in|on)\b", re.I)
+
+
+def _eli_agenda_prepass(user_text: str):
+    """Calendar and reminder requests, by what they say and not by a stray word.
+
+    The rule this replaces matched substrings: "add the presentation at 7.30pm to my calendar"
+    listed events (it contains "my"), "what a boring meeting" listed events, ELI's own
+    "check your calendar for any scheduled events" added one (it contains "schedule"), and
+    "remind me at 4pm to prepare" became a background work task."""
+    t = (user_text or "").strip()
+    if not t or len(t) > 400:
+        return None
+    low = t.lower()
+    try:
+        from eli.runtime.command_splitter import split_commands
+        if len(split_commands(t) or []) >= 2:
+            return None  # each command is routed on its own
+    except Exception:
+        log.debug("agenda prepass: split probe failed", exc_info=True)
+    # "did you add it to my calendar?" asks what is there; showing the calendar answers it.
+    if _AG_ASKING_RX.search(low) and re.search(rf"\b{_AG_CAL}\b|\b{_AG_ITEM}\b", low):
+        return _mk("LIST_EVENTS", {"text": t}, 0.96, matched_by="agenda.list")
+    if _AG_MOVE_RX.search(t):
+        try:
+            from eli.runtime.agenda import parse_when as _ag_when
+            if _ag_when(t) is not None:
+                # "i meant 8pm", "move the dentist to friday": changes what is there, adds nothing
+                return _mk("ADD_EVENT", {"text": t, "move": True}, 0.96, matched_by="agenda.move")
+        except Exception:
+            log.debug("agenda prepass: time probe failed", exc_info=True)
+    if _AG_REMOVE_RX.search(t) and not re.search(
+            r"\b(?:timer|pomodoro|download|upload|job|task|order|subscription|files?|folders?|notes?|documents?|photos?|"
+            r"pictures?|emails?|messages?|apps?|contacts?|songs?|playlists?|tabs?|windows?|recordings?|minutes)\b", low):
+        return _mk("REMOVE_EVENT", {"text": t}, 0.96, matched_by="agenda.remove")
+    if _AG_ADD_IT_RX.search(t):
+        return _mk("ADD_EVENT", {"text": t, "from_context": True}, 0.96, matched_by="agenda.add_it")
+    if _AG_REMIND_RX.search(t) and not _AG_REMIND_QUESTION_RX.search(t):
+        return _mk("SET_ALARM", {"text": t}, 0.96, matched_by="agenda.remind")
+    if _AG_ADD_RX.search(t) or _AG_BOOK_RX.search(t):
+        return _mk("ADD_EVENT", {"text": t}, 0.96, matched_by="agenda.add")
+    if _AG_LIST_RX.search(low) and not _AG_NOT_LIST_RX.search(low):
+        return _mk("LIST_EVENTS", {"text": t}, 0.96, matched_by="agenda.list")
+    return None
+
+
 def _eli_schedule_prepass(user_text: str):
     """Detect 'do <any command> at <future time>' → SCHEDULE_TASK (background workers).
 
@@ -520,7 +628,16 @@ def _eli_schedule_prepass(user_text: str):
     m_action = _SCHEDULE_ACTION_RX.search(t)
     if not (_SCHEDULE_VERB_RX.search(t) or m_action or _IMPERATIVE_RX.search(t)):
         return None
+    # A day on its own usually says what the request is about, not when to do it: "help me plan
+    # a study session for tonight", "check the weather for tomorrow", "write a speech for
+    # tomorrow". Those were queued as background jobs for 2am. A bare "tonight" or "tomorrow"
+    # makes a job only with a named report or a word that asks for it to be done later.
+    if not (_EXPLICIT_WHEN_RX.search(t) or m_action or _DEFER_RX.search(t)):
+        return None
     inner = m_action.group(0) if m_action else _strip_schedule_time(t)
+    # the name of a report is a command on its own; the name of a test run is not
+    if re.fullmatch(r"(?i)test suite|test report|engine eval|self[\s_-]?test", inner):
+        inner = f"run the {inner}"
     return {
         "action": "SCHEDULE_TASK",
         "args": {"request": inner, "when": t},
@@ -935,6 +1052,16 @@ def _looks_like_conversation_summary(low: str) -> bool:
 # ============================================================
 # ROUTER
 # ============================================================
+def _eli_asked_for_the_name() -> bool:
+    """ELI's last message asked the user what they are called."""
+    try:
+        from eli.runtime.pending_proposal import get_follow_up
+        asked = str((get_follow_up() or {}).get("question") or "").lower()
+    except Exception:
+        return False
+    return bool(re.search(r"\b(?:your name|call you|who (?:am i|i'?m|i am) (?:talking|speaking|working) (?:to|with))\b", asked))
+
+
 def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
     """Detect explicit name-setting statements and route to SET_USER_NAME."""
     import re as _re
@@ -1030,6 +1157,10 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
             # STT produces all-lowercase; a typed name would be capitalised.
             if i == 1 and (not raw or not raw[0].isupper()):
                 continue
+            # A word on its own is a name only as the answer to being asked for one. Without
+            # this "Dublin", "Tuesday" or "Pizza", typed in reply to anything, renamed the user.
+            if i == 1 and not _eli_asked_for_the_name():
+                continue
             if _clow not in _bad and len(candidate) >= 3 and _has_vowel:
                 return _mk(
                     "SET_USER_NAME",
@@ -1107,6 +1238,19 @@ _ASKING_RE = re.compile(
     r"\b(?:" + "|".join(s.replace(" ", r"\s+") for s in _ASKING_STEMS) + r")\b",
     re.I,
 )
+
+
+_OWN_FACULTY_RE = re.compile(
+    r"\b(?:improve|train|boost|sharpen|strengthen|exercise|protect|test|help(?: with)?|fix)\b.{0,24}\bmy memory\b"
+    r"|\bmy memory\s+(?:is|has|was|'s|seems|feels|keeps)\s+(?:been\s+)?(?:so\s+|really\s+|very\s+|getting\s+)?"
+    r"(?:bad|terrible|awful|poor|rubbish|shot|worse|failing|going|slipping|not what)\b"
+    r"|\b(?:losing|lost)\s+my memory\b", re.I)
+
+
+def _pm_own_faculty(low: str) -> bool:
+    """The user means their own memory, the one in their head: "how do i improve my memory",
+    "my memory is terrible lately". Nothing ELI has stored is being asked about."""
+    return bool(_OWN_FACULTY_RE.search(low or ""))
 
 
 def _pm_asks_something(low: str) -> bool:
@@ -1795,7 +1939,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
 
     if not _explain_prior_claim and re.search(
         r"\b(took you|took so long|why did you take|response time|slow response|that took ages|"
-        r"20 minutes|twenty minutes|you don't believe me|dont believe me|took over|took nearly|"
+        r"you don't believe me|dont believe me|took over|took nearly|"
         r"took just under|how much ram\b|how much memory\b|ram\b.{0,30}\butili[sz]|"
         r"memory\b.{0,30}\bfor (?:the )?model|decrease latency|reduce latency)\b",
         low,
@@ -1946,6 +2090,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if (
         not _eli_memory_runtime_route_lock_should_trigger(_pm_text)
         and _pm_asks_something(_pm_text)
+        and not _pm_own_faculty(_pm_text)
         and ("memory" in _pm_text)
         and (
             "personal" in _pm_text
@@ -3622,7 +3767,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
 
     _wallclock_meta = _is_wallclock_meta_question(low)
 
+    # "what time is it and how long until the presentation?" wants more than the clock: answered
+    # as TIME it got "09:05" and nothing else.
+    from eli.cognition.query_planner import asks_date_arithmetic as _asks_time_sum
     if (not _is_date_conv and not _file_command and not _wallclock_meta
+            and not _asks_time_sum(low)
             and any(re.search(p, low) for p in _WALLCLOCK_TIME_PATTERNS)):
         # original_query carries the phrasing the TIME effector needs to tell
         # "the time" from "the day and the time", and to spot a named place.
@@ -4487,14 +4636,9 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             return _mk("GET_WEATHER", {"location": location, "_raw_user_text": raw}, 0.95, matched_by="info.weather", entities={
                        "location": location} if location else None)
 
-    if any(w in low for w in ["calendar", "calender",
-           "calander", "event", "appointment", "meeting"]):
-        if any(w in low for w in ["show", "list",
-               "my", "what", "open", "display"]):
-            return _mk("LIST_EVENTS", {}, 0.95, matched_by="calendar.list")
-        if any(w in low for w in ["add", "create", "schedule"]):
-            return _mk("ADD_EVENT", {"text": raw}, 0.95,
-                       matched_by="calendar.add", entities={"text": raw})
+    # Calendar and reminder requests are routed by _eli_agenda_prepass. The rule that stood here
+    # matched substrings ("my", "what", "schedule" inside "scheduled") in any sentence that
+    # mentioned a meeting or an event.
 
     # ------------------------------------------------------------
     # 12) SYSTEM SETTINGS / PANELS / ALIASES
@@ -4558,6 +4702,12 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         )
 
     _open_m = re.match(r"^\s*(open|run|launch|start)\s+(.+?)\s*$", raw, re.I)
+    # "start with the outline", "run through it again", "start over": the verb is not opening
+    # anything. An app's name does not begin with a preposition or a pronoun.
+    if _open_m and _open_m.group(1).lower() in ("start", "run") and re.match(
+            r"(?i)(?:with|by|from|on|at|in|to|through|over|again|that|this|it|them|me|us|now|off|out|as|for|into|"
+            r"away|around|ahead)\b", _open_m.group(2).strip()):
+        _open_m = None
     if _open_m:
         target = re.sub(r"\s+app$", "", _open_m.group(2).strip(), flags=re.I)
         # An article is never part of the target. Without this, "open the
@@ -5236,9 +5386,14 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("LISTEN_FOR_COMMAND", {"timeout": _timeout}, 0.90, matched_by="voice.listen_for_command")
 
     # ── Help ─────────────────────────────────────────────────────────────────
-    if re.search(r"^\s*(?:help|commands?|what\s+(?:can\s+i|commands?|actions?)|"
+    # "help" on its own asks what ELI can do. "help me with my essay" and "what can i do about my
+    # landlord" ask for help with something, and got the capability list.
+    if re.search(r"^\s*(?:(?:(?:i\s+)?need\s+|some\s+)?help(?:\s+me)?(?:\s+(?:please|out|here))?\s*[?.!]*$|"
+                 r"commands?\s*[?.!]*$|"
+                 r"what\s+can\s+i\s+(?:say|ask|do)(?:\s+(?:you|here|with\s+(?:you|eli)|to\s+you))?\s*[?.!]*$|"
+                 r"what\s+(?:commands?|actions?)\b|"
                  r"what\s+(?:do\s+you|are\s+your)\s+(?:command|capability|action)|"
-                 r"show\s+(?:me\s+)?(?:help|commands?|capabilities?)|list\s+command)\b", low):
+                 r"show\s+(?:me\s+)?(?:the\s+|your\s+)?(?:help|commands?|capabilities?)\b|list\s+command)", low):
         return _mk("HELP", {}, 0.90, matched_by="system.help")
 
     _eli_pipeline_trace("router.fallback_chat_selected", text=str(raw)[:160])
@@ -5738,7 +5893,7 @@ def _eli_self_improvement_phrase_guard(text):
     if re.search(r"\b(generate|write|create)\s+(behaviou?ral\s+|unit\s+)?tests?\b|"
                  r"\btest\s+generation\b|\bgrow\s+(your\s+)?(test\s+)?coverage\b|"
                  r"\bwrite\s+tests?\s+for\s+(your|the)\b", low) and "report" not in low:
-        return _mk("GENERATE_TESTS", {}, 0.95, matched_by="tests.generate.guard")
+        return _eli_schedule_prepass(raw) or _mk("GENERATE_TESTS", {}, 0.95, matched_by="tests.generate.guard")
     if re.search(r"\btest\s+review\b|\breview\s+(the\s+)?test(s| results| suite)\b|"
                  r"\brun\s+(the\s+)?(full\s+)?(tests?|test\s+suite|project)\b.*\b(review|summari[sz]e|"
                  r"what('?s| is)?\s+(wrong|to\s+fix)|options|tell\s+me)\b|"
@@ -5746,7 +5901,8 @@ def _eli_self_improvement_phrase_guard(text):
         return _mk("TEST_REVIEW", {}, 0.96, matched_by="tests.review.guard")
     if re.search(r"\b(run\s+(the\s+|your\s+)?(test\s+suite|tests|pytest|claims\s+suite)|"
                  r"test\s+report|generate\s+(a\s+)?test\s+report|how('?s| is)\s+the\s+test\s+suite)\b", low):
-        return _mk("RUN_TESTS", {}, 0.96, matched_by="tests.run.guard")
+        # "run the test suite tonight" asks for it then, not now.
+        return _eli_schedule_prepass(raw) or _mk("RUN_TESTS", {}, 0.96, matched_by="tests.run.guard")
     if re.search(r"\bself[\s_-]?test\b|\brun\s+(a\s+)?self[\s_-]?test\b", low):
         return _mk("SELF_TEST", {}, 0.96, matched_by="self.test.guard")
     if re.search(r"\borchestrat(ion|or)\s+status\b|\b(show|explain)\s+(me\s+)?(your\s+)?(the\s+)?"
@@ -6781,8 +6937,22 @@ def _eli_phase38_final_memory_question_contract(raw):
         or _re.search(r"\b(good job|well done|impressive|scary)\b.{0,40}\b(memory|remembering)\b", low)
         or _re.search(r"\bhow\s+well\b.{0,40}\b(memory|remembering)\b", low)
     )
+    # This report is about ELI's own memory. "how does memory work in the brain" and "what is a
+    # knowledge graph" are questions about the world and got ELI's table counts.
+    _about_eli = bool(_re.search(r"\b(?:you|your|yours|yourself|eli|eli's)\b", low))
+    _other_subject = (not _about_eli) and bool(_re.search(
+        r"\b(?:in the brain|the brain|brains|human|humans|people|person's|children|elderly|animals?|goldfish|"
+        r"muscle memory|computer memory|in (?:python|linux|windows|java|rust|c\+\+|general)|psycholog\w*|neuro\w*)\b", low))
+    _mechanism = (r"(?:faiss|fts5?|knowledge graphs?|hyde|rag pipelines?|vector stores?|embedders?|"
+                  r"vector index(?:es)?|dag pipelines?)")
+    _general_definition = (not _about_eli) and bool(_re.search(
+        r"\b(?:what(?:'s| is| are)|whats|define|explain what|tell me what)\s+(?:(?:a|an|the)\s+)?" + _mechanism +
+        r"(?:\s+(?:is|are|used for|for|in general|exactly|actually|anyway|mean|means))*\s*[?.!]*$"
+        r"|\b(?:a|an)\s+" + _mechanism + r"\b", low))
     asks_memory_internals = (
         not _memory_compliment
+        and not _other_subject
+        and not _general_definition
         and not _asks_for_remembered_content(low)
         and (
         "memory system" in low
@@ -7419,6 +7589,18 @@ def _eli_phase38_tiny_fragment_post(raw, result):
                 )
             )
 
+            # One word straight after ELI asked or offered something is the answer ("B", "2",
+            # "tomorrow"), not a fragment to ask again about.
+            if looks_fragmentary and not allowed_short:
+                if str((result.get("meta") or {}).get("matched_by") or "").startswith("pending_proposal."):
+                    return result
+                try:
+                    from eli.runtime.pending_proposal import get_follow_up as _open_follow_up
+                    if _open_follow_up():
+                        return result
+                except Exception:
+                    _SWLOG.debug("suppressed exception", exc_info=True)
+
             if looks_fragmentary and _re.fullmatch(
                 r"(?:date|the\s+date|is\s+the\s+date|what\s+date|what\s+is\s+the\s+date|what's\s+the\s+date|today|what\s+day|what\s+days|their\s+date|tell\s+me\s+their\s+days)",
                 low,
@@ -8037,7 +8219,8 @@ try:
                     r"powershell|zsh|fish|lua|go|golang|rust|c\+\+|cpp|java|"
                     r"script|function|program|module|code)\b", _rgs.I)
                 if _LANG_RE.search(raw2):
-                    return {
+                    # "build me a script at 2am" asks for it then, not now.
+                    return _eli_schedule_prepass(raw2) or {
                         "action": "GENERATE_SCRIPT",
                         "args": {"description": raw2, "use_gguf_only": True, "forbid_ollama": True},
                         "confidence": 0.97,
@@ -8278,15 +8461,14 @@ try:
                 return None
 
             def _stage_pending_proposal_confirm(text, *_a, **_k):
-                """If ELI offered to do something ("Want me to set a reminder?")
-                and the user now affirms, re-route the stored proposal phrase
-                through the pipeline so it actually executes (or asks for
-                specifics). A decline clears it and falls through to chat."""
+                """The user's message read against what ELI's last reply left open
+                (eli.runtime.pending_proposal): a "yes" runs what was offered, a pick
+                ("the second one", "do 1-3") runs those steps, an answer to a detail an
+                action asked for completes that request. A decline clears it and falls
+                through to chat."""
                 try:
-                    from eli.runtime.pending_proposal import (
-                        get_pending_proposal, clear_pending_proposal,
-                    )
-                    prop = get_pending_proposal()
+                    from eli.runtime import pending_proposal as _pp
+                    prop = _pp.get_follow_up()
                     if not prop:
                         return None
                     low = re.sub(r"\s+", " ", str(text or "").strip().lower())
@@ -8302,26 +8484,57 @@ try:
                         is_negation = lambda t: bool(_nw.search(t or ""))
                     # Affirmation wins when both appear ("yes, not no").
                     if is_negation(low) and not is_affirmation(low):
-                        clear_pending_proposal()
+                        _pp.clear_pending_proposal()
                         return None
-                    if is_affirmation(low):
-                        # "yes please dig into the timestamps" is a new request,
-                        # not consent to a stale install/download proposal.
-                        if len(low.split()) > 4 or re.search(
-                            r"\b(?:dig|timestamp|investigate|check|trace|fix)\b", low
-                        ):
-                            clear_pending_proposal()
-                            return None
-                        cmd = str(prop.get("command") or "").strip()
-                        clear_pending_proposal()
-                        if cmd:
-                            routed = route(cmd)  # pending already cleared → no recursion
+                    offered = bool(prop.get("command") or prop.get("items"))
+                    chosen = []
+                    if offered and _pp.is_consent(low):
+                        chosen = _pp.chosen_items(prop, low)
+                    elif offered:
+                        chosen = _pp.selection(prop, low)
+                    if chosen:
+                        _pp.clear_pending_proposal()
+                        got = _pp.agreed(chosen, offer=prop.get("question") or prop.get("summary") or "")
+                        cmds = got["commands"]
+                        if got["tasks"] or got["explicit"]:
+                            # Some of it ELI does by writing, or may only do on the user's own
+                            # words: the engine carries the whole agreement out (_carry_out_agreed).
+                            return _mk("CHAT", {"message": text, "agreed": got}, 0.95,
+                                       matched_by="pending_proposal.confirm")
+                        if len(cmds) == 1:
+                            routed = route(cmds[0])  # pending already cleared → no recursion
                             if isinstance(routed, dict):
                                 routed.setdefault("meta", {})
                                 routed["meta"]["matched_by"] = "pending_proposal.confirm"
-                                routed["meta"]["rerouted_from_proposal"] = cmd
+                                routed["meta"]["rerouted_from_proposal"] = cmds[0]
                                 return routed
+                        elif cmds:
+                            # Several steps were offered and agreed to: each runs as its own command.
+                            return _mk("MULTI_COMMAND", {"commands": cmds, "raw": " and ".join(cmds),
+                                                         "results_only": True}, 0.95,
+                                       matched_by="pending_proposal.confirm")
+                        return None
+                    waiting = prop.get("awaiting") if isinstance(prop.get("awaiting"), dict) else None
+                    if waiting and _pp.is_the_detail(text, waiting.get("needs")):
+                        # An action asked for a missing detail ("When is it?") and the reply is
+                        # that detail: the original request is run again with it.
+                        _pp.clear_pending_proposal()
+                        _asked_cmd = str(waiting.get("command") or "")
+                        _detail = str(text or "").strip().rstrip("?.!")
+                        whole = route(_asked_cmd.replace("{answer}", _detail) if "{answer}" in _asked_cmd
+                                      else f"{_asked_cmd} {_detail}".strip())
+                        if str(whole.get("action") or "").upper() == str(waiting.get("action") or "").upper():
+                            whole.setdefault("meta", {})
+                            whole["meta"]["matched_by"] = "pending_proposal.answer"
+                            return whole
+                        return None
+                    if offered and is_affirmation(low):
+                        # "yes please dig into the timestamps" is a new request, not consent to
+                        # what was offered.
+                        _pp.clear_pending_proposal()
+                        return None
                 except Exception:
+                    _SWLOG.debug("pending proposal stage failed", exc_info=True)
                     return None
                 return None
 
@@ -8348,6 +8561,9 @@ try:
                 ("frontier_status", _stage_frontier_status),
                 ("memory_runtime_lock", _stage_memory_runtime_lock),
                 ("gui_actual_scan", _stage_gui_actual_scan),
+                # Before the self-report and schedule stages: "check your calendar for any recent
+                # updates" is a calendar request, and a reminder is not a background work task.
+                ("agenda", lambda t, *a, **k: _eli_agenda_prepass(t)),
                 ("self_report_recent_updates", _stage_self_report_recent_updates),
                 ("recent_memory", _stage_recent_memory),
                 ("memory_count", _stage_memory_count),

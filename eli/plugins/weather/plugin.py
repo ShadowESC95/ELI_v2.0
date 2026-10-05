@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import re
 import urllib.parse
+from datetime import date as _date
+from typing import Optional
 
 from eli.core.netguard import http_get_json
 
@@ -64,8 +67,57 @@ def _weather_code_text(code: int | None) -> str:
     return table.get(code, f"code {code}" if code is not None else "unknown")
 
 
-def get_weather(location: str) -> dict:
-    location = str(location or "").strip()
+_DAY_WORDS = re.compile(
+    r"(?i)\b(?:today|tonight|tomorrow|now|later|this (?:morning|afternoon|evening|weekend|week)|next week|"
+    r"the weekend|the week|(?:on |next |this )?(?:mon|tues|wednes|thurs|fri|satur|sun)day)\b")
+
+
+def clean_place(text: str) -> str:
+    """A place name with any day words taken out: "tomorrow in Dublin" is Dublin, and
+    "tomorrow" on its own is no place at all."""
+    out = _DAY_WORDS.sub(" ", str(text or ""))
+    out = re.sub(r"(?i)^\s*(?:in|at|for|near)\s+", "", re.sub(r"\s+", " ", out).strip(" ,?.!"))
+    return out.strip(" ,?.!")
+
+
+def _forecast_for(g: dict, label: str, day: _date) -> dict:
+    """The forecast for one named day. The current conditions are not an answer to "tomorrow"."""
+    url = (
+        "https://api.open-meteo.com/v1/forecast?"
+        + urllib.parse.urlencode(
+            {
+                "latitude": g["latitude"],
+                "longitude": g["longitude"],
+                "daily": "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max",
+                "forecast_days": 14,
+                "timezone": "auto",
+            }
+        )
+    )
+    data = _get_json(url)
+    daily = data.get("daily") or {}
+    days = list(daily.get("time") or [])
+    key = day.isoformat()
+    when = day.strftime("%A %d %B").replace(" 0", " ")
+    if key not in days:
+        msg = f"The forecast for {label} only reaches {len(days)} days ahead, so I have nothing for {when} yet."
+        return {"ok": False, "action": "GET_WEATHER", "error": "beyond_forecast", "content": msg, "response": msg,
+                "location": label}
+    i = days.index(key)
+
+    def _at(name):
+        values = daily.get(name) or []
+        return values[i] if i < len(values) else None
+
+    low, high, rain = _at("temperature_2m_min"), _at("temperature_2m_max"), _at("precipitation_probability_max")
+    msg = f"Forecast for {label}, {when}: {low} to {high}°C, {_weather_code_text(_at('weather_code'))}"
+    msg += f", {rain}% chance of rain." if rain is not None else "."
+    return {"ok": True, "action": "GET_WEATHER", "content": msg, "response": msg, "location": label,
+            "day": key, "raw": data}
+
+
+def get_weather(location: str, day: Optional[_date] = None) -> dict:
+    location = clean_place(location)
     if not location:
         msg = "Missing location"
         return {"ok": False, "action": "GET_WEATHER", "error": msg, "content": msg, "response": msg}
@@ -73,6 +125,9 @@ def get_weather(location: str) -> dict:
     g = _geocode(location)
     lat = g["latitude"]
     lon = g["longitude"]
+    if day is not None and day != _date.today():
+        return _forecast_for(g, ", ".join(x for x in [g.get("name") or location, g.get("admin1") or "",
+                                                      g.get("country_code") or g.get("country") or ""] if x), day)
 
     forecast_url = (
         "https://api.open-meteo.com/v1/forecast?"

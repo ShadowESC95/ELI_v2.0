@@ -54,6 +54,10 @@ os.environ["ELI_AUDIT_HMAC_KEY"] = "eli-pytest-audit-key-not-a-real-secret"
 # default here; the tests for it build their own on a tmp path.
 os.environ["ELI_DOCUMENT_INDEX_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "documents.sqlite3")
 os.environ.setdefault("ELI_DOCUMENT_INDEX", "0")
+# The agenda (calendar and reminders) writes a DB and an .ics file and fires desktop notifications.
+os.environ["ELI_AGENDA_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "agenda.sqlite3")
+os.environ["ELI_CALENDAR_FILE"] = str(ROOT / "artifacts" / "_pytest" / "calendar.ics")
+os.environ["ELI_AGENDA_NOTIFY"] = "0"
 
 # Hard isolation guard: fail LOUDLY at collection if any canonical store still resolves
 # to the real artifacts/db tree. This makes "no test can change memory" an enforced

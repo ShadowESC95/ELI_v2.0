@@ -41,7 +41,7 @@ _INTERNAL_ACTIONS = frozenset({
 _EXPLICIT_ONLY_ACTIONS = frozenset({
     "PERSONA_LOCK_SET", "PERSONA_LOCK_CLEAR", "PERSONA_REFRESH", "SET_USER_NAME", "SET_AI_MODE",
     "SET_VOICE", "SET_TONE", "CLEAR_TONE", "SET_COMMUNICATION_STYLE", "CLEAR_CHAT_HISTORY",
-    "MEMORY_FORGET", "PLUGIN_INSTALL", "PLUGIN_UNINSTALL", "PLUGIN_ENABLE", "PLUGIN_DISABLE",
+    "REMOVE_EVENT", "MEMORY_FORGET", "PLUGIN_INSTALL", "PLUGIN_UNINSTALL", "PLUGIN_ENABLE", "PLUGIN_DISABLE",
     "MCP_ADD", "MCP_REMOVE", "MCP_CALL", "SELF_PATCH", "SELF_UPDATE", "SELF_UPGRADE",
     "RUN_CMD", "SHELL_EXEC", "LORA_TRAIN", "TRAIN_VOICE", "WAKE_SET", "WAKE_ENROLL",
     "WAKE_TRAIN", "GAZE_CALIBRATE", "GAZE_CLICK", "GAZE_ENABLE", "GAZE_DISABLE",
@@ -323,7 +323,7 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
                     action = "CHAT"
             except Exception:
                 log.debug("window check failed", exc_info=True)
-        if action in ("DATE", "TIME"):
+        if action in ("DATE", "TIME", "GET_DATE", "GET_TIME"):
             # The clock action answers with the date and nothing else; a question that also
             # asks "how many days ago was ..." needs chat (the router already declines it).
             try:

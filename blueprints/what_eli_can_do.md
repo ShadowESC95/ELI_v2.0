@@ -1,7 +1,7 @@
 # ELI — What It Can Actually Do
 
 > **Updated 2026-09-30.** All CHAT modes run the gradient orchestrator; 15 specialist
-> agents; 229 capabilities (212 routable or executor-backed). Regenerate the action list with
+> agents; 230 capabilities (213 routable or executor-backed). Regenerate the action list with
 > `python -m eli.tools.registry.capability_updater`.
 
 *A capability showcase for the layman and the tech-savvy alike. Each capability listed
@@ -19,7 +19,7 @@ builds documents, creates images, looks after itself, and learns you over time �
 and **nothing leaves your device unless you explicitly allow it.**
 
 Here's the part most "AI assistants" can't say: it's *yours*. A fully local,
-embodied desktop AI you actually own — **229 capabilities** (212 routable or executor-backed
+embodied desktop AI you actually own — **230 capabilities** (213 routable or executor-backed
 by voice or text), a 15-agent reasoning bus, persistent memory, and full
 voice/vision/gaze control, in ~196,249 lines of Python in `eli/`. One machine, your data, no landlord. (The
 capability count is read live from the manifest each boot, so it grows as ELI

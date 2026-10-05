@@ -553,15 +553,80 @@ def _find_piper_bin() -> Optional[str]:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    from eli.utils.platform_compat import find_executable
+    # ELI's own copy first (installed beside the Python that is running), then whatever is on
+    # PATH. PATH used to come first, and a name is all it matched: a `piper` left behind by a
+    # removed Python, or the unrelated mouse-configuration tool some Linux distributions also
+    # call piper, was run as the speech engine.
+    seen = set()
+    for candidate in [*_own_piper_candidates(), *_pipers_on_path(),
+                      Path.home() / ".local" / "bin" / "piper"]:
+        if not candidate:
+            continue
+        path = str(candidate)
+        if path in seen:
+            continue
+        seen.add(path)
+        try:
+            if Path(path).is_file() and _piper_runs(path):
+                return path
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+    return None
 
-    return find_executable(
-        "piper",
-        extra_paths=[
-            str(Path.cwd() / ".venv" / "bin"),
-            str(Path.home() / ".local" / "bin"),
-        ],
-    )
+
+_PIPER_RUNS: Dict[str, bool] = {}
+
+
+def _pipers_on_path() -> list:
+    """Every `piper` on PATH, in order. shutil.which stops at the first, and the first may be
+    the wrong program while the right one sits further along."""
+    names = ("piper.exe", "piper") if os.name == "nt" else ("piper",)
+    out = []
+    for place in (os.environ.get("PATH") or "").split(os.pathsep):
+        for name in names:
+            path = Path(place) / name if place else None
+            if path is not None and path.is_file() and os.access(str(path), os.X_OK):
+                out.append(path)
+    return out
+
+
+def _own_piper_candidates() -> list:
+    """Where the Piper that was installed with ELI lives: beside the running interpreter (an
+    environment's bin/ or Scripts\\), then this checkout's own environment."""
+    import sys
+    import sysconfig
+    names = ("piper.exe", "piper") if os.name == "nt" else ("piper",)
+    places = [Path(sys.executable).parent]
+    try:
+        scripts = sysconfig.get_path("scripts")
+        if scripts:
+            places.append(Path(scripts))
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    root = Path(os.environ.get("ELI_PROJECT_ROOT") or Path(__file__).resolve().parents[2])
+    places += [root / ".venv" / "bin", root / ".venv" / "Scripts"]
+    out, seen = [], set()
+    for place in places:
+        for name in names:
+            path = place / name
+            if str(path) not in seen:
+                seen.add(str(path))
+                out.append(path)
+    return out
+
+
+def _piper_runs(path: str) -> bool:
+    """The file is the Piper speech engine and it starts. Asked once per file."""
+    key = str(path)
+    if key not in _PIPER_RUNS:
+        import subprocess
+        try:
+            out = subprocess.run([key, "--help"], capture_output=True, text=True, timeout=30)
+            _PIPER_RUNS[key] = out.returncode == 0 and "--model" in ((out.stdout or "") + (out.stderr or ""))
+        except Exception:
+            log.debug("piper probe failed for %s", key, exc_info=True)
+            _PIPER_RUNS[key] = False
+    return _PIPER_RUNS[key]
 
 
 def _neural_engine_available() -> bool:

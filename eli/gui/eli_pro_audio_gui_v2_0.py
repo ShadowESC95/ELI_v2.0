@@ -3250,6 +3250,13 @@ class EliMainWindow(QMainWindow):
                     self.chat_response_signal.emit(offer)
                     self.proactive_suggestions_signal.emit(
                         f"<b>[check-in: {data.get('detected','')}]</b> {offer}")
+                elif kind == "reminder":
+                    # A reminder or calendar event coming due (eli.runtime.agenda): said in the
+                    # chat, where the user is looking, as well as the desktop notification.
+                    note = data.get("suggestion", "")
+                    log.debug(f"[PROACTIVE] {note}")
+                    self.chat_response_signal.emit(f"⏰ {note}")
+                    self.proactive_suggestions_signal.emit(f"<b>[reminder]</b> {note}")
                 elif kind == "morning_report":
                     report_text = data.get("suggestion", "")
                     log.debug(f"[PROACTIVE] morning report ready")
