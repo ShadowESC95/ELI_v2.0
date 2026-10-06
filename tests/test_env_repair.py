@@ -145,7 +145,7 @@ def test_the_helper_needs_nothing_but_the_standard_library():
     tree = ast.parse(HELPER.read_text(encoding="utf-8"))
     imported = {n.names[0].name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import)}
     imported |= {(n.module or "").split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-    assert imported <= {"__future__", "glob", "os", "shutil", "subprocess", "sys", "typing"}
+    assert imported <= {"__future__", "glob", "json", "os", "shutil", "subprocess", "sys", "typing"}
 
 
 @pytest.mark.skipif(not POSIX, reason="the shell launchers")
@@ -188,6 +188,265 @@ def _fake_tool(path: Path, body: str) -> Path:
     path.write_text("#!/bin/sh\n" + body + "\n", encoding="utf-8")
     path.chmod(0o755)
     return path
+
+
+# ── making the environment ───────────────────────────────────────────────────
+# Debian and Ubuntu ship Python without venv; the installer stopped at its first step.
+
+def test_an_environment_is_made_with_pip_in_it(tmp_path):
+    got = eli_env.create(str(tmp_path))
+    assert got["ok"], got
+    assert eli_env.status(str(tmp_path))["ok"]
+    assert subprocess.run([eli_env.venv_python(str(tmp_path)), "-m", "pip", "--version"],
+                          capture_output=True).returncode == 0
+
+
+def test_without_venv_support_the_user_is_told_the_command_and_nothing_is_left_behind(tmp_path, monkeypatch):
+    monkeypatch.setattr(eli_env, "_can_make_environments", lambda python: False)
+    monkeypatch.setattr(eli_env, "_as_root", lambda command, quiet=False: False)        # needs a password
+    monkeypatch.setattr(eli_env.shutil, "which", lambda name: "/usr/bin/" + name if name == "apt-get" else None)
+    got = eli_env.create(str(tmp_path))
+    assert not got["ok"]
+    assert "sudo apt-get install -y python%d.%d-venv" % HERE in got["fix"]
+    assert "installer again" in got["fix"]
+    assert not (tmp_path / ".venv").exists()
+
+
+def test_venv_support_is_added_when_that_takes_no_password(tmp_path, monkeypatch):
+    ran, made = [], []
+    monkeypatch.setattr(eli_env, "_can_make_environments", lambda python: bool(ran))
+    monkeypatch.setattr(eli_env, "_as_root", lambda command, quiet=False: ran.append(command) or True)
+    monkeypatch.setattr(eli_env, "_make", lambda python, target: made.append(target) or True)
+    monkeypatch.setattr(eli_env.shutil, "which", lambda name: "/usr/bin/" + name if name == "apt-get" else None)
+    assert eli_env.create(str(tmp_path))["ok"]
+    assert ran == [["apt-get", "install", "-y", "python%d.%d-venv" % HERE]]
+    assert made == [eli_env.venv_dir(str(tmp_path))]
+
+
+def test_a_system_with_no_package_lists_yet_refreshes_them_once(tmp_path, monkeypatch):
+    ran = []
+
+    def as_root(command, quiet=False):
+        ran.append(command[1])
+        return ran != ["install"]            # the first install fails: nothing is known about the package
+
+    monkeypatch.setattr(eli_env, "_can_make_environments", lambda python: ran[-2:] == ["update", "install"])
+    monkeypatch.setattr(eli_env, "_as_root", as_root)
+    monkeypatch.setattr(eli_env, "_make", lambda python, target: True)
+    monkeypatch.setattr(eli_env.shutil, "which", lambda name: "/usr/bin/" + name if name == "apt-get" else None)
+    assert eli_env.create(str(tmp_path))["ok"]
+    assert ran == ["install", "update", "install"]
+
+
+def test_a_system_whose_package_manager_is_unknown_is_still_told_what_is_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(eli_env, "_can_make_environments", lambda python: False)
+    monkeypatch.setattr(eli_env.shutil, "which", lambda name: None)
+    got = eli_env.create(str(tmp_path))
+    assert not got["ok"] and "venv" in got["fix"] and "installer again" in got["fix"]
+
+
+def test_an_environment_that_could_not_be_made_is_not_left_half_made(tmp_path, monkeypatch):
+    def half(python, target):
+        os.makedirs(os.path.join(target, "bin"))
+        return False
+
+    monkeypatch.setattr(eli_env, "_can_make_environments", lambda python: True)
+    monkeypatch.setattr(eli_env, "_make", half)
+    assert not eli_env.create(str(tmp_path))["ok"]
+    assert not (tmp_path / ".venv").exists()
+
+
+def test_create_reports_by_exit_status(tmp_path):
+    made = subprocess.run([sys.executable, str(HELPER), "create", str(tmp_path)], capture_output=True, text=True)
+    assert made.returncode == 0, made.stderr
+    assert "Python environment created" in made.stdout
+
+
+@pytest.mark.parametrize("script", ["install.sh", "scripts/eli_setup.sh", "scripts/safe_install_linux.sh"])
+def test_the_installers_make_their_environment_through_the_helper(script):
+    text = (ROOT / script).read_text(encoding="utf-8")
+    assert 'scripts/eli_env.py" create ' in text
+    assert not [line for line in text.splitlines()
+                if "-m venv" in line and not line.lstrip().startswith("#")], f"{script} calls venv directly"
+
+
+# ── filling it, and saying what is in it ─────────────────────────────────────
+# pip installs a requirement file all or nothing: one package that would not compile and
+# none went in, while the installer's check passed by importing ELI from the source folder.
+
+def test_requirements_are_read_one_to_a_line_without_comments_or_pip_options(tmp_path):
+    listing = tmp_path / "requirements.txt"
+    listing.write_text(
+        "# a heading\n"
+        "\n"
+        "requests>=2.33\n"
+        "llama-cpp-python>=0.3.30  # older ones cannot read some models\n"
+        "                          # (a note that runs on)\n"
+        "-r another.txt\n"
+        "--extra-index-url https://example.invalid/simple\n"
+        'audioop-lts>=0.2.1; python_version >= "3.13"\n', encoding="utf-8")
+    assert eli_env.requirement_lines(str(listing)) == [
+        "requests>=2.33", "llama-cpp-python>=0.3.30", 'audioop-lts>=0.2.1; python_version >= "3.13"']
+
+
+def test_one_requirement_that_cannot_be_installed_costs_only_itself(tmp_path, monkeypatch):
+    listing = tmp_path / "requirements.txt"
+    listing.write_text("requests>=2.33\nPyAudio>=0.2\nPySide6>=6.11\n", encoding="utf-8")
+    calls = []
+
+    class Done:
+        def __init__(self, code):
+            self.returncode = code
+
+    def pip(command, **_):
+        calls.append(command)
+        return Done(1 if command[-1].startswith("PyAudio") else 0)
+
+    monkeypatch.setattr(eli_env.subprocess, "run", pip)
+    monkeypatch.setattr(eli_env, "_installed_version", lambda python, requirement: None)
+    got = eli_env.install_each(str(tmp_path), str(listing), ["--find-links", "wheels"])
+    assert got == {"installed": ["requests>=2.33", "PySide6>=6.11"], "failed": ["PyAudio>=0.2"], "older": {}}
+    assert all(c[0] == eli_env.venv_python(str(tmp_path)) and c[1:4] == ["-m", "pip", "install"] for c in calls)
+    assert all("--find-links" in c for c in calls)
+
+
+def test_a_requirement_with_no_build_for_this_python_is_not_called_missing_when_an_older_one_is_there(tmp_path, monkeypatch):
+    """On Python 3.10 nothing satisfies onnxruntime>=1.25, but 1.23.2 is installed."""
+    listing = tmp_path / "requirements.txt"
+    listing.write_text("onnxruntime>=1.25\nPyAudio>=0.2\n", encoding="utf-8")
+
+    class Failed:
+        returncode = 1
+
+    monkeypatch.setattr(eli_env.subprocess, "run", lambda command, **_: Failed())
+    monkeypatch.setattr(eli_env, "_installed_version",
+                        lambda python, requirement: "1.23.2" if requirement.startswith("onnxruntime") else None)
+    got = eli_env.install_each(str(tmp_path), str(listing))
+    assert got["older"] == {"onnxruntime>=1.25": "1.23.2"}
+    assert got["failed"] == ["PyAudio>=0.2"]
+
+
+def test_the_version_in_the_environment_is_read_by_package_name(install):
+    python = eli_env.venv_python(str(install))
+    _dist(install, "some-package", [])
+    for written in ("some-package>=9", "some-package[extra]>=9", 'some-package >= 9; python_version >= "3.11"', "some-package"):
+        assert eli_env._installed_version(python, written) == "1.0", written
+    assert eli_env._installed_version(python, "never-installed>=1") is None
+
+
+@pytest.mark.parametrize("name", ["requirements-full.txt", "requirements-macos.txt", "requirements-windows.txt"])
+def test_the_ranged_requirements_can_be_met_on_the_oldest_python_eli_supports(name):
+    """onnxruntime>=1.25 and networkx>=3.6 have no Python 3.10 build; the set failed there."""
+    lines = eli_env.requirement_lines(str(ROOT / name))
+    for package, newest_for_310 in (("onnxruntime", (1, 23)), ("networkx", (3, 4))):
+        mine = [line for line in lines if line.split(">=")[0].split(";")[0].strip() == package]
+        if not mine:
+            continue
+        on_310 = [line for line in mine if 'python_version < "3.11"' in line]
+        assert on_310, f"{name}: {package} has no requirement a Python 3.10 can meet"
+        floor = tuple(int(part) for part in on_310[0].split(">=")[1].split(";")[0].strip().split(".")[:2])
+        assert floor <= newest_for_310
+        assert all("python_version" in line for line in mine), f"{name}: an unmarked {package} line still applies to 3.10"
+
+
+def _dist(root: Path, name: str, requires: list) -> None:
+    """Put a package's installed-metadata folder into the environment, as pip would."""
+    found = subprocess.run([eli_env.venv_python(str(root)), "-c",
+                            "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    info = Path(found) / f"{name.replace('-', '_').replace('.', '_')}-1.0.dist-info"
+    info.mkdir(parents=True)
+    (info / "METADATA").write_text(
+        "Metadata-Version: 2.1\nName: %s\nVersion: 1.0\n%s" % (name, "".join("Requires-Dist: %s\n" % r for r in requires)),
+        encoding="utf-8")
+
+
+@pytest.fixture()
+def project(install):
+    (install / "pyproject.toml").write_text('[build-system]\nname = "not-this"\n\n[project]\nname = "eli-test.0"\n',
+                                            encoding="utf-8")
+    return install
+
+
+def test_the_project_name_is_read_from_its_own_table(project):
+    assert eli_env.project_name(str(project)) == "eli-test.0"
+
+
+def test_a_folder_holding_the_source_is_not_an_installation(project):
+    (project / "eli").mkdir()
+    (project / "eli" / "__init__.py").write_text("", encoding="utf-8")     # importable from here, installed nowhere
+    got = eli_env.verify(str(project))
+    assert not got["ok"] and "is not installed" in got["say"]
+
+
+def test_a_package_eli_cannot_run_without_is_named_when_it_is_missing(project):
+    _dist(project, "eli-test.0", ["surely-not-installed-anywhere>=1", 'only-for-a-feature>=1; extra == "full"'])
+    got = eli_env.verify(str(project))
+    assert not got["ok"]
+    assert got["missing"] == ["surely-not-installed-anywhere"]          # the optional one is not an error
+
+
+def test_an_environment_with_eli_and_what_it_needs_passes(project):
+    _dist(project, "eli-test.0", ["the-one-it-needs>=1", 'only-for-a-feature>=1; extra == "full"'])
+    _dist(project, "the-one-it-needs", [])
+    assert eli_env.verify(str(project))["ok"]
+
+
+def test_verify_reports_by_exit_status(project):
+    assert subprocess.run([sys.executable, str(HELPER), "verify", str(project)], capture_output=True).returncode == 7
+    _dist(project, "eli-test.0", [])
+    assert subprocess.run([sys.executable, str(HELPER), "verify", str(project)], capture_output=True).returncode == 0
+
+
+def test_the_installer_installs_what_it_builds_with_first_and_ends_on_what_it_found():
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    body = text[text.index("\nattempt_build_prereqs\n"):]                  # from the call on
+    assert body.index("attempt_build_prereqs") < body.index('eli_env.py" create ')
+    assert body.index('eli_env.py" create ') < body.index('install -e ".[full]"')
+    assert 'install -e . --no-deps' in body                               # ELI itself, whatever else fails
+    assert 'eli_env.py" install-each "$SCRIPT_DIR" "$RANGES"' in body      # then one at a time, by range
+    assert 'eli_env.py" verify "$SCRIPT_DIR"' in body
+    assert '"$PYTHON_VENV" -c "import eli"' not in text                    # the check the folder could satisfy
+    assert text.rstrip().endswith('[ "$VERIFY_OK" -eq 1 ] || exit 1')
+    # the summary does not report an inference engine that failed to build
+    summary = text[text.index('section "Summary"'):]
+    assert summary.index('import llama_cpp') < summary.index('ok "Build ') < summary.index('llama-cpp NOT installed')
+
+
+@pytest.mark.skipif(not POSIX or not __import__("shutil").which("bash"), reason="runs the installer's own shell function")
+@pytest.mark.parametrize("root,can_add", [(False, False), (True, True)])
+def test_a_system_without_what_the_install_builds_with(tmp_path, root, can_add):
+    """An ordinary user gets the one command and the install stops; root gets them added."""
+    text = (ROOT / "install.sh").read_text(encoding="utf-8")
+    start = text.index("attempt_build_prereqs() {")
+    function = text[start:text.index("\n}\n", start) + 3]
+    tools = tmp_path / "tools"
+    tools.mkdir()
+
+    def tool(name, body):
+        path = tools / name
+        path.write_text("#!/bin/bash\n" + body, encoding="utf-8")
+        path.chmod(0o755)
+
+    added = tmp_path / "added"
+    # no venv and no headers until the system packages are there
+    tool("python-here", f'case "$2" in *version_info*) echo 3.10 ;; *) [ -e "{added}" ] ;; esac\n')
+    tool("apt-get", f'echo "apt-get $*" >> "{tmp_path}/ran"; [ "$1" = install ] && touch "{added}"; exit 0\n')
+    tool("sudo", "exit 1\n")                                  # would ask for a password
+    tool("id", "echo %d\n" % (0 if root else 1000))
+    script = (f'set -euo pipefail\nOS=Linux\nPYTHON="{tools}/python-here"\n'
+              'info(){ echo "[..] $*"; }; ok(){ echo "[OK] $*"; }; warn(){ echo "[WARN] $*"; }\n'
+              + function + '\nattempt_build_prereqs\necho CARRIED-ON\n')
+    got = subprocess.run(["bash", "-c", script], capture_output=True, text=True,
+                         env=dict(os.environ, PATH=f"{tools}{os.pathsep}{os.environ['PATH']}"))
+    if can_add:
+        assert got.returncode == 0 and "CARRIED-ON" in got.stdout, got.stdout + got.stderr
+        ran = (tmp_path / "ran").read_text()
+        assert "python3.10-venv" in ran and "python3.10-dev" in ran
+    else:
+        assert got.returncode == 1 and "CARRIED-ON" not in got.stdout
+        assert "sudo apt-get install -y" in got.stdout and "python3.10-venv" in got.stdout and "python3.10-dev" in got.stdout
+        assert not (tmp_path / "ran").exists()
 
 
 @pytest.mark.skipif(not POSIX, reason="uses shell scripts as stand-in programs")

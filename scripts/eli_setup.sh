@@ -122,7 +122,7 @@ _ensure_minimal_venv() {
     if [ -t 1 ]; then
       echo "  [setup] Creating virtual environment for the GUI installer…"
     fi
-    python3 -m venv "$VENV"
+    python3 "$ROOT/scripts/eli_env.py" create "$ROOT"
   fi
 }
 

@@ -9,16 +9,25 @@ installer can find.
     eli_env.py pick                 print the interpreter a new install should use
     eli_env.py status [ROOT]        exit 0 when ROOT/.venv is usable, 3 when it is not
     eli_env.py repair [ROOT]        mend ROOT/.venv if that can be done in place, else say how
+    eli_env.py create [ROOT]        make ROOT/.venv on the Python running this, or say what is missing
+    eli_env.py install-each ROOT FILE [pip options]
+                                    install FILE's requirements one at a time; name the ones that fail
+    eli_env.py verify [ROOT]        exit 0 when ELI and everything it cannot run without are installed
 
 Why this exists: a virtual environment is tied to the interpreter it was made with. When an
 operating-system upgrade replaces that interpreter (Ubuntu 24.04 -> 26.04 swaps 3.12 for
 3.14), the environment's own `python` still starts, as the new version, and cannot see one
 package: every launch died with "No module named ...". The same happens on Windows and
 macOS when the Python an environment was built from is removed or upgraded.
+
+Making and filling one is here too. Debian and Ubuntu ship Python without venv; pip installs
+a requirement file all or nothing; and the installer's old check passed on an empty
+environment because it imported ELI from the source folder.
 """
 from __future__ import annotations
 
 import glob
+import json
 import os
 import shutil
 import subprocess
@@ -277,6 +286,199 @@ def repair(root: str) -> Dict[str, object]:
                     % (installer, os.path.abspath(root)))
 
 
+def _can_make_environments(python: str) -> bool:
+    """Debian and Ubuntu package venv and ensurepip apart from Python itself."""
+    try:
+        return subprocess.run([python, "-c", "import venv, ensurepip"],
+                              capture_output=True, timeout=60).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _system_package(version: Tuple[int, int]) -> Optional[List[str]]:
+    """The command that adds venv, where the system packages it separately."""
+    if shutil.which("apt-get"):
+        return ["apt-get", "install", "-y", "python%d.%d-venv" % version]
+    return None
+
+
+def _as_root(command: List[str], quiet: bool = False) -> bool:
+    """Run a system command as root or through passwordless sudo. Never prompts."""
+    if WINDOWS:
+        return False
+    try:
+        if os.geteuid() != 0:
+            if not shutil.which("sudo") or subprocess.run(
+                    ["sudo", "-n", "true"], capture_output=True, timeout=60).returncode != 0:
+                return False
+            command = ["sudo", "-n"] + command
+        return subprocess.run(command, capture_output=quiet, timeout=1800).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def _make(python: str, target: str) -> bool:
+    """Create the environment and check pip runs in it."""
+    try:
+        if subprocess.run([python, "-m", "venv", target], timeout=900).returncode != 0:
+            return False
+        inside = os.path.join(target, "Scripts", "python.exe") if WINDOWS else os.path.join(target, "bin", "python")
+        return subprocess.run([inside, "-m", "pip", "--version"], capture_output=True, timeout=300).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def create(root: str, python: Optional[str] = None) -> Dict[str, object]:
+    """Make ROOT/.venv with pip in it. If the system lacks venv, add it when that takes no
+    password, otherwise say the command."""
+    python = python or sys.executable
+    target = venv_dir(root)
+    version = _version_of(python) or (sys.version_info[0], sys.version_info[1])
+    if not _can_make_environments(python):
+        command = _system_package(version)
+        if command:
+            # no package lists yet on a fresh system: refresh once if the first try fails
+            if not _as_root(command, quiet=True) and _as_root([command[0], "update"], quiet=True):
+                _as_root(command)
+        if not _can_make_environments(python):
+            return {"ok": False,
+                    "say": "Python %d.%d on this system cannot make environments: the part that does "
+                           "is packaged separately and is not installed." % version,
+                    "fix": ("Run  sudo %s  and then run the installer again." % " ".join(command)) if command
+                           else "Install your system's Python venv and pip packages, then run the installer again."}
+    existed = os.path.isdir(target)
+    if not _make(python, target):
+        if not existed:
+            shutil.rmtree(target, ignore_errors=True)      # no half-made environment left behind
+        return {"ok": False, "say": "The Python environment could not be created at %s." % target,
+                "fix": "The lines above are Python's own account of why."}
+    return {"ok": True, "say": "Python environment created (Python %d.%d)." % version}
+
+
+def requirement_lines(path: str) -> List[str]:
+    """The requirements in a file, one per entry: no comments, no blank lines, no pip options."""
+    out: List[str] = []
+    with open(path, encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line or line[0] in "#-":
+                continue
+            line = line.split(" #", 1)[0].strip()
+            if line:
+                out.append(line)
+    return out
+
+
+def _installed_version(python: str, requirement: str) -> Optional[str]:
+    """The version of a requirement's package that is in the environment, if any is."""
+    name = requirement.split(";", 1)[0]
+    for mark in "<>=!~[ (":
+        name = name.split(mark, 1)[0]
+    try:
+        got = subprocess.run([python, "-c", "import sys; from importlib import metadata; print(metadata.version(sys.argv[1]))",
+                              name.strip()], capture_output=True, text=True, timeout=120)
+        return got.stdout.strip() if got.returncode == 0 and got.stdout.strip() else None
+    except (OSError, subprocess.SubprocessError):
+        return None
+
+
+def install_each(root: str, path: str, options: Iterable[str] = ()) -> Dict[str, object]:
+    """Install each requirement by itself, so one that fails costs only itself. A failed
+    requirement is not always a missing package: an older version may already be there."""
+    python = venv_python(root)
+    installed: List[str] = []
+    failed: List[str] = []
+    older: Dict[str, str] = {}
+    for requirement in requirement_lines(path):
+        try:
+            ok = subprocess.run([python, "-m", "pip", "install", "--quiet", "--disable-pip-version-check",
+                                 *options, requirement], timeout=3600).returncode == 0
+        except (OSError, subprocess.SubprocessError):
+            ok = False
+        if ok:
+            installed.append(requirement)
+            continue
+        have = _installed_version(python, requirement)
+        if have:
+            older[requirement] = have
+        else:
+            failed.append(requirement)
+    return {"installed": installed, "failed": failed, "older": older}
+
+
+# Run by the environment's Python from outside the checkout, where `import eli` cannot
+# succeed off the source tree.
+_WHAT_IS_INSTALLED = r"""
+import json, re, sys
+from importlib import metadata
+name = sys.argv[1]
+out = {"installed": True, "missing": []}
+try:
+    declared = metadata.requires(name) or []
+except metadata.PackageNotFoundError:
+    out["installed"] = False
+    declared = []
+try:
+    from pip._vendor.packaging.requirements import Requirement
+except Exception:
+    Requirement = None
+for text in declared:
+    if "extra ==" in text.replace("'", '"').replace('extra=="', 'extra == "'):
+        continue                                   # an optional feature, not what ELI needs to run
+    if Requirement is not None:
+        try:
+            wanted = Requirement(text)
+            if wanted.marker is not None and not wanted.marker.evaluate():
+                continue
+            dist = wanted.name
+        except Exception:
+            continue
+    elif ";" in text:
+        continue
+    else:
+        dist = re.split(r"[\s<>=!~\[(]", text.strip(), 1)[0]
+    try:
+        metadata.version(dist)
+    except metadata.PackageNotFoundError:
+        out["missing"].append(dist)
+print(json.dumps(out))
+"""
+
+
+def project_name(root: str) -> Optional[str]:
+    try:
+        with open(os.path.join(root, "pyproject.toml"), encoding="utf-8") as fh:
+            in_project = False
+            for line in fh:
+                text = line.strip()
+                if text.startswith("["):
+                    in_project = text == "[project]"
+                elif in_project and text.startswith("name") and "=" in text:
+                    return text.split("=", 1)[1].strip().strip("\"'")
+    except OSError:
+        pass
+    return None
+
+
+def verify(root: str) -> Dict[str, object]:
+    """Is ELI installed in ROOT's environment, with every package it cannot run without?"""
+    name = project_name(root)
+    if not name:
+        return {"ok": False, "say": "No pyproject.toml with a project name in %s." % os.path.abspath(root)}
+    try:
+        got = subprocess.run([venv_python(root), "-c", _WHAT_IS_INSTALLED, name],
+                             capture_output=True, text=True, timeout=300, cwd=os.path.abspath(os.sep))
+        seen = json.loads(got.stdout.strip().splitlines()[-1])
+    except (OSError, subprocess.SubprocessError, ValueError, IndexError):
+        return {"ok": False, "say": "The environment's Python did not answer; it is missing or broken."}
+    if not seen["installed"]:
+        return {"ok": False, "say": "ELI itself (%s) is not installed in the environment." % name}
+    if seen["missing"]:
+        return {"ok": False, "missing": seen["missing"],
+                "say": "ELI is installed without packages it cannot run without: %s." % ", ".join(seen["missing"])}
+    return {"ok": True, "say": "ELI and everything it needs to run are installed."}
+
+
 def main(argv: List[str]) -> int:
     command = argv[1] if len(argv) > 1 else "status"
     root = argv[2] if len(argv) > 2 else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -298,6 +500,28 @@ def main(argv: List[str]) -> int:
         if got.get("fix"):
             print("[ELI] %s" % got["fix"])
         return 0 if got["ok"] else 4
+    if command == "create":
+        got = create(root)
+        print("[ELI] %s" % got["say"], file=sys.stdout if got["ok"] else sys.stderr)
+        if got.get("fix"):
+            print("[ELI] %s" % got["fix"], file=sys.stderr)
+        return 0 if got["ok"] else 5
+    if command == "install-each" and len(argv) > 3:
+        done = install_each(root, argv[3], argv[4:])
+        older = done["older"]                                          # type: ignore[assignment]
+        total = len(done["installed"]) + len(done["failed"]) + len(older)          # type: ignore[arg-type]
+        print("[ELI] %d of %d requirements installed as written." % (len(done["installed"]), total))  # type: ignore[arg-type]
+        if older:
+            print("[ELI] Present in an older version, with no build of the one asked for on this Python: %s"
+                  % ", ".join("%s (has %s)" % pair for pair in sorted(older.items())))     # type: ignore[union-attr]
+        if done["failed"]:
+            print("[ELI] Not installed: %s" % ", ".join(done["failed"]))             # type: ignore[arg-type]
+            print("[ELI] What uses them is unavailable until they are; the lines above say why each failed.")
+        return 0 if not done["failed"] else 6
+    if command == "verify":
+        got = verify(root)
+        print(got["say"])
+        return 0 if got["ok"] else 7
     print(__doc__)
     return 2
 

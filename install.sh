@@ -114,6 +114,68 @@ attempt_cuda_toolkit() {
     return 1
 }
 
+attempt_build_prereqs() {
+    # The install compiles PyAudio (and llama.cpp on some CPUs): needs a compiler, Python's
+    # headers, PortAudio's, and on Debian/Ubuntu python3-venv. A stock desktop has none.
+    # Add what is missing when that takes no password, else print the one command.
+    [ "$OS" = "Darwin" ] && return 0
+    local missing=() m pkgs="" cmd="" pyv
+    "$PYTHON" -c "import venv, ensurepip" >/dev/null 2>&1 || missing+=(venv)
+    "$PYTHON" -c "import os, sys, sysconfig; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_paths()['include'], 'Python.h')) else 1)" >/dev/null 2>&1 || missing+=(headers)
+    command -v cc &>/dev/null || command -v gcc &>/dev/null || command -v clang &>/dev/null || missing+=(compiler)
+    [ -f /usr/include/portaudio.h ] || [ -f /usr/local/include/portaudio.h ] || missing+=(portaudio)
+    [ "${#missing[@]}" -eq 0 ] && return 0
+    pyv="$("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
+    for m in "${missing[@]}"; do
+        if command -v apt-get &>/dev/null; then
+            cmd="apt-get install -y"
+            case "$m" in venv) pkgs+=" python${pyv}-venv" ;; headers) pkgs+=" python${pyv}-dev" ;;
+                         compiler) pkgs+=" build-essential" ;; portaudio) pkgs+=" portaudio19-dev" ;; esac
+        elif command -v dnf &>/dev/null; then
+            cmd="dnf install -y"
+            case "$m" in headers) pkgs+=" python3-devel" ;; compiler) pkgs+=" gcc-c++ make" ;; portaudio) pkgs+=" portaudio-devel" ;; esac
+        elif command -v pacman &>/dev/null; then
+            cmd="pacman -S --noconfirm --needed"
+            case "$m" in compiler) pkgs+=" base-devel" ;; portaudio) pkgs+=" portaudio" ;; esac
+        elif command -v zypper &>/dev/null; then
+            cmd="zypper --non-interactive install"
+            case "$m" in headers) pkgs+=" python3-devel" ;; compiler) pkgs+=" gcc-c++ make" ;; portaudio) pkgs+=" portaudio-devel" ;; esac
+        elif command -v apk &>/dev/null; then
+            cmd="apk add"
+            case "$m" in headers) pkgs+=" python3-dev" ;; compiler) pkgs+=" build-base" ;; portaudio) pkgs+=" portaudio-dev" ;; esac
+        fi
+    done
+    if [ -n "$pkgs" ]; then
+        info "This system lacks what the install builds with:${pkgs}"
+        local run="" as=""
+        [ "${cmd%% *}" = "apt-get" ] && as="env DEBIAN_FRONTEND=noninteractive "
+        if [ "$(id -u)" -eq 0 ]; then run="${as}${cmd}"; elif sudo -n true 2>/dev/null; then run="sudo ${as}${cmd}"; fi
+        if [ -n "$run" ]; then
+            if $run $pkgs >/dev/null 2>&1; then
+                ok "Added:${pkgs}"
+                return 0
+            fi
+            # no package lists yet on a fresh system: refresh once, then show the attempt
+            [ "${cmd%% *}" = "apt-get" ] && ${run%% install*} update >/dev/null 2>&1 || true
+            if $run $pkgs; then
+                ok "Added:${pkgs}"
+                return 0
+            fi
+            warn "Could not add them (see above)."
+        else
+            warn "Run:  sudo $cmd$pkgs"
+            warn "Then run this installer again. Without them voice input cannot be built and, on some CPUs, neither can the inference engine."
+        fi
+    fi
+    # no venv support: nothing below can run
+    case " ${missing[*]} " in *" venv "*)
+        "$PYTHON" -c "import venv, ensurepip" >/dev/null 2>&1 || {
+            echo "[ERROR] Python ${pyv} on this system cannot create an environment: its venv part is packaged separately and is not installed. Install it and run this installer again."
+            exit 1; } ;;
+    esac
+    return 0
+}
+
 attempt_runtime_tools() {
     # Desktop-control + media-playback tools ELI uses at runtime. Best-effort: uses
     # the system package manager when sudo is available, else prints the command.
@@ -385,6 +447,8 @@ if [ "$ASSUME_YES" -eq 0 ]; then
     fi
 fi
 
+attempt_build_prereqs
+
 # Create venv. A venv is machine- and path-specific (its bin/ scripts hard-code an
 # absolute python path in their shebang), so one copied from another machine — or from
 # the build host, or left over in the extract folder — will "exist" but its python/pip
@@ -409,7 +473,8 @@ else
     else
         echo "[..] Creating virtual environment..."
     fi
-    "$PYTHON" -m venv "$VENV"
+    # Debian/Ubuntu ship Python without venv; the helper adds it or says the command.
+    "$PYTHON" "$SCRIPT_DIR/scripts/eli_env.py" create "$SCRIPT_DIR"
 fi
 eli_progress venv 12 "Virtual environment ready"
 
@@ -655,10 +720,12 @@ ensure_build_toolchain() {
 eli_progress llama 30 "Building inference engine (llama-cpp-python)"
 echo "[..] Installing llama-cpp-python..."
 if ! _llama_wheel_available; then
-    warn "No prebuilt llama-cpp-python wheel for $("$PYTHON_VENV" -V 2>&1) — building from source."
-    warn "This is normal on a rolling distro (Arch ships a newer python than upstream builds for)."
-    warn "It takes several minutes. A python with a prebuilt wheel (3.10-3.12) installs instantly:"
-    warn "  PYTHON=python3.12 bash install.sh"
+    warn "No prebuilt llama-cpp-python wheel for $("$PYTHON_VENV" -V 2>&1) on PyPI — it may be built here, which takes several minutes."
+    # only for a Python newer than the prebuilt wheels cover
+    if ! "$PYTHON_VENV" -c 'import sys; sys.exit(0 if sys.version_info[:2] <= (3, 12) else 1)' 2>/dev/null; then
+        warn "This is normal on a rolling distro (Arch ships a newer python than upstream builds for)."
+        warn "A python with a prebuilt wheel (3.10-3.12) installs faster:  PYTHON=python3.12 bash install.sh"
+    fi
     ensure_build_toolchain
 fi
 if [ "$OS" = "Darwin" ]; then
@@ -790,8 +857,10 @@ if ! "$PYTHON_VENV" -c "import llama_cpp" 2>/dev/null; then
     warn "llama-cpp-python is NOT installed — ELI cannot run a local model yet."
     if ! _llama_wheel_available; then
         warn "Cause: no prebuilt wheel for $("$PYTHON_VENV" -V 2>&1), and the source build failed."
-        warn "Fix (fastest): re-run with a python that has wheels —"
-        warn "    PYTHON=python3.12 bash install.sh"
+        if ! "$PYTHON_VENV" -c 'import sys; sys.exit(0 if sys.version_info[:2] <= (3, 12) else 1)' 2>/dev/null; then
+            warn "Fix (fastest): re-run with a python that has wheels —"
+            warn "    PYTHON=python3.12 bash install.sh"
+        fi
         warn "Fix (build here): install a toolchain, then re-run —"
         if command -v pacman &>/dev/null; then warn "    sudo pacman -S --needed base-devel cmake git"
         elif command -v dnf &>/dev/null; then warn "    sudo dnf install -y gcc-c++ make cmake git"
@@ -856,7 +925,8 @@ echo "[..] Installing ELI v2.0 (editable) — resolving dependencies, this can t
 WHEEL=""
 # Pick the HIGHEST version wheel (sort -V), not the first — a plain glob returns the
 # oldest first, which would install a stale version if several wheels are present.
-WHEEL="$(ls "$SCRIPT_DIR"/dist/eli_v2_0-*.whl 2>/dev/null | sort -V | tail -1)"
+# || true: a clone has no wheel, and ls failing under pipefail ended the install silently.
+WHEEL="$(ls "$SCRIPT_DIR"/dist/eli_v2_0-*.whl 2>/dev/null | sort -V | tail -1 || true)"
 # Install ELI EDITABLE from the source tree, so the tree is the SINGLE runtime authority
 # (site-packages links to it — nothing shadows a duplicate wheel copy; the launchers'
 # PYTHONPATH becomes redundant belt-and-suspenders). Fall back to the bundled wheel only
@@ -864,8 +934,10 @@ WHEEL="$(ls "$SCRIPT_DIR"/dist/eli_v2_0-*.whl 2>/dev/null | sort -V | tail -1)"
 # from aborting the install if neither path succeeds — the pinned requirements install
 # below is the real dependency gate and still runs.
 if ! ( cd "$SCRIPT_DIR" && _pip install -e ".[full]" ); then
-    echo "[!] Editable install failed; falling back to the bundled wheel, then the pinned lock."
-    { [ -n "$WHEEL" ] && _pip install "${WHEEL}[full]"; } || true
+    # pip installs a set all or nothing. Install ELI itself; its dependencies follow below.
+    echo "[!] ELI and its full dependency set did not install together; installing ELI itself, then the dependencies."
+    ( cd "$SCRIPT_DIR" && _pip install -e . --no-deps ) \
+        || { [ -n "$WHEEL" ] && _pip install --no-deps "${WHEEL}"; } || true
 fi
 
 # Install remaining runtime requirements. Default = the FROZEN LOCK (exact known-good
@@ -883,20 +955,18 @@ echo "[..] Installing dependencies from $(basename "$REQ")$([ "$REQ" = "$SCRIPT_
 # ${_PIP_LINKS[@]} points pip at the bundled wheelhouse (--find-links) when the release
 # shipped one, so a full-wheelhouse build installs with zero network; otherwise it's empty.
 #
-# The frozen lock pins exact versions captured on ONE python/distro. A rolling distro
-# (Arch) or any newer interpreter can lack a wheel for even one of those pins — and under
-# `set -e` that aborted the whole install, so ELI simply would not install there. The lock
-# is a reproducibility nicety, not a requirement: fall back to the version RANGES in
-# requirements.txt, which resolve against whatever python the host actually ships.
+# The lock pins versions captured on ONE python/distro. Where a pin has no build, or one
+# package fails to compile, pip installs none of the set (GUI toolkit included). The lock is
+# a nicety, not a requirement: fall back to the RANGES, as a set, then one at a time.
 if ! _pip install "${_PIP_LINKS[@]}" -r "$REQ" --quiet --ignore-installed; then
-    if [ "$REQ" != "$SCRIPT_DIR/requirements.txt" ] && [ -f "$SCRIPT_DIR/requirements.txt" ]; then
-        warn "Pinned install failed on $("$PYTHON_VENV" -V 2>&1) — some pins have no wheel for it."
-        warn "Retrying with version ranges (requirements.txt) so the install completes."
-        REQ="$SCRIPT_DIR/requirements.txt"
-        _pip install "${_PIP_LINKS[@]}" -r "$REQ" --ignore-installed \
-            || warn "Some dependencies failed — ELI may be missing features. See the log above."
-    else
-        warn "Some dependencies failed to install — ELI may be missing features."
+    RANGES="$SCRIPT_DIR/requirements-full.txt"
+    { [ "$OS" != "Darwin" ] && [ -f "$RANGES" ]; } || RANGES="$REQ"
+    warn "The dependency set did not install as a whole on $("$PYTHON_VENV" -V 2>&1)."
+    [ "$RANGES" = "$REQ" ] || warn "Retrying with version ranges ($(basename "$RANGES"))."
+    if [ "$RANGES" = "$REQ" ] || ! _pip install "${_PIP_LINKS[@]}" -r "$RANGES" --quiet; then
+        warn "Installing the requirements one at a time; this takes a few minutes longer."
+        "$PYTHON" "$SCRIPT_DIR/scripts/eli_env.py" install-each "$SCRIPT_DIR" "$RANGES" "${_PIP_LINKS[@]}" \
+            || warn "Some packages could not be installed (named above). ELI runs without them; what uses them is unavailable."
     fi
 fi
 
@@ -970,12 +1040,16 @@ if "$PYTHON_VENV" -c "from eli.tools.registry.capability_updater import update_c
 # ── Verify the install actually imports and the entry point resolves ─────────
 echo "[..] Verifying installation..."
 VERIFY_OK=1
-if ! "$PYTHON_VENV" -c "import eli" 2>/dev/null; then
-    echo "[ERROR] 'import eli' failed in the venv — the package did not install."
+# Checked from outside this folder: in here `import eli` works with nothing installed,
+# and the GUI module imports on its stand-ins without the toolkit.
+_REAL_QT='from eli.gui.qt_compat import real_qt_available; import sys; sys.exit(0 if real_qt_available() else 1)'
+_from_elsewhere() { ( cd / && "$PYTHON_VENV" "$@" ); }
+if ! _VERIFY_SAYS="$("$PYTHON" "$SCRIPT_DIR/scripts/eli_env.py" verify "$SCRIPT_DIR" 2>&1)"; then
+    echo "[ERROR] $_VERIFY_SAYS"
     VERIFY_OK=0
 fi
-if ! "$PYTHON_VENV" -c "import eli.gui.app" 2>/dev/null; then
-    echo "[WARN] GUI entry (eli.gui.app) not importable — installing GUI bootstrap…"
+if ! _from_elsewhere -c "$_REAL_QT" 2>/dev/null; then
+    echo "[WARN] The desktop app's toolkit (PySide6) is not usable yet — installing it…"
     _GUI_BOOT="$SCRIPT_DIR/requirements-portable-bootstrap.txt"
     if [ -f "$_GUI_BOOT" ]; then
         _pip install "${_PIP_LINKS[@]}" -r "$_GUI_BOOT" \
@@ -983,8 +1057,9 @@ if ! "$PYTHON_VENV" -c "import eli.gui.app" 2>/dev/null; then
     else
         _pip install "${_PIP_LINKS[@]}" 'PySide6>=6.6.0' || true
     fi
-    if ! "$PYTHON_VENV" -c "from eli.gui.qt_compat import real_qt_available; import sys; sys.exit(0 if real_qt_available() else 1)" 2>/dev/null; then
-        echo "[WARN] PySide6 still not importable — run install again with network, or use terminal mode."
+    if ! _from_elsewhere -c "$_REAL_QT" 2>/dev/null; then
+        echo "[WARN] The desktop app cannot start on this system yet: $(_from_elsewhere -c 'import PySide6.QtWidgets' 2>&1 | tail -1)"
+        echo "[WARN] The server and terminal modes do not need it."
     else
         echo "[OK] GUI bindings (PySide6) installed."
     fi
@@ -1059,7 +1134,11 @@ fi
 
 eli_progress finish 100 "Installation complete"
 section "Summary"
-ok "Build       ${B}llama-cpp ${BUILD_LABEL}${R}"
+if ( cd / && "$PYTHON_VENV" -c "import llama_cpp" ) 2>/dev/null; then
+    ok "Build       ${B}llama-cpp ${BUILD_LABEL}${R}"
+else
+    warn "Build       ${B}llama-cpp NOT installed${R} — no local model until it is (see above)"
+fi
 ok "Model       ${B}${MODEL_STATUS}${R}   ${D}(${SCRIPT_DIR}/models/)${R}"
 ok "Voice       ${B}${VOICE_STATUS}${R}   ${D}(local STT + TTS weights)${R}"
 ok "Data        ${B}fresh local databases${R}, offline-by-default"
@@ -1102,3 +1181,6 @@ fi
 echo "${D}Tip: launch via the scripts / 'eli' command — not the GUI .py with system python.${R}"
 echo "${D}ELI stays offline by default; model downloads are a deliberate one-time action.${R}"
 echo
+
+# finished with errors: say so to the caller
+[ "$VERIFY_OK" -eq 1 ] || exit 1

@@ -236,6 +236,9 @@ bash install.sh                 # interactive: report → plan → install → p
 ```
 Flags: `--yes` (no prompts) · `--install-cuda` (auto-install CUDA toolkit) · `--cpu-only` ·
 `--model=qwen2.5-7b` / `--no-model`.
+A stock Debian/Ubuntu has only Python. The installer checks for what it builds with
+(`python3-venv`, Python's headers, a compiler, PortAudio's headers), adds them when that takes
+no password, and otherwise prints the one `sudo apt-get install …` command to run first.
 
 **Windows** (double-click `install.bat`, or PowerShell):
 ```powershell

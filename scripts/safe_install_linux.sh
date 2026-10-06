@@ -56,7 +56,7 @@ if [ -d "$VENV" ]; then
   rm -rf "$VENV"
 fi
 info "Creating virtualenv with $PYTHON"
-"$PYTHON" -m venv "$VENV"
+"$PYTHON" "$ROOT/scripts/eli_env.py" create "$ROOT"
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 python -m pip install --upgrade pip setuptools wheel

@@ -161,7 +161,7 @@ if [ "${ELI_FULL_WHEELHOUSE:-0}" = "1" ] && [ -f "$ROOT/requirements.lock.txt" ]
       --prefer-binary -q 2>/dev/null || echo "[package]   (some wheels unavailable — install will fetch those)"
 fi
 if [ -n "$(ls -A "$STAGING/wheelhouse" 2>/dev/null)" ]; then
-  _wh_count="$(ls -1 "$STAGING/wheelhouse"/*.whl 2>/dev/null | wc -l)"
+  _wh_count="$(ls -1 "$STAGING/wheelhouse"/*.whl 2>/dev/null | wc -l || true)"
   echo "[package] wheelhouse: ${_wh_count} wheel(s)"
   if [ "${ELI_PORTABLE_WHEELHOUSE:-1}" = "1" ] && [ "${_wh_count:-0}" -lt 1 ]; then
     echo "[package] ERROR: portable wheelhouse is empty — offline GUI install will fail." >&2

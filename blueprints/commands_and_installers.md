@@ -327,6 +327,20 @@ when ELI's own environment cannot start.
   (PATH, the `py` launcher, uv, pyenv, Homebrew, python.org), the environment is pointed back
   at it and nothing is reinstalled. Otherwise it says to run the installer.
 
+- `create`: makes `.venv`. Debian and Ubuntu ship Python without the part that makes
+  environments (`python3-venv`); the installers used to stop there on Python's own error. The
+  missing package is added when that takes no password (root, or sudo without one); otherwise
+  the user is given the one command, and no half-made `.venv` is left behind.
+- `install-each ROOT FILE`: installs a requirement file one requirement at a time and names the
+  ones that failed. pip installs a file all or nothing, so one package that cannot be compiled
+  on a system (PyAudio without Python's headers) used to leave the environment with none of the
+  other hundred, the GUI toolkit among them. `install.sh` falls back to this after the pinned
+  set and the ranged set have both failed as a whole.
+- `verify`: whether ELI and every package it declares it cannot run without are installed, asked
+  of the environment itself from a folder that is not the checkout. `install.sh` used to check
+  with `import eli` from inside the source tree, which succeeds whether or not anything was
+  installed, and reported "installation complete" for an environment with nothing in it.
+
 Every launcher checks before starting (`eli_env_ready` in `scripts/eli_isolate_env.sh`;
 `eli.bat`; `scripts/eli_serve.ps1`), so the user sees one sentence and the fix instead of a
 traceback. The installers run `status` on an existing `.venv`, try `repair`, and rebuild only

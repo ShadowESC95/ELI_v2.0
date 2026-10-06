@@ -36,7 +36,8 @@ faiss-cpu>=1.7
 
 # Speech and audio
 piper-tts>=1.4
-onnxruntime>=1.25
+onnxruntime>=1.25; python_version >= "3.11"
+onnxruntime>=1.15; python_version < "3.11"   # the newest with a Python 3.10 build is older
 openwakeword>=0.4.0  # local self-trained wake-word detector (no account)
 pyttsx3>=2.9
 sounddevice>=0.5
@@ -68,7 +69,8 @@ six>=1.17
 filelock>=3.29
 fsspec>=2026
 sympy>=1.14
-networkx>=3.6
+networkx>=3.6; python_version >= "3.11"
+networkx>=3.4; python_version < "3.11"   # the newest with a Python 3.10 build is older
 Jinja2>=3.1
 MarkupSafe>=3.0
 mpmath>=1.3

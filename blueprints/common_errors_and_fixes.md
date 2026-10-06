@@ -52,6 +52,37 @@ instead of the loader's message.
 
 ---
 
+## From-source install on a clean system: stops early, or "complete" with no GUI
+
+**Symptoms (a clone or the source package, Linux):**
+- `The virtual environment was not created successfully because ensurepip is not available`
+  at the first step (stock Debian and Ubuntu).
+- `bash install.sh` ends without a message right after `Installing ELI (editable)`, exit
+  status 2 (any clone: there is no built wheel in `dist/`).
+- `ERROR: Failed building wheel for PyAudio` (`Python.h: No such file or directory`), the
+  installer prints "installation complete", and ELI then says `Please install PySide6`.
+
+**Cause:** three separate faults on a system that has only Python. Debian and Ubuntu package
+the part of Python that makes environments separately. A lookup for a prebuilt wheel ended the
+script when there was none. And pip installs a set of requirements all or nothing: PyAudio has
+no ready-made Linux build and needs Python's headers and PortAudio's to compile, so without
+them none of ELI's dependencies were installed, while the final check passed because it
+imported ELI from the folder it was run in.
+**Fix (this version):** the installer first works out what it builds with and is missing, adds
+it when that takes no password and otherwise prints one command, for example
+
+```bash
+sudo apt-get install -y python3.12-venv python3.12-dev build-essential portaudio19-dev
+```
+
+then installs ELI itself whatever happens to its dependencies, falls back from the pinned set to
+version ranges and then to one requirement at a time (naming any that failed), and checks the
+result from outside the source folder. An install that ended with errors now says so and exits
+non-zero. On an older checkout: run the command above, `mkdir -p dist`, and run the installer
+again.
+
+---
+
 ## Voice is silent although a `piper` program is installed
 
 **Symptom:** no speech, and the log shows `piper failed rc=1` or a traceback from a `piper`

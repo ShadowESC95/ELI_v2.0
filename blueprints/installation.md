@@ -127,7 +127,10 @@ The default install already uses prebuilt CUDA wheels (no toolkit needed); the o
 only matters when those don't match the user's CUDA or a source build is required.
 
 ## What `bash install.sh` does
-1. Detects Python (3.10+) and OS; creates `.venv`; upgrades pip/setuptools/wheel.
+1. Detects Python (3.10+) and OS; checks for what the install builds with (a compiler,
+   Python's headers, PortAudio's, and on Debian/Ubuntu `python3-venv`), adds what is missing
+   when that takes no password and otherwise prints the one `sudo` command; creates `.venv`;
+   upgrades pip/setuptools/wheel.
 2. Installs **PyTorch** (CUDA 12.1 / CPU / macOS-MPS per flags/OS).
 3. Installs **llama-cpp-python** with GPU acceleration (CUDA wheel index / Metal /
    CPU) — then **verifies `llama_supports_gpu_offload()`** and, if it landed CPU-only,
@@ -141,7 +144,9 @@ only matters when those don't match the user's CUDA or a source build is require
    with **zero personal memories/profile/history** (blank slate). System inventory
    (installed apps, `$PATH` binaries) is scanned once so "open Firefox" works — that
    is machine environment data, not user memories.
-7. Verifies `import eli`, the GUI entry, and the `eli` console script.
+7. Verifies, from outside the source folder, that ELI and every package it cannot run
+   without are installed, that the GUI toolkit really loads, and the `eli` console script.
+   An install that ends with errors exits non-zero.
 8. Fetches **`nomic-embed-text-v1.5.Q4_K_M.gguf`** → `models/embeddings/` (~80 MiB,
    required for memory/RAG) via `python -m eli.core.model_download --aux`.
 9. Fetches **voice weights**: Piper `en_US-amy-medium` + faster-whisper `small.en` via

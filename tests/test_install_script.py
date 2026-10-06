@@ -1,7 +1,13 @@
 """Install script regressions — catch fresh-clone failures before users hit them."""
 from __future__ import annotations
 
+import shlex
+import shutil
+import subprocess
+import sys
 from pathlib import Path
+
+import pytest
 
 
 def test_install_sh_does_not_use_set_e_unsafe_wheel_lookup():
@@ -10,6 +16,33 @@ def test_install_sh_does_not_use_set_e_unsafe_wheel_lookup():
         "install.sh must not use WHEEL=$(ls ...) under set -e — ls fails when no wheel exists and aborts the installer"
     )
     assert 'install -e ".[full]"' in text or "install -e '.[full]'" in text
+
+
+def _wheel_lookup_line() -> str:
+    text = (Path(__file__).resolve().parents[1] / "install.sh").read_text(encoding="utf-8")
+    lines = [line for line in text.splitlines() if line.startswith("WHEEL=") and "$(" in line]
+    assert len(lines) == 1, lines
+    return lines[0]
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="runs the installer's own shell line")
+def test_a_clone_with_no_built_wheel_gets_past_the_wheel_lookup(tmp_path):
+    """The guard above looks for one spelling; the line was rewritten with quotes and every
+    clone install ended there, exit 2, no message. Run the line itself under set -euo pipefail."""
+    script = "set -euo pipefail\nSCRIPT_DIR=%s\n%s\necho \"wheel=[$WHEEL]\"\n"
+    empty = subprocess.run(["bash", "-c", script % (shlex.quote(str(tmp_path)), _wheel_lookup_line())],
+                           capture_output=True, text=True)
+    assert empty.returncode == 0, "the installer would stop here on a fresh clone"
+    assert empty.stdout.strip() == "wheel=[]"
+
+    dist = tmp_path / "dist"
+    dist.mkdir()
+    name = _wheel_lookup_line().split("/dist/", 1)[1].split("*", 1)[0]      # the wheel's name stem
+    for version in ("2.9.0", "2.10.0"):
+        (dist / f"{name}{version}-py3-none-any.whl").write_text("")
+    found = subprocess.run(["bash", "-c", script % (shlex.quote(str(tmp_path)), _wheel_lookup_line())],
+                           capture_output=True, text=True)
+    assert found.stdout.strip().endswith("2.10.0-py3-none-any.whl]"), found.stdout     # newest, not first
 
 
 def test_install_ps1_uses_editable_dot_full_not_scriptdir_subscript():
