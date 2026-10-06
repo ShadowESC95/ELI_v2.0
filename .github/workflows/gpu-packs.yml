@@ -1,13 +1,16 @@
 # Build Vulkan llama-cpp-python wheels for the ELI GPU pack (AMD / Intel Arc).
 #
 # No official prebuilt Vulkan wheels exist upstream, so this compiles them:
-#   windows-latest + ubuntu-latest, python 3.11 (same as the frozen app),
+#   windows-latest + ubuntu-24.04, python 3.11 (same as the frozen app),
 #   CMAKE_ARGS=-DGGML_VULKAN=on, and publishes them (renamed vulkan-*.whl) to
 #   the `gpu-packs` pre-release. eli_gpu_pack.py downloads from there when it
 #   detects an AMD GPU (or with --vulkan).
 #
 # Runtime needs only the Vulkan loader, which AMD/Intel/NVIDIA drivers ship;
 # glslc/the SDK are build-time-only. Re-run manually to refresh the wheels.
+#
+# Linux packs: ubuntu-24.04 by name, the same image as release.yml. A pack loads into
+# that app; built on a newer image it would not load in apps already installed.
 
 name: gpu-packs
 
@@ -38,7 +41,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        os: [ubuntu-24.04, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/setup-python@v6
@@ -159,7 +162,7 @@ jobs:
         # keeps a supported host compiler instead of forcing nvcc past its own
         # check with -allow-unsupported-compiler, which would build a wheel
         # nobody has validated.
-        os: [ubuntu-latest, windows-2022]
+        os: [ubuntu-24.04, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/setup-python@v6

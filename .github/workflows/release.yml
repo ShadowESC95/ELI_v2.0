@@ -18,6 +18,13 @@
 # release — same set previous full tarballs shipped). GGUF model weights are
 # runtime downloads (too big to bundle). Binaries are unsigned; see
 # docs/RELEASE_PIPELINE.md for optional Windows/Apple signing steps.
+#
+# Linux jobs run on ubuntu-24.04 by name, never ubuntu-latest. The build machine's
+# glibc is the oldest the download starts on (24.04 = glibc 2.39). When GitHub moves
+# "latest" to a newer Ubuntu the AppImage would stop starting on today's systems.
+# GPU packs load into this app, so gpu-packs.yml uses the same image. To move it:
+# both workflows, LINUX_GLIBC_FLOOR, README, docs/CROSS_PLATFORM.md
+# (tests/test_linux_build_baseline.py checks they agree).
 
 name: release
 
@@ -35,6 +42,8 @@ concurrency:
 
 env:
   PYTHON_VERSION: "3.11"   # newest version with binary wheels for the FULL stack (piper-phonemize, tflite-runtime cap at 3.11)
+  # glibc of the build image. The Linux job fails if the bundle needs newer.
+  LINUX_GLIBC_FLOOR: "2.39"
   # Every pip install in every job is held to the llama-cpp-python the GPU packs are
   # built at. Unpinned, pip took the newest upstream (0.3.36 on 2026-10-01) and v2.5.0
   # crashed on launch wherever a 0.3.35 pack was installed. See the file itself.
@@ -57,7 +66,7 @@ env:
 jobs:
   guard:
     name: version guard
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       version: ${{ steps.ver.outputs.version }}
     steps:
@@ -376,7 +385,7 @@ jobs:
       # source install (`pip install -e ".[natural]"`), where torch matches the host.
     name: linux (AppImage)
     needs: guard
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6
@@ -549,6 +558,9 @@ jobs:
             exit 1
           fi
 
+      - name: System library floor (the oldest glibc this bundle starts on)
+        run: python packaging/linux/glibc_floor.py dist/ELI --max "$LINUX_GLIBC_FLOOR"
+
       - name: Build AppImage
         run: bash packaging/linux/build-appimage-pyinstaller.sh
 
@@ -587,7 +599,7 @@ jobs:
   build-source-artifacts:
     name: source packages (wheel, sdist, deb, wheelhouse, win-portable)
     needs: guard
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -658,6 +670,10 @@ jobs:
           archives (x64 + arm64). GPU acceleration packs refresh on the \`gpu-packs\`
           pre-release when this tag is pushed.
 
+          Linux: the AppImage needs glibc ${LINUX_GLIBC_FLOOR} or newer (check with
+          \`ldd --version\`; docs/CROSS_PLATFORM.md lists which distributions that is).
+          On an older system use the linux-portable package, which installs from source.
+
           Verify: \`sha256sum -c SHA256SUMS.txt\`
           EOF
 
@@ -696,7 +712,7 @@ jobs:
     name: publish GitHub Release
     if: startsWith(github.ref, 'refs/tags/')
     needs: [guard, build-windows, build-macos, build-linux, build-source-artifacts]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
         with:

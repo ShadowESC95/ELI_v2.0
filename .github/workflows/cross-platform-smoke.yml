@@ -146,6 +146,7 @@ jobs:
           tests/test_device_names.py
           tests/test_install_script.py
           tests/test_env_repair.py
+          tests/test_linux_build_baseline.py
           tests/test_platform_profile.py
           tests/test_intel_igpu_detection.py
           tests/test_document_formats.py

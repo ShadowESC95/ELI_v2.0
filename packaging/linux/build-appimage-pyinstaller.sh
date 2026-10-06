@@ -49,9 +49,36 @@ for _doc in LICENSE NOTICE THIRD_PARTY_NOTICES.md; do
     cp "$ROOT/$_doc" "$APPDIR/usr/share/doc/eli/$_doc"
 done
 
+# Oldest glibc the bundle starts on, measured from its binaries. AppRun checks it.
+mkdir -p "$APPDIR/usr/share/eli"
+GLIBC_FLOOR="$(python3 "$ROOT/packaging/linux/glibc_floor.py" "$APPDIR/usr/app" 2>/dev/null || true)"
+if [ -n "$GLIBC_FLOOR" ]; then
+    echo "$GLIBC_FLOOR" > "$APPDIR/usr/share/eli/min-glibc"
+    echo "[appimage] needs glibc $GLIBC_FLOOR or newer"
+else
+    echo "[appimage] WARNING: could not measure the glibc floor; the launcher will not check it" >&2
+fi
+
 cat > "$APPDIR/AppRun" <<'EOF'
 #!/bin/bash
 HERE="$(dirname "$(readlink -f "$0")")"
+# System too old: say so. A file manager shows no stderr, so a dialog too.
+NEED="$(cat "$HERE/usr/share/eli/min-glibc" 2>/dev/null)"
+HAVE="$(getconf GNU_LIBC_VERSION 2>/dev/null)"
+HAVE="${HAVE##* }"
+if [ -n "$NEED" ] && [ -n "$HAVE" ] \
+   && [ "$(printf '%s\n%s\n' "$NEED" "$HAVE" | sort -V | head -n 1)" != "$NEED" ]; then
+    MSG="ELI cannot start on this system: this download needs glibc $NEED or newer and this system has glibc $HAVE. Install ELI from source here instead (the linux-portable package on the same download page, then ./ELI_Setup.sh); that builds against the libraries this system has."
+    echo "$MSG" >&2
+    if [ ! -t 2 ]; then
+        zenity --error --title="ELI" --text="$MSG" 2>/dev/null \
+            || kdialog --title "ELI" --error "$MSG" 2>/dev/null \
+            || notify-send "ELI" "$MSG" 2>/dev/null \
+            || xmessage "$MSG" 2>/dev/null \
+            || true
+    fi
+    exit 1
+fi
 exec "$HERE/usr/app/ELI" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"

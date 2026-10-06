@@ -17,7 +17,7 @@ produces on the Release page:
 | `ELI-Setup-<v>.exe` | Windows installer (Inno Setup, per-user, no admin) |
 | `ELI_v2-<v>-windows-x64.zip` | Windows portable — unzip, run `ELI\ELI.exe` |
 | `ELI_v2-<v>-macos-arm64.dmg` | macOS Apple Silicon — drag ELI.app to Applications |
-| `ELI_v2-<v>-x86_64.AppImage` | Linux — `chmod +x` and run (needs libfuse2, or `--appimage-extract-and-run`) |
+| `ELI_v2-<v>-x86_64.AppImage` | Linux — `chmod +x` and run (needs glibc 2.39 or newer; needs libfuse2, or `--appimage-extract-and-run`) |
 | `ELI_v2-<v>-linux-portable.tar.gz` | classic source tarball incl. voices (previous-release format) |
 | `eli_v2_0-<v>-py3-none-any.whl` | pip-installable wheel (`pip install eli_v2_0-*.whl[full]`) |
 | `eli_v2_0-<v>.tar.gz` | Python sdist for source installs |
@@ -69,9 +69,35 @@ e.g. for Intel Arc). Drivers already ship the Vulkan loader the wheel needs.
 | `packaging/pyinstaller/gen_version_info.py` + `packaging/windows/version.rc.in` | Generates `build/version.rc` (Windows version resource) from `pyproject.toml`. |
 | `packaging/windows/installer.iss` | Inno Setup installer for the frozen bundle (the older `ELI_Setup.iss` still serves the source-portable flow). |
 | `packaging/macos/build-dmg.sh` | Ad-hoc signs `dist/ELI.app`, builds the `.dmg`. |
-| `packaging/linux/build-appimage-pyinstaller.sh` | Wraps `dist/ELI` into an AppImage (pinned appimagetool 13). |
+| `packaging/linux/build-appimage-pyinstaller.sh` | Wraps `dist/ELI` into an AppImage (pinned appimagetool 13). Writes the glibc floor into it and the launcher that checks it. |
+| `packaging/linux/glibc_floor.py` | Reads the oldest glibc a built bundle starts on out of its binaries. |
 | `requirements-build.txt` | Pinned build tooling (PyInstaller etc.) for reproducible builds. |
 | `.github/workflows/release.yml` | The pipeline: version guard → 3 parallel builds → Release upload. |
+
+## The Linux build image decides who can run the download
+
+Every Linux job in `release.yml` and `gpu-packs.yml` runs on **`ubuntu-24.04`**, by name. A Linux
+program only starts where the system library (glibc) is at least as new as the one it was built
+against, so the AppImage built there needs **glibc 2.39** or newer. `ubuntu-latest` is not a
+version: GitHub repoints it to a newer Ubuntu from time to time, and the same workflow would then
+produce an AppImage that no longer starts on the systems it runs on today, with nothing in the
+repository to show for it.
+
+- `LINUX_GLIBC_FLOOR` in `release.yml` declares the floor. The Linux job runs
+  `packaging/linux/glibc_floor.py dist/ELI --max $LINUX_GLIBC_FLOOR`, which reads what every
+  binary in the bundle asks for and fails the build if any asks for more.
+- The AppImage ships the measured number (`usr/share/eli/min-glibc`). Its launcher compares it
+  with the system and, on one too old, says so in a sentence (and a dialog when there is no
+  terminal) instead of the loader's `version 'GLIBC_2.38' not found`.
+- The GPU packs are loaded into the app and use the C++ runtime it ships, so they are built on
+  the same image. A pack built on a newer one would fail to load in every app already installed.
+- The release notes and the README state the floor.
+
+To move the floor on purpose, change together: the image in both workflows,
+`LINUX_GLIBC_FLOOR`, and the Linux row of the README. `tests/test_linux_build_baseline.py` fails
+when they disagree or when a build job goes back to a `-latest` image. The test matrix in
+`cross-platform-smoke.yml` stays on `ubuntu-latest` on purpose: that one should follow the newest
+system.
 
 ## What is (deliberately) not bundled
 

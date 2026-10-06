@@ -43,13 +43,26 @@ separate and more honest: what I've genuinely **run**.
   result (working or broken) — that's the fastest way to close the gap for everyone.
 
 A few edges worth knowing going in:
+- **The Linux AppImage needs glibc 2.39 or newer.** A Linux program asks the system library
+  (glibc) of the machine it runs on for the versions of the functions it was built against, and
+  the release is built on Ubuntu 24.04. That is Ubuntu 24.04+, Debian 13+, Fedora 40+, Linux Mint 22+, Pop!_OS 24.04+, RHEL / AlmaLinux / Rocky 10+, openSUSE Leap 16+ and Tumbleweed, Arch. On an older system
+  (Ubuntu 22.04 has glibc 2.35, Debian 12 has 2.36, RHEL 9 has 2.34) the loader refuses it:
+  `version 'GLIBC_2.38' not found`. Tried in clean containers on 2026-10-05: the released AppImage
+  fails that way on Ubuntu 22.04 and Debian 12 and loads on Ubuntu 24.04, Debian 13 and Fedora.
+  Check yours with `ldd --version`. On an older system install from source (the `linux-portable`
+  package, or a clone and `bash install.sh`), which builds against the libraries the system has.
+  The AppImage now says this in a sentence, and in a dialog when started from a file manager,
+  instead of leaving the loader's message. The build image is named in the release workflow
+  (`ubuntu-24.04`, never `ubuntu-latest`) so the floor cannot move without a change to it; see
+  `docs/RELEASE_PIPELINE.md`.
 - **musl distros (Alpine) need a glibc shim.** The Linux `.AppImage` is glibc-linked (built on
   Ubuntu), like essentially every AppImage. On a musl-libc distro such as **Alpine** the bundled
   binary won't start — you get a misleading `no such file or directory` on the launcher (that's the
   glibc dynamic linker being absent, not a missing file). Install the `gcompat` glibc-compat layer,
   or run ELI from source in a `python:3.11` (glibc) environment instead. Every mainstream desktop
-  distro (Arch, Ubuntu/Debian, Fedora, openSUSE, Mint, Pop!_OS, …) is glibc and runs the AppImage
-  directly — see the run-verified list above.
+  distro (Arch, Ubuntu/Debian, Fedora, openSUSE, Mint, Pop!_OS, …) is glibc and, at a current
+  release (glibc 2.39 or newer, see above), runs the AppImage directly — see the run-verified list
+  above.
 - **Running from source (not the AppImage) needs the Qt xcb libs** — the self-contained AppImage
   bundles the full xcb-util family as of v2.1.21, but a **source / portable** install uses your
   system's Qt libraries. On a minimal desktop the GUI may need the xcb-util family installed:

@@ -35,6 +35,23 @@ The release packages (AppImage, Setup.exe, dmg) bring their own Python and are n
 
 ---
 
+## The Linux AppImage does nothing, or: `version 'GLIBC_2.38' not found`
+
+**Symptom:** double-clicking the AppImage does nothing. From a terminal:
+`Failed to load Python shared library ... libm.so.6: version 'GLIBC_2.38' not found`.
+**Cause:** a Linux program only starts where the system library (glibc) is at least as new as
+the one it was built against. The AppImage is built on Ubuntu 24.04 and needs **glibc 2.39** or
+newer: Ubuntu 24.04+, Debian 13+, Fedora 40+, Linux Mint 22+, Pop!_OS 24.04+, RHEL / AlmaLinux /
+Rocky 10+, openSUSE Leap 16+ and Tumbleweed, Arch. Ubuntu 22.04 (2.35), Debian 12 (2.36),
+Mint 21 and RHEL 9 (2.34) are older. Check with `ldd --version`.
+**Fix:** on an older system install from source, which builds against the libraries the system
+has: download `ELI_v2-<v>-linux-portable.tar.gz` from the same release, unpack it and run
+`./ELI_Setup.sh`. Nothing can be added to the AppImage to make it start; upgrading the
+distribution also works. Current AppImages say this themselves, in a sentence and a dialog,
+instead of the loader's message.
+
+---
+
 ## Voice is silent although a `piper` program is installed
 
 **Symptom:** no speech, and the log shows `piper failed rc=1` or a traceback from a `piper`
