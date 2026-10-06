@@ -623,8 +623,9 @@ def _piper_runs(path: str) -> bool:
         try:
             out = subprocess.run([key, "--help"], capture_output=True, text=True, timeout=30)
             _PIPER_RUNS[key] = out.returncode == 0 and "--model" in ((out.stdout or "") + (out.stderr or ""))
-        except Exception:
-            log.debug("piper probe failed for %s", key, exc_info=True)
+        except Exception as exc:
+            # expected for a piper whose Python is gone: one line, no traceback
+            log.debug("piper at %s does not start (%s); passed over", key, exc)
             _PIPER_RUNS[key] = False
     return _PIPER_RUNS[key]
 

@@ -29,6 +29,18 @@ log = logging.getLogger(__name__)
 # Remember filesystems we have already downgraded so the warning fires once, not
 # on every connection.
 _wal_unsupported: set[str] = set()
+# Databases already proven writable in WAL. The proof takes the write lock: once per
+# database, not per connection.
+_wal_proven: set[str] = set()
+
+
+def _is_busy(exc: BaseException) -> bool:
+    """Another connection holds the lock. That says nothing about the filesystem."""
+    code = getattr(exc, "sqlite_errorcode", None)          # Python 3.11+
+    if code is not None:
+        return (code & 0xFF) in (5, 6)                     # SQLITE_BUSY, SQLITE_LOCKED
+    text = str(exc).lower()
+    return "locked" in text or "busy" in text
 
 
 def apply_pragmas(conn: sqlite3.Connection, *, db_path: str | None = None,
@@ -56,19 +68,27 @@ def apply_pragmas(conn: sqlite3.Connection, *, db_path: str | None = None,
         got = (row[0] if row else "").lower()
         if got != "wal":
             raise sqlite3.OperationalError(f"journal_mode stayed '{got or 'unknown'}', not wal")
+        mode = "wal"
         # Prove a write actually works in WAL on this fs: on NTFS/exFAT/network
         # mounts the failure surfaces on the FIRST write, not on the pragma.
-        conn.execute("BEGIN IMMEDIATE;")
-        conn.execute("COMMIT;")
-        mode = "wal"
+        if db_path is None or db_path not in _wal_proven:
+            conn.execute("BEGIN IMMEDIATE;")
+            conn.execute("COMMIT;")
+            if db_path is not None:
+                _wal_proven.add(db_path)
     except sqlite3.OperationalError as exc:
         if conn.in_transaction:
             try:
                 conn.execute("ROLLBACK;")
             except sqlite3.OperationalError:
                 log.debug("rollback after failed WAL probe did nothing", exc_info=True)
-        _fallback_to_delete(conn, db_path, exc)
-        mode = "delete"
+        if _is_busy(exc):
+            # Another connection is writing. Not a filesystem problem: leave the journal mode.
+            mode = _current_mode(conn) or mode
+            log.debug("[SQLITE] %s is busy; journal mode left as it is (%s)", db_path or "<unknown>", mode)
+        else:
+            _fallback_to_delete(conn, db_path, exc)
+            mode = "delete"
 
     if cache_size is not None:
         try:
@@ -76,6 +96,14 @@ def apply_pragmas(conn: sqlite3.Connection, *, db_path: str | None = None,
         except sqlite3.OperationalError:
             log.debug("could not set cache_size=%s", cache_size, exc_info=True)
     return mode
+
+
+def _current_mode(conn: sqlite3.Connection) -> str:
+    try:
+        row = conn.execute("PRAGMA journal_mode;").fetchone()
+        return str(row[0]).lower() if row and row[0] else ""
+    except sqlite3.OperationalError:
+        return ""
 
 
 def _fallback_to_delete(conn: sqlite3.Connection, db_path: str | None,

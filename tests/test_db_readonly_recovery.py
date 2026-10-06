@@ -74,6 +74,54 @@ def test_apply_pragmas_keeps_wal_on_healthy_fs():
     assert apply_pragmas(conn, db_path=str(db), synchronous="NORMAL") == "wal"
 
 
+# ── a busy database is not an unsupported filesystem ─────────────────────────
+# One part of ELI was writing user.sqlite3 when another opened it. The write-probe could not
+# take the lock; that was reported as a filesystem without WAL and the journal mode was changed.
+
+def _being_written(tmp_path):
+    from eli.core import sqlite_util
+    db = tmp_path / "busy.sqlite3"
+    writer = sqlite3.connect(str(db))
+    assert sqlite_util.apply_pragmas(writer, db_path=str(db)) == "wal"
+    writer.execute("CREATE TABLE t (x)")
+    writer.commit()
+    writer.execute("BEGIN IMMEDIATE")              # another part of ELI, mid-write
+    return sqlite_util, db, writer
+
+
+def test_a_database_another_connection_is_writing_is_not_called_an_unsupported_filesystem(tmp_path, caplog):
+    sqlite_util, db, writer = _being_written(tmp_path)
+    sqlite_util._wal_proven.discard(str(db))       # as in a second process, which has proven nothing
+    other = sqlite3.connect(str(db), timeout=0.1)
+    with caplog.at_level("WARNING"):
+        assert sqlite_util.apply_pragmas(other, db_path=str(db)) == "wal"
+    assert "WAL journal unavailable" not in caplog.text
+    assert str(db) not in sqlite_util._wal_unsupported
+    writer.commit()
+    assert other.execute("PRAGMA journal_mode").fetchone()[0] == "wal"      # nobody switched it
+    other.execute("INSERT INTO t VALUES (1)")
+    other.commit()
+
+
+def test_wal_is_proven_once_for_a_database_not_on_every_connection(tmp_path):
+    """The proof takes the write lock; on every open it made each connection wait for the writer."""
+    import time
+    sqlite_util, db, writer = _being_written(tmp_path)
+    other = sqlite3.connect(str(db), timeout=30)
+    started = time.monotonic()
+    assert sqlite_util.apply_pragmas(other, db_path=str(db)) == "wal"
+    assert time.monotonic() - started < 5, "opening a proven database waited for the writer"
+    writer.commit()
+
+
+def test_busy_is_told_apart_from_a_filesystem_that_refuses_wal():
+    from eli.core.sqlite_util import _is_busy
+    assert _is_busy(sqlite3.OperationalError("database is locked"))
+    assert _is_busy(sqlite3.OperationalError("database table is locked"))
+    assert not _is_busy(sqlite3.OperationalError("attempt to write a readonly database"))
+    assert not _is_busy(sqlite3.OperationalError("journal_mode stayed 'delete', not wal"))
+
+
 def test_memory_open_survives_wal_hostile_fs(wal_hostile, tmp_path):
     """The exact traceback frame Node hit: _open_memory_db → PRAGMA WAL."""
     from eli.memory.memory import _open_memory_db

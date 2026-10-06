@@ -472,6 +472,21 @@ def test_a_piper_that_does_not_run_or_is_another_program_is_passed_over(tmp_path
     assert tts._find_piper_bin() == str(real)
 
 
+@pytest.mark.skipif(not POSIX, reason="a script whose interpreter is gone is a POSIX case")
+def test_a_piper_whose_python_has_gone_is_passed_over_without_a_traceback(tmp_path, caplog):
+    """An old environment's piper names a Python that is gone. That is what the check is for,
+    and it printed a traceback at every start."""
+    from eli.perception import tts_router
+    stale = tmp_path / "piper"
+    stale.write_text("#!/nonexistent/python3\nprint('never runs')\n")
+    stale.chmod(0o755)
+    tts_router._PIPER_RUNS.pop(str(stale), None)
+    with caplog.at_level("DEBUG"):
+        assert tts_router._piper_runs(str(stale)) is False
+    assert "passed over" in caplog.text
+    assert "Traceback" not in caplog.text and not any(r.exc_info for r in caplog.records)
+
+
 @pytest.mark.skipif(not POSIX, reason="uses shell scripts as stand-in programs")
 def test_elis_own_piper_is_used_before_whatever_is_on_the_path(tmp_path, monkeypatch):
     from eli.perception import tts_router as tts
