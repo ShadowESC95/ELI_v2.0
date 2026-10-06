@@ -45,13 +45,14 @@ separate and more honest: what I've genuinely **run**.
 A few edges worth knowing going in:
 - **What the Linux AppImage takes from the system.** Its graphics libraries (`libGL`,
   `libEGL`, the base `libxcb`), which belong to the GPU driver and the display server and are on
-  every desktop; a server or container without them gets one sentence naming the library and
-  the package that provides it, where it used to say "Please install PySide6". And GLib, when
-  the system has all of it: GIO loads the system's own modules (gvfs, dconf) into whichever GLib
-  is in the process, and the AppImage's older copy could not load modules built for a newer
-  one, which printed `undefined symbol: g_variant_builder_init_static` twice at every start on
-  a current distribution. The AppImage still carries its GLib and uses it on a system that has
-  none, or only part (openSUSE packages `libgthread` separately).
+  every desktop; a server or container without them gets one sentence naming each missing
+  library and the command that installs it, where it used to say "Please install PySide6".
+  Everything else it carries, GLib and GTK included. That has one visible cost on a distribution
+  newer than the build image: GLib loads the system's GIO modules, which are built for the
+  system's newer GLib, and prints `undefined symbol: g_variant_builder_init_static` twice at
+  start. Harmless. Using the system's GLib instead was tried (2026-10-06) and withdrawn: the
+  system's `libgio` then needs a newer `libmount` than the one the AppImage carries, and GTK
+  stops loading.
 - **The Linux AppImage needs glibc 2.39 or newer.** A Linux program asks the system library
   (glibc) of the machine it runs on for the versions of the functions it was built against, and
   the release is built on Ubuntu 24.04. That is Ubuntu 24.04+, Debian 13+, Fedora 40+, Linux Mint 22+, Pop!_OS 24.04+, RHEL / AlmaLinux / Rocky 10+, openSUSE Leap 16+ and Tumbleweed, Arch. On an older system

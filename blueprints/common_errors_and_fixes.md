@@ -50,12 +50,13 @@ system's, which every desktop has.
 
 ## `undefined symbol: g_variant_builder_init_static` / `Failed to load module: ...libgvfsdbus.so`
 
-**Symptom:** two warnings in the terminal at every start of the AppImage on a current
-distribution (Ubuntu 26.04, Fedora, Arch). Harmless, but file dialogs had no network places.
-**Cause:** the AppImage carried its own, older GLib, and GLib loads the system's GIO modules,
-which are built for the system's newer one.
-**Fix (this version):** the AppImage uses the system's GLib when the system has all of it and
-keeps its own for a system that has none. Nothing to do.
+**Symptom:** two warnings in the terminal at every start of the AppImage on a distribution newer
+than Ubuntu 24.04 (Ubuntu 26.04, Fedora, Arch).
+**Cause:** the AppImage carries its own GLib, and GLib loads the system's GIO modules, which are
+built for the system's newer one. Two of them (network places in file dialogs) do not load.
+**Fix:** none needed; ELI works. Making the AppImage use the system's GLib was tried and
+withdrawn: GTK then failed to load on those same systems, because other libraries the AppImage
+carries are older than the system's GLib expects.
 
 ---
 

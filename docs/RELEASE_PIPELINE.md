@@ -91,9 +91,6 @@ repository to show for it.
   terminal) instead of the loader's `version 'GLIBC_2.38' not found`.
 - The GPU packs are loaded into the app and use the C++ runtime it ships, so they are built on
   the same image. A pack built on a newer one would fail to load in every app already installed.
-- GLib is bundled under `_internal/glib-fallback/`, outside the search path. The launcher adds
-  it only when the system lacks one of the five GLib libraries; otherwise the system's is used,
-  so its GIO modules load. The Linux job fails if GLib is found on the search path.
 - The release notes and the README state the floor.
 
 To move the floor on purpose, change together: the image in both workflows,

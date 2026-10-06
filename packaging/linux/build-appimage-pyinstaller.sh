@@ -79,15 +79,6 @@ if [ -n "$NEED" ] && [ -n "$HAVE" ] \
     fi
     exit 1
 fi
-# GLib: the system's when it has all five libraries (its GIO modules only load into their
-# own GLib), ours otherwise. openSUSE packages libgthread apart and Qt needs it.
-HOST_LIBS="$(PATH="$PATH:/sbin:/usr/sbin" ldconfig -p 2>/dev/null)"
-for LIB in libglib-2.0.so.0 libgobject-2.0.so.0 libgio-2.0.so.0 libgmodule-2.0.so.0 libgthread-2.0.so.0; do
-    case "$HOST_LIBS" in
-        *"$LIB "*) ;;
-        *) export LD_LIBRARY_PATH="$HERE/usr/app/_internal/glib-fallback${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"; break ;;
-    esac
-done
 exec "$HERE/usr/app/ELI" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
