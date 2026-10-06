@@ -128,9 +128,10 @@ only matters when those don't match the user's CUDA or a source build is require
 
 ## What `bash install.sh` does
 1. Detects Python (3.10+) and OS; checks for what the install builds with (a compiler,
-   Python's headers, PortAudio's, and on Debian/Ubuntu `python3-venv`), adds what is missing
+   Python's headers, PortAudio's, and on Debian/Ubuntu `python3-venv`) and for the system
+   libraries the window loads (GLib, `libGL`, `libEGL`, the xcb helpers), adds what is missing
    when that takes no password and otherwise prints the one `sudo` command; creates `.venv`;
-   upgrades pip/setuptools/wheel.
+   upgrades pip/setuptools/wheel. The `.deb` declares the same packages as dependencies.
 2. Installs **PyTorch** (CUDA 12.1 / CPU / macOS-MPS per flags/OS).
 3. Installs **llama-cpp-python** with GPU acceleration (CUDA wheel index / Metal /
    CPU) — then **verifies `llama_supports_gpu_offload()`** and, if it landed CPU-only,

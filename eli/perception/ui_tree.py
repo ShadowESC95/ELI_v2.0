@@ -170,7 +170,8 @@ def _atspi():
         return Atspi
     except Exception as exc:
         _UNAVAILABLE_REASON = f"{type(exc).__name__}: {exc}"
-        log.debug("ui_tree: AT-SPI unavailable — %s", _UNAVAILABLE_REASON)
+        # a bundled Python cannot load the system's bindings; the system Python is used instead
+        log.debug("ui_tree: AT-SPI bindings do not load in this Python (%s)", _UNAVAILABLE_REASON)
         return None
 
 

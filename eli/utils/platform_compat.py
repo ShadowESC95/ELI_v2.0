@@ -1585,6 +1585,147 @@ def get_platform() -> str:
     return normalize_platform()
 
 
+# ── system libraries ─────────────────────────────────────────────────────────
+# Some libraries come from the system and can't be bundled (libGL belongs to the GPU driver).
+# When one is missing: name it and the command that installs it here. rpm and Alpine install
+# by library name. Debian names the package after the library (libGL.so.1 -> libgl1), odd
+# ones listed. Arch names listed.
+_APT_ODD = {
+    "libglib-2.0.so.0": "libglib2.0-0", "libgobject-2.0.so.0": "libglib2.0-0", "libgio-2.0.so.0": "libglib2.0-0",
+    "libgmodule-2.0.so.0": "libglib2.0-0", "libgthread-2.0.so.0": "libglib2.0-0",
+    "libbrotlidec.so.1": "libbrotli1", "libbrotlicommon.so.1": "libbrotli1", "libbrotlienc.so.1": "libbrotli1",
+    "libharfbuzz.so.0": "libharfbuzz0b", "libatk-1.0.so.0": "libatk1.0-0", "libgdk-3.so.0": "libgtk-3-0",
+    "libwayland-egl.so.1": "libwayland-egl1", "libcairo-gobject.so.2": "libcairo-gobject2",
+}
+_PACMAN = (  # library name starts with -> package
+    ("libGL.so", "libglvnd"), ("libEGL.so", "libglvnd"), ("libGLX.so", "libglvnd"), ("libOpenGL.so", "libglvnd"),
+    ("libglib-2.0", "glib2"), ("libgobject-2.0", "glib2"), ("libgio-2.0", "glib2"), ("libgmodule-2.0", "glib2"),
+    ("libgthread-2.0", "glib2"), ("libxcb-cursor", "xcb-util-cursor"), ("libxcb-icccm", "xcb-util-wm"),
+    ("libxcb-image", "xcb-util-image"), ("libxcb-keysyms", "xcb-util-keysyms"),
+    ("libxcb-render-util", "xcb-util-renderutil"), ("libxcb-util", "xcb-util"), ("libxcb", "libxcb"),
+    ("libxkbcommon-x11", "libxkbcommon-x11"), ("libxkbcommon", "libxkbcommon"), ("libX11", "libx11"),
+    ("libfontconfig", "fontconfig"), ("libfreetype", "freetype2"), ("libdbus-1", "dbus"),
+    ("libwayland-", "wayland"), ("libbrotli", "brotli"), ("libgssapi_krb5", "krb5"), ("libgtk-3", "gtk3"),
+    ("libgdk-3", "gtk3"), ("libpango", "pango"), ("libcairo", "cairo"), ("libharfbuzz", "harfbuzz"),
+    ("libportaudio", "portaudio"), ("libsndfile", "libsndfile"), ("libasound", "alsa-lib"),
+)
+_MISSING_LIBRARY = r"(lib[\w.+-]+?\.so(?:\.\d+)*)(?=: cannot open shared object file| => not found)"
+
+
+def _debian_package(library: str) -> str | None:
+    """Debian's name for the package holding a library, checked against apt's own list."""
+    name = _APT_ODD.get(library)
+    if not name:
+        stem, _, version = library.partition(".so")
+        stem = stem.lower().replace("_", "-")
+        name = stem + ("-" if stem[-1:].isdigit() else "") + version.lstrip(".").split(".")[0]
+    if shutil.which("apt-cache"):
+        try:
+            if subprocess.run(["apt-cache", "show", name], capture_output=True, timeout=30).returncode != 0:
+                return None
+        except (OSError, subprocess.SubprocessError):
+            return None
+    return name
+
+
+def install_command(libraries) -> tuple[str | None, list[str]]:
+    """(the command that installs these libraries on this system, the ones it does not cover)."""
+    wanted: list[str] = []
+    unknown: list[str] = []
+
+    def add(package: str | None, library: str) -> None:
+        if not package:
+            unknown.append(library)
+        elif package not in wanted:
+            wanted.append(package)
+
+    libraries = list(dict.fromkeys(libraries))
+    if shutil.which("apt-get"):
+        command = "sudo apt-get install -y"
+        for library in libraries:
+            add(_debian_package(library), library)
+    elif shutil.which("dnf") or shutil.which("zypper"):
+        command = "sudo dnf install -y" if shutil.which("dnf") else "sudo zypper install"
+        wanted = ["'%s()(64bit)'" % library for library in libraries]
+    elif shutil.which("pacman"):
+        command = "sudo pacman -S --needed"
+        for library in libraries:
+            add(next((package for start, package in _PACMAN if library.startswith(start)), None), library)
+    elif shutil.which("apk"):
+        command = "sudo apk add"
+        wanted = ["so:" + library for library in libraries]
+    else:
+        return None, libraries
+    return (command + " " + " ".join(wanted)) if wanted else None, unknown
+
+
+def explain_missing_libraries(libraries) -> str | None:
+    """A sentence naming the missing system libraries and the command that installs them."""
+    libraries = list(dict.fromkeys(libraries))
+    if not libraries:
+        return None
+    command, unknown = install_command(libraries)
+    one = len(libraries) == 1
+    say = ("This system has no %s, %s ELI needs and cannot carry itself."
+           % (", ".join(libraries), "a system library" if one else "system libraries"))
+    if command:
+        say += " Install %s with:  %s" % ("it" if one else "them", command)
+    if unknown or not command:
+        rest = unknown or libraries
+        say += (" For %s, install" % ", ".join(rest) if command else " Install") + \
+               " the package that provides %s with your system's package manager." % ("it" if len(rest) == 1 else "them")
+    return say
+
+
+def missing_library_hint(error: object) -> str | None:
+    """For an import that failed on a system library ("libGL.so.1: cannot open shared object
+    file"), the sentence above. None for anything else."""
+    import re
+    found = re.search(_MISSING_LIBRARY, str(error))
+    return explain_missing_libraries([found.group(1)]) if found else None
+
+
+def missing_qt_libraries() -> list[str]:
+    """Every system library the installed Qt asks for and this system does not have. An import
+    stops at the first one; this lists them all, so they are installed in one go."""
+    import re
+    if not LINUX or not shutil.which("ldd"):
+        return []
+    try:
+        import importlib.util
+        spec = importlib.util.find_spec("PySide6")
+        home = Path(list(spec.submodule_search_locations)[0]) if spec and spec.submodule_search_locations else None
+    except Exception:
+        home = None
+    if home is None:
+        return []
+    files = [home / "Qt" / "lib" / name for name in ("libQt6Core.so.6", "libQt6Gui.so.6", "libQt6Widgets.so.6",
+                                                    "libQt6DBus.so.6", "libQt6XcbQpa.so.6")]
+    files += [home / "Qt" / "plugins" / "platforms" / "libqxcb.so"]
+    if os.environ.get("WAYLAND_DISPLAY"):
+        files += [home / "Qt" / "lib" / "libQt6WaylandClient.so.6"]
+    missing: list[str] = []
+    for path in files:
+        if not path.exists():
+            continue
+        try:
+            out = subprocess.run(["ldd", str(path)], capture_output=True, text=True, timeout=60).stdout
+        except (OSError, subprocess.SubprocessError):
+            continue
+        for library in re.findall(_MISSING_LIBRARY, out):
+            if library not in missing and not library.startswith("libQt6"):
+                missing.append(library)
+    return missing
+
+
+def window_cannot_start(error: object) -> str:
+    """Why the window's toolkit did not load, in one sentence, with what to do."""
+    if isinstance(error, ModuleNotFoundError) and getattr(error, "name", "") == "PySide6":
+        return "Its toolkit (PySide6) is not installed. Run the installer again."
+    return (explain_missing_libraries(missing_qt_libraries()) or missing_library_hint(error)
+            or f"PySide6 is installed but did not load: {error}")
+
+
 def musl_libc_hint() -> str | None:
     """Return an actionable hint on musl/Alpine, else None."""
     if not LINUX:

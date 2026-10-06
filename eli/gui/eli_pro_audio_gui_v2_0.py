@@ -61,7 +61,8 @@ try:
     pyqtSlot = Slot
     QT_VERSION = 6
     QT_API = "PySide6"
-except ImportError:
+except ImportError as _pyside_error:
+    _qt_load_error = _pyside_error
     try:
         from PyQt6.QtWidgets import *
         from PyQt6.QtCore import *
@@ -76,7 +77,9 @@ except ImportError:
             QT_VERSION = 5
             QT_API = "PyQt5"
         except ImportError:
-            print("❌ Please install PySide6 (recommended), PyQt6, or PyQt5")
+            # installed but failing to load is not absent: without libGL this said "Please install PySide6"
+            from eli.utils.platform_compat import window_cannot_start
+            print("❌ ELI's window cannot start. " + window_cannot_start(_qt_load_error))
             sys.exit(1)
 
 # Try to import syntax highlighter.

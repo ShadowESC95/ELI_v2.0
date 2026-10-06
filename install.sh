@@ -117,6 +117,7 @@ attempt_cuda_toolkit() {
 attempt_build_prereqs() {
     # The install compiles PyAudio (and llama.cpp on some CPUs): needs a compiler, Python's
     # headers, PortAudio's, and on Debian/Ubuntu python3-venv. A stock desktop has none.
+    # The window needs the system's graphics libraries, which a server or container lacks.
     # Add what is missing when that takes no password, else print the one command.
     [ "$OS" = "Darwin" ] && return 0
     local missing=() m pkgs="" cmd="" pyv
@@ -124,25 +125,32 @@ attempt_build_prereqs() {
     "$PYTHON" -c "import os, sys, sysconfig; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_paths()['include'], 'Python.h')) else 1)" >/dev/null 2>&1 || missing+=(headers)
     command -v cc &>/dev/null || command -v gcc &>/dev/null || command -v clang &>/dev/null || missing+=(compiler)
     [ -f /usr/include/portaudio.h ] || [ -f /usr/local/include/portaudio.h ] || missing+=(portaudio)
+    # what the window loads from the system
+    "$PYTHON" -c "import ctypes.util, sys; sys.exit(0 if all(ctypes.util.find_library(n) for n in ('glib-2.0', 'gthread-2.0', 'GL', 'EGL', 'xkbcommon-x11', 'xcb-cursor')) else 1)" >/dev/null 2>&1 || missing+=(gui)
     [ "${#missing[@]}" -eq 0 ] && return 0
     pyv="$("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
     for m in "${missing[@]}"; do
         if command -v apt-get &>/dev/null; then
             cmd="apt-get install -y"
             case "$m" in venv) pkgs+=" python${pyv}-venv" ;; headers) pkgs+=" python${pyv}-dev" ;;
-                         compiler) pkgs+=" build-essential" ;; portaudio) pkgs+=" portaudio19-dev" ;; esac
+                         compiler) pkgs+=" build-essential" ;; portaudio) pkgs+=" portaudio19-dev" ;;
+                         gui) pkgs+=" libglib2.0-0 libgl1 libegl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-shape0" ;; esac
         elif command -v dnf &>/dev/null; then
             cmd="dnf install -y"
-            case "$m" in headers) pkgs+=" python3-devel" ;; compiler) pkgs+=" gcc-c++ make" ;; portaudio) pkgs+=" portaudio-devel" ;; esac
+            case "$m" in headers) pkgs+=" python3-devel" ;; compiler) pkgs+=" gcc-c++ make" ;; portaudio) pkgs+=" portaudio-devel" ;;
+                         gui) pkgs+=" glib2 mesa-libGL mesa-libEGL libxkbcommon-x11 xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil" ;; esac
         elif command -v pacman &>/dev/null; then
             cmd="pacman -S --noconfirm --needed"
-            case "$m" in compiler) pkgs+=" base-devel" ;; portaudio) pkgs+=" portaudio" ;; esac
+            case "$m" in compiler) pkgs+=" base-devel" ;; portaudio) pkgs+=" portaudio" ;;
+                         gui) pkgs+=" glib2 libglvnd mesa libxkbcommon-x11 xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil" ;; esac
         elif command -v zypper &>/dev/null; then
             cmd="zypper --non-interactive install"
-            case "$m" in headers) pkgs+=" python3-devel" ;; compiler) pkgs+=" gcc-c++ make" ;; portaudio) pkgs+=" portaudio-devel" ;; esac
+            case "$m" in headers) pkgs+=" python3-devel" ;; compiler) pkgs+=" gcc-c++ make" ;; portaudio) pkgs+=" portaudio-devel" ;;
+                         gui) pkgs+=" libglib-2_0-0 libgobject-2_0-0 libgio-2_0-0 libgmodule-2_0-0 libgthread-2_0-0 Mesa-libGL1 Mesa-libEGL1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0" ;; esac
         elif command -v apk &>/dev/null; then
             cmd="apk add"
-            case "$m" in headers) pkgs+=" python3-dev" ;; compiler) pkgs+=" build-base" ;; portaudio) pkgs+=" portaudio-dev" ;; esac
+            case "$m" in headers) pkgs+=" python3-dev" ;; compiler) pkgs+=" build-base" ;; portaudio) pkgs+=" portaudio-dev" ;;
+                         gui) pkgs+=" glib mesa-gl mesa-egl libxkbcommon-x11 xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil" ;; esac
         fi
     done
     if [ -n "$pkgs" ]; then
@@ -164,7 +172,7 @@ attempt_build_prereqs() {
             warn "Could not add them (see above)."
         else
             warn "Run:  sudo $cmd$pkgs"
-            warn "Then run this installer again. Without them voice input cannot be built and, on some CPUs, neither can the inference engine."
+            warn "Then run this installer again. Without them voice input, the window or (on some CPUs) the inference engine will be missing."
         fi
     fi
     # no venv support: nothing below can run
@@ -1058,7 +1066,22 @@ if ! _from_elsewhere -c "$_REAL_QT" 2>/dev/null; then
         _pip install "${_PIP_LINKS[@]}" 'PySide6>=6.6.0' || true
     fi
     if ! _from_elsewhere -c "$_REAL_QT" 2>/dev/null; then
-        echo "[WARN] The desktop app cannot start on this system yet: $(_from_elsewhere -c 'import PySide6.QtWidgets' 2>&1 | tail -1)"
+        # Qt names one missing system library per attempt. Ask for all of them at once and
+        # add them when that takes no password.
+        _WINDOW_NEEDS="$(_from_elsewhere -c 'from eli.utils.platform_compat import install_command, missing_qt_libraries
+print(install_command(missing_qt_libraries())[0] or "")' 2>/dev/null | tail -1)"
+        if [ -n "$_WINDOW_NEEDS" ]; then
+            if [ "$(id -u)" -eq 0 ]; then eval "env DEBIAN_FRONTEND=noninteractive ${_WINDOW_NEEDS#sudo }" >/dev/null 2>&1 || true
+            elif sudo -n true 2>/dev/null; then eval "$_WINDOW_NEEDS" >/dev/null 2>&1 || true; fi
+        fi
+    fi
+    if ! _from_elsewhere -c "$_REAL_QT" 2>/dev/null; then
+        echo "[WARN] The desktop app cannot start on this system yet. $(_from_elsewhere -c 'import sys
+try:
+    import PySide6.QtWidgets
+except Exception as error:
+    from eli.utils.platform_compat import window_cannot_start
+    print(window_cannot_start(error))' 2>&1 | tail -1)"
         echo "[WARN] The server and terminal modes do not need it."
     else
         echo "[OK] GUI bindings (PySide6) installed."

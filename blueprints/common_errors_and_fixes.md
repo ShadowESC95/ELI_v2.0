@@ -35,6 +35,19 @@ The release packages (AppImage, Setup.exe, dmg) bring their own Python and are n
 
 ---
 
+## "ELI's window cannot start: This system has no libGL.so.1"
+
+**Symptom:** on a server, a container or a very minimal install the window does not open.
+Older versions printed `Please install PySide6`, which was not the reason.
+**Cause:** the graphics libraries (`libGL`, `libEGL`) belong to the GPU driver and the display
+server. ELI cannot carry its own copy without breaking hardware acceleration, so it uses the
+system's, which every desktop has.
+**Fix:** run the command in the message, for example `sudo apt-get install -y libgl1 libegl1`.
+`install.sh` adds these itself when it can and the `.deb` depends on them. The server
+(`ELI-Server`) and terminal modes do not need them.
+
+---
+
 ## The Linux AppImage does nothing, or: `version 'GLIBC_2.38' not found`
 
 **Symptom:** double-clicking the AppImage does nothing. From a terminal:

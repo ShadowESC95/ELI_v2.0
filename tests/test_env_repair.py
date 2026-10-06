@@ -442,10 +442,11 @@ def test_a_system_without_what_the_install_builds_with(tmp_path, root, can_add):
     if can_add:
         assert got.returncode == 0 and "CARRIED-ON" in got.stdout, got.stdout + got.stderr
         ran = (tmp_path / "ran").read_text()
-        assert "python3.10-venv" in ran and "python3.10-dev" in ran
+        assert "python3.10-venv" in ran and "python3.10-dev" in ran and "libgl1" in ran and "libegl1" in ran
     else:
         assert got.returncode == 1 and "CARRIED-ON" not in got.stdout
         assert "sudo apt-get install -y" in got.stdout and "python3.10-venv" in got.stdout and "python3.10-dev" in got.stdout
+        assert "libgl1" in got.stdout
         assert not (tmp_path / "ran").exists()
 
 
@@ -470,6 +471,140 @@ def test_a_piper_that_does_not_run_or_is_another_program_is_passed_over(tmp_path
     assert tts._find_piper_bin() is None                                    # neither is the speech engine
     monkeypatch.setenv("PATH", os.pathsep.join([str(other), str(stale), str(own)]))
     assert tts._find_piper_bin() == str(real)
+
+
+# ── system libraries ELI cannot carry ────────────────────────────────────────
+# On a system without libGL the window failed with "Please install PySide6". The graphics
+# libraries belong to the GPU driver, so they are named and installed, not bundled.
+
+def _only(monkeypatch, pc, *tools):
+    """A system that has just these package tools."""
+    monkeypatch.setattr(pc.shutil, "which", lambda name: "/usr/bin/" + name if name in tools else None)
+
+
+@pytest.mark.parametrize("tool,asks_for", [
+    ("apt-get", "sudo apt-get install -y libgl1"),                 # Debian names the package after the library
+    ("dnf", "sudo dnf install -y 'libGL.so.1()(64bit)'"),          # rpm installs by library name
+    ("zypper", "sudo zypper install 'libGL.so.1()(64bit)'"),
+    ("apk", "sudo apk add so:libGL.so.1"),                         # so does Alpine
+    ("pacman", "sudo pacman -S --needed libglvnd"),                # Arch does not: listed
+])
+def test_a_missing_system_library_is_named_with_the_command_that_installs_it(monkeypatch, tool, asks_for):
+    from eli.utils import platform_compat as pc
+    _only(monkeypatch, pc, tool)
+    said = pc.missing_library_hint(ImportError("libGL.so.1: cannot open shared object file: No such file or directory"))
+    assert "libGL.so.1" in said and said.endswith(asks_for)
+
+
+@pytest.mark.parametrize("library,package", [
+    ("libGL.so.1", "libgl1"), ("libEGL.so.1", "libegl1"), ("libfontconfig.so.1", "libfontconfig1"),
+    ("libdbus-1.so.3", "libdbus-1-3"), ("libxkbcommon-x11.so.0", "libxkbcommon-x11-0"),
+    ("libxcb-render-util.so.0", "libxcb-render-util0"), ("libX11-xcb.so.1", "libx11-xcb1"),
+    ("libgssapi_krb5.so.2", "libgssapi-krb5-2"), ("libportaudio.so.2", "libportaudio2"),
+    ("libglib-2.0.so.0", "libglib2.0-0"), ("libgthread-2.0.so.0", "libglib2.0-0"), ("libharfbuzz.so.0", "libharfbuzz0b"),
+])
+def test_debian_names_a_package_after_its_library(monkeypatch, library, package):
+    from eli.utils import platform_compat as pc
+    _only(monkeypatch, pc, "apt-get")
+    assert pc._debian_package(library) == package
+
+
+def test_a_package_apt_has_never_heard_of_is_not_suggested(monkeypatch):
+    from eli.utils import platform_compat as pc
+    _only(monkeypatch, pc, "apt-get", "apt-cache")
+
+    class Known:
+        def __init__(self, yes):
+            self.returncode = 0 if yes else 100
+
+    monkeypatch.setattr(pc.subprocess, "run", lambda command, **_: Known(command[-1] == "libgl1"))
+    command, unknown = pc.install_command(["libGL.so.1", "libsomething-odd.so.12"])
+    assert command == "sudo apt-get install -y libgl1" and unknown == ["libsomething-odd.so.12"]
+    said = pc.explain_missing_libraries(["libGL.so.1", "libsomething-odd.so.12"])
+    assert "For libsomething-odd.so.12, install the package that provides it" in said
+
+
+def test_several_missing_libraries_come_as_one_command(monkeypatch):
+    from eli.utils import platform_compat as pc
+    _only(monkeypatch, pc, "apt-get")
+    said = pc.explain_missing_libraries(["libGL.so.1", "libfontconfig.so.1", "libgthread-2.0.so.0", "libglib-2.0.so.0"])
+    assert said.endswith("sudo apt-get install -y libgl1 libfontconfig1 libglib2.0-0")       # one package, once
+    assert "system libraries" in said and "Install them" in said
+
+
+def test_a_system_with_no_known_package_tool_is_still_told_which_library(monkeypatch):
+    from eli.utils import platform_compat as pc
+    _only(monkeypatch, pc)
+    said = pc.missing_library_hint(OSError("libGL.so.1: cannot open shared object file"))
+    assert "libGL.so.1" in said and "package that provides it" in said and "sudo" not in said
+
+
+@pytest.mark.parametrize("error", ["No module named 'PySide6'", "DLL load failed while importing QtCore", ""])
+def test_an_error_that_is_not_a_missing_library_gets_no_hint(error):
+    from eli.utils.platform_compat import missing_library_hint
+    assert missing_library_hint(ImportError(error)) is None
+
+
+def test_every_library_qt_lacks_is_found_at_once(monkeypatch, tmp_path):
+    """An import stops at the first missing library: libGL, then libfontconfig, then the next."""
+    from eli.utils import platform_compat as pc
+    qt = tmp_path / "PySide6" / "Qt" / "lib"
+    qt.mkdir(parents=True)
+    for name in ("libQt6Core.so.6", "libQt6Gui.so.6"):
+        (qt / name).write_text("")
+    monkeypatch.setattr(pc, "LINUX", True)
+    monkeypatch.setattr(pc.shutil, "which", lambda name: "/usr/bin/" + name)
+
+    class Spec:
+        submodule_search_locations = [str(tmp_path / "PySide6")]
+
+    import importlib.util
+    monkeypatch.setattr(importlib.util, "find_spec", lambda name: Spec())
+    listing = {"libQt6Core.so.6": "\tlibglib-2.0.so.0 => not found\n\tlibc.so.6 => /lib/libc.so.6 (0x1)\n",
+               "libQt6Gui.so.6": "\tlibGL.so.1 => not found\n\tlibfontconfig.so.1 => not found\n"
+                                 "\tlibglib-2.0.so.0 => not found\n\tlibQt6Core.so.6 => not found\n"}
+
+    class Out:
+        def __init__(self, text):
+            self.stdout = text
+
+    monkeypatch.setattr(pc.subprocess, "run", lambda command, **_: Out(listing[Path(command[-1]).name]))
+    assert pc.missing_qt_libraries() == ["libglib-2.0.so.0", "libGL.so.1", "libfontconfig.so.1"]
+
+
+_BROKEN_QT = """
+import importlib.abc, sys
+class Broken(importlib.abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        top = name.split(".")[0]
+        if top == "PySide6":
+            raise %s
+        if top in ("PyQt6", "PyQt5"):
+            raise ModuleNotFoundError("No module named " + repr(top), name=top)
+sys.meta_path.insert(0, Broken())
+import eli.gui.eli_pro_audio_gui_v2_0
+"""
+
+
+@pytest.mark.parametrize("failure,says,never", [
+    ('ImportError("libGL.so.1: cannot open shared object file: No such file or directory")', "libGL.so.1", "not installed"),
+    ('ModuleNotFoundError("No module named \'PySide6\'", name="PySide6")', "is not installed", "libGL"),
+    ('ImportError("something else went wrong inside Qt")', "installed but did not load: something else went wrong", "not installed."),
+])
+def test_the_window_says_why_its_toolkit_did_not_load(failure, says, never):
+    got = subprocess.run([sys.executable, "-c", _BROKEN_QT % failure], capture_output=True, text=True, cwd=str(ROOT),
+                         env=dict(os.environ, ELI_OFFLINE="1", QT_QPA_PLATFORM="offscreen"))
+    assert got.returncode == 1
+    last = [line for line in got.stdout.splitlines() if line.strip()][-1]
+    assert "window cannot start" in last and says in last and never not in last
+    assert "Please install PySide6" not in got.stdout
+
+
+def test_the_debian_package_depends_on_what_the_install_builds_with_and_the_window_loads():
+    text = (ROOT / "packaging" / "debian" / "build-deb.sh").read_text(encoding="utf-8")
+    depends = [line for line in text.splitlines() if line.startswith("Depends:")][0]
+    for package in ("python3-venv", "python3-dev", "build-essential", "portaudio19-dev", "libgl1", "libegl1", "libxcb-cursor0"):
+        assert package in depends, package
 
 
 @pytest.mark.skipif(not POSIX, reason="a script whose interpreter is gone is a POSIX case")
