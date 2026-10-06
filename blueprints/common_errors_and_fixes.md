@@ -48,6 +48,17 @@ system's, which every desktop has.
 
 ---
 
+## `undefined symbol: g_variant_builder_init_static` / `Failed to load module: ...libgvfsdbus.so`
+
+**Symptom:** two warnings in the terminal at every start of the AppImage on a current
+distribution (Ubuntu 26.04, Fedora, Arch). Harmless, but file dialogs had no network places.
+**Cause:** the AppImage carried its own, older GLib, and GLib loads the system's GIO modules,
+which are built for the system's newer one.
+**Fix (this version):** the AppImage uses the system's GLib when the system has all of it and
+keeps its own for a system that has none. Nothing to do.
+
+---
+
 ## The Linux AppImage does nothing, or: `version 'GLIBC_2.38' not found`
 
 **Symptom:** double-clicking the AppImage does nothing. From a terminal:

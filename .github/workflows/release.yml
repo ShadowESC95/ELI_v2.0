@@ -543,6 +543,13 @@ jobs:
               exit 1
             fi
           done
+          # GLib is the system's; the bundled copy is a fallback outside the search path.
+          # On the search path it cannot load the system's newer GIO modules.
+          if ls dist/ELI/_internal/libglib-2.0.so* dist/ELI/_internal/libgio-2.0.so* >/dev/null 2>&1 \
+             || ! ls dist/ELI/_internal/glib-fallback/libglib-2.0.so* >/dev/null 2>&1; then
+            echo "::error::GLib must be bundled under _internal/glib-fallback/ only"
+            exit 1
+          fi
           # Headless engine selftest (offscreen Qt platform).
           if ! QT_QPA_PLATFORM=offscreen ./dist/ELI/ELI --selftest; then
             echo "::error::frozen app failed its headless launch selftest:"

@@ -153,6 +153,9 @@ def _executable(path: Path, body: str) -> None:
     path.chmod(path.stat().st_mode | stat.S_IXUSR)
 
 
+_GLIB = ("libglib-2.0.so.0", "libgobject-2.0.so.0", "libgio-2.0.so.0", "libgmodule-2.0.so.0", "libgthread-2.0.so.0")
+
+
 @pytest.fixture
 def appdir(tmp_path):
     """An AppDir with the real launcher and a stand-in for the app."""
@@ -162,11 +165,12 @@ def appdir(tmp_path):
     (root / "usr" / "app").mkdir(parents=True)
     (root / "usr" / "share" / "eli").mkdir(parents=True)
     _executable(root / "AppRun", _apprun())
-    _executable(root / "usr" / "app" / "ELI", '#!/bin/bash\necho "APP STARTED $*"\n')
+    _executable(root / "usr" / "app" / "ELI",
+                f'#!/bin/bash\necho "$LD_LIBRARY_PATH" > "{tmp_path}/libpath.txt"\necho "APP STARTED $*"\n')
     tools = tmp_path / "tools"
     tools.mkdir()
 
-    def run(*, system: str | None, needs: str | None, args: tuple[str, ...] = ()):
+    def run(*, system: str | None, needs: str | None, args: tuple[str, ...] = (), glib: tuple[str, ...] = _GLIB):
         floor = root / "usr" / "share" / "eli" / "min-glibc"
         if needs is None:
             floor.unlink(missing_ok=True)
@@ -175,6 +179,9 @@ def appdir(tmp_path):
         # a non-glibc system has no answer
         _executable(tools / "getconf",
                     "#!/bin/bash\n" + (f'echo "glibc {system}"\n' if system else "exit 1\n"))
+        # what the system's library cache lists
+        _executable(tools / "ldconfig", "#!/bin/bash\n" + "".join(
+            f'echo "	{name} (libc6,x86-64) => /usr/lib64/{name}"\n' for name in glib) + "exit 0\n")
         for dialog in ("zenity", "kdialog", "notify-send", "xmessage"):
             _executable(tools / dialog, f'#!/bin/bash\necho "$@" > "{tmp_path}/dialog.txt"\n')
         env = dict(os.environ, PATH=f"{tools}{os.pathsep}{os.environ['PATH']}")
@@ -182,6 +189,7 @@ def appdir(tmp_path):
                               env=env, stdin=subprocess.DEVNULL)
 
     run.dialog = tmp_path / "dialog.txt"
+    run.libpath = tmp_path / "libpath.txt"
     return run
 
 
@@ -215,6 +223,33 @@ def test_the_check_never_blocks_a_start_it_cannot_judge(appdir):
     # no floor in the bundle, or a system that cannot say which glibc it has
     assert appdir(system="2.35", needs=None).stdout.strip() == "APP STARTED"
     assert appdir(system=None, needs="2.39").stdout.strip() == "APP STARTED"
+
+
+# ── GLib: the system's, ours only where there is none ───────────────────────
+# GIO loads the system's modules (gvfs, dconf) into whichever GLib is in the process. The
+# bundle's older one could not load them on a newer system: two warnings at every start.
+
+@linux_only
+def test_the_systems_glib_is_used_when_it_has_one(appdir):
+    assert appdir(system="2.43", needs="2.39").returncode == 0
+    assert "glib-fallback" not in appdir.libpath.read_text()
+
+
+@linux_only
+@pytest.mark.parametrize("on_the_system", [(), _GLIB[:1], _GLIB[:4]], ids=["none", "only libglib", "no libgthread"])
+def test_the_bundled_glib_is_used_unless_the_system_has_all_of_it(appdir, on_the_system):
+    """openSUSE packages libgthread apart: with only the system's libglib, Qt did not load."""
+    assert appdir(system="2.43", needs="2.39", glib=on_the_system).returncode == 0
+    assert appdir.libpath.read_text().strip().split(":")[0].endswith("/usr/app/_internal/glib-fallback")
+
+
+def test_the_bundle_keeps_its_glib_out_of_the_search_path():
+    spec = (ROOT / "ELI.spec").read_text(encoding="utf-8")
+    assert '"glib-fallback/" + b[0]' in spec
+    for library in ("libglib-2.0.so", "libgobject-2.0.so", "libgio-2.0.so", "libgmodule-2.0.so", "libgthread-2.0.so"):
+        assert library in spec
+    workflow = (WORKFLOWS / "release.yml").read_text(encoding="utf-8")
+    assert "_internal/glib-fallback/libglib-2.0.so" in workflow and "GLib must be bundled under" in workflow
 
 
 def test_the_appimage_ships_the_floor_it_measured():

@@ -388,6 +388,16 @@ a = Analysis(
     module_collection_mode={"llama_cpp": "py"},
 )
 
+# Linux: use the system's GLib. GIO loads the system's modules (gvfs, dconf) into whichever
+# GLib is loaded, and our older bundled one can't load modules built for a newer one
+# ("undefined symbol: g_variant_builder_init_static" at every start). Ours moves out of the
+# search path; AppRun puts it back only where the system's is missing or incomplete.
+if sys.platform.startswith("linux"):
+    _GLIB = ("libglib-2.0.so", "libgobject-2.0.so", "libgio-2.0.so", "libgmodule-2.0.so", "libgthread-2.0.so")
+    _moved = sorted(b[0] for b in a.binaries if "/" not in b[0] and b[0].startswith(_GLIB))
+    a.binaries = [(("glib-fallback/" + b[0]) if b[0] in _moved else b[0], b[1], b[2]) for b in a.binaries]
+    print(f"[ELI.spec] GLib kept as a fallback only: {_moved}")
+
 pyz = PYZ(a.pure)
 
 # Windows version resource — generated from pyproject.toml at build time.
