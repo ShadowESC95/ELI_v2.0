@@ -79,7 +79,11 @@ except ImportError as _pyside_error:
         except ImportError:
             # installed but failing to load is not absent: without libGL this said "Please install PySide6"
             from eli.utils.platform_compat import window_cannot_start
-            print("❌ ELI's window cannot start. " + window_cannot_start(_qt_load_error))
+            _why = "ELI's window cannot start. " + window_cannot_start(_qt_load_error)
+            try:
+                print("❌ " + _why)
+            except UnicodeEncodeError:      # a console that cannot print the symbol still gets the reason
+                print(_why.encode("ascii", "replace").decode("ascii"))
             sys.exit(1)
 
 # Try to import syntax highlighter.

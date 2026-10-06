@@ -600,6 +600,16 @@ def test_the_window_says_why_its_toolkit_did_not_load(failure, says, never):
     assert "Please install PySide6" not in got.stdout
 
 
+def test_the_reason_reaches_a_console_that_cannot_print_the_symbol():
+    """On Windows (cp1252) the cross symbol raised UnicodeEncodeError and the reason was lost."""
+    failure = 'ModuleNotFoundError("No module named \'PySide6\'", name="PySide6")'
+    got = subprocess.run([sys.executable, "-c", _BROKEN_QT % failure], capture_output=True, cwd=str(ROOT),
+                         env=dict(os.environ, ELI_OFFLINE="1", QT_QPA_PLATFORM="offscreen", PYTHONIOENCODING="cp1252"))
+    assert got.returncode == 1
+    assert b"window cannot start" in got.stdout and b"is not installed" in got.stdout
+    assert b"UnicodeEncodeError" not in got.stderr
+
+
 def test_the_debian_package_depends_on_what_the_install_builds_with_and_the_window_loads():
     text = (ROOT / "packaging" / "debian" / "build-deb.sh").read_text(encoding="utf-8")
     depends = [line for line in text.splitlines() if line.startswith("Depends:")][0]
