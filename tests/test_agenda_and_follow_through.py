@@ -33,6 +33,32 @@ def agenda(tmp_path, monkeypatch):
     ag.set_delivery(None)
 
 
+class _HeldClock:
+    """`time` with the clock held at NOW."""
+
+    def __getattr__(self, name):
+        return getattr(time, name)
+
+    def time(self):
+        return NOW.timestamp()
+
+
+class _HeldDatetime(datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return cls(NOW.year, NOW.month, NOW.day, NOW.hour, NOW.minute)
+
+
+@pytest.fixture()
+def monday(agenda, monkeypatch):
+    """The calendar's own clock held at NOW, for tests that pass now=NOW. The store asks the
+    clock whether a reminder is still to come; on the real one these passed only on that
+    Monday, before 19:00."""
+    monkeypatch.setattr(ag, "time", _HeldClock())
+    monkeypatch.setattr(ag, "datetime", _HeldDatetime)
+    yield agenda
+
+
 @pytest.fixture()
 def proposals(tmp_path, monkeypatch):
     monkeypatch.setattr(pp, "_path", lambda: tmp_path / "pending_proposal.json")
@@ -78,7 +104,7 @@ def test_a_sentence_that_names_no_time_gives_none(text):
 
 # ── the calendar and reminders are real ──────────────────────────────────────
 
-def test_an_event_is_added_listed_and_written_to_a_calendar_file(agenda):
+def test_an_event_is_added_listed_and_written_to_a_calendar_file(agenda, monday):
     out = ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
     assert out["ok"] and out["content"] == ("Added to your calendar: RAIMS presentation, today (Mon 5 Oct) at 19:30. "
                                             "I'll remind you at 19:00 and 19:30.")
@@ -90,7 +116,7 @@ def test_an_event_is_added_listed_and_written_to_a_calendar_file(agenda):
     assert again["content"].startswith("That is already on your calendar")
 
 
-def test_an_empty_calendar_says_so_and_nothing_is_ever_not_configured(agenda):
+def test_an_empty_calendar_says_so_and_nothing_is_ever_not_configured(agenda, monday):
     assert ag.do_list_events({"text": "check my calendar"}, now=NOW)["content"] == "Nothing on your calendar in the next 7 days."
     from eli.execution import executor_enhanced as ex
     for action in ("LIST_EVENTS", "ADD_EVENT"):
@@ -98,12 +124,12 @@ def test_an_empty_calendar_says_so_and_nothing_is_ever_not_configured(agenda):
         assert "not configured" not in out["content"].lower()
 
 
-def test_add_it_takes_the_event_from_what_the_user_just_said(agenda):
+def test_add_it_takes_the_event_from_what_the_user_just_said(agenda, monday):
     out = ag.do_add_event({"text": "You add it!", "from_context": True}, earlier=["YES! DO 1-3", "yes please", SAID], now=NOW)
     assert out["ok"] and "RAIMS presentation, today (Mon 5 Oct) at 19:30" in out["content"]
 
 
-def test_with_nothing_to_go_on_it_asks_when_and_does_not_invent(agenda):
+def test_with_nothing_to_go_on_it_asks_when_and_does_not_invent(agenda, monday):
     out = ag.do_add_event({"text": "add it to my calendar"}, earlier=["how are you"], now=NOW)
     assert not out["ok"] and out["error"] == "need_time" and "When is it?" in out["content"]
     past = ag.do_add_event({"text": "add standup today at 8am to my calendar"}, now=NOW)
@@ -126,7 +152,7 @@ def test_a_reminder_that_came_due_while_eli_was_shut_is_still_delivered(agenda):
     assert agenda.delivered == [("Take the bins out", True)]    # late, and said to be; the 3-day-old one is dropped
 
 
-def test_a_reminder_without_a_subject_takes_the_event_it_is_for(agenda):
+def test_a_reminder_without_a_subject_takes_the_event_it_is_for(agenda, monday):
     ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
     out = ag.do_remind({"text": "Set reminders for 4 PM today (5 hours before the presentation) to alert you about "
                                 "the upcoming meeting"}, now=NOW)
@@ -349,7 +375,7 @@ def test_agreed_steps_report_their_outcomes_not_elis_sentences_back(agenda, monk
 
 # ── noticing an event the user mentions ──────────────────────────────────────
 
-def test_an_event_the_user_mentions_is_offered_once_and_yes_adds_it(agenda):
+def test_an_event_the_user_mentions_is_offered_once_and_yes_adds_it(agenda, monday):
     found = ag.mentioned_event([SAID], now=NOW)
     assert found["title"] == "RAIMS presentation"
     assert found["sentence"] == ("Want me to put RAIMS presentation in your calendar for today (Mon 5 Oct) at 19:30, "
@@ -366,11 +392,11 @@ def test_an_event_the_user_mentions_is_offered_once_and_yes_adds_it(agenda):
     "when is my presentation?", "that meeting yesterday was awful", "i love a good dinner",
     "the meeting is at 3", "how long is the flight at 6am?",
 ])
-def test_talk_that_is_not_a_plan_gets_no_offer(agenda, text):
+def test_talk_that_is_not_a_plan_gets_no_offer(agenda, monday, text):
     assert ag.mentioned_event([text], now=NOW) is None
 
 
-def test_listing_an_empty_calendar_points_out_what_was_just_mentioned(agenda):
+def test_listing_an_empty_calendar_points_out_what_was_just_mentioned(agenda, monday):
     out = ag.do_list_events({"text": "check my calendar"}, earlier=[SAID], now=NOW)
     assert out["content"].startswith("Nothing on your calendar in the next 7 days.\n\nYou mentioned RAIMS presentation")
     assert out["offer"].startswith('add "RAIMS presentation" on 2026-10-05 at 19:30')
@@ -393,7 +419,7 @@ def test_times_the_user_names_are_worked_out_against_the_clock():
 
 # ── changing and removing what is on the calendar ────────────────────────────
 
-def test_i_meant_8pm_moves_the_event_just_added_and_its_reminders(agenda):
+def test_i_meant_8pm_moves_the_event_just_added_and_its_reminders(agenda, monday):
     ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
     out = ag.do_add_event({"text": "cancel that, i meant 8pm", "move": True}, now=NOW)
     assert out["content"] == "Moved RAIMS presentation to today (Mon 5 Oct) at 20:00. I'll remind you at 19:30 and 20:00."
@@ -405,19 +431,19 @@ def test_i_meant_8pm_moves_the_event_just_added_and_its_reminders(agenda):
     assert times == ["19:30", "20:00"]                       # the 19:00 one went with the old time
 
 
-def test_an_event_can_be_moved_by_name_to_another_day_keeping_its_time(agenda):
+def test_an_event_can_be_moved_by_name_to_another_day_keeping_its_time(agenda, monday):
     ag.do_add_event({"text": "add dentist appointment on friday at 2:30pm to my calendar"}, now=NOW)
     ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
     out = ag.do_add_event({"text": "move the dentist to next monday", "move": True}, now=NOW)
     assert out["content"].startswith("Moved Dentist appointment to Mon 12 Oct at 14:30.")
 
 
-def test_a_correction_with_nothing_to_move_is_read_as_a_new_event(agenda):
+def test_a_correction_with_nothing_to_move_is_read_as_a_new_event(agenda, monday):
     out = ag.do_add_event({"text": "i meant 8pm", "move": True}, earlier=[SAID], now=NOW)
     assert out["ok"] and out["content"].startswith("Added to your calendar: RAIMS presentation, today (Mon 5 Oct) at 20:00")
 
 
-def test_an_entry_is_removed_by_name_and_an_unclear_request_asks_which(agenda):
+def test_an_entry_is_removed_by_name_and_an_unclear_request_asks_which(agenda, monday):
     ag.do_add_event({"text": "add dentist appointment on friday at 2:30pm to my calendar"}, now=NOW)
     ag.do_add_event({"text": "add dentist check-up on 20 October at 10am to my calendar"}, now=NOW)
     ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
@@ -432,7 +458,7 @@ def test_an_entry_is_removed_by_name_and_an_unclear_request_asks_which(agenda):
     assert not missing["ok"] and missing["error"] == "not_found"
 
 
-def test_clearing_reminders_leaves_events_alone(agenda):
+def test_clearing_reminders_leaves_events_alone(agenda, monday):
     ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
     ag.do_remind({"text": "remind me at 4pm to go over my slides"}, now=NOW)
     ag.do_remind({"text": "remind me tomorrow morning to call mum"}, now=NOW)
@@ -469,7 +495,7 @@ def test_removing_an_event_is_never_the_models_guess():
 
 # ── the calendar is known on every turn, and never looked for on the web ─────
 
-def test_what_is_coming_up_is_in_the_prompt_with_how_far_off_it_is(agenda):
+def test_what_is_coming_up_is_in_the_prompt_with_how_far_off_it_is(agenda, monday):
     ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
     line = ag.prompt_line(now=NOW)
     assert line.startswith("ON THE USER'S CALENDAR") and "today (Mon 5 Oct) at 19:30: RAIMS presentation, in 10 h 25 min" in line
@@ -554,7 +580,7 @@ def test_profile_rows_about_eli_are_taken_out_and_the_users_own_facts_stay(tmp_p
     assert pe.purge_software_talk(db) == 0
 
 
-def test_an_event_the_user_moved_or_removed_is_not_offered_again_at_its_old_time(agenda):
+def test_an_event_the_user_moved_or_removed_is_not_offered_again_at_its_old_time(agenda, monday):
     ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
     ag.do_add_event({"text": "i meant 8pm", "move": True}, now=NOW)
     assert ag.mentioned_event([SAID], now=NOW) is None
