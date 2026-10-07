@@ -88,6 +88,44 @@ def test_the_release_notes_carry_the_floor():
     assert "needs glibc ${LINUX_GLIBC_FLOOR} or newer" in notes[:1500]
 
 
+
+def _run_steps(path: Path):
+    for job_name, job in yaml.safe_load(path.read_text(encoding="utf-8"))["jobs"].items():
+        for step in job.get("steps") or []:
+            if "run" in step:
+                yield f"{job_name}: {step.get('name', '?')}", step["run"]
+
+
+@pytest.mark.parametrize("workflow", sorted(WORKFLOWS.glob("*.yml")), ids=lambda p: p.name)
+def test_no_check_stops_reading_its_pipe_early(workflow):
+    # Actions runs bash with pipefail: in `pip list | grep -q x` grep quits at the first match,
+    # pip dies on the closed pipe, and the test comes out false exactly when it matched
+    early = [name for name, script in _run_steps(workflow)
+             if re.search(r"\|\s*grep\s+-[A-Za-z]*q", script)]
+    assert not early, f"{workflow.name}: piped grep -q in {early}; read the output into a variable first"
+
+
+_REPO_FILE = re.compile(r"(?<![\w./-])((?:scripts|packaging|tools)[/\\][\w./\\-]+\.(?:py|sh|ps1|iss|spec|toml))")
+
+
+@pytest.mark.parametrize("workflow", sorted(WORKFLOWS.glob("*.yml")), ids=lambda p: p.name)
+def test_every_file_a_workflow_runs_is_in_the_repo(workflow):
+    # a job that calls a script the repo lost fails only when a release is built
+    missing = sorted({path.replace("\\", "/") for _name, script in _run_steps(workflow)
+                      for path in _REPO_FILE.findall(script)
+                      if not (ROOT / path.replace("\\", "/")).exists()})
+    assert not missing, f"{workflow.name} runs files the repo does not have: {missing}"
+
+
+def test_extras_resolve_torch_from_the_cpu_index_too():
+    # an extra pinning its own torch version would take the CUDA build of it from PyPI
+    script = next(run for _name, run in _run_steps(WORKFLOWS / "release.yml")
+                  if "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu" in run)
+    cpu_index = script.index("export PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu")
+    assert cpu_index < script.index('pip install ".[$(echo $REQUIRED_EXTRAS')
+    assert cpu_index < script.index("for extra in $OPTIONAL_EXTRAS")
+
+
 # ── the measuring tool ───────────────────────────────────────────────────────
 
 def _floor(*args: str) -> subprocess.CompletedProcess:

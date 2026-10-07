@@ -424,6 +424,8 @@ jobs:
           # (XTTS-v2) extra requires it, and resolving it from PyPI afterwards pulls the
           # CUDA build of torch straight back in.
           pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
+          # an extra that pins its own torch version gets the CPU build of that version too
+          export PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
           pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
           pip install llama-cpp-python --prefer-binary \
             --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu \
@@ -436,9 +438,12 @@ jobs:
           # (~6 GB of nvidia-* wheels) and push the AppImage past GitHub's 2 GB per-asset
           # limit — the exact failure that kept `natural` out of the bundle before. Fail
           # here, where the cause is obvious, rather than at upload.
-          if pip list --format=freeze | grep -q '^nvidia-'; then
-            echo "::error::CUDA wheels were pulled in (nvidia-*) — the torch stack is no longer CPU-only:"
-            pip list --format=freeze | grep '^nvidia-' | sed 's/^/  /'
+          # the whole list is read first: grep -q quit at the first match, pip died on the
+          # closed pipe and pipefail turned the test false, which let CUDA through
+          cuda="$(pip list --format=freeze | grep -E '^(nvidia-|triton=)' || true)"
+          if [ -n "$cuda" ]; then
+            echo "::error::CUDA wheels were pulled in — the torch stack is no longer CPU-only:"
+            echo "$cuda" | sed 's/^/  /'
             exit 1
           fi
           python - <<'PY'
