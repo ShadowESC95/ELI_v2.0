@@ -1674,7 +1674,8 @@ def context_window() -> int:
         _SWLOG.debug("published runtime unreadable", exc_info=True)
     try:
         from eli.core.paths import get_paths
-        snap = json.loads((Path(get_paths().artifacts_dir) / "runtime_snapshot.json").read_text(encoding="utf-8"))
+        snap_path = Path(get_paths().artifacts_dir) / "runtime_snapshot.json"
+        snap = json.loads(snap_path.read_text(encoding="utf-8")) if snap_path.is_file() else {}
         snap_ctx = int((snap.get("effective") or {}).get("n_ctx") or snap.get("n_ctx") or 0)
         snap_model = Path(str(snap.get("model_path") or "")).name
         configured = get_model_path()

@@ -48,6 +48,8 @@ def test_recommend_cpu_path_matches_ram_not_igpu_vram(monkeypatch):
         "eli.core.hardware_profile._llama_gpu_offload_available",
         lambda: False,
     )
+    # a real file says how long a context it was trained for (32k for this 3B)
+    monkeypatch.setattr("eli.core.startup_hardware_optimizer._gguf_metadata_ctx", lambda p: 32768)
     rec = recommend(_igpu_hw(), _models())
     assert rec.n_gpu_layers == 0
     assert rec.n_ctx >= 4096
