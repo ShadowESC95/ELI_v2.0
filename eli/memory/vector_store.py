@@ -349,13 +349,24 @@ class VectorStore:
             _model_path = resolve_embedder_path()
             if not _model_path or not os.path.exists(_model_path):
                 raise FileNotFoundError('Embed model not found: ' + str(_model_path))
+            # the embedder's own trained context and the CPU rule the main model uses
+            try:
+                from eli.cognition.model_load_diagnostics import gguf_model_profile
+                _embed_ctx = int(gguf_model_profile(_model_path).context_length or 0)
+            except Exception:
+                _embed_ctx = 0
+            try:
+                from eli.core.hardware_profile import recommend_cpu_threads
+                _embed_threads = int(recommend_cpu_threads(os.cpu_count() or 1, cpu_bound=False))
+            except Exception:
+                _embed_threads = max(1, (os.cpu_count() or 1) - 1)
             _llm = Llama(
                 model_path=_model_path,
                 embedding=True,
-                n_ctx=2048,
+                n_ctx=_embed_ctx,        # 0: llama.cpp uses the model's trained context
                 n_gpu_layers=0,
                 verbose=False,
-                n_threads=4,
+                n_threads=_embed_threads,
             )
             class _EmbedShim:
                 def __init__(self, llm): self._llm = llm

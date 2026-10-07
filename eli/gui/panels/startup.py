@@ -122,6 +122,28 @@ def _pack_is_active() -> bool:
         return False
 
 
+def _install_question(label: str, *, reinstall: bool) -> str:
+    """What the confirm dialog says. For a pack that already works, that it works, and why the
+    GPU may still look unused: live, a working pack was downloaded again while another program
+    held most of the card."""
+    if not reinstall:
+        return (f"Download and install the {label} GPU acceleration pack now?\n\n"
+                "This is a one-time download. ELI stays on CPU if verification fails.")
+    text = (f"The {label} GPU pack is installed and was verified on this machine. Reinstalling "
+            "downloads it again and does not change how much of the GPU ELI can use.")
+    try:
+        from eli.core.hardware_profile import (describe_vram_holders, get_live_gpu_telemetry,
+                                               vram_holders)
+        g = get_live_gpu_telemetry()
+        held = describe_vram_holders(vram_holders(), total_mb=g.get("total_mb"))
+        if g.get("free_mb") is not None and g.get("total_mb"):
+            text += (f"\n\nRight now {int(g['free_mb'])} MB of this card's {int(g['total_mb'])} MB "
+                     "is free" + (f"; other programs hold: {held}." if held else "."))
+    except Exception:
+        log.debug("VRAM reading for the reinstall question failed", exc_info=True)
+    return text + "\n\nReinstall anyway?"
+
+
 def _enable_switched_off_pack(parent) -> bool:
     """A verified pack kept off only by an earlier "Use CPU only" choice is switched
     back on, not downloaded again. The Install buttons used to pass --force here and
@@ -426,9 +448,9 @@ class StartupModelSelectionDialog(QDialog):
         # Direct context-window control. Pre-fills with YOUR last chosen ctx so the
         # dialog reflects what you actually picked — never a hardcoded number. Source
         # order (first available wins): ELI_FORCE_CTX env (set in-session) → saved
-        # settings n_ctx (your last choice, persisted) → DEFAULT_N_CTX (true first-run
-        # fallback only, when no choice has ever been made). 0 = auto (fraction/VRAM
-        # sizing). Applied as ELI_FORCE_CTX, the optimizer's highest-priority override.
+        # settings n_ctx (your last choice, persisted, for this model) → 0 = auto
+        # (fraction/VRAM sizing). Applied as ELI_FORCE_CTX, the optimizer's
+        # highest-priority override.
         # A saved context belongs to the MODEL it was chosen for. Carrying it to a
         # different model is wrong in both directions: a 12,192 picked for an 8B
         # with a 32k training length was still showing after switching to a
@@ -805,7 +827,7 @@ class StartupModelSelectionDialog(QDialog):
                         log.debug("suppressed exception", exc_info=True)
                 # Honour the user's "Direct context window" choice (ELI_FORCE_CTX,
                 # just set by _apply_env) so the regenerated profile reflects what
-                # they asked for — not the DEFAULT_N_CTX target.
+                # they asked for — not the auto target.
                 _forced_ctx = (os.environ.get("ELI_FORCE_CTX") or "").strip()
                 _pin_ctx = int(_forced_ctx) if _forced_ctx.isdigit() and int(_forced_ctx) >= 2048 else None
                 _rec  = _hp_recommend(_hw, _rec_models, user_ctx=_pin_ctx)
@@ -930,6 +952,7 @@ class StartupModelSelectionDialog(QDialog):
             from eli.core.hardware_profile import (
                 auto_ctx_target,
                 cpu_ram_budget_mb,
+                kv_cache_quantized,
                 describe_gpu_layers,
                 detect_hardware,
                 effective_use_gpu_layers,
@@ -952,14 +975,16 @@ class StartupModelSelectionDialog(QDialog):
                 try:
                     _mp = Path(_model_path)
                     _size_gb = file_size_gib(_mp)
+                    _use_gpu = effective_use_gpu_layers(_hw)
+                    _kvq = kv_cache_quantized(
+                        str(_mp), _size_gb, free_vram_mb=_hw.free_vram_mb if _use_gpu else 0,
+                        available_ram_gb=_hw.available_ram_gb, use_gpu=_use_gpu,
+                        target_ctx=int(self.ctx_window_spin.value()) or None)
                     _ctx = int(self.ctx_window_spin.value()) or auto_ctx_target(
                         str(_mp), _size_gb, free_vram_mb=_hw.free_vram_mb,
                         available_ram_gb=_hw.available_ram_gb,
-                        use_gpu=effective_use_gpu_layers(_hw),
-                        kv_quantized=bool(_hw.total_vram_mb and _hw.total_vram_mb < 12000))
+                        use_gpu=_use_gpu, kv_quantized=_kvq)
                     _batch = int(self.target_batch_spin.value()) or 256
-                    _kvq = bool(_hw.total_vram_mb and _hw.total_vram_mb < 12000)
-                    _use_gpu = effective_use_gpu_layers(_hw)
                     _moe_preview = None
                     if _use_gpu:
                         try:
@@ -1036,6 +1061,13 @@ class StartupModelSelectionDialog(QDialog):
                     f"GPU backend: {'active' if _backend else _pack_off_label('not installed')}"
                     f"{_fit_line}"
                 )
+                try:
+                    from eli.core.hardware_profile import describe_vram_holders, vram_holders
+                    _held = describe_vram_holders(vram_holders(), total_mb=_hw.total_vram_mb)
+                    if _held:
+                        txt += f"\nVRAM in use by other programs: {_held}"
+                except Exception:
+                    log.debug("VRAM holders unavailable for the summary", exc_info=True)
             self.hw_summary_label.setText(txt)
         except Exception as exc:
             self.hw_summary_label.setText(f"Hardware probe pending ({exc})")
@@ -1106,15 +1138,15 @@ class StartupModelSelectionDialog(QDialog):
         if _enable_switched_off_pack(self):
             self._refresh_gpu_pack_controls()
             return
-        argv: List[str] = ["--force"] if _pack_is_active() else []
+        _active = _pack_is_active()
+        argv: List[str] = ["--force"] if _active else []
         if vulkan:
             argv.append("--vulkan")
         label = "Vulkan" if vulkan else "CUDA"
         if QMessageBox.question(
             self,
-            f"Install {label} GPU pack",
-            f"Download and install the {label} GPU acceleration pack now?\n\n"
-            "This is a one-time download. ELI stays on CPU if verification fails.",
+            f"{'Reinstall' if _active else 'Install'} {label} GPU pack",
+            _install_question(label, reinstall=_active),
         ) != QMessageBox.StandardButton.Yes:
             return
         self.gpu_pack_status_label.setText(f"Installing {label} GPU pack…")
@@ -1993,14 +2025,15 @@ class FirstBootWizard(QDialog):
         if _enable_switched_off_pack(self):
             self._wiz_refresh_gpu_pack_controls()
             return
-        argv: List[str] = ["--force"] if _pack_is_active() else []
+        _active = _pack_is_active()
+        argv: List[str] = ["--force"] if _active else []
         if vulkan:
             argv.append("--vulkan")
         label = "Vulkan" if vulkan else "CUDA"
         if QMessageBox.question(
             self,
-            f"Install {label} GPU pack",
-            f"Download and install the {label} GPU acceleration pack now?",
+            f"{'Reinstall' if _active else 'Install'} {label} GPU pack",
+            _install_question(label, reinstall=_active),
         ) != QMessageBox.StandardButton.Yes:
             return
         self._wiz_gpu_status.setText(f"Installing {label} GPU pack…")

@@ -128,6 +128,21 @@ def _as_int(value, fallback):
         return int(fallback)
 
 
+
+def _requested_ctx(settings: Dict[str, Any], model_path) -> int:
+    """The context to load this model with: the operator's (env, then settings), else auto for
+    this model on this machine. Never 0, which llama.cpp reads as the model's whole trained
+    context; with nothing measurable, the smallest window."""
+    n_ctx = _env_int("ELI_GGUF_N_CTX", None) or _as_int(_runtime_value(settings, "n_ctx", "context_size"), 0)
+    if int(n_ctx or 0) <= 0:
+        try:
+            from eli.core.hardware_profile import auto_ctx_for
+            n_ctx = int(auto_ctx_for(model_path) or 0)
+        except Exception:
+            log.debug("[GGUF] auto context unavailable", exc_info=True)
+            n_ctx = 0
+    return int(n_ctx) if int(n_ctx or 0) > 0 else 2048
+
 _last_error: Optional[str] = None
 _last_params: Dict[str, Any] = {}
 
@@ -805,9 +820,7 @@ def load_model(force_reload: bool = False):
         _ce.retryable = False
         raise _ce
 
-    n_ctx = _env_int("ELI_GGUF_N_CTX", None)
-    if n_ctx is None:
-        n_ctx = _as_int(_runtime_value(settings, "n_ctx", "context_size"), config.get_gguf_n_ctx())
+    n_ctx = _requested_ctx(settings, model_path)
 
     # Co-resident vision: load the small fast model first to reserve its VRAM, then size the text
     # model to what is left (no static ctx cap). If the fast model can't load, fall through to full
@@ -889,6 +902,7 @@ def load_model(force_reload: bool = False):
     )
     _moe = None
     _moe_fit_applied = False
+    globals()["_vram_at_load"] = {}
     if _smart_fit_on:
         try:
             from eli.core.startup_hardware_optimizer import (
@@ -903,6 +917,9 @@ def load_model(force_reload: bool = False):
             )
             _hw = _sf_hw()
             _mp = _runtime_value(settings, "model_path", "model") or model_path or ""
+            # the fit assumes the KV cache type this load will use
+            _kv_type = str(_runtime_value(settings, "cache_type_k", "type_k", default="") or "f16")
+            _kvq = _kv_type.lower() not in ("f16", "bf16", "f32")
             _sf_gpu = _sf_sg(_sf_dng())
             _use_gpu = bool(
                 _sf_gpu and int(getattr(_sf_gpu, "free_mb", 0) or 0) > 0
@@ -917,7 +934,6 @@ def load_model(force_reload: bool = False):
                 if _use_gpu:
                     from eli.core.hardware_profile import vram_reserve_mb as _vrm
                     _res = int(_vrm(gpu_integrated=bool(getattr(_hw, "gpu_integrated", False))))
-                    _kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
                     if gpu_offload_supported is not False:
                         from eli.core import moe_offload as _moe_offload
                         _moe = _moe_offload.plan_for_load(str(_mp), gpu_offload_supported)
@@ -925,7 +941,7 @@ def load_model(force_reload: bool = False):
                         _mgb, _sf_gpu.free_mb, _hw.available_ram_gb,
                         user_ctx=min(int(n_ctx), _want),
                         user_batch=max(int(n_batch), _min_batch), reserve_mb=_res,
-                        kv_quantized=_kvq, min_batch=_min_batch,
+                        kv_quantized=_kvq, kv_cache_type=_kv_type, min_batch=_min_batch,
                         model_path=str(_mp),
                         gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)),
                         user_gpu_layers=int(n_gpu_layers) if int(n_gpu_layers) > 0 else None,
@@ -940,11 +956,20 @@ def load_model(force_reload: bool = False):
                         log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
                                   f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "
                                   f"layers {n_gpu_layers}->{_fl} batch {n_batch}->{_fb}")
+                    if int(_fl) < int(n_gpu_layers) or int(_fc) < int(n_ctx):
+                        try:
+                            from eli.core.hardware_profile import describe_vram_holders, vram_holders
+                            _held_now = describe_vram_holders(vram_holders(), total_mb=_sf_gpu.total_mb)
+                        except Exception:
+                            _held_now = ""
+                        globals()["_vram_at_load"] = {"free_mb": int(_sf_gpu.free_mb), "held": _held_now}
+                        if _held_now:
+                            log.warning(f"[GGUF] other programs are using this card's memory: {_held_now}. "
+                                        f"Close them or have them release the GPU, then reload the model.")
                     n_ctx, n_gpu_layers, n_batch = _fc, _fl, _fb
                 else:
-                    _kvq = bool(float(getattr(_hw, "ram_gb", 0) or 0) <= 16.0)
                     try:
-                        _ceil = int(_sf_ceil(_mgb, int(_sf_tc(str(_mp)) or 0)) or 0)
+                        _ceil = int(_sf_ceil(_mgb, int(_sf_tc(str(_mp)) or 0), model_path=str(_mp)) or 0)
                     except Exception:
                         _ceil = 0
                     _user_ctx = min(int(n_ctx), _want)
@@ -955,7 +980,7 @@ def load_model(force_reload: bool = False):
                         user_ctx=_user_ctx,
                         user_batch=min(max(int(n_batch), _min_batch), 128),
                         reserve_mb=512,
-                        kv_quantized=_kvq, min_batch=min(_min_batch, 128),
+                        kv_quantized=_kvq, kv_cache_type=_kv_type, min_batch=min(_min_batch, 128),
                         model_path=str(_mp),
                         force_cpu=True,
                     )
@@ -1169,6 +1194,13 @@ def load_model(force_reload: bool = False):
             raise _model_load_error(
                 _load_err, _load_log, effective_n_gpu_layers) from _load_err
 
+    try:
+        # llama.cpp's own KV size for this model replaces the estimate from its header
+        from eli.core.gguf_sizes import record_load_report
+        record_load_report(model_path, _load_log)
+    except Exception:
+        log.debug("[GGUF] KV report not recorded", exc_info=True)
+
     # Keep get_last_load_params() truthful: same values, same moment.
     globals()["_last_params"] = {
         "n_ctx": int(n_ctx),
@@ -1181,7 +1213,10 @@ def load_model(force_reload: bool = False):
         "moe_resident_gb": (_moe or {}).get("resident_gb") if _moe else None,
         "moe_experts_gb": (_moe or {}).get("experts_gb") if _moe else None,
     }
+    _vram_at_load = dict(globals().get("_vram_at_load") or {})
     globals()["_live_runtime_params"] = {
+        "vram_free_mb_at_load": _vram_at_load.get("free_mb"),
+        "vram_held_by_others": _vram_at_load.get("held", ""),
         "provider": "gguf",
         "model_path": str(model_path),
         "model_name": model_path.name,
@@ -1547,21 +1582,7 @@ def _effective_ctx_limit(llm) -> int:
     "does the prompt fit?" math into skipping truncation (which produced
     'Requested tokens exceed context window' / garbled output on the 4k phi-3).
     """
-    loaded = 0
-    try:
-        loaded = int(llm.n_ctx())
-    except Exception:
-        # Prefer the env var set by runtime_settings.apply_runtime_to_env() at
-        # model-load time — it reflects what the model actually loaded with,
-        # which may differ from the config default if the hardware optimizer clamped it.
-        import os as _os
-        loaded = int(_os.environ.get("ELI_GGUF_N_CTX") or _os.environ.get("ELI_N_CTX") or 0)
-        if loaded <= 0:
-            try:
-                from eli.core import config as _cfg
-                loaded = int(_cfg.get_gguf_n_ctx())
-            except Exception:
-                loaded = 0
+    loaded = _loaded_ctx(llm)
     train = _model_train_ctx()
     # Cross-check the ctx load_model() recorded, the authoritative record of what this llm was built
     # with. llm.n_ctx() returned a stale larger figure after a smart-fit reload. A smaller snapshot
@@ -1573,9 +1594,24 @@ def _effective_ctx_limit(llm) -> int:
     except Exception:
         snap_eff = 0
     candidates = [v for v in (loaded, train, snap_eff) if v > 0]
-    if candidates:
-        return min(candidates)
-    return 4096
+    return min(candidates) if candidates else 0
+
+
+def _loaded_ctx(llm) -> int:
+    """The context this llm object was built with, or 0 when it cannot say.
+
+    Never the configured or requested value: that is what was asked for, and a fallback loads
+    less. The GUI replaced llm.n_ctx with a plain number, the call failed, and the user's requested
+    ctx sized every prompt for a model the fallback had loaded at a sixth of it."""
+    for value in (getattr(llm, "n_ctx", None), getattr(llm, "_n_ctx", None),
+                  getattr(getattr(llm, "context_params", None), "n_ctx", None)):
+        try:
+            value = int((value() if callable(value) else value) or 0)
+        except Exception:
+            continue
+        if value > 0:
+            return value
+    return 0
 
 
 def _ctx_max_tokens(llm, full_prompt: str, reserve: int = 128) -> int:
@@ -1616,6 +1652,41 @@ def current_context_limit() -> int:
     try:
         return int(_effective_ctx_limit(llm))
     except Exception:
+        return 0
+
+
+def context_window() -> int:
+    """The context window every budget sizes against.
+
+    Best known first: the model loaded in this process; the runtime published when one was loaded
+    (by the GUI's own loader, or by another ELI process through runtime_snapshot.json, for the
+    same model); the operator's setting; the auto context for the configured model on this
+    machine. 0 when there is no model to size for. Never a constant: one fixed number is wrong
+    for most of the models and machines ELI runs on."""
+    live = current_context_limit()
+    if live > 0:
+        return live
+    try:
+        published = dict(globals().get("_live_runtime_params") or {})
+        if published.get("loaded", True) and int(published.get("n_ctx") or 0) > 0:
+            return int(published["n_ctx"])
+    except Exception:
+        _SWLOG.debug("published runtime unreadable", exc_info=True)
+    try:
+        from eli.core.paths import get_paths
+        snap = json.loads((Path(get_paths().artifacts_dir) / "runtime_snapshot.json").read_text(encoding="utf-8"))
+        snap_ctx = int((snap.get("effective") or {}).get("n_ctx") or snap.get("n_ctx") or 0)
+        snap_model = Path(str(snap.get("model_path") or "")).name
+        configured = get_model_path()
+        if snap_ctx > 0 and (not configured or not snap_model or snap_model == configured.name):
+            return snap_ctx
+    except Exception:
+        _SWLOG.debug("runtime snapshot unreadable", exc_info=True)
+    try:
+        from eli.core import config as _cfg
+        return max(0, int(_cfg.get_gguf_n_ctx()))
+    except Exception:
+        _SWLOG.debug("configured context unreadable", exc_info=True)
         return 0
 
 
@@ -2615,9 +2686,9 @@ try:
                 or kwargs.get("ctx")
                 or _eli_adapt_os.environ.get("ELI_GGUF_N_CTX")
                 or _runtime_value(_settings, "n_ctx", "context_size")
-                or cfg_value("get_gguf_n_ctx", 32768),
-                32768,
-            )
+                or cfg_value("get_gguf_n_ctx", 0),
+                0,
+            ) or _requested_ctx(_settings, get_model_path())
             _raw_gpu = _eli_adapt_int(
                 kwargs.get("n_gpu_layers")
                 or kwargs.get("gpu_layers")
@@ -2670,35 +2741,26 @@ try:
 
         def _eli_build_adaptive_candidates(requested, gpu):
             """
-            Machine-adaptive fallback ladder.
-
-            It does not hard-code the user's machine. It uses observed VRAM to
-            choose a conservative candidate, then adds generic degradation steps.
+            Fallback ladder for a load that failed: the request, then the fit measured for this
+            model at the VRAM free now, then that fit with less of everything. Every size comes
+            from the request or the measurement; no card tiers, no fixed context sizes.
             """
-            req_ctx = max(512, int(requested.get("n_ctx") or 32768))
+            req_ctx = int(requested.get("n_ctx") or 0)
+            if req_ctx <= 0:
+                req_ctx = int(context_window() or 0)
             req_gpu = max(0, int(requested.get("n_gpu_layers") or 0))
-            req_batch = max(32, int(requested.get("n_batch") or 512))
+            req_batch = max(32, int(requested.get("n_batch") or 0) or int(
+                _eli_adapt_os.environ.get("ELI_MIN_BATCH", "128") or "128"))
 
-            # Hard ceiling: never request more context than the model was trained for (stale config
-            # can ask for 32768 on a 4096 model, which garbles output). Read the trained length from
-            # GGUF metadata and clamp every candidate to it, on the headless loader too.
+            # Never more context than the model was trained for (stale config can ask for more
+            # than a small model attends, which garbles output).
             _train_ctx = _model_train_ctx()
             if _train_ctx > 0:
-                req_ctx = min(req_ctx, _train_ctx)
+                req_ctx = min(req_ctx, _train_ctx) if req_ctx > 0 else _train_ctx
+            _grain = 2048
+            _min_batch = max(32, int(_eli_adapt_os.environ.get("ELI_MIN_BATCH", "128") or "128"))
 
-            total = int(gpu.get("total_mib") or 0)
             free = int(gpu.get("free_mib") or 0)
-            basis = free if free > 0 else total
-
-            # VRAM-proportional ctx cap: 40% of free VRAM goes to the KV cache after a 512 MiB
-            # CUDA-overhead floor. fp16 KV for a typical 7B is about 160 KB/token. Aligned to 2048
-            # tokens.
-            _kv_bytes_per_token = 163840  # 160 KiB / token
-            _kv_budget_mb = max(0, int(basis * 0.40) - 512) if basis > 0 else 0
-            _vram_ctx = (
-                max(2048, (_kv_budget_mb * 1024 * 1024 // _kv_bytes_per_token // 2048) * 2048)
-                if _kv_budget_mb > 0 else 2048
-            )
 
             candidates = []
 
@@ -2737,56 +2799,61 @@ try:
                     "override": False,
                 })
 
-            # VRAM-aware conservative candidate. This is threshold-based, not
-            # machine-name based.  ctx cap is derived from the VRAM formula
-            # above — no hardcoded context-window values.
-            if basis > 0:
-                if basis <= 4096:
-                    candidates.append({
-                        "label": "adaptive-vram<=4g",
-                        "override": True,
-                        "n_ctx": min(req_ctx, _vram_ctx),
-                        "n_gpu_layers": min(req_gpu, max(0, req_gpu // 4)),
-                        "n_batch": min(req_batch, 256),
-                    })
-                elif basis <= 6144:
-                    candidates.append({
-                        "label": "adaptive-vram<=6g",
-                        "override": True,
-                        "n_ctx": min(req_ctx, _vram_ctx),
-                        "n_gpu_layers": min(req_gpu, max(0, req_gpu // 3)),
-                        "n_batch": min(req_batch, 256),
-                    })
-                elif basis <= 8192:
-                    candidates.append({
-                        "label": "adaptive-vram<=8g",
-                        "override": True,
-                        "n_ctx": min(req_ctx, _vram_ctx),
-                        "n_gpu_layers": min(req_gpu, max(0, req_gpu // 2)),
-                        "n_batch": min(req_batch, max(128, req_batch // 2)),
-                    })
-                else:
-                    candidates.append({
-                        "label": "adaptive-vram>8g",
-                        "override": True,
-                        "n_ctx": req_ctx,
-                        "n_gpu_layers": req_gpu,
-                        "n_batch": req_batch,
-                    })
+            # First real attempt. When the trained context is known, force an explicit
+            # capped override (never pass the stale-large raw config through, which would
+            # load past n_ctx_train); otherwise fall back to the raw requested config.
+            if _train_ctx > 0:
+                candidates.append({
+                    "label": "requested-ctx-capped-to-train",
+                    "override": True,
+                    "n_ctx": req_ctx,
+                    "n_gpu_layers": req_gpu,
+                    "n_batch": req_batch,
+                })
+            else:
+                candidates.append({
+                    "label": "requested/raw-no-override",
+                    "override": False,
+                })
 
-            # Generic fallback ladder. Important candidate for 32k/21/512 on
-            # low-VRAM machines: 16k / quarter GPU layers / 256 batch.
-            generic = [
-                (req_ctx, max(0, req_gpu // 2), min(req_batch, 256), "generic-half-gpu"),
-                (min(req_ctx, 16384), max(0, req_gpu // 2), min(req_batch, 256), "generic-16k-half-gpu"),
-                (min(req_ctx, 16384), max(0, req_gpu // 4), min(req_batch, 256), "generic-16k-quarter-gpu"),
-                (min(req_ctx, 16384), max(0, req_gpu // 6), min(req_batch, 192), "generic-16k-sixth-gpu"),
-                (min(req_ctx, 16384), max(0, req_gpu // 8), min(req_batch, 128), "generic-16k-eighth-gpu"),
-                (min(req_ctx, 16384), 0, min(req_batch, 128), "generic-16k-cpu"),
-                (min(req_ctx, 8192), max(0, req_gpu // 4), min(req_batch, 128), "generic-8k-quarter-gpu"),
-                (min(req_ctx, 8192), 0, min(req_batch, 128), "generic-8k-cpu"),
-                (min(req_ctx, 4096), 0, min(req_batch, 64), "generic-4k-cpu"),
-            ]
+            # The fit for this model at the VRAM free now (its own tensor sizes and KV layout).
+            base = (req_ctx, req_gpu, req_batch)
+            try:
+                _mp = get_model_path()
+                if _mp and free > 0 and req_gpu > 0:
+                    from eli.core.hardware_profile import detect_hardware, unified_fit_config, vram_reserve_mb
+                    from eli.core.mem_units import file_size_gib
+                    _hw = detect_hardware()
+                    _kv_type = str(_runtime_value(_load_runtime_settings(), "cache_type_k", "type_k",
+                                                  default="") or "f16")
+                    _fit = unified_fit_config(
+                        file_size_gib(_mp), free, _hw.available_ram_gb,
+                        user_ctx=max(_grain, req_ctx), user_batch=req_batch,
+                        reserve_mb=vram_reserve_mb(gpu_integrated=bool(getattr(_hw, "gpu_integrated", False))),
+                        kv_quantized=_kv_type.lower() not in ("f16", "bf16", "f32"), kv_cache_type=_kv_type,
+                        model_path=str(_mp), user_gpu_layers=req_gpu, min_batch=min(_min_batch, req_batch),
+                        gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)))
+                    base = (int(_fit[0]), int(_fit[1]), int(_fit[2]))
+                    candidates.append({"label": "measured-fit", "override": True,
+                                       "n_ctx": base[0], "n_gpu_layers": base[1], "n_batch": base[2]})
+            except Exception:
+                _SWLOG.debug("measured fit unavailable for the fallback ladder", exc_info=True)
+
+            # Less of everything, relative to that fit: GPU layers and batch first, context last.
+            ctx, layers, batch = base
+            generic = []
+            step = 0
+            while True:
+                step += 1
+                layers = layers // 2
+                batch = max(min(batch, _min_batch), batch // 2)
+                if step % 2 == 0 or layers == 0:
+                    ctx = max(_grain, (ctx // 2 // _grain) * _grain) if ctx > _grain else ctx
+                generic.append((ctx, layers, batch, f"reduced-{step}"))
+                if layers == 0 and ctx <= _grain:
+                    break
+                if step > 24:
+                    break
 
             for ctx, gpu_layers, batch, label in generic:
                 candidates.append({

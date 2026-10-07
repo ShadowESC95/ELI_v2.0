@@ -103,11 +103,12 @@ def _period_log_chars(reasoning_mode: object = None) -> int:
     try:
         from eli.cognition import gguf_inference as _gi
         from eli.cognition.context_budget import chars_per_token
-        n_ctx = int(_gi.current_context_limit() or 8192)
+        n_ctx = int(_gi.context_window() or 0)
         share = 0.15 if str(reasoning_mode or "quick").lower() in ("", "quick", "fast") else 0.2
-        return max(2500, min(12000, int(n_ctx * chars_per_token() * share)))
+        return max(0, int(n_ctx * chars_per_token() * share))
     except Exception:
-        return 5000
+        log.debug("period log size unavailable", exc_info=True)
+        return 0
 
 
 def _verified_shown_limit(reasoning_mode: object = None) -> int:

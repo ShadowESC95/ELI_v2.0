@@ -21,7 +21,7 @@ import os
 
 # Current count of silent `except: pass` handlers across eli/. Ratchet DOWN only.
 # v2.3.85 prep: memory + redistributability fixes (177 → 172).
-CEILING = 172
+CEILING = 171
 
 _ELI_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "eli"))
 

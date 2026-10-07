@@ -34,8 +34,9 @@ def test_the_output_budget_is_a_share_not_a_band():
     """ctx 6143 vs 6144 used to differ by 1024 output tokens for no reason."""
     a, b = drb._output_budget_for_ctx(6143), drb._output_budget_for_ctx(6144)
     assert abs(a - b) <= 2
-    assert drb._output_budget_for_ctx(16384) <= drb._MAX_OUTPUT_TOKENS
-    assert drb._output_budget_for_ctx(1024) >= 512
+    # a share in both directions: no fixed cap on a big window, no fixed floor on a small one
+    assert drb._output_budget_for_ctx(131072) == 2 * drb._output_budget_for_ctx(65536)
+    assert drb._output_budget_for_ctx(1024) < drb._output_budget_for_ctx(2048)
 
 
 def test_ctx_ceiling_scales_with_ram_rather_than_stepping():

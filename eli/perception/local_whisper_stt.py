@@ -15,8 +15,6 @@ _MODEL_LOADING = False   # True while a download/load is in progress
 _MODEL_READY = threading.Event()  # set once the model is loaded successfully
 _CUDA_FAILED = False  # set permanently once CUDA OOM occurs; prevents re-escalation
 _GPU_TOTAL_MB: Optional[int] = None  # cached total VRAM of GPU 0
-# Below this total VRAM, STT stays on CPU so the main GGUF model keeps the GPU.
-_WHISPER_GPU_MIN_MB = int(os.environ.get("ELI_WHISPER_GPU_MIN_MB", "12000"))
 
 
 def _env(name, default):
@@ -56,6 +54,62 @@ def _gpu_total_mb() -> int:
 def _whisper_hub_dir(model: str) -> str:
     """HF cache folder name faster-whisper uses under download_root."""
     return f"models--Systran--faster-whisper-{model.replace('/', '--')}"
+
+
+def _whisper_weights_mb(model: str, model_dir: str) -> float:
+    """This whisper model's weights on disk (its model.bin), 0 when not downloaded."""
+    candidates = list(Path(model_dir).glob(f"{_whisper_hub_dir(model)}/snapshots/*/model.bin"))
+    candidates.append(Path(model) / "model.bin")
+    for f in candidates:
+        try:
+            return f.resolve().stat().st_size / 1_048_576
+        except OSError:
+            continue
+    return 0.0
+
+
+def _gpu_room_for_whisper(model: str, model_dir: str) -> bool:
+    """GPU only when, after what the language model takes there, the free VRAM still holds this
+    whisper model's weights and the configured headroom. Measured from the files and the card:
+    a fixed 12000 MB card size kept whisper off a 10 GB card beside a small model and put it on a
+    12 GB card beside one that needed all of it. Unknown either way: the CPU, so the language
+    model keeps the GPU."""
+    if _gpu_total_mb() <= 0:                 # ctranslate2 offloads to NVIDIA only
+        return False
+    need = _whisper_weights_mb(model, model_dir)
+    if need <= 0:
+        return False
+    try:
+        import sys
+        from eli.core.hardware_profile import (
+            _CUDA_OVERHEAD_MB, _compute_graph_reserve_mb, get_live_gpu_telemetry, model_cost,
+            vram_reserve_mb)
+        free = get_live_gpu_telemetry().get("free_mb")
+        if not free:
+            return False
+        room = int(free) - int(vram_reserve_mb())
+        gi = sys.modules.get("eli.cognition.gguf_inference")
+        if gi is None or getattr(gi, "_llm", None) is None:
+            # the language model is not loaded yet: keep what it will take
+            from eli.core import config
+            from eli.core.runtime_settings import load_settings
+            path, ctx = config.get_gguf_model_path(), int(config.get_gguf_n_ctx() or 0)
+            kv_type = str((load_settings() or {}).get("cache_type_k") or "f16")
+            whole = model_cost(path, kv_cache_type=kv_type)
+            if whole is None:
+                return False
+            fixed = whole.kv_mb(ctx) + _compute_graph_reserve_mb(ctx) + _CUDA_OVERHEAD_MB
+            every_layer = whole.weights.blocks + 1
+            if whole.gpu_weights_mb(every_layer) + fixed <= room:
+                room -= whole.gpu_weights_mb(every_layer) + fixed
+            elif whole.weights.experts_total > 0:   # experts stay in RAM, the rest on the GPU
+                room -= model_cost(path, experts_in_ram=True, kv_cache_type=kv_type).gpu_weights_mb(every_layer) + fixed
+            else:
+                return False                       # a partial offload uses the whole card
+        return room >= need
+    except Exception:
+        log.debug("whisper GPU room unknown", exc_info=True)
+        return False
 
 
 def whisper_cache_ready(
@@ -151,13 +205,13 @@ def _model_settings():
     model_dir = _resolve_model_dir(_env("ELI_WHISPER_MODEL_DIR", "models/whisper"))
     # Prefer GPU for speed, get_model() falls back to CPU if CUDA fails. ELI_WHISPER_DEVICE=cpu
     # forces CPU. int8_float16 on GPU: about half the VRAM of float16 at equal WER.
-    # VRAM-aware default: GPU whisper takes ~2GB the main model needs and starved it on a small
-    # card, so default to GPU only when the card holds both. An explicit ELI_WHISPER_DEVICE wins.
+    # VRAM-aware default: on the GPU only when the card holds the language model and this whisper
+    # model both (measured). An explicit ELI_WHISPER_DEVICE wins.
     _explicit_device = (os.environ.get("ELI_WHISPER_DEVICE", "") or "").strip().lower()
     if _explicit_device:
         device = _explicit_device
     else:
-        device = "cuda" if _gpu_total_mb() >= _WHISPER_GPU_MIN_MB else "cpu"
+        device = "cuda" if _gpu_room_for_whisper(model, model_dir) else "cpu"
     compute_type = _env(
         "ELI_WHISPER_COMPUTE_TYPE", "int8_float16" if device == "cuda" else "int8")
     local_only = _env("ELI_WHISPER_LOCAL_ONLY", "0").lower() in {"1", "true", "yes", "on"}

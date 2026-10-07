@@ -69,9 +69,19 @@ def plan(model_path: Optional[str], model_size_gb: float, *, free_vram_mb: int, 
     if m == "auto" and size_mb + int(reserve_mb) <= int(free_vram_mb):
         return None
     experts_gb = float(model_size_gb) * expert_fraction()
+    resident_gb = float(model_size_gb) - experts_gb
+    try:
+        from eli.core import gguf_sizes
+        w = gguf_sizes.weights(model_path)
+        if w is not None and w.experts_total > 0:
+            # the file's own tensor sizes; the fraction is only for a file whose table cannot be read
+            experts_gb = w.experts_total / 1024 ** 3
+            resident_gb = w.resident_total / 1024 ** 3
+    except Exception:
+        log.debug("moe: tensor sizes unreadable", exc_info=True)
     if float(available_ram_gb) < experts_gb * 0.75:
         return None
-    return {"resident_gb": round(float(model_size_gb) - experts_gb, 2), "experts_gb": round(experts_gb, 2),
+    return {"resident_gb": round(resident_gb, 2), "experts_gb": round(experts_gb, 2),
             "layers": int(prof.block_count or 0)}
 
 

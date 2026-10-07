@@ -1232,11 +1232,11 @@ def _summarize_long_text(content: str, instruction: str = "", *, _depth: int = 0
     # Usable context (tokens) → input char budget (~3.5 chars/token), leaving
     # headroom for the system prompt, instruction, and the generated summary.
     try:
-        ctx_tokens = int(_gi.current_context_limit() or 0)
+        ctx_tokens = int(_gi.context_window() or 0)
     except Exception:
         ctx_tokens = 0
     if ctx_tokens <= 0:
-        ctx_tokens = 4096
+        return None
     in_token_budget = max(512, int(ctx_tokens * 0.55))
     chunk_chars = max(2000, int(in_token_budget * 3.5))
 
@@ -9217,10 +9217,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     system=_directive
                 )
                 # Each chunk: leave room for output generation (roughly n_ctx/2 for input)
-                try:
-                    _n_ctx = _pgi.load_model().n_ctx()
-                except Exception:
-                    _n_ctx = 16384
+                _n_ctx = int(_pgi.context_window() or 0)
                 # chars per chunk = roughly half the context minus directive, times 4 chars/token
                 _chars_per_chunk = max(3000, (_n_ctx // 2 - 600) * 4)
 
@@ -9388,13 +9385,19 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     _doc_summary = ""
                     if _body and _model_ok:
                         try:
+                            _ask = (f"Summarise this single research document titled “{_name}”. "
+                                    f"Cover: (1) the central topic/claim, (2) the methods/formalism used, "
+                                    f"(3) key findings or conclusions, and (4) any notable equations or "
+                                    f"results named in the text. Be specific and grounded ONLY in the text "
+                                    f"below — do not invent results or citations.\n\n")
+                            _sys = "You are a precise technical analyst summarising one research PDF."
+                            # the body gets the window left after the instruction and the reply
+                            from eli.cognition.context_budget import chars_per_token as _cpt_pdf
+                            _room = int(max(0, int(_gi.context_window() or 0) - 520) * float(_cpt_pdf())
+                                        ) - len(_ask) - len(_sys)
                             _doc_summary = (_gi.chat_completion(
-                                f"Summarise this single research document titled “{_name}”. "
-                                f"Cover: (1) the central topic/claim, (2) the methods/formalism used, "
-                                f"(3) key findings or conclusions, and (4) any notable equations or "
-                                f"results named in the text. Be specific and grounded ONLY in the text "
-                                f"below — do not invent results or citations.\n\n{_body[:12000]}",
-                                system="You are a precise technical analyst summarising one research PDF.",
+                                _ask + _body[:max(0, _room)],
+                                system=_sys,
                                 max_tokens=520, temperature=0.3) or "").strip()
                         except Exception as _pf_err:
                             log.debug(f"[ANALYZE_PDF_FOLDER] per-file summary failed for {_name}: {_pf_err}")

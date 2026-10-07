@@ -147,6 +147,10 @@ jobs:
           tests/test_install_script.py
           tests/test_env_repair.py
           tests/test_linux_build_baseline.py
+          tests/test_model_costs_come_from_the_file.py
+          tests/test_context_is_what_loaded.py
+          tests/test_vram_held_by_others.py
+          tests/test_text_budgets_follow_the_window.py
           tests/test_platform_profile.py
           tests/test_intel_igpu_detection.py
           tests/test_document_formats.py

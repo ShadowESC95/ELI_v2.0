@@ -309,7 +309,14 @@ def build_mode_execution_contract(
     memory_chars = len(memory)
     asks_long = any(hint in q_low for hint in _LONG_QUERY_HINTS)
 
-    n_ctx = max(1024, _runtime_int(runtime, "n_ctx", "ctx", default=16384))
+    n_ctx = _runtime_int(runtime, "n_ctx", "ctx", default=0)
+    if n_ctx <= 0:
+        try:
+            from eli.cognition.gguf_inference import context_window
+            n_ctx = int(context_window() or 0)
+        except Exception:
+            n_ctx = 0
+    n_ctx = max(1024, n_ctx)
     n_batch = max(32, _runtime_int(runtime, "n_batch", "batch", "batch_size", default=256))
     n_gpu_layers = max(0, _runtime_int(runtime, "n_gpu_layers", "gpu_layers", default=0))
     n_threads = max(1, _runtime_int(runtime, "n_threads", "threads", default=8))

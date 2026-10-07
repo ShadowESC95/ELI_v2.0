@@ -20,11 +20,11 @@ def test_model_size_category(gb, expected):
     assert app._model_size_category(int(gb * 1e9)) == expected
 
 
-def test_kv_cache_mb_math():
-    # 2048 ctx * 32 layers * 6000 B / 1 MiB = 375 MB.
-    assert round(app._kv_cache_mb(2048, 32), 1) == 375.0
-    # quant quarters the estimate.
-    assert app._kv_cache_mb(2048, 32, quant=True) == app._kv_cache_mb(2048, 32) / 4
+def test_kv_cache_mb_math_without_a_model_file():
+    # only when no model file can be read: 2048 ctx * 32 layers * 6000 B / 1 MiB = 375 MB
+    from eli.core.hardware_profile import _kv_cache_mb
+    assert round(_kv_cache_mb(2048, 32), 1) == 375.0
+    assert _kv_cache_mb(2048, 32, quant=True) == _kv_cache_mb(2048, 32) / 4
 
 
 # --------------------------------------------------------------------------- #

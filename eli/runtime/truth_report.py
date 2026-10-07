@@ -75,13 +75,20 @@ def runtime_load_facts(snapshot: Dict[str, Any] | None,
     reduced = dict(gap.get("reduced") or {})
     eff = dict(gap.get("effective") or {})
 
+    # the card at load time, so "reduced to fit" can say why: another program's memory, not a guess
+    _free_at_load = snapshot.get("vram_free_mb_at_load")
+    _held = str(snapshot.get("vram_held_by_others") or "")
+    _why = "reduced to fit this machine's free memory"
+    if _free_at_load is not None:
+        _why += f" ({int(_free_at_load)} MB of VRAM was free at load"
+        _why += f"; other programs held {_held})" if _held else ")"
+
     differences: list[str] = []
     for key, label in _LOAD_LABELS.items():
         pair = reduced.get(key)
         if pair:
             differences.append(
-                f"{label}: requested {pair['requested']}, loaded {pair['effective']} — "
-                f"reduced to fit this machine's free memory")
+                f"{label}: requested {pair['requested']}, loaded {pair['effective']} — {_why}")
 
     # A saved value differing from what loaded, when the requested block did not explain it.
     cfg_keys = {"n_ctx": "n_ctx", "n_gpu_layers": "n_gpu_layers", "n_batch": "batch_size"}
@@ -108,6 +115,8 @@ def runtime_load_facts(snapshot: Dict[str, Any] | None,
     return {
         "clamped": bool(reduced),
         "reduced": reduced,
+        "vram_free_mb_at_load": _free_at_load,
+        "vram_held_by_others": _held,
         "differences": differences,
         "consistent": not differences,
         "tuner_recommendation": tuner,

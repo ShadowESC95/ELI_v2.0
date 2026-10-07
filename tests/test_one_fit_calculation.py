@@ -67,7 +67,7 @@ def _loader_fit(size_gb: float, free_mb: int, ctx: int, kv_q: bool, avail_ram_gb
 def test_the_recommendation_matches_what_the_loader_would_do(size_gb, free_mb, total_mb):
     hw = _hw(free_mb, total_mb)
     rec = recommend(hw, _models(size_gb))
-    kv_q = bool(total_mb < 12000)
+    kv_q = bool(rec.cache_type_k)             # the KV type recommend() chose
     # "auto" is derived from the model and this machine, not a constant: the
     # invariant is that the recommendation equals the loader's fit of THAT target.
     from eli.core.hardware_profile import auto_ctx_target

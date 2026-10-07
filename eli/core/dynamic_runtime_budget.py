@@ -6,7 +6,7 @@ import json
 import os
 import re
 import subprocess
-from typing import Any, Dict
+from typing import Optional, Any, Dict
 
 from eli.utils.log import get_logger
 
@@ -77,8 +77,8 @@ def model_size_gb(model_path: str | Path) -> float:
 
 
 def _round_ctx(x: int) -> int:
-    choices = [2048, 4096, 6144, 8192, 12288, 16384, 24576, 32768]
-    return max(c for c in choices if c <= max(2048, x))
+    # 2048-grain, no list and no ceiling (a list topping out at 32768 capped every larger window)
+    return max(2048, (int(x) // 2048) * 2048)
 
 
 
@@ -96,15 +96,15 @@ _RAM_FRACTION_FOR_CTX = 0.25
 # Generated-output share of the context window. The rest is prompt headroom:
 # persona brief, memory context and evidence all have to fit alongside it.
 _OUTPUT_SHARE_OF_CTX = 0.375
-_MAX_OUTPUT_TOKENS = 4096
 
 
 def _output_budget_for_ctx(n_ctx: int) -> int:
     """Generated-token budget as a proportion of the window, not a band."""
-    return max(512, min(_MAX_OUTPUT_TOKENS, int(int(n_ctx) * _OUTPUT_SHARE_OF_CTX)))
+    return max(1, int(int(n_ctx) * _OUTPUT_SHARE_OF_CTX))
 
 
-def _ctx_ceiling_for_ram(ram_gb: float, size_gb: float, train_ctx: int = 0) -> int:
+def _ctx_ceiling_for_ram(ram_gb: float, size_gb: float, train_ctx: int = 0,
+                         model_path: Optional[str] = None) -> int:
     """Largest context this machine's RAM can hold for a model this size.
 
     Replaces `if ram_gb >= 48 ... 16384 / elif >= 32 ... 12288 / ...`.
@@ -116,9 +116,9 @@ def _ctx_ceiling_for_ram(ram_gb: float, size_gb: float, train_ctx: int = 0) -> i
     change exists to remove.
     """
     try:
-        from eli.core.hardware_profile import _kv_cache_mb, _layers_for_size
+        from eli.core.hardware_profile import _kv_cache_mb, _layers_for_size, model_cost
         layers = _layers_for_size(float(size_gb))
-        mb_per_token = _kv_cache_mb(1, layers, quant=False)
+        mb_per_token = _kv_cache_mb(1, layers, quant=False, cost=model_cost(model_path))
     except Exception:
         return _MIN_CTX
     if mb_per_token <= 0:
@@ -173,7 +173,7 @@ def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
         _train = int(train_ctx_for_model(str(model_path)) or 0)
     except Exception:
         _train = 0
-    ctx_target = _ctx_ceiling_for_ram(ram_gb, size_gb, _train)
+    ctx_target = _ctx_ceiling_for_ram(ram_gb, size_gb, _train, model_path=str(model_path))
     try:
         from eli.core.hardware_profile import smart_fit_config
         n_ctx, gpu_layers, batch = smart_fit_config(
@@ -186,7 +186,7 @@ def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
     except Exception:
         # The fit is unavailable (no hardware_profile on this build). Fall back
         # to the smallest safe window rather than to invented buckets.
-        n_ctx, gpu_layers, batch = _MIN_CTX, (0 if vram_total <= 0 else 4), _MIN_BATCH
+        n_ctx, gpu_layers, batch = _MIN_CTX, 0, _MIN_BATCH
 
     if vram_total <= 0:
         gpu_layers = 0

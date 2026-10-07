@@ -2493,21 +2493,15 @@ class _ReportTab(QWidget):
         return any(needle in msg for needle in needles)
 
     def _rb_runtime_n_ctx(self) -> int:
-        cached = getattr(self, "_rb_cached_n_ctx_tokens", 0)
-        if isinstance(cached, int) and cached >= 1024:
-            return cached
-        n_ctx = 12288
+        # what loaded, read each time: a reload can change it
         try:
             from eli.cognition import gguf_inference as gi
 
-            llm = gi.load_model()
-            if llm is not None and hasattr(llm, "n_ctx"):
-                n_ctx = int(llm.n_ctx())
+            gi.load_model()
+            n_ctx = int(gi.context_window() or 0)
         except Exception:
-            n_ctx = 12288
-        n_ctx = max(1024, int(n_ctx))
-        self._rb_cached_n_ctx_tokens = n_ctx
-        return n_ctx
+            n_ctx = 0
+        return max(1024, n_ctx)
 
     def _rb_available_tokens(self, prompt: str, *, system: str) -> int:
         try:

@@ -27,9 +27,10 @@ what the fallback ladder needed all along.
 
 Nothing here caps, substitutes or hardcodes a parameter. The probe reports
 pass/fail on the numbers it is given. Its own working sizes derive from the
-caller's context. The verdict is cached per (model, parameters, GPU identity),
-so a configuration is proven once rather than on every startup, and a machine
-whose free VRAM has changed is re-proven rather than trusting a stale pass.
+caller's context. The verdict is cached per (model, parameters, GPU identity) with
+the free VRAM it was reached at, so a configuration is proven once rather than on
+every startup, and is re-proven when free VRAM has since moved by more than the
+configured headroom (another program took the card, or let it go).
 """
 from __future__ import annotations
 
@@ -212,9 +213,33 @@ def _save_cache(cache: Dict[str, Any]) -> None:
         log.debug("load_probe: cache write failed", exc_info=True)
 
 
+def _free_vram_mb() -> Optional[int]:
+    try:
+        from eli.core.hardware_profile import get_live_gpu_telemetry
+        free = get_live_gpu_telemetry().get("free_mb")
+        return int(free) if free is not None else None
+    except Exception:
+        return None
+
+
+def _vram_moved(then: Any, now: Optional[int], *, up: bool) -> bool:
+    """Whether free VRAM rose (up) or fell by more than the configured headroom since a verdict.
+    A verdict reached while another program held the card says nothing about the card once it
+    is free, and a pass reached on a free card says nothing once another program holds it."""
+    if then is None or now is None:
+        return False
+    try:
+        from eli.core.hardware_profile import vram_reserve_mb
+        margin = int(vram_reserve_mb())
+    except Exception:
+        return False
+    return (now - int(then) > margin) if up else (int(then) - now > margin)
+
+
 def cached_verdict(model_path: str, n_ctx: int, n_gpu_layers: int,
-                   n_batch: int) -> Optional[bool]:
-    """A previously proven verdict for these parameters, or None."""
+                   n_batch: int, *, free_mb: Optional[int] = None) -> Optional[bool]:
+    """A previously proven verdict for these parameters, or None. With free_mb, a pass reached
+    with much more VRAM free, or a failure reached with much less, does not count."""
     ttl = float(os.environ.get("ELI_LOAD_PROBE_TTL", "") or _DEFAULT_TTL_S)
     entry = _load_cache().get(_key(model_path, n_ctx, n_gpu_layers, n_batch))
     if not isinstance(entry, dict):
@@ -222,7 +247,11 @@ def cached_verdict(model_path: str, n_ctx: int, n_gpu_layers: int,
     if time.time() - float(entry.get("ts", 0) or 0) > ttl:
         return None
     ok = entry.get("ok")
-    return bool(ok) if isinstance(ok, bool) else None
+    if not isinstance(ok, bool):
+        return None
+    if _vram_moved(entry.get("free_mb"), free_mb, up=not ok):
+        return None
+    return ok
 
 
 def _timeout_key(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int) -> str:
@@ -230,10 +259,12 @@ def _timeout_key(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int) -
 
 
 def _recently_timed_out(model_path: str, n_ctx: int, n_gpu_layers: int,
-                        n_batch: int) -> bool:
+                        n_batch: int, *, free_mb: Optional[int] = None) -> bool:
     entry = _load_cache().get(_timeout_key(model_path, n_ctx, n_gpu_layers, n_batch))
     if not isinstance(entry, dict):
         return False
+    if _vram_moved(entry.get("free_mb"), free_mb, up=True):
+        return False                 # the card has freed up since: worth trying again
     # A timeout at a ceiling-cut budget repeats identically every launch; the key already
     # carries model size and GPU identity, so remember it for the full TTL.
     ttl = _DEFAULT_TTL_S if entry.get("ceiling_cut") else _TIMEOUT_MEMO_TTL_S
@@ -241,10 +272,11 @@ def _recently_timed_out(model_path: str, n_ctx: int, n_gpu_layers: int,
 
 
 def _record_timeout(model_path: str, n_ctx: int, n_gpu_layers: int,
-                    n_batch: int) -> None:
+                    n_batch: int, *, free_mb: Optional[int] = None) -> None:
     cache = _load_cache()
     cache[_timeout_key(model_path, n_ctx, n_gpu_layers, n_batch)] = {
         "ts": time.time(),
+        "free_mb": free_mb,
         "ceiling_cut": bool(budget_is_ceiling_cut(model_path, n_ctx)),
         "model": str(model_path),
         "n_ctx": int(n_ctx),
@@ -256,11 +288,12 @@ def _record_timeout(model_path: str, n_ctx: int, n_gpu_layers: int,
 
 
 def _record(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
-            ok: bool, detail: str = "") -> None:
+            ok: bool, detail: str = "", *, free_mb: Optional[int] = None) -> None:
     cache = _load_cache()
     cache[_key(model_path, n_ctx, n_gpu_layers, n_batch)] = {
         "ok": bool(ok),
         "ts": time.time(),
+        "free_mb": free_mb,
         "model": str(model_path),
         "n_ctx": int(n_ctx),
         "n_gpu_layers": int(n_gpu_layers),
@@ -355,9 +388,10 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
         return SKIPPED, "probe disabled (ELI_LOAD_PROBE=0)"
 
     n_ctx, n_gpu_layers, n_batch = int(n_ctx), int(n_gpu_layers), int(n_batch)
+    free_now = _free_vram_mb() if n_gpu_layers > 0 else None
 
     if use_cache:
-        cached = cached_verdict(model_path, n_ctx, n_gpu_layers, n_batch)
+        cached = cached_verdict(model_path, n_ctx, n_gpu_layers, n_batch, free_mb=free_now)
         if cached is not None:
             return (PROVEN_OK if cached else PROVEN_BAD), "cached verdict"
 
@@ -391,7 +425,7 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
     timeout = float(timeout_s if timeout_s is not None
                     else probe_timeout_for(model_path, n_ctx))
 
-    if use_cache and _recently_timed_out(model_path, n_ctx, n_gpu_layers, n_batch):
+    if use_cache and _recently_timed_out(model_path, n_ctx, n_gpu_layers, n_batch, free_mb=free_now):
         return (UNPROVEN_TIMEOUT,
                 "probe timed out recently; not re-paying the budget this launch")
     payload = json.dumps({
@@ -414,7 +448,7 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
         # Slow, not proven broken. Do not override the operator on a timeout, and do
         # not cache a VERDICT that was never reached — only the fact that it timed
         # out, briefly, so the next launch does not re-pay the same budget.
-        _record_timeout(model_path, n_ctx, n_gpu_layers, n_batch)
+        _record_timeout(model_path, n_ctx, n_gpu_layers, n_batch, free_mb=free_now)
         log.debug("[LOAD_PROBE] timed out after %.0fs — treating as unproven", timeout)
         return UNPROVEN_TIMEOUT, f"probe timed out after {timeout:.0f}s (unproven)"
     except Exception as e:
@@ -440,7 +474,7 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
         tail = _lines[-1][:220] if _lines else ""
 
     if rc == 0 and "PROBE_OK" in (proc.stdout or ""):
-        _record(model_path, n_ctx, n_gpu_layers, n_batch, True, "ok")
+        _record(model_path, n_ctx, n_gpu_layers, n_batch, True, "ok", free_mb=free_now)
         log.debug("[LOAD_PROBE] ctx=%d layers=%d batch=%d verified in %.1fs",
                   n_ctx, n_gpu_layers, n_batch, elapsed)
         return PROVEN_OK, f"verified in {elapsed:.1f}s"
@@ -459,7 +493,7 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
     # rc 4/5 are honest Python-level failures; a negative rc is a signal
     # (SIGABRT is what the CUDA backend raises), which is the case this exists
     # for. Both are proof the configuration does not work here.
-    _record(model_path, n_ctx, n_gpu_layers, n_batch, False, f"rc={rc} {tail}")
+    _record(model_path, n_ctx, n_gpu_layers, n_batch, False, f"rc={rc} {tail}", free_mb=free_now)
     log.debug("[LOAD_PROBE] ctx=%d layers=%d batch=%d FAILED rc=%d (%.1fs) %s",
               n_ctx, n_gpu_layers, n_batch, rc, elapsed, tail)
     return PROVEN_BAD, f"rc={rc} {tail}".strip()

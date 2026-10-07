@@ -696,18 +696,11 @@ def recommend_optimal_settings(sysinfo: Dict[str, Any]) -> Dict[str, Any]:
     cpu_count = int(sysinfo.get('cpu_count', 4) or 4)
     has_gpu   = bool(sysinfo.get('has_gpu', False))
 
-    # n_ctx: proportional to available RAM (1 GB ≈ 1024 tokens), 2048-grain.
-    _raw_ctx = max(4096, min(131072, int(ram_gb * 1024)))
-    n_ctx = max(4096, (_raw_ctx // 2048) * 2048)
-
-    # GPU layers: 9999 sentinel for "all layers" when VRAM is large;
-    # proportional estimate otherwise (≈ 1 layer per 150 MB free VRAM).
-    if not has_gpu or vram_mb <= 0:
-        n_gpu_layers = 0
-    elif vram_mb >= 8000:
-        n_gpu_layers = 9999
-    else:
-        n_gpu_layers = min(99, max(4, vram_mb // 150))
+    # No model is selected, so nothing can be sized for one: the context is auto and the layers
+    # "all", both settled by the measured fit when a model loads. (This used RAM and VRAM rules
+    # that ignored the model: 1024 tokens per GB, every layer from 8000 MB.)
+    n_ctx = 0
+    n_gpu_layers = 99 if (has_gpu and vram_mb > 0) else 0
 
     try:
         from eli.core.hardware_profile import recommend_cpu_threads as _rct
@@ -715,15 +708,9 @@ def recommend_optimal_settings(sysinfo: Dict[str, Any]) -> Dict[str, Any]:
     except Exception:
         n_threads = max(1, cpu_count - (1 if (not has_gpu or vram_mb <= 0) else 2))
 
-    # Batch: proportional to free VRAM (≈ 1 unit per 10 MB), aligned to 64.
-    if has_gpu and vram_mb > 0:
-        _raw_batch = max(128, int(vram_mb / 10))
-        batch_size = max(128, (_raw_batch // 64) * 64)
-    else:
-        batch_size = 128
-
-    # max_tokens: half of ctx, clamped to [1024, 8192].
-    max_tokens = max(1024, min(8192, n_ctx // 2))
+    # the loader's own minimum; the fit raises it where the card has room
+    batch_size = int(os.environ.get("ELI_MIN_BATCH", "128") or "128")
+    max_tokens = None           # a ceiling of the user's; the window sizes each reply
 
     return {
         'n_ctx':        n_ctx,
@@ -775,6 +762,8 @@ class LocalModelManager:
         requested_n_ctx: Optional[int] = None,
         requested_n_batch: Optional[int] = None,
         gpu_offload_supported: Optional[bool] = None,
+        vram_free_mb_at_load: Optional[int] = None,
+        vram_held_by_others: str = "",
     ):
         try:
             from eli.core.paths import get_paths
@@ -819,6 +808,9 @@ class LocalModelManager:
                     'n_batch': effective_n_batch,
                 },
                 'loaded': bool(getattr(self, 'is_loaded', False)),
+                # what the card looked like at load: why a load came out smaller than asked
+                'vram_free_mb_at_load': vram_free_mb_at_load,
+                'vram_held_by_others': vram_held_by_others,
                 'pid': __import__('os').getpid(),
                 'ts': time.time(),
             }
@@ -913,6 +905,8 @@ class LocalModelManager:
             # The hardware profile is read separately and inserted as a fallback candidate
             # so it never overrides deliberate user choices.
             _user_ctx = int(n_ctx)
+            # 0 is auto: sized below for this model on this machine; no request of the operator's to honour
+            _ctx_is_auto = _user_ctx <= 0
             _user_gpu_layers = int(n_gpu_layers)
             _user_batch = int(n_batch)
             _hw_profile_ctx = None
@@ -925,7 +919,7 @@ class LocalModelManager:
                 _eli_profile_path = _EliHwPath(_eli_get_paths().artifacts_dir) / "runtime_hardware_profile.json"
                 if _eli_profile_path.exists():
                     _eli_profile = _eli_hw_json.loads(_eli_profile_path.read_text(encoding="utf-8"))
-                    _hw_profile_ctx = int(_eli_profile.get("n_ctx", _user_ctx))
+                    _hw_profile_ctx = int(_eli_profile.get("n_ctx") or _user_ctx)
                     _hw_profile_gpu_layers = int(_eli_profile.get("n_gpu_layers", _user_gpu_layers))
                     _hw_profile_batch = int(_eli_profile.get("batch_size", _user_batch))
                     log.debug(
@@ -1055,6 +1049,10 @@ class LocalModelManager:
             _sf_fit_layers = None
             _sf_fit_ctx = None
             _sf_fit_batch = None
+            _sf_user_ctx = 0
+            _sf_free_mb = None
+            _sf_total_mb = None
+            _load_vram_held = ""
 
             # ── Smart loader (fit-to-hardware fallback) ───────────────────
             # Anchor on the user's preferred ctx/batch, then fit into the VRAM
@@ -1081,29 +1079,37 @@ class LocalModelManager:
                 _sf_user_batch = max(_user_batch, _sf_min_batch)
                 if _sf_igpu:
                     _sf_user_batch = min(_sf_user_batch, 32)
+                _avail_gb = float(_sf_avail_ram())
+                # the fit assumes the KV cache type this load will use
+                _sf_kv_type = str(cache_type_k or "f16")
+                _sf_kvq = _sf_kv_type.lower() not in ("f16", "bf16", "f32")
                 if _user_ctx and 2048 <= int(_user_ctx) <= _sf_train:
                     _sf_user_ctx = int(_user_ctx)
                 else:
-                    _sf_brief_floor = int(_sf_os.environ.get("ELI_CTX_BRIEF_FLOOR", "12288") or "12288")
-                    _sf_gen_reserve = int(_sf_os.environ.get("ELI_CTX_GEN_RESERVE", "4096") or "4096")
-                    _eli_need = _sf_brief_floor + _sf_gen_reserve
-                    _sf_target = int(_sf_os.environ.get("ELI_CTX_TARGET", str(_eli_need)) or str(_eli_need))
-                    _sf_target = max(_sf_target, _eli_need)
-                    _sf_user_ctx = max(2048, (min(_sf_target, _sf_train) // 2048) * 2048)
-                    if _sf_train >= _eli_need:
-                        _sf_user_ctx = max(_sf_user_ctx, (_eli_need // 2048) * 2048)
-                if _sf_train < int(_sf_os.environ.get("ELI_CTX_BRIEF_FLOOR", "12288") or "12288"):
+                    # auto, or a request past the trained context: the target the tuner and the
+                    # headless loader use, from this model and this machine's memory now
+                    from eli.core.hardware_profile import auto_ctx_target as _sf_auto_ctx
+                    _sf_gpu_now = _sf_budget() if gpu_offload_supported is not False else None
+                    _sf_user_ctx = int(_sf_auto_ctx(
+                        str(path_obj), _sf_model_gb,
+                        free_vram_mb=int(getattr(_sf_gpu_now, "free_mb", 0) or 0),
+                        available_ram_gb=_avail_gb,
+                        use_gpu=bool(_sf_gpu_now and int(getattr(_sf_gpu_now, "free_mb", 0) or 0) > 0
+                                     and int(effective_n_gpu_layers) > 0),
+                        kv_quantized=_sf_kvq, kv_cache_type=_sf_kv_type))
+                    if _sf_train:
+                        _sf_user_ctx = min(_sf_user_ctx, _sf_train)
+                _eli_floor = _eli_prompt_floor_tokens()
+                if _sf_train and _eli_floor and _sf_train < _eli_floor:
                     log.warning(
-                        f"[GUI][LOAD] model trained context {_sf_train} < ELI's prompt budget "
-                        f"~{int(_sf_os.environ.get('ELI_CTX_BRIEF_FLOOR', '12288'))}: persona/memory "
-                        f"will be truncated. Choose a model with a larger trained context.")
-
-                _avail_gb = float(_sf_avail_ram())
+                        f"[GUI][LOAD] model trained context {_sf_train} is smaller than ELI's own "
+                        f"prompt (~{_eli_floor} tokens of persona and answer room): persona and "
+                        f"memory will be cut. A model trained on a longer context avoids it.")
                 if gpu_offload_supported is False:
                     # CPU-only: size from AVAILABLE RAM, not iGPU shared-memory VRAM.
                     # VRAM smart-fit on Iris Xe returned ctx=3996 from ~1.5GB budget while
                     # the model + KV actually live in system RAM, not iGPU VRAM budget.
-                    _ram_ceiling = int(_sf_ram_ceil(_sf_model_gb, _sf_train))
+                    _ram_ceiling = int(_sf_ram_ceil(_sf_model_gb, _sf_train, model_path=str(path_obj)))
                     _sf_user_ctx = min(int(_sf_user_ctx), _ram_ceiling) if _ram_ceiling > 0 else int(_sf_user_ctx)
                     from eli.core.hardware_profile import cpu_ram_budget_mb as _cpu_ram_budget
                     _ram_budget_mb = _cpu_ram_budget(_avail_gb)
@@ -1114,7 +1120,7 @@ class LocalModelManager:
                         user_ctx=_sf_user_ctx,
                         user_batch=_sf_user_batch,
                         reserve_mb=512,
-                        kv_quantized=bool(_avail_gb <= 16.0),
+                        kv_quantized=_sf_kvq, kv_cache_type=_sf_kv_type,
                         min_batch=_sf_min_batch,
                         model_path=str(path_obj),
                         force_cpu=True,
@@ -1124,7 +1130,7 @@ class LocalModelManager:
                     log.debug(
                         f"[GUI][LOAD] RAM smart-fit (available={_avail_gb:.1f}GB "
                         f"budget={_ram_budget_mb}MB ceiling={_ram_ceiling} "
-                        f"kvq={bool(_avail_gb <= 16.0)}): "
+                        f"kv={_sf_kv_type}): "
                         f"ctx={_sf_ctx} gpu_layers=0 batch={_sf_batch}")
                     _sf_fit_layers = 0
                     _sf_fit_ctx = int(_sf_ctx)
@@ -1138,12 +1144,11 @@ class LocalModelManager:
                     if _sf_gpu and _sf_gpu.free_mb > 0:
                         from eli.core.hardware_profile import vram_reserve_mb as _vrm
                         _sf_reserve = int(_vrm(gpu_integrated=_sf_igpu))
-                        _sf_kvq = bool(_sf_gpu.total_mb and _sf_gpu.total_mb < 12000)
                         _sf_ctx, _sf_layers, _sf_batch = _sf_fit(
                             _sf_model_gb, _sf_gpu.free_mb, _avail_gb,
                             user_ctx=_sf_user_ctx, user_batch=_sf_user_batch,
                             reserve_mb=_sf_reserve, kv_quantized=_sf_kvq,
-                            min_batch=_sf_min_batch,
+                            kv_cache_type=_sf_kv_type, min_batch=_sf_min_batch,
                             model_path=str(path_obj),
                             gpu_integrated=_sf_igpu,
                             user_gpu_layers=_user_gpu_layers,
@@ -1185,6 +1190,8 @@ class LocalModelManager:
                         _sf_fit_ctx = int(_sf_ctx)
                         _sf_fit_batch = int(_sf_batch)
                         self.fitted_gpu_layers = int(_sf_layers)
+                        _sf_free_mb = int(_sf_gpu.free_mb)
+                        _sf_total_mb = int(getattr(_sf_gpu, "total_mb", 0) or 0) or None
                         _add_attempt("smart-fit", _sf_ctx, _sf_layers, _sf_batch)
             except Exception as _sf_err:
                 log.debug(f"[GUI][LOAD] smart-fit attempt skipped: {_sf_err}")
@@ -1216,6 +1223,43 @@ class LocalModelManager:
                 _proof_bits.append(f"ctx {_base_ctx}>{_sf_fit_ctx}")
             if _sf_fit_batch is not None and int(_base_batch) > int(_sf_fit_batch):
                 _proof_bits.append(f"batch {_base_batch}>{_sf_fit_batch}")
+            # Weights alone that need more VRAM than is free cannot load: the probe would spend its
+            # whole budget on a certain failure (109 s live, with another program holding 5 GB).
+            # Nothing is recorded against the settings, so they are used again once the card is free.
+            _cannot_fit = ""
+            if gpu_offload_supported is not False and int(_base_layers) > 0 and _sf_free_mb is not None:
+                try:
+                    from eli.core.hardware_profile import (describe_gpu_layers as _dgl,
+                                                           gpu_weights_beyond_free as _beyond)
+                    _floor_layers = int(_base_layers)
+                    if _moe_gui:
+                        from eli.core import moe_offload as _moe_floor
+                        _floor_layers = _moe_floor.full_offload_layers(_floor_layers, str(path_obj))
+                    _need_mb = _beyond(str(path_obj), _floor_layers, _sf_free_mb, experts_in_ram=bool(_moe_gui))
+                    if _need_mb is not None:
+                        _cannot_fit = (f"{_dgl(_base_layers)} GPU layers need {_need_mb:.0f} MB of VRAM "
+                                       f"for their weights alone and {_sf_free_mb} MB is free")
+                except Exception:
+                    log.debug("[GUI][LOAD] weight floor unavailable", exc_info=True)
+            if _sf_free_mb is not None and (_cannot_fit or _proof_bits):
+                try:
+                    from eli.core.hardware_profile import describe_vram_holders, vram_holders
+                    _held = describe_vram_holders(vram_holders(), total_mb=_sf_total_mb)
+                except Exception:
+                    _held = ""
+                if _held:
+                    _load_vram_held = _held
+                    log.warning(f"[GUI][LOAD] other programs are using this card's memory: {_held}. "
+                                f"Close them or have them release the GPU, then reload the model.")
+            if _cannot_fit:
+                log.warning(f"[GUI][LOAD] your settings cannot load right now: {_cannot_fit}. "
+                            f"Loading the measured fit; your settings are kept and used again "
+                            f"once that memory is free.")
+                _proof_bits = []
+            if _ctx_is_auto:
+                # nothing was asked for: the measured fit leads, ELI's own target is never probed
+                _base_ctx = int(_sf_fit_ctx or 0) or int(_sf_user_ctx or 0) or 2048
+                _proof_bits = [b for b in _proof_bits if not b.startswith("ctx ")]
             _needs_proof = bool(_proof_bits)
             if _needs_proof:
                 log.debug(
@@ -1227,7 +1271,7 @@ class LocalModelManager:
             if gpu_offload_supported is False:
                 # Honour user settings as a fallback rung, not attempt 1 — RAM fit leads.
                 _add_attempt("requested", _base_ctx, 0, _base_batch, front=False)
-            else:
+            elif not _cannot_fit:
                 _add_attempt("requested", _base_ctx, _base_layers, _base_batch,
                              front=True, verify=_needs_proof)
 
@@ -1501,6 +1545,12 @@ class LocalModelManager:
                     _applied["moe_expert_offload"] = bool(_moe_gui)
                     _applied["moe_resident_gb"] = (_moe_gui or {}).get("resident_gb") if _moe_gui else None
                     _applied["moe_experts_gb"] = (_moe_gui or {}).get("experts_gb") if _moe_gui else None
+                    try:
+                        # llama.cpp's own KV size for this model replaces the estimate from its header
+                        from eli.core.gguf_sizes import record_load_report
+                        record_load_report(path_obj, _attempt_log)
+                    except Exception:
+                        log.debug("[GUI][LOAD] KV report not recorded", exc_info=True)
                     break
                 except Exception as _attempt_err:
                     self.model = None
@@ -1536,10 +1586,8 @@ class LocalModelManager:
                 f"batch={applied_n_batch})",
             )
 
-            setattr(self.model, "n_ctx", int(applied_n_ctx))
-            setattr(self.model, "n_threads", int(n_threads))
-            setattr(self.model, "n_gpu_layers", int(applied_n_gpu_layers))
-            setattr(self.model, "n_batch", int(applied_n_batch))
+            # the Llama object keeps its own: n_ctx is a method there, and overwriting it with a number
+            # made every llm.n_ctx() reader fall back to the requested ctx instead of the loaded one
             self.n_ctx = int(applied_n_ctx)
             self.n_threads = int(n_threads)
             self.n_gpu_layers = int(applied_n_gpu_layers)
@@ -1608,6 +1656,8 @@ class LocalModelManager:
                 requested_n_ctx=_user_ctx,
                 requested_n_batch=_user_batch,
                 gpu_offload_supported=gpu_offload_supported,
+                vram_free_mb_at_load=_sf_free_mb,
+                vram_held_by_others=_load_vram_held,
             )
             return True
         except Exception as e:
@@ -2400,6 +2450,35 @@ class _ZoomableImagePreview(QScrollArea):
 from eli.gui.panels.settings import AdvancedSettingsDialog  # noqa: E402
 # ENGINE ADAPTER — feeds the AgentOrchestrator without a second model load
 # ============================================================
+def _eli_prompt_floor_tokens() -> int:
+    """Tokens ELI's own prompt takes before any memory: the persona, plus room for the answer
+    (the max_tokens setting when it is set). Measured from the persona in use, not assumed."""
+    try:
+        from eli.kernel.engine import _load_persona_text
+        from eli.cognition.context_budget import chars_per_token
+        persona = int(len(_load_persona_text() or "") / max(0.5, float(chars_per_token())))
+    except Exception:
+        return 0
+    try:
+        from eli.core.runtime_settings import load_settings
+        answer = max(0, int((load_settings() or {}).get("max_tokens") or 0))
+    except Exception:
+        answer = 0
+    return persona + answer
+
+
+def _backend_context(backend) -> int:
+    """The context the active backend runs at: its own figure, else what loaded."""
+    try:
+        n = int(getattr(backend, "n_ctx", 0) or 0)
+        if n > 0:
+            return n
+        from eli.cognition.gguf_inference import context_window
+        return int(context_window() or 0)
+    except Exception:
+        return 0
+
+
 class _GUIEngineAdapter:
     """
     Thin adapter that satisfies the AgentOrchestrator's engine interface
@@ -2542,11 +2621,17 @@ class _GUIEngineAdapter:
 
         import time as _t
 
-        # Token budget: leave enough room for response + safety margin
-        _char_budget = max(3000, self._n_ctx * 3 - self._max_tokens * 5)
+        # The window less the reply's room, in measured characters per token
+        try:
+            from eli.cognition.context_budget import chars_per_token, output_reserve_tokens
+            _cpt = max(0.5, float(chars_per_token()))
+            _reply = output_reserve_tokens(int(self._max_tokens or 0), int(self._n_ctx or 0))
+        except Exception:
+            _cpt, _reply = 4.0, max(0, int(self._max_tokens or 0))
+        _char_budget = max(0, int((int(self._n_ctx or 0) - _reply) * _cpt))
 
-        # 1. Persona — compact for small models, full for 7B+
-        _use_compact = self._n_ctx <= 8192
+        # 1. Persona — compact when the full one would not leave room in this window
+        _use_compact = len(ELI_SYSTEM_PROMPT or "") > _char_budget // 2
         persona = self._compact_persona() if _use_compact else (ELI_SYSTEM_PROMPT or "")
 
         # 2. User profile
@@ -5832,7 +5917,7 @@ class EliMainWindow(QMainWindow):
                         memory=self._central_memory,
                         max_tokens=-1,
                         temperature=self.temperature_input.value(),
-                        n_ctx=getattr(backend, "n_ctx", 4096),
+                        n_ctx=_backend_context(backend),
                         inference_lock=self.__class__._inference_lock,
                         cognitive_engine=None,
                     )
@@ -8091,10 +8176,14 @@ class EliMainWindow(QMainWindow):
         form = self._section_card(vbox, "INFERENCE ENGINE")
 
         self.n_ctx_input = QSpinBox()
-        self.n_ctx_input.setRange(512, 32768)
-        self.n_ctx_input.setValue(16384)
-        self.n_ctx_input.setSingleStep(512)
-        self.n_ctx_input.setToolTip("Token context window — larger = more memory")
+        # 0 is auto; the upper end is llama.cpp's own limit, the model's trained length caps it at load
+        self.n_ctx_input.setRange(0, 2_147_483_647)
+        self.n_ctx_input.setSpecialValueText("auto")
+        self.n_ctx_input.setValue(0)
+        self.n_ctx_input.setSingleStep(2048)
+        self.n_ctx_input.setToolTip(
+            "Token context window. auto sizes it for the model and this machine's free memory; "
+            "a number is kept for the model it was set for.")
         form.addRow(self._field_label("Context size"), self.n_ctx_input)
 
         self.n_threads_input = QSpinBox()
@@ -8109,7 +8198,7 @@ class EliMainWindow(QMainWindow):
         form.addRow(self._field_label("GPU-layer parameter"), self.n_gpu_layers_input)
 
         self.batch_size_input = QSpinBox()
-        self.batch_size_input.setRange(1, 2048)
+        self.batch_size_input.setRange(1, 2_147_483_647)   # llama.cpp limits it to the context
         self.batch_size_input.setValue(512)
         self.batch_size_input.setSingleStep(64)
         self.batch_size_input.setToolTip("Prompt processing batch size — larger is faster but uses more VRAM")
@@ -8671,7 +8760,7 @@ class EliMainWindow(QMainWindow):
         form = self._section_card(vbox, "SAMPLING")
 
         self.max_tokens_input = QSpinBox()
-        self.max_tokens_input.setRange(128, 4096)
+        self.max_tokens_input.setRange(128, 2_147_483_647)  # a ceiling: each reply is sized to the window
         self.max_tokens_input.setValue(4096)
         self.max_tokens_input.setSingleStep(128)
         form.addRow(self._field_label("Max tokens"), self.max_tokens_input)
@@ -10533,12 +10622,13 @@ class EliMainWindow(QMainWindow):
         self.n_ctx_input.setValue(optimal['n_ctx'])
         self.n_gpu_layers_input.setValue(optimal['n_gpu_layers'])
         self.n_threads_input.setValue(optimal['n_threads'])
-        self.batch_size_input.setValue(optimal.get('batch_size', 128))
+        self.batch_size_input.setValue(optimal['batch_size'])
         self.temperature_input.setValue(optimal['temperature'])
-        self.max_tokens_input.setValue(optimal['max_tokens'])
+        if optimal.get('max_tokens'):
+            self.max_tokens_input.setValue(optimal['max_tokens'])
         self.status_signal.emit(
-            f"Auto-detected: ctx={optimal['n_ctx']}  gpu={optimal['n_gpu_layers']}  "
-            f"threads={optimal['n_threads']}  batch={optimal.get('batch_size', 128)}"
+            f"Auto-detected: ctx={optimal['n_ctx'] or 'auto'}  gpu={optimal['n_gpu_layers']}  "
+            f"threads={optimal['n_threads']}  batch={optimal['batch_size']}"
         )
         try:
             self.save_settings(silent=True)
@@ -10595,7 +10685,7 @@ class EliMainWindow(QMainWindow):
             size_bytes = int(model_file.stat().st_size)
             hw = _hp_detect()
             # The user's EXPLICITLY chosen ctx must anchor the recommendation, not be
-            # overwritten by the DEFAULT_N_CTX target. Source of truth (highest first):
+            # overwritten by the auto target. Source of truth (highest first):
             # the startup dialog's "Direct context window" field (ELI_FORCE_CTX), else
             # the live ctx spinbox (persisted from settings.json n_ctx). recommend()
             # honours it and only trims it on a real VRAM constraint (logged).
@@ -10605,9 +10695,20 @@ class EliMainWindow(QMainWindow):
                 _spin_ctx = int(self.n_ctx_input.value())
             except Exception:
                 _spin_ctx = 0
+            # The box counts as the operator's only when it was changed this session or was saved
+            # for this model (startup dialog rule): a number left over from another model, or the
+            # tuner's own figure from an older build, is not a choice.
+            try:
+                from eli.core.runtime_settings import load_settings as _rs_saved_ctx
+                _saved = _rs_saved_ctx() or {}
+            except Exception:
+                _saved = {}
+            _ctx_is_theirs = (
+                _spin_ctx != int(_saved.get("n_ctx") or 0)
+                or Path(str(_saved.get("n_ctx_model") or "")).name == Path(str(model_path)).name)
             if _forced_ctx.isdigit() and int(_forced_ctx) >= 2048:
                 _user_pinned_ctx = int(_forced_ctx)
-            elif _spin_ctx >= 2048:
+            elif _spin_ctx >= 2048 and _ctx_is_theirs:
                 _user_pinned_ctx = _spin_ctx
             else:
                 _user_pinned_ctx = None
@@ -10778,7 +10879,7 @@ class EliMainWindow(QMainWindow):
             _canonical_batch = (max(int(_user_pinned_batch), _min_batch)
                                 if _user_pinned_batch else _apply_batch)
             try:
-                self.n_ctx_input.setValue(_canonical_ctx)
+                self.n_ctx_input.setValue(int(_user_pinned_ctx or 0))
                 self.n_gpu_layers_input.setValue(_canonical_layers)
                 self.batch_size_input.setValue(_canonical_batch)
                 if int(rec.n_threads) > 0:
@@ -10792,7 +10893,8 @@ class EliMainWindow(QMainWindow):
             try:
                 from eli.core.runtime_settings import load_settings as _rs_load, save_settings as _rs_save
                 _s = dict(_rs_load() or {})
-                _s["n_ctx"] = _canonical_ctx        # user's chosen ctx, preserved
+                # the operator's own ctx, or auto; the tuner's figure goes in hw_profile_n_ctx only
+                _s["n_ctx"] = int(_user_pinned_ctx or 0)
                 _s["n_gpu_layers"] = _canonical_layers
                 # Only a value the operator pinned counts as theirs; the tuner's own number must not
                 # come back next launch as a pin.
@@ -11312,7 +11414,7 @@ class EliMainWindow(QMainWindow):
                 max_tokens  = self.max_tokens_input.value()
                 temperature = self.temperature_input.value()
                 reasoning_mode = getattr(self, '_reasoning_mode', 'quick')
-                n_ctx = getattr(backend, 'n_ctx', 4096)
+                n_ctx = _backend_context(backend)
 
                 # ── CognitiveEngine-first runtime path ──
                 adapter = _GUIEngineAdapter(
@@ -12465,7 +12567,8 @@ class EliMainWindow(QMainWindow):
 
         # Numeric / generation params
         try:
-            self.n_ctx_input.setValue(int(s.get("n_ctx", 16384)))
+            # 0 is auto; whether a saved number is still yours is decided per model when tuning
+            self.n_ctx_input.setValue(int(s.get("n_ctx") or 0))
             self.n_threads_input.setValue(int(s.get("n_threads", 8)))
             self.n_gpu_layers_input.setValue(int(s.get("n_gpu_layers", 99)))
             self.max_tokens_input.setValue(int(s.get("max_tokens", 4096)))
@@ -12686,6 +12789,8 @@ class EliMainWindow(QMainWindow):
                 self.ollama_host_input.text().strip()),
             "ollama_model": self.ollama_model_combo.currentText().strip(),
             "n_ctx": int(self.n_ctx_input.value()),
+            "n_ctx_model": (Path(str(self.resolve_selected_model_path() or "")).name
+                            if int(self.n_ctx_input.value()) > 0 else ""),
             "n_threads": int(self.n_threads_input.value()),
             "n_gpu_layers": int(self.n_gpu_layers_input.value()),
             "n_gpu_layers_source": (

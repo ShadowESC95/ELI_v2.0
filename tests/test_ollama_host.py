@@ -98,6 +98,9 @@ def test_gui_query_normalises_the_same_way(monkeypatch):
         raise OSError("no server")
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
+    # the query first auto-starts an installed Ollama; that is not under test, and must not
+    # launch a real `ollama serve` on the machine running the tests
+    monkeypatch.setattr("eli.integrations.ollama.client.ensure_server_running", lambda *a, **k: None)
     names, err = startup._query_ollama_tags("localhost:11434", timeout=1)
     assert names is None and err is not None
     assert seen and seen[0] == "http://localhost:11434/api/tags"

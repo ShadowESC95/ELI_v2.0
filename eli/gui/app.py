@@ -14,7 +14,6 @@ from eli.core.runtime_settings import _settings_file, load_settings, save_settin
 # carry its own copy of the constants and the formula, kept "in sync by hand" with a
 # comment — the arrangement that let a third copy in startup_hardware_optimizer.py
 # drift to a different constant without anything failing.
-from eli.core.hardware_profile import _CUDA_OVERHEAD_MB, _kv_cache_mb
 
 
 from eli.utils.log import get_logger
@@ -160,61 +159,35 @@ def _auto_tune(model_path: Path, hw: dict) -> dict:
         }
     except Exception:
         log.debug("suppressed exception", exc_info=True)
-    # Legacy fallback (used only if canonical helper unavailable):
+    # recommend() failed: the same measured pieces, without the joint planner.
     from eli.core.mem_units import bytes_to_gib
-    size_bytes     = model_path.stat().st_size
-    size_gb        = bytes_to_gib(size_bytes)
-    free_vram_mb   = hw["vram_mb"]          # free VRAM at startup
-    cpu_cores      = hw["cpu_cores"]
-    avail_ram_gb   = hw.get("available_ram_gb", hw.get("total_ram_gb", 8.0))
-
-    # Context window: scale with available RAM (not total)
-    if avail_ram_gb >= 32:   n_ctx = 8192
-    elif avail_ram_gb >= 16: n_ctx = 4096
-    else:                    n_ctx = 2048
-
-    # Total transformer layers heuristic
-    if size_gb < 1.5:   total_layers = 22
-    elif size_gb < 3.0: total_layers = 28
-    elif size_gb < 6.0: total_layers = 32
-    elif size_gb < 12:  total_layers = 40
-    else:               total_layers = 48
-
-    # GPU layers: compute from free VRAM minus KV-cache and CUDA overhead
-    if free_vram_mb > 0:
-        kv_mb = _kv_cache_mb(n_ctx, total_layers, quant=False)
-        available_for_model = free_vram_mb - kv_mb - _CUDA_OVERHEAD_MB
-        mb_per_layer = (size_gb * 1024) / (total_layers + 2)
-        if available_for_model > 0 and mb_per_layer > 0:
-            n_gpu_layers = int(available_for_model / mb_per_layer)
-            if n_gpu_layers >= total_layers:
-                n_gpu_layers = 9999   # all layers fit — let llama.cpp handle it
-        else:
-            n_gpu_layers = 0
-    else:
-        n_gpu_layers = 0
-
-    # CPU threads: leave 1 core free when CPU-bound, else 2 for OS/GUI
+    size_gb        = bytes_to_gib(model_path.stat().st_size)
+    free_vram_mb   = int(hw.get("vram_mb", 0) or 0)
+    cpu_cores      = int(hw.get("cpu_cores", 1) or 1)
+    avail_ram_gb   = float(hw.get("available_ram_gb", hw.get("total_ram_gb", 0.0)) or 0.0)
+    try:
+        from eli.core.hardware_profile import _gpu_layers_for_model, auto_ctx_target
+        n_ctx = auto_ctx_target(str(model_path), size_gb, free_vram_mb=free_vram_mb,
+                                available_ram_gb=avail_ram_gb, use_gpu=free_vram_mb > 0)
+        n_gpu_layers = _gpu_layers_for_model(size_gb, free_vram_mb, n_ctx, model_path=str(model_path))
+    except Exception:
+        log.debug("measured fallback unavailable; loading on the CPU at the smallest window",
+                  exc_info=True)
+        n_ctx, n_gpu_layers = 2048, 0
     try:
         from eli.core.hardware_profile import recommend_cpu_threads as _rct
         n_threads = _rct(cpu_cores, cpu_bound=(n_gpu_layers <= 0))
     except Exception:
         n_threads = max(1, cpu_cores - (1 if n_gpu_layers <= 0 else 2))
-
-    # Batch size: scales with GPU offload
-    if n_gpu_layers >= total_layers: n_batch = 512
-    elif n_gpu_layers >= 16:         n_batch = 256
-    else:                            n_batch = 128
-
     return {
         "n_ctx":        n_ctx,
         "n_gpu_layers": n_gpu_layers,
         "n_threads":    n_threads,
-        "batch_size":   n_batch,
+        "batch_size":   int(os.environ.get("ELI_MIN_BATCH", "128") or "128"),
         "max_tokens":   -1,      # unlimited — use full remaining context
         "temperature":  0.7,
         "use_mmap":     True,
-        "use_mlock":    avail_ram_gb >= 16 and _mlock_viable(),
+        "use_mlock":    _mlock_viable(),
     }
 
 
@@ -511,7 +484,6 @@ def main():
         if os.environ.get("ELI_FORCE_CPU", "").strip().lower() in {"1", "true", "yes", "on"}:
             print("ℹ️  ELI_FORCE_CPU=1 — skipping all GPU attempts.")
             _llama_kwargs["n_gpu_layers"] = 0
-            _llama_kwargs["n_ctx"] = max(int(_llama_kwargs.get("n_ctx", 0) or 0), 4096)
             os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
             os.environ.setdefault("HIP_VISIBLE_DEVICES", "")   # AMD/ROCm equivalent of CUDA_VISIBLE_DEVICES
             os.environ.setdefault("ROCR_VISIBLE_DEVICES", "")  # ROCm runtime device mask
@@ -538,38 +510,32 @@ def main():
 
                 print(f"🧠  GPU detected: {_gpu_name} total={_total_mb}MiB free={_free_mb}MiB")
 
-                # If VRAM is critically low, check for an orphaned previous
-                # elix run holding the GPU. nvidia-smi pmon shows compute
-                # processes; surface them so the user knows what to kill.
-                if _free_mb is not None and _free_mb < 1500:
-                    try:
-                        _pmon = _eli_subprocess.check_output(
-                            ["nvidia-smi",
-                             "--query-compute-apps=pid,process_name,used_memory",
-                             "--format=csv,noheader,nounits"],
-                            text=True,
-                            stderr=_eli_subprocess.DEVNULL,
-                            timeout=3,
-                        ).strip().splitlines()
-                        if _pmon:
-                            print("🛑 GPU compute processes currently holding VRAM:")
-                            for _line in _pmon:
-                                print(f"     {_line}")
-                            print("   Kill the relevant PID(s) with `kill <PID>` to free GPU memory.")
-                    except Exception:
-                        log.debug("suppressed exception", exc_info=True)
+                # Other programs holding the card, named (llama-server under ollama.service,
+                # a previous ELI run...): listed whenever the card is not free, not below a size.
+                try:
+                    from eli.core.hardware_profile import describe_vram_holders, vram_holders
+                    _held = describe_vram_holders(vram_holders(), total_mb=_total_mb)
+                    if _held:
+                        print(f"🛑 Other programs are using this card's memory: {_held}. "
+                              f"Close them or have them release the GPU to give ELI more of it.")
+                except Exception:
+                    log.debug("VRAM holders unavailable", exc_info=True)
 
-                # Critical-VRAM CPU fallback: only when the GPU literally
-                # cannot host the model file at all. Threshold is now
-                # MODEL-RELATIVE, not a static 1500 MiB number, because the
-                # file size is what dictates "can the model even load".
-                _model_size_mb = int(model_path.stat().st_size / (1024 * 1024))
-                _critical_vram_mb = max(900, int(_model_size_mb * 0.30))
-                if _free_mb is not None and _free_mb < _critical_vram_mb:
+                # CPU fallback only when not one layer of THIS model fits the free VRAM (from its
+                # own tensor sizes; it was 30% of the file size with a 900 MiB floor).
+                try:
+                    from eli.core.hardware_profile import _gpu_layers_for_model
+                    from eli.core.mem_units import file_size_gib as _fsg_app
+                    _fits_any = _gpu_layers_for_model(
+                        _fsg_app(model_path), int(_free_mb), int(_llama_kwargs.get("n_ctx") or 0),
+                        kv_quantized=bool(_llama_kwargs.get("cache_type_k")),
+                        model_path=str(model_path)) > 0
+                except Exception:
+                    _fits_any = True
+                if _free_mb is not None and not _fits_any:
                     print(
-                        f"⚠️  GPU free={_free_mb}MiB is below the model's "
-                        f"minimum useful threshold ({_critical_vram_mb}MiB for "
-                        f"{model_path.name}). Falling back to CPU."
+                        f"⚠️  GPU free={_free_mb}MiB holds no layer of {model_path.name} at this "
+                        f"context. Falling back to CPU."
                     )
                     _llama_kwargs["n_gpu_layers"] = 0
                     import os as _os_cuda
@@ -592,7 +558,7 @@ def main():
 
         _base = dict(_llama_kwargs)
         _base_gpu = int(_base.get("n_gpu_layers", 0) or 0)
-        _base_ctx = int(_base.get("n_ctx", 4096) or 4096)
+        _base_ctx = int(_base.get("n_ctx") or 2048)
         _base_batch = int(_base.get("n_batch", 128) or 128)
 
         # Each fallback halves the GPU offload and shrinks the context,

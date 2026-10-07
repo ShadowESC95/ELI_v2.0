@@ -22,6 +22,7 @@ from __future__ import annotations
 import ast
 import json
 import os
+import sys
 import re
 import subprocess
 import time
@@ -46,9 +47,22 @@ log = get_logger(__name__)
 MAX_SWEEP_FILES = int(os.environ.get("ELI_EXAMINE_MAX_FILES", "25"))
 TIER3_MAX_FILES = int(os.environ.get("ELI_EXAMINE_TIER3_MAX_FILES", "8"))
 # Max line-windows to deep-review per file (a big god-file is split into windows so the
-# deep tier covers more than its first ~MAX_FILE_CHARS). Bounds the LLM cost per file.
+# deep tier covers more than its first window). Bounds the LLM cost per file.
 TIER3_MAX_CHUNKS = int(os.environ.get("ELI_EXAMINE_TIER3_MAX_CHUNKS", "3"))
-MAX_FILE_CHARS = 12000
+
+
+def _max_file_chars() -> int:
+    """Characters of code per deep-review call: half the loaded window (the rest holds the
+    instructions, the file's imports and the reply). It was a fixed 12000."""
+    try:
+        from eli.cognition.context_budget import chars_per_token
+        from eli.runtime.runtime_policy import context_size
+        window = int(context_size() or 0)
+        if window > 0:
+            return max(1, int(window * float(chars_per_token()) / 2))
+    except Exception:
+        log.debug("loaded window unavailable for code windows", exc_info=True)
+    return sys.maxsize                # no window known: nothing to fit it to
 
 TIER_CONF = {1: 0.95, 2: 0.70, 3: 0.40}
 
@@ -343,16 +357,17 @@ _TIER3_SYS = (
 
 
 def _tier3_windows(numbered: List[str]):
-    """Yield (lo, hi, body) windows of WHOLE numbered lines, each <= MAX_FILE_CHARS.
+    """Yield (lo, hi, body) windows of WHOLE numbered lines, each <= _max_file_chars().
     lo/hi are 1-based real line numbers (inclusive) — so a big file is reviewed across
-    several windows instead of only its first ~MAX_FILE_CHARS (which left the deep tier
+    several windows instead of only its first window (which left the deep tier
     blind to ~90% of the god-files). Never cuts a line mid-way (which would corrupt the
     line→number mapping)."""
     cur: List[str] = []
     total = 0
     lo = 1
+    limit = _max_file_chars()
     for idx, nl in enumerate(numbered, start=1):
-        if cur and total + len(nl) + 1 > MAX_FILE_CHARS:
+        if cur and total + len(nl) + 1 > limit:
             yield (lo, idx - 1, "\n".join(cur))
             cur, total, lo = [], 0, idx
         cur.append(nl)
@@ -603,9 +618,9 @@ def _build_fix_context(src: str, line) -> str:
             body = "\n".join(lines[lo:hi])
             note = f"lines {lo + 1}-{hi}; issue near line {line}"
     else:
-        body = src[:MAX_FILE_CHARS]
+        body = src
         note = "file head"
-    body = body[:MAX_FILE_CHARS]
+    body = body[:_max_file_chars()]
     imports = _file_import_block(src)
     head = (f"# file imports (use ONLY these existing names):\n{imports}\n\n" if imports else "")
     return f"{head}# code ({note}):\n{body}"

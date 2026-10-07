@@ -144,10 +144,18 @@ def _world_status() -> Dict[str, Any]:
         return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
+def _context_window() -> int:
+    try:
+        from eli.cognition.gguf_inference import context_window
+        return int(context_window() or 0)
+    except Exception:
+        return 0
+
+
 def _runtime_snapshot_from_frontier(report: Dict[str, Any]) -> Dict[str, Any]:
     rt = report.get("runtime") or {}
     return {
-        "n_ctx": rt.get("n_ctx") or 16384,
+        "n_ctx": rt.get("n_ctx") or _context_window(),
         "n_batch": rt.get("n_batch") or 256,
         "n_gpu_layers": rt.get("n_gpu_layers") or 0,
         "n_threads": rt.get("n_threads") or 8,

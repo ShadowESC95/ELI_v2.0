@@ -55,8 +55,8 @@ def test_the_snapshot_is_read_from_where_it_is_written():
     """The loader writes runtime_snapshot.json to the artifacts dir; the budget
     guard must read it from the same place, not from the installation."""
     import inspect
-    from eli.kernel.engine import CognitiveEngine
-    src = inspect.getsource(CognitiveEngine._effective_n_ctx)
+    from eli.cognition.gguf_inference import context_window
+    src = inspect.getsource(context_window)
     # Strip comments first. Five times this session a test matched the very
     # comment describing the bug and passed against code that still had it.
     code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))

@@ -62,15 +62,19 @@ def test_result_is_grain_aligned_and_never_below_the_floor(monkeypatch):
         assert v >= 2048 and v % 2048 == 0
 
 
-def test_constant_is_only_the_last_resort(monkeypatch):
+def test_nothing_measurable_gives_the_smallest_window_not_a_chosen_size(monkeypatch):
     monkeypatch.setattr(sho, "_gguf_metadata_ctx", lambda p: 0)
 
     def _unmeasurable(*a, **k):
         raise RuntimeError("no memory reading")
     monkeypatch.setattr(hp, "cpu_ram_budget_mb", _unmeasurable)
     v = hp.auto_ctx_target(None, 0.0, free_vram_mb=0, available_ram_gb=0.0, use_gpu=False)
-    from eli.core.runtime_settings import DEFAULT_N_CTX
-    assert v == DEFAULT_N_CTX
+    assert v == 2048
+
+
+def test_the_setting_defaults_to_auto():
+    from eli.core.runtime_settings import DEFAULTS
+    assert DEFAULTS["n_ctx"] == 0
 
 
 def test_an_operator_chosen_ctx_is_never_replaced(monkeypatch):

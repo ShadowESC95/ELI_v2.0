@@ -66,9 +66,9 @@ def _settings_file() -> Path:
 
 SETTINGS_FILE = _settings_file()
 
-# Single source of truth for the n_ctx default.
-# config.py and engine.py reference this so changing it here is sufficient.
-DEFAULT_N_CTX: int = 12288
+# n_ctx 0 is "auto": sized for the model in use on this machine when it is read
+# (config.get_gguf_n_ctx). A fixed number here was every new user's "setting".
+AUTO_N_CTX: int = 0
 
 # Canonical keys. Legacy duplicates (`gpu_layers`, `cpu_threads`) are migrated
 # into these on first load and then removed from the file.
@@ -100,7 +100,7 @@ DEFAULTS: Dict[str, Any] = {
     "image_auto_open": True,
     "image_use_chat_context": True,
     "image_use_proactive_context": True,
-    "n_ctx": DEFAULT_N_CTX,
+    "n_ctx": AUTO_N_CTX,
     "max_tokens": 4096,
     "temperature": 0.7,
     "top_p": 0.95,
@@ -795,20 +795,26 @@ def _resolve_gpu_split(s):
 def apply_env(settings=None):
     s = dict(load_settings() if settings is None else settings)
 
-    n_ctx = int(s.get("n_ctx", DEFAULTS["n_ctx"]) or DEFAULTS["n_ctx"])
+    n_ctx = int(s.get("n_ctx") or 0)
     n_batch = int(s.get("batch_size", DEFAULTS["batch_size"]) or DEFAULTS["batch_size"])
     n_threads = int(s.get("n_threads", DEFAULTS["n_threads"]) or DEFAULTS["n_threads"])
     n_gpu_layers = int(s.get("n_gpu_layers", DEFAULTS["n_gpu_layers"]) or DEFAULTS["n_gpu_layers"])
     max_tokens = int(s.get("max_tokens", DEFAULTS["max_tokens"]) or DEFAULTS["max_tokens"])
 
-    os.environ["ELI_GGUF_N_CTX"] = str(n_ctx)
+    if n_ctx > 0:
+        os.environ["ELI_GGUF_N_CTX"] = str(n_ctx)
+    else:                                    # auto: nothing pinned
+        os.environ.pop("ELI_GGUF_N_CTX", None)
     os.environ["ELI_GGUF_N_BATCH"] = str(n_batch)
     os.environ["ELI_GGUF_THREADS"] = str(n_threads)
     os.environ["ELI_GGUF_N_GPU_LAYERS"] = str(n_gpu_layers)
     os.environ["ELI_MAX_TOKENS"] = str(max_tokens)
 
     # legacy mirrors for older callers still reading the non-GGUF names
-    os.environ["ELI_N_CTX"] = str(n_ctx)
+    if n_ctx > 0:
+        os.environ["ELI_N_CTX"] = str(n_ctx)
+    else:
+        os.environ.pop("ELI_N_CTX", None)
     os.environ["ELI_BATCH_SIZE"] = str(n_batch)
     os.environ["ELI_N_THREADS"] = str(n_threads)
     os.environ["ELI_N_GPU_LAYERS"] = str(n_gpu_layers)

@@ -23,7 +23,6 @@ from eli.core.runtime_settings import (
     load_settings as _rs_load,
     save_settings as _rs_save,
     _settings_file as _rs_file,
-    DEFAULT_N_CTX as _DEFAULT_N_CTX,
 )
 from eli.core.paths import (
     gguf_models_dir,
@@ -198,16 +197,22 @@ def set_gguf_n_ctx(ctx: int):
 
 
 def get_gguf_n_ctx() -> int:
-    env = os.getenv("ELI_GGUF_N_CTX") or os.getenv("ELI_N_CTX")
-    if env:
+    """The operator's context (env, then settings); 0 / unset is auto, sized for the configured
+    model on this machine. 0 only when there is no model to size for."""
+    for raw in (os.getenv("ELI_GGUF_N_CTX"), os.getenv("ELI_N_CTX"), get("n_ctx", 0)):
         try:
-            return int(env)
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
+            value = int(raw or 0)
+        except (TypeError, ValueError):
+            log.debug("ignoring a non-numeric n_ctx: %r", raw)
+            continue
+        if value > 0:
+            return value
     try:
-        return int(get("n_ctx", _DEFAULT_N_CTX))
+        from eli.core.hardware_profile import auto_ctx_for
+        return int(auto_ctx_for(get_gguf_model_path()) or 0)
     except Exception:
-        return _DEFAULT_N_CTX
+        log.debug("auto context unavailable", exc_info=True)
+        return 0
 
 
 def set_gguf_n_batch(batch: int):

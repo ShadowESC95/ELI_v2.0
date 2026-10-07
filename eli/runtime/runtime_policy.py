@@ -2,8 +2,13 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from pathlib import Path
 from typing import Any
+
+from eli.utils.log import get_logger
+
+log = get_logger(__name__)
 
 
 def _root() -> Path:
@@ -34,19 +39,46 @@ def _snapshot() -> dict[str, Any]:
     return {}
 
 
-def context_size(default: int = 8192) -> int:
-    snap = _snapshot()
-    for key in ("n_ctx", "effective_context_size", "context_size"):
+def context_size(default: int = 0) -> int:
+    """The context window in use: ELI_CONTEXT_SIZE when set, else what loaded, else the setting
+    or auto for this model (gguf_inference.context_window). `default` only when none is known."""
+    try:
+        forced = int(os.environ.get("ELI_CONTEXT_SIZE") or 0)
+        if forced > 0:
+            return forced
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    # Only when already imported: importing it loads llama.cpp, which must not happen before the
+    # GPU pack is in place, and budgets here are read at import time.
+    _gi = sys.modules.get("eli.cognition.gguf_inference")
+    if _gi is not None:
         try:
-            value = int(snap.get(key) or 0)
+            value = int(_gi.context_window() or 0)
             if value > 0:
                 return value
         except Exception:
-            pass
+            log.debug("suppressed exception", exc_info=True)
+    snap = _snapshot()
+    for key in ("n_ctx", "effective_context_size", "context_size"):
+        try:
+            value = int((snap.get("effective") or {}).get(key) or snap.get(key) or 0)
+            if value > 0:
+                return value
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
     try:
-        return int(os.environ.get("ELI_CONTEXT_SIZE", str(default)) or default)
+        from eli.core.runtime_settings import load_settings
+        value = int((load_settings() or {}).get("n_ctx") or 0)
+        if value > 0:
+            return value
     except Exception:
-        return int(default)
+        log.debug("suppressed exception", exc_info=True)
+    return int(default)
+
+
+# Budget defaults below are written as characters per this many tokens of context, and scale
+# with the window in use in both directions.
+_BUDGET_REFERENCE_CTX = 8192
 
 
 def budget(name: str, default: int, *, floor: int | None = None, ceiling: int | None = None) -> int:
@@ -56,7 +88,9 @@ def budget(name: str, default: int, *, floor: int | None = None, ceiling: int | 
             value = int(os.environ[env_name])
         else:
             ctx = context_size()
-            scale = max(1.0, min(4.0, ctx / 8192.0))
+            # proportional: a smaller window gets less (a floor of 1x overflowed small models),
+            # a large one more (a cap of 4x left a 128k window sized like 32k)
+            scale = (ctx / float(_BUDGET_REFERENCE_CTX)) if ctx > 0 else 1.0
             value = int(round(float(default) * scale))
     except Exception:
         value = int(default)
@@ -73,11 +107,12 @@ def timeout(name: str, default: float) -> float:
         if os.environ.get(env_name):
             return max(0.1, float(os.environ[env_name]))
         ctx = context_size()
-        if ctx >= 32768:
-            return float(default) * 1.5
-        if ctx >= 16384:
-            return float(default) * 1.25
-        return float(default)
+        # a quarter more time per doubling of the window past the reference, continuous (it was
+        # steps at 16k and 32k and flat beyond)
+        if ctx <= _BUDGET_REFERENCE_CTX:
+            return float(default)
+        import math
+        return float(default) * (1.0 + 0.25 * math.log2(ctx / float(_BUDGET_REFERENCE_CTX)))
     except Exception:
         return float(default)
 

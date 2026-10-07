@@ -4619,7 +4619,7 @@ class CognitiveEngine:
         # and other callers never hit AttributeError regardless of whether
         # _init_gguf() is invoked.  _init_gguf() overwrites these when it runs.
         self._model_path = "unknown"
-        self._ctx = runtime_settings.DEFAULT_N_CTX
+        self._ctx = 0           # unknown until a model loads; read through _runtime_n_ctx()
         self._gpu_layers = 0
 
         if bool(auto_init_gguf):
@@ -5113,10 +5113,7 @@ class CognitiveEngine:
         except Exception:
             settings = {}
 
-        try:
-            n_ctx = int(settings.get("n_ctx", getattr(self, "_ctx", runtime_settings.DEFAULT_N_CTX)) or getattr(self, "_ctx", runtime_settings.DEFAULT_N_CTX))
-        except Exception:
-            n_ctx = int(getattr(self, "_ctx", runtime_settings.DEFAULT_N_CTX))
+        n_ctx = self._runtime_n_ctx()
 
         try:
             requested = int(settings.get("max_tokens", config.get_num_predict()))
@@ -5189,61 +5186,37 @@ class CognitiveEngine:
         return max(self._PERSONA_MIN_CHARS, min(_cap, share))
 
     def _effective_n_ctx(self) -> int:
-        """Best-known context window (tokens). Live runtime params → snapshot →
-        conservative default. Used to budget the persona against evidence."""
-        try:
-            import eli.cognition.gguf_inference as _g
-            _lrp = getattr(_g, "_live_runtime_params", None) or {}
-            _c = int(_lrp.get("n_ctx", 0) or 0)
-            if _c > 0:
-                return _c
-        except Exception:
-            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
-        try:
-            import json as _j
-            # Read the snapshot from the artifacts dir, where the loader writes it. In a frozen build the
-            # rthook pins ELI_PROJECT_ROOT and ELI_DATA_DIR to the same user root so it's equivalent; it only
-            # differs for a bare pip install, where project_root() is the package and nothing is written.
-            from eli.core.paths import artifacts_dir as _r
-            _p = _r() / "runtime_snapshot.json"
-            if _p.exists():
-                _s = _j.loads(_p.read_text(encoding="utf-8"))
-                _c = int((_s.get("effective") or {}).get("n_ctx") or _s.get("n_ctx") or 0)
-                if _c > 0:
-                    return _c
-        except Exception:
-            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
-        # Conservative last-resort only (no runtime ctx published yet) — never a
-        # tuned ceiling; the real ctx comes from the live runtime snapshot above.
-        return 4096
+        return self._runtime_n_ctx()
 
     def _runtime_n_ctx(self) -> int:
-        """Authoritative live context window for prompt-fit / budget guards.
-
-        Single source of truth so the guards track whatever the dynamic loader
-        actually selected — NEVER a hard-coded default. Order:
-          1. gguf_inference.current_context_limit() — the loaded model's usable
-             ceiling, min(loaded n_ctx, trained window); 0 when no model is loaded
-             or when the model loaded via the broker (no module-level _llm).
-          2. _effective_n_ctx() — live runtime params → runtime_snapshot.json →
-             conservative pre-load last resort.
-        """
+        """The context window every guard and budget here sizes against: what loaded, else what the
+        loader published, else the operator's setting, else auto for this model on this machine
+        (gguf_inference.context_window). 0 when there is no model to size for, never a constant."""
         try:
-            if gguf_inference is not None and hasattr(gguf_inference, "current_context_limit"):
-                _c = int(gguf_inference.current_context_limit() or 0)
-                if _c > 0:
-                    return _c
+            if gguf_inference is not None:
+                return max(0, int(gguf_inference.context_window()))
         except Exception:
-            logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
-        return int(self._effective_n_ctx())
+            logging.getLogger(__name__).debug("context window unreadable", exc_info=True)
+        return 0
+
+    def _window_chars(self) -> int:
+        """The loaded window in characters (measured characters per token), 0 when unknown."""
+        try:
+            from eli.cognition.context_budget import chars_per_token
+            return int(self._runtime_n_ctx() * float(chars_per_token()))
+        except Exception:
+            return 0
 
     def _compact_persona(self) -> str:
         persona = _load_persona_text().strip()
         # Carry the full persona voice into compact/quick mode. The old 3800-char cap dropped the
-        # personality-ownership / EliWorld / banned-disclaimer sections and flattened the voice. 12000
-        # is only a safety valve: at ~11k nothing is trimmed and the prompt still fits.
-        if len(persona) > 12000:
-            persona = persona[:12000].rstrip() + "\n[persona trimmed]"
+        # personality-ownership / EliWorld / banned-disclaimer sections and flattened the voice.
+        # Trimmed only past its share of the window that loaded (a fixed 12000 characters was a
+        # third of an 8k window and a sliver of a 128k one).
+        window = self._window_chars()
+        limit = max(self._PERSONA_MIN_CHARS, int(window * self._PERSONA_SHARE_OF_CTX)) if window else 0
+        if limit and len(persona) > limit:
+            persona = persona[:limit].rstrip() + "\n[persona trimmed]"
         return persona
 
     def _quick_smalltalk_response(self, user_input: str) -> Optional[str]:
@@ -5285,19 +5258,21 @@ class CognitiveEngine:
         words = len((user_input or "").split())
         ctx_len = len(memory_context or "")
 
-        # Also force compact when n_ctx is small enough that the full persona + memory will
-        # overflow. On n_ctx=8192 every non-Quick call truncated the system prompt to 15-18 KB, and
-        # truncation cuts the front of the persona, where the anti-template rules live.
+        # Force compact when the full persona, the memory and room for the reply do not fit the
+        # window that loaded: truncation cuts the front of the persona, where the anti-template
+        # rules live. Measured, not a window size (8192/12288 were fixed thresholds).
         try:
-            ctx_window = int(getattr(self, "_ctx", 0) or 0)
+            from eli.cognition.context_budget import chars_per_token, output_reserve_tokens
+            ctx_window = int(self._runtime_n_ctx())
+            if ctx_window > 0:
+                cpt = max(0.5, float(chars_per_token()))
+                needed = ((len(_load_persona_text() or "") + ctx_len) / cpt
+                          + output_reserve_tokens(int(self._generation_settings().get("max_tokens") or 0),
+                                                  ctx_window))
+                if needed > ctx_window:
+                    return True
         except Exception:
-            ctx_window = 0
-        if 0 < ctx_window <= 8192:
-            return True
-        # Rough cap: when n_ctx <= 12 KB and we already have any meaningful
-        # context, use compact persona so the live evidence has room.
-        if 0 < ctx_window <= 12288 and ctx_len > 800:
-            return True
+            log.debug("compact-system fit check unavailable", exc_info=True)
 
         if mode in {"tree_of_thoughts", "constitutional_ai",
             "self_consistency", "chain_of_thought"}:
@@ -5476,7 +5451,7 @@ class CognitiveEngine:
         self._gguf_load_error = None
         # Initialize runtime facts to defaults
         self._model_path = "unknown"
-        self._ctx = runtime_settings.DEFAULT_N_CTX
+        self._ctx = 0
         self._gpu_layers = 0
         try:
             if gguf_inference is None:
@@ -5494,19 +5469,7 @@ class CognitiveEngine:
                 self._gguf_load_error = None
                 # Store runtime facts
                 self._model_path = str(model_path)
-                # Try to get context size from loaded model or settings
-                try:
-                    # Some gguf_inference modules expose get_n_ctx or
-                    # get_context_size
-                    if hasattr(gguf_inference, 'get_n_ctx'):
-                        self._ctx = int(gguf_inference.get_n_ctx())
-                    elif hasattr(gguf_inference, 'get_context_size'):
-                        self._ctx = int(gguf_inference.get_context_size())
-                    else:
-                        settings = runtime_settings.load_settings()
-                        self._ctx = int((settings or {}).get("n_ctx", runtime_settings.DEFAULT_N_CTX))
-                except Exception:
-                    self._ctx = runtime_settings.DEFAULT_N_CTX
+                self._ctx = self._runtime_n_ctx()
                 # GPU layers from settings
                 try:
                     settings = runtime_settings.load_settings()
@@ -5905,14 +5868,14 @@ class CognitiveEngine:
         return kept + f"\n[…{label} truncated to {budget_chars} chars to fit context window]"
 
     def _build_evidence_prompt(self, user_input: str, bus_result) -> str:
-        # Per-block byte budgets (Phase 6). Total evidence ceiling ≈ 14 KB; with
-        # persona (~2 KB) and instructions (~0.5 KB) the assembled prompt stays
-        # comfortably under 16 KB on a 16384-ctx model.
-        BUDGET_MEMORY = ELI_BUDGET_MEMORY_CHARS
-        BUDGET_SNIPPETS = 2048
-        BUDGET_REFLECTIONS = 1024
-        BUDGET_HABITS = 512
-        BUDGET_EXECUTOR = 4096
+        # Per-block character budgets, in characters per token of the window that loaded, so a
+        # 4k model is not overfilled and a 128k one is not starved (they were fixed sizes).
+        _win = self._runtime_n_ctx()
+        BUDGET_MEMORY = max(1, int(_win * ELI_BUDGET_MEMORY_CHARS_PER_TOKEN))
+        BUDGET_SNIPPETS = max(1, int(_win * 0.125))
+        BUDGET_REFLECTIONS = max(1, int(_win * 0.0625))
+        BUDGET_HABITS = max(1, int(_win * 0.03125))
+        BUDGET_EXECUTOR = max(1, int(_win * 0.25))
 
         parts = []
         try:
@@ -6821,20 +6784,21 @@ Answer:"""
         # Trim the persona (keep its head: VOICE + HARD CONSTRAINTS) to the room left. Quick/chat turns
         # keep the full persona.
         try:
+            from eli.cognition.context_budget import chars_per_token, output_reserve_tokens
             _nctx = self._effective_n_ctx()
-            # Reserve for the model's reply matching the grounded/broker contract
-            # (observed up to ~6.5k tokens) so a large output never forces the
-            # prompt to be truncated. 3.0 chars/token (conservative).
-            _target_chars = max(6000, int((_nctx - 6600) * 3.0))
-            # Non-persona content already in the system prompt: evidence
-            # (memory_context), brief, user input, reasoning instruction, plus the
-            # base_rules + user-profile block + scaffolding (~12k observed).
+            # The window less the reply's room (the reserve the generator holds back), in measured
+            # characters per token.
+            _reply = output_reserve_tokens(int(self._generation_settings().get("max_tokens") or 0), _nctx)
+            _target_chars = int(max(0, _nctx - _reply) * float(chars_per_token()))
+            # Everything else in the system prompt: evidence, brief, the user's words, the mode
+            # instruction, and the rules/profile/scaffolding as measured on the last prompt built.
             _other_chars = (
                 len(memory_context or "") + len(situation_brief or "")
-                + len(user_input or "") + len(reasoning_instruction or "") + 12000
+                + len(user_input or "") + len(reasoning_instruction or "")
+                + int(getattr(self, "_last_scaffold_chars", 0) or 0)
             )
-            _persona_budget = max(2000, _target_chars - _other_chars)
-            if len(persona) > _persona_budget:
+            _persona_budget = max(self._PERSONA_MIN_CHARS, _target_chars - _other_chars)
+            if _nctx > 0 and len(persona) > _persona_budget:
                 persona = persona[:_persona_budget].rstrip() + "\n[persona trimmed to fit evidence]"
         except Exception:
             log.debug("suppressed exception", exc_info=True)
@@ -7098,6 +7062,8 @@ Answer:"""
             )
             # Inject runtime facts
             enhanced_system = inject_runtime_facts(enhanced_system)
+            self._note_scaffold(enhanced_system, persona, memory_context, situation_brief,
+                                user_input, reasoning_instruction)
             return enhanced_system
 
         # Non-compact branch
@@ -7208,7 +7174,17 @@ Answer:"""
         )
         # Inject runtime facts
         enhanced_system = inject_runtime_facts(enhanced_system)
+        self._note_scaffold(enhanced_system, persona, memory_context, situation_brief,
+                            user_input, reasoning_instruction)
         return enhanced_system
+
+    def _note_scaffold(self, system: str, *parts) -> None:
+        """Keep how much of the prompt was rules, profile and scaffolding, so the next turn sizes
+        the persona against a measured figure (it was a fixed 12000 characters)."""
+        try:
+            self._last_scaffold_chars = max(0, len(system or "") - sum(len(str(x or "")) for x in parts))
+        except Exception:
+            log.debug("scaffold size not recorded", exc_info=True)
 
     def _note_memory_trim(self, before: int, after: int) -> None:
         diag = getattr(self, "_memory_diag", None)
@@ -16746,7 +16722,7 @@ Answer:"""
         return {
             "provider": "gguf",
             "model_loaded": hasattr(self, "_gguf_model") and self._gguf_model is not None,
-            "context_size": getattr(self, "_n_ctx", 16384),
+            "context_size": self._runtime_n_ctx(),
             "agents": ["file_code", "reflection", "habit", "memory", "system"],
         }
 
@@ -17252,8 +17228,8 @@ def set_engine(engine: "CognitiveEngine") -> None:
 
 
 
-# Character budget for the memory block in the assembled prompt.
-ELI_BUDGET_MEMORY_CHARS = 4096
+# Memory block of the evidence prompt: characters per token of the loaded window.
+ELI_BUDGET_MEMORY_CHARS_PER_TOKEN = 0.25
 
 
 def get_engine() -> CognitiveEngine:

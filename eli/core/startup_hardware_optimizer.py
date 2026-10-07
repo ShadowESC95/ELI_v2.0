@@ -117,10 +117,11 @@ def detect_available_ram_gb() -> float:
     return round(detect_ram_gb() * 0.5, 2)
 
 
-def cpu_ctx_ceiling_from_ram(model_gb: float, train_ctx: int = 0) -> int:
-    """Largest ctx this machine's available RAM can hold for a model this size."""
+def cpu_ctx_ceiling_from_ram(model_gb: float, train_ctx: int = 0, model_path: Optional[str] = None) -> int:
+    """Largest ctx this machine's available RAM can hold for this model."""
     from eli.core.dynamic_runtime_budget import _ctx_ceiling_for_ram
-    return int(_ctx_ceiling_for_ram(detect_available_ram_gb(), float(model_gb), int(train_ctx or 0)))
+    return int(_ctx_ceiling_for_ram(detect_available_ram_gb(), float(model_gb), int(train_ctx or 0),
+                                    model_path=model_path))
 
 
 def detect_cpu_name() -> str:
@@ -431,7 +432,7 @@ def layer_mb(model_gb: float, layers: int) -> float:
     return 999999.0 if layers <= 0 else (model_gb * 1024.0) / max(1, layers + 2)
 
 
-def kv_cache_mb(n_ctx: int, layers: int, quant: bool = True) -> float:
+def kv_cache_mb(n_ctx: int, layers: int, quant: bool = True, model_path: Optional[str] = None) -> float:
     """KV-cache cost, delegated to the one measurement the loader uses.
 
     This was a local ``n_ctx * layers * 1024 / 1MiB`` "q4 approximation" while
@@ -441,8 +442,9 @@ def kv_cache_mb(n_ctx: int, layers: int, quant: bool = True) -> float:
     loader reported different ctx/GPU-layer answers for one machine at one moment,
     which is the "three different numbers" the operator kept seeing.
     """
-    from eli.core.hardware_profile import _kv_cache_mb
-    return _kv_cache_mb(int(n_ctx), int(layers), quant=bool(quant))
+    from eli.core.hardware_profile import _kv_cache_mb, model_cost
+    return _kv_cache_mb(int(n_ctx), int(layers), quant=bool(quant),
+                        cost=model_cost(model_path, kv_quantized=bool(quant)))
 
 
 def round_ctx(raw: int) -> int:
@@ -457,21 +459,18 @@ def round_ctx(raw: int) -> int:
     return max(2048, (raw // 2048) * 2048)
 
 
-def ram_ctx_cap(ram_gb: float, model_gb: float) -> int:
-    """Conservative RAM ctx cap for models with CPU-resident KV layers.
-
-    Derived from available headroom: each GB of net RAM (total minus model
-    footprint and a fixed 2 GB OS/runtime reserve) supports ~1024 ctx tokens.
-    Clamped to [2048, 131072] and rounded to the nearest 2048-grain.
-    """
-    _os_reserve_gb = 2.0
-    net_gb = max(0.0, ram_gb - model_gb - _os_reserve_gb)
-    return round_ctx(max(2048, min(131072, int(net_gb * 1024))))
+def ram_ctx_cap(ram_gb: float, model_gb: float, model_path: Optional[str] = None) -> int:
+    """RAM ctx cap for models with CPU-resident KV layers: the context whose KV cache, at this
+    model's own size per token, fits the RAM left after the weights. It was 1024 tokens per GB
+    for every model, capped at 131072."""
+    from eli.core.dynamic_runtime_budget import _ctx_ceiling_for_ram
+    return round_ctx(int(_ctx_ceiling_for_ram(float(ram_gb), float(model_gb), 0, model_path=model_path)))
 
 
 def max_tokens_from_ctx(n_ctx: int) -> int:
-    """Max generation tokens as half the context window, capped at [1024, 8192]."""
-    return max(1024, min(8192, n_ctx // 2))
+    """Max generation tokens: half the context window. A ceiling only: each generation sizes its
+    own budget from the prompt (it was clamped to 1024..8192 whatever the window)."""
+    return max(1, int(n_ctx) // 2)
 
 
 def resize_budgets_to_effective_ctx(effective_ctx: int) -> Dict[str, Any]:
@@ -653,17 +652,21 @@ def allocate(
                 effective_use_gpu_layers,
             )
             from eli.core.hardware_profile import auto_ctx_target as _auto_ctx
+            from eli.core.hardware_profile import kv_cache_quantized as _kvq_rule
             _hw = detect_hardware()
             if not effective_use_gpu_layers(_hw):
+                _kvq_cpu = _kvq_rule(profile_model, model_gb, free_vram_mb=0,
+                                     available_ram_gb=_hw.available_ram_gb, use_gpu=False,
+                                     target_ctx=int(forced_ctx or user_ctx or 0) or None)
                 _target = int(forced_ctx or user_ctx or _auto_ctx(
                     profile_model, model_gb, free_vram_mb=0,
                     available_ram_gb=_hw.available_ram_gb, use_gpu=False,
-                    kv_quantized=(ram_gb <= 16)))
+                    kv_quantized=_kvq_cpu))
                 _batch_in = int(forced_batch or user_batch or 128)
                 _cpu_ctx, _cpu_batch = cpu_ram_fit_config(
                     model_gb, _hw.available_ram_gb,
                     user_ctx=_target, user_batch=_batch_in,
-                    model_path=profile_model, kv_quantized=(ram_gb <= 16),
+                    model_path=profile_model, kv_quantized=_kvq_cpu,
                     min_batch=32 if getattr(_hw, "gpu_integrated", False) else 128,
                 )
                 notes.append(
@@ -674,7 +677,7 @@ def allocate(
         except Exception:
             log.debug("cpu_ram_fit_config unavailable in allocate", exc_info=True)
         _raw = int(train_ctx * ctx_fraction)
-        _cpu_ctx = int(forced_ctx or user_ctx or round_ctx(min(_raw, ram_ctx_cap(ram_gb, model_gb))))
+        _cpu_ctx = int(forced_ctx or user_ctx or round_ctx(min(_raw, ram_ctx_cap(ram_gb, model_gb, profile_model))))
         _cpu_batch = int(forced_batch or user_batch or 128)
         notes.append(f"CPU/no measurable GPU: gpu_layers=0. ctx={_cpu_ctx} batch={_cpu_batch}.")
         return _cpu_ctx, 0, _cpu_batch, max_tokens_from_ctx(_cpu_ctx), ctx_fraction, notes
@@ -726,7 +729,7 @@ def allocate(
 
     # ---- Determine ctx ----
     model_vram_mb = model_gb * 1024.0          # VRAM needed for full offload
-    kv_per_token  = layers_total * 1024 / 1048576.0  # MB per ctx token (q4_0 KV)
+    kv_per_token  = kv_cache_mb(1, layers_total, model_path=profile_model)  # MB per ctx token (q4_0 KV)
 
     # Auto target: trained context x fraction; an operator-chosen value is handled below.
     _default_target = round_ctx(int(train_ctx * ctx_fraction))
@@ -748,16 +751,16 @@ def allocate(
         # Partial offload: KV for CPU-resident layers lives in RAM. Keep the default target when the
         # model plus its real KV cache fit available RAM (q4 KV for 16384 is ~1GB; the old "1GB = 1024
         # tokens" rule overestimated ~16x). Use the conservative cap only when RAM is really tight.
-        _kv_default_mb = kv_cache_mb(_default_target, layers_total)
+        _kv_default_mb = kv_cache_mb(_default_target, layers_total, model_path=profile_model)
         _ram_avail_mb = ram_gb * 1024.0
         if (model_gb * 1024.0) + _kv_default_mb + 2048 <= _ram_avail_mb:
             n_ctx = _default_target
             ctx_source = f"auto {int(_DEFAULT_CTX)} (model+KV fit RAM)"
         else:
-            n_ctx = round_ctx(min(_default_target, ram_ctx_cap(ram_gb, model_gb)))
+            n_ctx = round_ctx(min(_default_target, ram_ctx_cap(ram_gb, model_gb, profile_model)))
             ctx_source = f"auto {int(_DEFAULT_CTX)} (RAM-capped)"
 
-    kv = kv_cache_mb(n_ctx, layers_total)
+    kv = kv_cache_mb(n_ctx, layers_total, model_path=profile_model)
 
     # ---- Determine gpu_layers ----
     if forced_layers:

@@ -67,6 +67,8 @@ def test_recommend_threads_and_kv_on_iris_class(monkeypatch):
         "eli.core.hardware_profile._llama_gpu_offload_available",
         lambda: False,
     )
+    # a model trained on 32k: 4.7 GB available cannot hold that at fp16, so the cache is quantized
+    monkeypatch.setattr("eli.core.startup_hardware_optimizer._gguf_metadata_ctx", lambda p: 32768)
     rec = recommend(_igpu_hw(ram_gb=8.0, avail_gb=4.7), _models())
     assert rec.n_threads == 7  # 8 cores, CPU-bound → leave 1
     assert rec.cache_type_k == "q4_0"

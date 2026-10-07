@@ -78,13 +78,14 @@ def test_recommend_matches_the_load_for_a_large_model_on_a_small_card():
     rec = recommend(hw, models)
     total = _layers_for_size(20.61)
     from eli.core.hardware_profile import auto_ctx_target
+    kvq = bool(rec.cache_type_k)            # the KV type recommend() chose for this model
     _target_ctx = auto_ctx_target(
         "/fake/big.gguf", 20.61, free_vram_mb=hw.free_vram_mb,
-        available_ram_gb=hw.available_ram_gb, use_gpu=True, kv_quantized=True)
+        available_ram_gb=hw.available_ram_gb, use_gpu=True, kv_quantized=kvq)
     _ctx, _layers, _ = unified_fit_config(
         20.61, 6635, hw.available_ram_gb,
         user_ctx=int(_target_ctx), user_batch=128,
-        reserve_mb=vram_reserve_mb(), kv_quantized=True,
+        reserve_mb=vram_reserve_mb(), kv_quantized=kvq,
         total_layers=total, min_batch=128,
         gpu_integrated=False,
     )

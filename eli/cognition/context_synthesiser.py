@@ -65,7 +65,24 @@ MAX_MEMORY_ITEMS   = _budget("context_memory_items", 6, 4, 18)
 
 
 def _handoff_budgets(reasoning_mode: str | None = None) -> dict[str, int]:
-    """Mode-scaled limits for persona handoff evidence sections.
+    """The mode's evidence limits; the character limits follow the window that loaded."""
+    budgets = _handoff_budgets_for_mode(reasoning_mode)
+    try:
+        from eli.runtime.runtime_policy import _BUDGET_REFERENCE_CTX, context_size
+        window = int(context_size() or 0)
+    except Exception:
+        window = 0
+    if window > 0:
+        scale = window / float(_BUDGET_REFERENCE_CTX)
+        for key in list(budgets):
+            if key.endswith("_chars") and int(budgets[key]) > 0:
+                budgets[key] = max(1, int(budgets[key] * scale))
+    return budgets
+
+
+def _handoff_budgets_for_mode(reasoning_mode: str | None = None) -> dict[str, int]:
+    """Mode-scaled limits for persona handoff evidence sections, in characters per
+    runtime_policy's reference window.
 
     Quick mode keeps tight caps for latency. Normal/Research/Expert modes must
     carry the FULL agent evidence package into synthesis — not bullet snippets.
@@ -338,7 +355,9 @@ def runtime_load_gap(snap: Dict[str, Any] | None = None) -> Dict[str, Any]:
             e = int(eff.get(key) or 0)
         except Exception:
             continue
-        if r > 0 and e > 0 and e < r:
+        # 0 GPU layers is a load that fell to the CPU, the largest reduction there is; for ctx and
+        # batch a 0 means the figure is missing
+        if r > 0 and e < r and (e > 0 or (key == "n_gpu_layers" and eff.get(key) is not None)):
             reduced[key] = {"requested": r, "effective": e}
         # A mixture-of-experts model raises n_gpu_layers ABOVE what was requested (llama.cpp's
         # "put everything on the GPU" convention, with the experts kept in RAM) — "loaded exactly

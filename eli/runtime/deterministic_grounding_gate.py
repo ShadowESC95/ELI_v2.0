@@ -3063,6 +3063,14 @@ def _eli_v14_get_runtime_value(data: dict, *keys, default="unknown"):
     return cur
 
 
+def _eli_v14_context_window():
+    try:
+        from eli.cognition.gguf_inference import context_window
+        return context_window() or "auto"
+    except Exception:
+        return "auto"
+
+
 def _eli_v14_runtime_data() -> dict:
     root = _eli_v14_project_root()
     snap = _eli_v14_runtime_snapshot()
@@ -3071,7 +3079,7 @@ def _eli_v14_runtime_data() -> dict:
     configured = {
         "provider": settings.get("provider") or settings.get("llm_provider") or "custom_gguf",
         "model_path": settings.get("model_path") or settings.get("gguf_model_path") or settings.get("ollama_model") or snap.get("model_path") or "unconfigured",
-        "n_ctx": settings.get("n_ctx") or settings.get("ctx") or settings.get("context_size") or 16384,
+        "n_ctx": settings.get("n_ctx") or settings.get("ctx") or settings.get("context_size") or _eli_v14_context_window(),
         "n_gpu_layers": settings.get("n_gpu_layers") or settings.get("gpu_layers") or "unknown",
         "n_threads": settings.get("n_threads") or settings.get("threads") or 4,
         "batch_size": settings.get("batch_size") or settings.get("n_batch") or 512,

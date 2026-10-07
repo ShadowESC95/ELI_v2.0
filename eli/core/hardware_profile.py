@@ -46,7 +46,7 @@ log = get_logger(__name__)
 from typing import Any, Dict, List, Optional
 
 
-# KV-cache overhead constants (matched against eli/gui/app.py — keep in sync)
+# KV-cache overhead constants, used only when a model file cannot be read
 _KV_BYTES_PER_TOKEN_PER_LAYER = 6_000
 _CUDA_OVERHEAD_MB = 350
 
@@ -94,9 +94,59 @@ def vram_reserve_mb(*, gpu_integrated: Optional[bool] = None) -> int:
     return value
 
 
-def _kv_cache_mb(n_ctx: int, n_layers: int = 32, quant: bool = False) -> float:
+def _kv_cache_mb(n_ctx: int, n_layers: int = 32, quant: bool = False, *,
+                 cost: Optional["ModelCost"] = None) -> float:
+    if cost is not None:
+        return cost.kv_mb(n_ctx)
+    # no readable model file: a size per layer, the last resort
     raw = n_ctx * n_layers * _KV_BYTES_PER_TOKEN_PER_LAYER / 1_048_576
     return raw / 4 if quant else raw
+
+
+@dataclass(frozen=True)
+class ModelCost:
+    """A model's own memory costs, read by eli.core.gguf_sizes. With one, the fit functions use
+    the file's tensor sizes and KV layout instead of dividing the file size by its layer count."""
+    weights: Any
+    kv_bytes_per_token: float
+    experts_in_ram: bool
+
+    def gpu_weights_mb(self, layers: int) -> float:
+        return self.weights.gpu_bytes(int(layers), experts_in_ram=self.experts_in_ram) / 1_048_576
+
+    def kv_mb(self, ctx: int, gpu_layers: Optional[int] = None) -> float:
+        """KV for ctx tokens; with gpu_layers, the share that lives on the GPU (llama.cpp keeps
+        each layer's cache on that layer's device)."""
+        total = max(0, int(ctx)) * self.kv_bytes_per_token / 1_048_576
+        if gpu_layers is None:
+            return total
+        return total * min(1.0, max(0, int(gpu_layers)) / max(1, self.weights.blocks))
+
+    def cpu_weights_mb(self, gpu_layers: int) -> float:
+        w = self.weights
+        held = w.resident_total + (0 if self.experts_in_ram else w.experts_total) + w.input_bytes
+        return max(0, held - w.gpu_bytes(int(gpu_layers), experts_in_ram=self.experts_in_ram)) / 1_048_576
+
+
+def model_cost(model_path: Optional[str], *, experts_in_ram: bool = False,
+               kv_quantized: bool = False, kv_cache_type: Optional[str] = None) -> Optional[ModelCost]:
+    """The model's real costs, or None when its file cannot be read (then the estimates apply).
+    kv_cache_type is the cache type the load will use; kv_quantized alone means q4_0."""
+    if not model_path:
+        return None
+    try:
+        from eli.core import gguf_sizes
+        w = gguf_sizes.weights(model_path)
+        if w is None:
+            return None
+        ctype = kv_cache_type or ("q4_0" if kv_quantized else "f16")
+        kv = gguf_sizes.kv_bytes_per_token(model_path, ctype)
+        if kv is None:
+            return None
+        return ModelCost(w, float(kv), bool(experts_in_ram))
+    except Exception:
+        log.debug("model cost unreadable for %s", model_path, exc_info=True)
+        return None
 
 
 def _compute_graph_reserve_mb(n_ctx: int, batch: int = 256) -> float:
@@ -190,7 +240,7 @@ class ModelRecommendation:
     model_name: str = ""
     model_size_gb: float = 0.0
     n_gpu_layers: int = 0
-    n_ctx: int = 4096
+    n_ctx: int = 0              # set by recommend(); 0 until then
     n_threads: int = 1
     batch_size: int = 256
     max_tokens: int = -1
@@ -1022,6 +1072,80 @@ def detect_hardware(*, force: bool = False) -> HardwareProfile:
     return hw
 
 
+def _service_of(pid: int) -> str:
+    """The system service a Linux process runs under ("ollama.service"), else "". Only system
+    services: a desktop app sits under the login session, which is nothing to stop."""
+    try:
+        for line in Path(f"/proc/{int(pid)}/cgroup").read_text(encoding="utf-8").splitlines():
+            parts = line.split(":", 2)[-1].strip("/").split("/")
+            if len(parts) >= 2 and parts[0] == "system.slice" and parts[1].endswith(".service"):
+                return parts[1]
+    except Exception:
+        log.debug("service of pid %s unreadable", pid, exc_info=True)
+    return ""
+
+
+def vram_holders(*, exclude_pid: Optional[int] = None) -> List[Dict[str, Any]]:
+    """Processes holding GPU memory, largest first: {pid, name, mb, service}.
+
+    NVIDIA on any OS through nvidia-smi's compute list; AMD on Linux through the kernel's
+    per-process ROCm counters (/sys/class/kfd/kfd/proc/<pid>/vram_*). Not covered: Intel and
+    Apple GPUs and AMD on Windows. mb is None where the driver does not say (Windows display
+    driver mode). This process is left out.
+    """
+    own = os.getpid() if exclude_pid is None else int(exclude_pid)
+    found: Dict[int, Dict[str, Any]] = {}
+    smi = nvidia_smi_path()
+    if smi:
+        try:
+            proc = subprocess.run(
+                [smi, "--query-compute-apps=pid,process_name,used_memory", "--format=csv,noheader,nounits"],
+                timeout=6, capture_output=True, text=True, check=False, env=_external_tool_env())
+            for line in (proc.stdout or "").splitlines() if proc.returncode == 0 else []:
+                parts = [x.strip() for x in line.split(",")]
+                if len(parts) < 3 or not parts[0].isdigit():
+                    continue
+                cmd = ",".join(parts[1:-1]).strip()
+                try:
+                    mb: Optional[float] = float(parts[-1])
+                except ValueError:
+                    mb = None
+                pid = int(parts[0])
+                entry = found.setdefault(pid, {"pid": pid, "name": Path(cmd.split(" ")[0]).name or cmd, "mb": None})
+                if mb is not None:
+                    entry["mb"] = (entry["mb"] or 0.0) + mb
+        except Exception:
+            log.debug("nvidia-smi process list unavailable", exc_info=True)
+    kfd = Path("/sys/class/kfd/kfd/proc")
+    if kfd.is_dir():
+        for pdir in kfd.iterdir():
+            try:
+                pid = int(pdir.name)
+                used = sum(int(f.read_text().strip() or 0) for f in pdir.glob("vram_*"))
+                name = Path(f"/proc/{pid}/comm").read_text(encoding="utf-8").strip()
+            except Exception:
+                continue
+            if used > 0:
+                found.setdefault(pid, {"pid": pid, "name": name, "mb": used / 1_048_576})
+    holders = [h for pid, h in found.items() if pid != own]
+    for h in holders:
+        h["service"] = _service_of(h["pid"])
+    return sorted(holders, key=lambda h: -(h["mb"] or 0.0))
+
+
+def describe_vram_holders(holders: List[Dict[str, Any]], *, total_mb: Optional[int] = None) -> str:
+    """'llama-server (ollama.service, pid 1172557) 5146 MB, ...' — holders of at least a
+    hundredth of the card when its size is known, so a file manager's few MB is not listed."""
+    shown = []
+    for h in holders:
+        mb = h.get("mb")
+        if total_mb and mb is not None and mb < total_mb / 100:
+            continue
+        where = ", ".join(x for x in (h.get("service") or "", f"pid {h['pid']}") if x)
+        shown.append(f"{h['name']} ({where})" + (f" {mb:.0f} MB" if mb is not None else ""))
+    return ", ".join(shown)
+
+
 def get_live_gpu_telemetry() -> Dict[str, Any]:
     """THE single place every caller asks "what is my GPU doing right now" —
     name, VRAM, and (vendor permitting) live utilization/temperature/power.
@@ -1602,6 +1726,15 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
     """
     if free_vram_mb <= 0:
         return 0
+    cost = model_cost(model_path, kv_quantized=kv_quantized)
+    if cost is not None:
+        blocks = cost.weights.blocks
+        fixed = _CUDA_OVERHEAD_MB + _compute_graph_reserve_mb(n_ctx)
+        n = 0
+        while n <= blocks and (cost.gpu_weights_mb(n + 1) + cost.kv_mb(n_ctx, gpu_layers=min(n + 1, blocks))
+                               + fixed) <= free_vram_mb:
+            n += 1
+        return 99 if n > blocks else n
     total_layers = layers_for_model(model_path, size_gb)
     kv_mb = _kv_cache_mb(n_ctx, total_layers, quant=kv_quantized)
     # Reserve the decode-time compute/graph buffer too, not just model+KV+overhead.
@@ -1648,12 +1781,17 @@ def _fit_needed_mb(
     batch: int,
     *,
     kv_quantized: bool,
+    cost: Optional["ModelCost"] = None,
 ) -> float:
     """VRAM bytes for GPU-resident weights + KV + compute graph."""
+    compute = _compute_graph_reserve_mb(ctx, batch)
+    if cost is not None:
+        real = _fit_layers_real(layers, total_layers)
+        return (cost.gpu_weights_mb(int(layers)) + cost.kv_mb(ctx, gpu_layers=real)
+                + compute + _CUDA_OVERHEAD_MB)
     mb_per_layer = (model_size_gb * 1024.0) / max(1, total_layers + 2)
     gpu_model = mb_per_layer * layers
     kv = _kv_cache_mb(ctx, total_layers, quant=kv_quantized)
-    compute = _compute_graph_reserve_mb(ctx, batch)
     return gpu_model + kv + compute + _CUDA_OVERHEAD_MB
 
 
@@ -1671,8 +1809,14 @@ def _estimate_cpu_spill_mb(
     batch: int,
     *,
     kv_quantized: bool = False,
+    cost: Optional["ModelCost"] = None,
 ) -> float:
     """System RAM for CPU-resident weights and KV when running CPU-only."""
+    if cost is not None:
+        spill = cost.cpu_weights_mb(gpu_layers_real) + cost.kv_mb(ctx) - cost.kv_mb(ctx, gpu_layers=gpu_layers_real)
+        if gpu_layers_real <= 0:
+            spill += _compute_graph_reserve_mb(ctx, batch) * 0.25
+        return spill + 256.0
     mb_per_layer = (model_size_gb * 1024.0) / max(1, total_layers + 2)
     cpu_layers = max(0, int(total_layers) - int(gpu_layers_real))
     spill = mb_per_layer * cpu_layers
@@ -1696,6 +1840,7 @@ def _smart_fit_balanced(
     min_batch: int,
     min_gpu_fraction: float,
     user_gpu_layers: Optional[int] = None,
+    cost: Optional["ModelCost"] = None,
 ) -> tuple[int, int, int]:
     """Balanced: shed GPU layers → batch → ctx (context preserved as long as possible)."""
     ctx = max(min_ctx, int(user_ctx))
@@ -1712,27 +1857,27 @@ def _smart_fit_balanced(
     step = max(1, total // 10)
 
     while layers > floor and _fit_needed_mb(
-            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized, cost=cost) > budget:
         layers = max(floor, layers - step)
     while batch > min_batch and _fit_needed_mb(
-            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized, cost=cost) > budget:
         batch = max(min_batch, batch // 2)
     while layers > 0 and _fit_needed_mb(
-            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized, cost=cost) > budget:
         layers = max(0, layers - step)
     while ctx > min_ctx and _fit_needed_mb(
-            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized, cost=cost) > budget:
         ctx = max(min_ctx, ctx - ctx_grain)
 
     while layers < ceiling and _fit_needed_mb(
-            model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized) <= budget:
+            model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized, cost=cost) <= budget:
         layers += 1
 
     if layers <= 0 and budget > 0 and ctx < _target_ctx:
         probe_layers = 0
         while probe_layers < ceiling and _fit_needed_mb(
                 model_size_gb, total, min_ctx, probe_layers + 1, min_batch,
-                kv_quantized=kv_quantized) <= budget:
+                kv_quantized=kv_quantized, cost=cost) <= budget:
             probe_layers += 1
         if probe_layers > 0:
             ctx, batch, layers = min_ctx, min_batch, probe_layers
@@ -1753,6 +1898,7 @@ def _smart_fit_max_gpu(
     min_ctx: int,
     min_batch: int,
     user_gpu_layers: Optional[int] = None,
+    cost: Optional["ModelCost"] = None,
 ) -> tuple[int, int, int]:
     """Max GPU: shrink ctx/batch before shedding layers; pack VRAM with layers."""
     ctx = max(min_ctx, int(user_ctx))
@@ -1768,7 +1914,7 @@ def _smart_fit_max_gpu(
     step = max(1, total // 10)
 
     while layers == ceiling and _fit_needed_mb(
-            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized, cost=cost) > budget:
         if ctx > min_ctx:
             ctx = max(min_ctx, ctx - ctx_grain)
         elif batch > min_batch:
@@ -1777,11 +1923,11 @@ def _smart_fit_max_gpu(
             break
 
     while layers > 0 and _fit_needed_mb(
-            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+            model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized, cost=cost) > budget:
         layers = max(0, layers - step)
 
     while layers < ceiling and _fit_needed_mb(
-            model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized) <= budget:
+            model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized, cost=cost) <= budget:
         layers += 1
 
     n_layers = 99 if layers >= total else layers
@@ -1800,6 +1946,7 @@ def _smart_fit_max_ctx(
     min_ctx: int,
     min_batch: int,
     user_gpu_layers: Optional[int] = None,
+    cost: Optional["ModelCost"] = None,
 ) -> tuple[int, int, int]:
     """Max context: preserve ctx via CPU/RAM spill; add GPU layers only if ctx stays."""
     ctx = max(min_ctx, int(user_ctx))
@@ -1812,17 +1959,17 @@ def _smart_fit_max_ctx(
     if budget <= 0:
         return ctx, 0, batch
 
-    if _fit_needed_mb(model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized) > budget:
+    if _fit_needed_mb(model_size_gb, total, ctx, layers, batch, kv_quantized=kv_quantized, cost=cost) > budget:
         layers = 0
         while batch > min_batch and _fit_needed_mb(
-                model_size_gb, total, ctx, 0, batch, kv_quantized=kv_quantized) > budget:
+                model_size_gb, total, ctx, 0, batch, kv_quantized=kv_quantized, cost=cost) > budget:
             batch = max(min_batch, batch // 2)
         while ctx > min_ctx and _fit_needed_mb(
-                model_size_gb, total, ctx, 0, batch, kv_quantized=kv_quantized) > budget:
+                model_size_gb, total, ctx, 0, batch, kv_quantized=kv_quantized, cost=cost) > budget:
             ctx = max(min_ctx, ctx - ctx_grain)
 
     while layers < ceiling and _fit_needed_mb(
-            model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized) <= budget:
+            model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized, cost=cost) <= budget:
         layers += 1
 
     n_layers = 99 if layers >= total else layers
@@ -1845,6 +1992,7 @@ def _clamp_fit_to_ram_budget(
     min_batch: int,
     priority: str,
     user_gpu_layers: Optional[int] = None,
+    cost: Optional["ModelCost"] = None,
 ) -> tuple[int, int, int]:
     """Joint planner: CPU spill from partial offload must fit the RAM slider budget."""
     if ram_budget_mb <= 0:
@@ -1859,13 +2007,13 @@ def _clamp_fit_to_ram_budget(
     for _ in range(128):
         real = _fit_layers_real(layers, total)
         spill = _estimate_cpu_spill_mb(
-            model_size_gb, total, real, ctx, batch, kv_quantized=kv_quantized)
+            model_size_gb, total, real, ctx, batch, kv_quantized=kv_quantized, cost=cost)
         if spill <= ram_budget_mb:
             break
 
         if real < ceiling and _fit_needed_mb(
                 model_size_gb, total, ctx, real + 1, batch,
-                kv_quantized=kv_quantized) <= vram_budget:
+                kv_quantized=kv_quantized, cost=cost) <= vram_budget:
             real += 1
             layers = 99 if real >= total else real
             continue
@@ -1898,10 +2046,10 @@ def _clamp_fit_to_ram_budget(
                 probe += ctx_grain
                 if _fit_needed_mb(
                         model_size_gb, total, probe, real, batch,
-                        kv_quantized=kv_quantized) > vram_budget:
+                        kv_quantized=kv_quantized, cost=cost) > vram_budget:
                     break
                 spill = _estimate_cpu_spill_mb(
-                    model_size_gb, total, real, probe, batch, kv_quantized=kv_quantized)
+                    model_size_gb, total, real, probe, batch, kv_quantized=kv_quantized, cost=cost)
                 if spill > ram_budget_mb:
                     break
                 ctx = probe
@@ -1927,6 +2075,7 @@ def smart_fit_config(
     fit_priority: Optional[str] = None,
     user_gpu_layers: Optional[int] = None,
     moe_resident_gb: Optional[float] = None,
+    kv_cache_type: Optional[str] = None,
 ) -> tuple[int, int, int]:
     """VRAM-only smart loader fit (backward compatible).
 
@@ -1959,6 +2108,8 @@ def smart_fit_config(
         min_ctx=min_ctx,
         min_batch=min_batch,
         user_gpu_layers=user_gpu_layers,
+        cost=model_cost(model_path, experts_in_ram=moe_resident_gb is not None,
+                        kv_quantized=kv_quantized, kv_cache_type=kv_cache_type),
     )
     if priority == FIT_PRIORITY_MAX_GPU:
         return _smart_fit_max_gpu(_fit_size_gb, budget, **common)
@@ -1988,6 +2139,7 @@ def unified_fit_config(
     force_cpu: bool = False,
     user_gpu_layers: Optional[int] = None,
     moe_resident_gb: Optional[float] = None,
+    kv_cache_type: Optional[str] = None,
 ) -> tuple[int, int, int]:
     """Joint VRAM + RAM planner for every OS and GPU class.
 
@@ -2001,10 +2153,10 @@ def unified_fit_config(
     ``smart_fit_config`` for why this matters.
 
     ``moe_resident_gb``, when given, is passed straight through to
-    ``smart_fit_config`` — see its docstring. Note this only corrects the
-    VRAM-side fit; ``_clamp_fit_to_ram_budget`` below still sizes CPU spill
-    from the full file size (a MoE model's expert RAM cost is constant
-    regardless of GPU layer count, so that clamp is a separate, deferred fix).
+    ``smart_fit_config`` — see its docstring. With a readable model file both
+    the VRAM fit and the RAM clamp use its tensor sizes (``model_cost``).
+
+    ``kv_cache_type`` is the cache type the load will use (q4_0, q8_0, f16...).
     """
     total = int(total_layers or layers_for_model(model_path, model_size_gb))
     priority = (
@@ -2013,6 +2165,8 @@ def unified_fit_config(
         else fit_priority()
     )
     ram_budget_mb = cpu_ram_budget_mb(available_ram_gb)
+    _cost = model_cost(model_path, experts_in_ram=moe_resident_gb is not None,
+                       kv_quantized=kv_quantized, kv_cache_type=kv_cache_type)
 
     if force_cpu or int(free_vram_mb) <= 0:
         ctx, layers, batch = smart_fit_config(
@@ -2031,6 +2185,7 @@ def unified_fit_config(
             fit_priority=priority,
             user_gpu_layers=user_gpu_layers,
             moe_resident_gb=moe_resident_gb,
+            kv_cache_type=kv_cache_type,
         )
         return ctx, 0, batch
 
@@ -2052,6 +2207,7 @@ def unified_fit_config(
             fit_priority=priority,
             user_gpu_layers=user_gpu_layers,
             moe_resident_gb=moe_resident_gb,
+            kv_cache_type=kv_cache_type,
         )
         return _clamp_fit_to_ram_budget(
             model_size_gb,
@@ -2068,6 +2224,7 @@ def unified_fit_config(
             min_batch=min_batch,
             priority=priority,
             user_gpu_layers=user_gpu_layers,
+            cost=_cost,
         )
 
     vram_budget = max(0, int(free_vram_mb) - int(reserve_mb))
@@ -2087,6 +2244,7 @@ def unified_fit_config(
         fit_priority=priority,
         user_gpu_layers=user_gpu_layers,
         moe_resident_gb=moe_resident_gb,
+        kv_cache_type=kv_cache_type,
     )
     return _clamp_fit_to_ram_budget(
         model_size_gb,
@@ -2103,10 +2261,11 @@ def unified_fit_config(
         min_batch=min_batch,
         priority=priority,
         user_gpu_layers=user_gpu_layers,
+        cost=_cost,
     )
 
 
-def auto_ctx_target(
+def _auto_ctx_limits(
     model_path: Optional[str],
     model_size_gb: float,
     *,
@@ -2114,14 +2273,11 @@ def auto_ctx_target(
     available_ram_gb: float,
     use_gpu: bool,
     kv_quantized: bool = False,
-    grain: int = 2048,
-) -> int:
-    """The ctx "auto" aims for: the smaller of the model's trained context x ELI_CTX_FRACTION
-    and the ctx whose KV cache fits ELI_CTX_KV_SHARE of the memory left after the weights.
-
-    A target only; the fit still reduces it. DEFAULT_N_CTX is the last resort when
-    neither limit can be measured.
-    """
+    kv_cache_type: Optional[str] = None,
+) -> tuple[int, Optional[int]]:
+    """(wanted, cap): the model's trained context x ELI_CTX_FRACTION (0 when unread), and the
+    ctx whose KV cache fits ELI_CTX_KV_SHARE of the memory left after the weights (None when
+    memory cannot be measured)."""
     wanted = 0
     try:
         # Only a trained context that was actually read counts; train_ctx_for_model substitutes a constant.
@@ -2140,22 +2296,118 @@ def auto_ctx_target(
     cap = None
     try:
         share = float(os.environ.get("ELI_CTX_KV_SHARE", "0.5") or "0.5")
-        layers = layers_for_model(model_path, model_size_gb)
         spare_mb = (int(free_vram_mb) if use_gpu else 0) \
             + cpu_ram_budget_mb(available_ram_gb) - float(model_size_gb) * 1024.0
-        per_token = _kv_cache_mb(1024, layers, quant=kv_quantized) / 1024.0
+        cost = model_cost(model_path, kv_quantized=kv_quantized, kv_cache_type=kv_cache_type)
+        if cost is not None:
+            per_token = cost.kv_mb(1)
+        else:
+            per_token = _kv_cache_mb(1024, layers_for_model(model_path, model_size_gb),
+                                     quant=kv_quantized) / 1024.0
         if per_token > 0:
             # A measured shortage is a cap of zero (the floor), not "no limit".
             cap = max(0, int(max(0.0, spare_mb) * max(0.05, min(1.0, share)) / per_token))
     except Exception:
         log.debug("memory-derived ctx cap unavailable", exc_info=True)
         cap = None
+    return wanted, cap
 
+
+def auto_ctx_target(
+    model_path: Optional[str],
+    model_size_gb: float,
+    *,
+    free_vram_mb: int,
+    available_ram_gb: float,
+    use_gpu: bool,
+    kv_quantized: bool = False,
+    grain: int = 2048,
+    kv_cache_type: Optional[str] = None,
+) -> int:
+    """The ctx "auto" aims for: the smaller of the model's trained context x ELI_CTX_FRACTION
+    and the ctx whose KV cache fits ELI_CTX_KV_SHARE of the memory left after the weights.
+
+    A target only; the fit still reduces it. When neither limit can be measured (no model file
+    and no memory reading) it is the smallest window ELI loads, the grain: nothing here picks a
+    size for the operator's machine.
+    """
+    wanted, cap = _auto_ctx_limits(
+        model_path, model_size_gb, free_vram_mb=free_vram_mb, available_ram_gb=available_ram_gb,
+        use_gpu=use_gpu, kv_quantized=kv_quantized, kv_cache_type=kv_cache_type)
     limits = [v for v in (wanted if wanted > 0 else None, cap) if v is not None]
     if not limits:
-        from eli.core.runtime_settings import DEFAULT_N_CTX
-        return int(DEFAULT_N_CTX)
+        return int(grain)
     return max(grain, (min(limits) // grain) * grain)
+
+
+def mlock_holds(model_size_gb: float, available_ram_gb: float) -> bool:
+    """Whether pinning this model in RAM is safe and possible: it fits the RAM budget ELI may use,
+    and the OS memory-lock limit (often a few MB) covers it. Where the limit cannot be read
+    (Windows), no."""
+    try:
+        import resource
+        soft, _hard = resource.getrlimit(resource.RLIMIT_MEMLOCK)
+    except Exception:
+        return False
+    model_bytes = float(model_size_gb) * 1024 ** 3
+    if soft != resource.RLIM_INFINITY and soft < model_bytes:
+        return False
+    return model_bytes / 1_048_576 <= cpu_ram_budget_mb(available_ram_gb)
+
+
+def gpu_weights_beyond_free(model_path: Optional[str], n_gpu_layers: int, free_vram_mb: Optional[int],
+                            *, experts_in_ram: bool = False) -> Optional[float]:
+    """MB of GPU weights these layers need when that alone exceeds the free VRAM, else None.
+    A load like that cannot succeed whatever the context or batch, so there is nothing to probe.
+    None also when the model file cannot be read: then nothing is certain."""
+    if not model_path or free_vram_mb is None or int(n_gpu_layers) <= 0:
+        return None
+    cost = model_cost(model_path, experts_in_ram=experts_in_ram)
+    if cost is None:
+        return None
+    need = cost.gpu_weights_mb(int(n_gpu_layers))
+    return need if need > int(free_vram_mb) else None
+
+
+def auto_ctx_for(model_path: Optional[str]) -> int:
+    """auto_ctx_target for this model on this machine as measured now; 0 without a readable model."""
+    try:
+        p = Path(str(model_path or ""))
+        if not p.is_file():
+            return 0
+        size_gb = mem_units.file_size_gib(p)
+        hw = detect_hardware()
+        use_gpu = bool(effective_use_gpu_layers(hw))
+        free = int(hw.free_vram_mb) if use_gpu else 0
+        kvq = kv_cache_quantized(str(p), size_gb, free_vram_mb=free,
+                                 available_ram_gb=float(hw.available_ram_gb), use_gpu=use_gpu)
+        return int(auto_ctx_target(str(p), size_gb, free_vram_mb=free,
+                                   available_ram_gb=float(hw.available_ram_gb), use_gpu=use_gpu,
+                                   kv_quantized=kvq))
+    except Exception:
+        log.debug("auto context unavailable for %s", model_path, exc_info=True)
+        return 0
+
+
+def kv_cache_quantized(
+    model_path: Optional[str],
+    model_size_gb: float,
+    *,
+    free_vram_mb: int,
+    available_ram_gb: float,
+    use_gpu: bool,
+    target_ctx: Optional[int] = None,
+) -> bool:
+    """Quantize the KV cache only when memory, not the model, limits the context: an fp16 cache
+    in the memory left after the weights holds less than the context wanted (the operator's
+    target_ctx, else the auto target). Replaces a card-size rule (q4_0 below 12000 MB) that
+    quantized a model whose fp16 cache fitted easily and left a 16 GB card at fp16 when it did
+    not. Unknown either way: fp16, llama.cpp's default."""
+    wanted, cap = _auto_ctx_limits(
+        model_path, model_size_gb, free_vram_mb=free_vram_mb, available_ram_gb=available_ram_gb,
+        use_gpu=use_gpu, kv_cache_type="f16")
+    want = int(target_ctx or 0) or wanted
+    return bool(cap is not None and want > 0 and cap < want)
 
 
 def recommend(hw: Optional[HardwareProfile] = None,
@@ -2167,7 +2419,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
     CUDA overhead) OR within available RAM if no GPU.
 
     ``user_ctx`` (when >= 2048) is the user's EXPLICITLY chosen context window —
-    it anchors n_ctx instead of the DEFAULT_N_CTX target, and the VRAM refinement
+    it anchors n_ctx instead of the auto target, and the VRAM refinement
     below only ever REDUCES it to fit (never inflates, never silently replaces).
     This is what makes "what you type is what loads" hold: the chosen value wins,
     and is only trimmed on a real VRAM constraint (and the reasoning log says so).
@@ -2244,23 +2496,24 @@ def recommend(hw: Optional[HardwareProfile] = None,
     if not models:
         rec.reasoning.append("No GGUF models found. Consider Ollama.")
         rec.provider = "ollama"
-        rec.n_ctx = 8192
-        rec.batch_size = 512
+        rec.n_ctx = 0           # no GGUF to size: the Ollama model's own context applies
         return rec
 
-    # KV-cache quantization decision. q4_0 K + q4_0 V cuts KV memory ~75%
-    # with negligible quality loss for chat workloads. Enable on small GPUs
-    # and on CPU-only hosts with <=16 GB RAM (integrated-GPU laptops).
-    rec.cache_type_k = "q4_0" if (
-        (hw.has_gpu and hw.total_vram_mb < 12000)
-        or (not use_gpu_layers and hw.ram_gb <= 16)
-    ) else ""
+    # KV-cache quantization: only when memory, not the model, limits the context (q4_0 holds
+    # about 3.5x the context of fp16 in the same memory).
+    _kv_m = max(models, key=lambda m: m["size_gb"]) if models else None
+    rec.cache_type_k = "q4_0" if (_kv_m and kv_cache_quantized(
+        _kv_m["path"], _kv_m["size_gb"],
+        free_vram_mb=hw.free_vram_mb if use_gpu_layers else 0,
+        available_ram_gb=hw.available_ram_gb, use_gpu=bool(use_gpu_layers),
+        target_ctx=int(user_ctx) if user_ctx and int(user_ctx) >= 2048 else None,
+    )) else ""
     rec.cache_type_v = rec.cache_type_k  # match K and V quantization
     kv_q = bool(rec.cache_type_k)
     if kv_q:
-        rec.reasoning.append("KV cache: q4_0 (4× more ctx for the same VRAM, minimal quality loss)")
+        rec.reasoning.append("KV cache: q4_0 (an fp16 cache would not hold the context in the memory left after the weights)")
     else:
-        rec.reasoning.append("KV cache: fp16 (no quantization)")
+        rec.reasoning.append("KV cache: fp16 (it fits the context in the memory left after the weights)")
 
     # Context window: on GPU systems drive ctx from the VRAM KV budget, not RAM (available RAM
     # fluctuates and gave ctx=2048 on a machine that handles 18K+). Start from the model's full
@@ -2388,7 +2641,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
             from eli.core.startup_hardware_optimizer import cpu_ctx_ceiling_from_ram as _ram_ceil
             from eli.core.startup_hardware_optimizer import train_ctx_for_model as _train_ctx
             _train = int(_train_ctx(chosen["path"]) or 0)
-            _ceil = int(_ram_ceil(chosen["size_gb"], _train))
+            _ceil = int(_ram_ceil(chosen["size_gb"], _train, model_path=chosen["path"]))
         except Exception:
             _ceil = 0
         _target_ctx = min(rec.n_ctx, _ceil) if _ceil > 0 else rec.n_ctx
@@ -2457,6 +2710,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
             rec.batch_size = max(rec.batch_size, int(_mf_batch))
             _full_offload = chosen_layers >= total_layers
 
+    _rec_cost = model_cost(chosen["path"], experts_in_ram=bool(_moe_plan), kv_quantized=kv_q)
     if _moe_plan:
         if _dense_fit_line is not None:
             # Read as "only 8 layers load" (live, 2026-10-03). It's the whole-layer
@@ -2482,10 +2736,10 @@ def recommend(hw: Optional[HardwareProfile] = None,
         rec.reasoning.append(
             f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — "
             f"{chosen_layers}/{total_layers} layers on GPU "
-            f"(KV {_kv_cache_mb(rec.n_ctx, total_layers, quant=kv_q):.0f}MB "
+            f"(KV {_kv_cache_mb(rec.n_ctx, total_layers, quant=kv_q, cost=_rec_cost):.0f}MB "
             f"{'q4_0' if kv_q else 'fp16'} + "
             f"{_CUDA_OVERHEAD_MB}MB CUDA overhead, "
-            f"~{_kv_cache_mb(1024, total_layers, quant=kv_q):.0f}MB per 1k ctx)"
+            f"~{_kv_cache_mb(1024, total_layers, quant=kv_q, cost=_rec_cost):.0f}MB per 1k ctx)"
         )
     else:
         if hw.has_gpu and hw.gpu_integrated and not _backend_ready:
@@ -2523,8 +2777,10 @@ def recommend(hw: Optional[HardwareProfile] = None,
     # beyond model + KV. On 8 GB cards with full offload and long ctx that leaves too little for
     # batch=512 (about 750 MB needed on 7B models, empirically).
     if hw.has_gpu and hw.free_vram_mb > 0 and chosen_layers > 0 and rec.batch_size > 128:
-        _kv_at_ctx = _kv_cache_mb(rec.n_ctx, total_layers, quant=kv_q)
-        if _moe_plan:
+        _kv_at_ctx = _kv_cache_mb(rec.n_ctx, total_layers, quant=kv_q, cost=_rec_cost)
+        if _rec_cost is not None:
+            _gpu_model_for_batch = _rec_cost.gpu_weights_mb(chosen_layers)
+        elif _moe_plan:
             # chosen_layers reads "all of them" here, but most of that is expert tensors kept in
             # RAM — sizing the compute-headroom check off the full model would see a huge deficit
             # that isn't real and needlessly crush the batch size.
@@ -2573,10 +2829,10 @@ def recommend(hw: Optional[HardwareProfile] = None,
         rec.reasoning.append(f"batch capped {rec.batch_size}→32 — Adreno Vulkan stability limit")
         rec.batch_size = 32
 
-    # mmap lets the OS page weights from disk — essential on ≤16 GB CPU hosts.
-    # mlock pins the whole model in RAM and starves KV/OS on those machines.
+    # mmap lets the OS page weights from disk. mlock pins the whole model in RAM: only when this
+    # model fits the RAM ELI may use and the OS lock limit allows it (it was "16 GB or more").
     rec.use_mmap = True
-    rec.use_mlock = (hw.ram_gb >= 16.0 and hw.available_ram_gb >= 16.0)
+    rec.use_mlock = mlock_holds(chosen["size_gb"], hw.available_ram_gb)
     rec.max_tokens = -1   # unlimited — use full remaining context
     rec.temperature = 0.7
 
