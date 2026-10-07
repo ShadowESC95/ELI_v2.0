@@ -30,6 +30,7 @@ import pytest
 from eli.core import hardware_profile as hp
 from eli.core import startup_hardware_optimizer as sho
 from eli.core.hardware_profile import HardwareProfile, _kv_cache_mb, recommend
+from tests._sparse import sparse_file
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -126,8 +127,7 @@ def test_probe_timeout_scales_with_model_size(tmp_path, monkeypatch):
     small = tmp_path / "small.gguf"
     small.write_bytes(b"\0" * (1024 * 1024))
     big = tmp_path / "big.gguf"
-    with open(big, "wb") as f:
-        f.truncate(256 * 1024 * 1024)  # sparse: probe_timeout_for reads st_size only
+    sparse_file(big, 256 * 1024 * 1024)  # sparse: probe_timeout_for reads st_size only
 
     t_small = lp.probe_timeout_for(str(small), 4096)
     t_big = lp.probe_timeout_for(str(big), 10384)
@@ -152,8 +152,7 @@ def test_a_nine_gigabyte_model_gets_more_than_the_old_flat_budget(tmp_path, monk
     model = tmp_path / "ornith-9b-q8.gguf"
     # Sparse: real st_size, no 9GB written, and Path.stat left alone so pytest's
     # own traceback machinery keeps working.
-    with open(model, "wb") as fh:
-        fh.truncate(int(8.89 * 1024 ** 3))
+    sparse_file(model, int(8.89 * 1024 ** 3))
     budget = lp.probe_timeout_for(str(model), 10384)
     assert budget > 120.0, f"still unprovable at {budget:.0f}s"
     assert budget <= lp._TIMEOUT_CEILING_S

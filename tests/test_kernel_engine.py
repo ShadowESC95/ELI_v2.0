@@ -112,12 +112,14 @@ def test_compact_persona_not_empty(engine):
     assert len(result.strip()) > 0
 
 def test_compact_persona_limit_chars(engine):
-    # Limit raised 2200 -> 3800 -> 12000 so the FULL persona voice (personality
-    # ownership, EliWorld, banned-disclaimer sections) reaches the model in
-    # compact/quick mode instead of being clipped. The 12000 cap is now a pure
-    # safety valve against runaway growth; it still fits the context window.
+    # The FULL persona voice (personality ownership, EliWorld, banned-disclaimer sections)
+    # reaches the model in compact/quick mode, trimmed only past its share of the window that
+    # loaded. It was a fixed 12000 characters: a third of an 8k window, a sliver of a 128k one.
+    window = engine._window_chars()
     result = engine._compact_persona()
-    assert len(result) <= 12000 + 100
+    if window:
+        limit = max(engine._PERSONA_MIN_CHARS, int(window * engine._PERSONA_SHARE_OF_CTX))
+        assert len(result) <= limit + len("\n[persona trimmed]")
 
 
 # ── _normalize_assistant_text ─────────────────────────────────────────────

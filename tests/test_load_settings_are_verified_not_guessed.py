@@ -48,6 +48,7 @@ import re
 import pytest
 
 from eli.core import load_probe
+from tests._sparse import sparse_file
 
 LOADER = (pathlib.Path(__file__).resolve().parents[1]
           / "eli" / "gui" / "eli_pro_audio_gui_v2_0.py")
@@ -386,8 +387,7 @@ def test_the_timeout_is_a_wait_an_operator_would_tolerate(tmp_path, monkeypatch)
     # A sparse file: real st_size, no real bytes on disk, and no patching of
     # Path.stat (which pytest itself calls while building tracebacks).
     typical = tmp_path / "typical-4gb.gguf"
-    with open(typical, "wb") as fh:
-        fh.truncate(int(4.0 * 1024 ** 3))
+    sparse_file(typical, int(4.0 * 1024 ** 3))
     assert lp.probe_timeout_for(str(typical), 8192) <= 90, \
         "a typical model's probe must not block startup"
 

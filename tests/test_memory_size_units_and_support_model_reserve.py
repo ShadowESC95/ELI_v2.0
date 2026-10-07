@@ -20,6 +20,7 @@ from __future__ import annotations
 import pytest
 
 from eli.core import mem_units, hardware_profile, moe_offload
+from tests._sparse import sparse_file
 
 # eli/gui/panels/_qt.py re-exports Qt via `from PySide6.QtWidgets import *`. The root
 # conftest's no-PySide6 fallback is a MagicMock stub, which `import *` exposes nothing
@@ -49,8 +50,7 @@ def _sparse(path, size: int) -> None:
     # a real one here. write_bytes(b"\0" * size) built the whole buffer in RAM first
     # (~20 GB for the 19.71 GiB case) and left it allocated on disk afterwards;
     # pytest keeps several old basetemp dirs, so repeated runs filled the disk.
-    with open(path, "wb") as f:
-        f.truncate(size)
+    sparse_file(path, size)
 
 
 def test_bytes_to_gib_is_the_binary_base():

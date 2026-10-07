@@ -13,6 +13,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from eli.learning import lora_trainer as lt
+from tests._sparse import sparse_file
 
 
 def _torch(*, cuda=True, hip=None, name="NVIDIA GeForce RTX 4090",
@@ -74,8 +75,7 @@ def test_small_model_fits_a_small_card(tmp_path):
     """The old flat 10 GiB floor refused a 1B on a 6 GB card that fits easily."""
     tiny = tmp_path / "tiny"
     tiny.mkdir()
-    with open(tiny / "model.safetensors", "wb") as f:
-        f.truncate(1024 ** 3)  # ~1 GB st_size, sparse
+    sparse_file(tiny / "model.safetensors", 1024 ** 3)  # ~1 GB st_size, sparse
     with patch.dict("sys.modules", {"torch": _torch(free=6 * 1024 ** 3, total=8 * 1024 ** 3)}):
         d = lt._pick_device("auto", base_model_path=tiny)
     assert d["selected"] == "cuda"
@@ -104,8 +104,7 @@ def test_cpu_only_machine_says_so_plainly():
 def test_four_bit_lowers_the_requirement(tmp_path):
     m = tmp_path / "m"
     m.mkdir()
-    with open(m / "model.safetensors", "wb") as f:
-        f.truncate(4 * 1024 ** 3)  # sparse: estimate_vram_gb reads st_size only
+    sparse_file(m / "model.safetensors", 4 * 1024 ** 3)  # sparse: estimate_vram_gb reads st_size only
     assert lt.estimate_vram_gb(m, four_bit=True) < lt.estimate_vram_gb(m, four_bit=False)
 
 

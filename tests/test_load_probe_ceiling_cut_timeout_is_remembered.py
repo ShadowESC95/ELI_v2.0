@@ -11,6 +11,7 @@ import time
 import pytest
 
 from eli.core import load_probe as lp
+from tests._sparse import sparse_file
 
 
 @pytest.fixture
@@ -19,8 +20,7 @@ def model(tmp_path, monkeypatch):
     monkeypatch.setattr(lp, "_cache_path", lambda: tmp_path / "cache.json")
     monkeypatch.setattr(lp, "_gpu_identity", lambda: "test-gpu|8192")
     p = tmp_path / "m.gguf"
-    with open(p, "wb") as f:
-        f.truncate(int(22.3 * 1024 ** 3))          # sparse: no real disk used
+    sparse_file(p, int(22.3 * 1024 ** 3))          # sparse: no real disk used
     return str(p)
 
 
@@ -31,8 +31,7 @@ def test_a_big_model_is_flagged_as_expected_to_be_cut(model):
 def test_a_small_model_is_not(tmp_path, monkeypatch):
     monkeypatch.delenv("ELI_LOAD_PROBE_TIMEOUT", raising=False)
     p = tmp_path / "s.gguf"
-    with open(p, "wb") as f:
-        f.truncate(3 * 1024 ** 3)
+    sparse_file(p, 3 * 1024 ** 3)
     assert lp.budget_is_ceiling_cut(str(p), 8192) is False
 
 
@@ -53,8 +52,7 @@ def test_an_ordinary_timeout_still_expires_after_the_hour(tmp_path, monkeypatch)
     monkeypatch.setattr(lp, "_cache_path", lambda: tmp_path / "cache.json")
     monkeypatch.setattr(lp, "_gpu_identity", lambda: "test-gpu|8192")
     p = tmp_path / "s.gguf"
-    with open(p, "wb") as f:
-        f.truncate(3 * 1024 ** 3)
+    sparse_file(p, 3 * 1024 ** 3)
     lp._record_timeout(str(p), 8192, 10, 256)
     real = time.time()
     monkeypatch.setattr(lp.time, "time", lambda: real + 3 * 3600)
@@ -64,6 +62,5 @@ def test_an_ordinary_timeout_still_expires_after_the_hour(tmp_path, monkeypatch)
 def test_a_different_model_file_does_not_inherit_the_memo(model, tmp_path):
     lp._record_timeout(model, 12380, 10, 256)
     other = tmp_path / "m.gguf"
-    with open(other, "wb") as f:
-        f.truncate(int(23.5 * 1024 ** 3))       # same path, replaced file
+    sparse_file(other, int(23.5 * 1024 ** 3))       # same path, replaced file
     assert lp._recently_timed_out(str(other), 12380, 10, 256) is False

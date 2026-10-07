@@ -13,12 +13,12 @@ moe_offload.py's own stat()-based math, instead of being the odd one out.
 from __future__ import annotations
 
 from eli.core import hardware_profile, moe_offload
+from tests._sparse import sparse_file
 
 
 def test_discover_models_uses_the_same_binary_base_as_moe_offload(tmp_path):
     model_file = tmp_path / "model.gguf"
-    with open(model_file, "wb") as f:
-        f.truncate(2 * 1024 ** 3)  # exactly 2 GiB st_size; sparse, so no real disk or RAM used
+    sparse_file(model_file, 2 * 1024 ** 3)  # exactly 2 GiB st_size; sparse, so no real disk or RAM used
 
     models = hardware_profile.discover_models(models_dir=tmp_path)
     assert len(models) == 1

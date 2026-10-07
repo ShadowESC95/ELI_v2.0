@@ -14,6 +14,7 @@ import pytest
 
 from eli.core import gguf_sizes
 import eli.core.hardware_profile as hp
+from tests._sparse import sparse_file
 
 MIB = 1024 * 1024
 
@@ -47,10 +48,7 @@ def _gguf(path, arch: str, meta: dict, tensors: dict) -> str:
         head += struct.pack("<Q", offset)
         offset += size + (-size % 32)
     head += b"\0" * (-len(head) % 32)
-    with open(path, "wb") as f:
-        f.write(head)
-        f.truncate(len(head) + offset)
-    return str(path)
+    return sparse_file(path, len(head) + offset, head)
 
 
 def _dense(tmp_path, name="dense.gguf", *, blocks=28, block_mib=30, embd_mib=297, tied=True, meta=None):

@@ -1,5 +1,6 @@
 """A glance that would unload and reload a large chat model waits for a quiet spell."""
 from eli.perception import ambient_vision as av
+from tests._sparse import sparse_file
 
 
 def test_a_large_model_is_not_reloaded_just_after_a_conversation(monkeypatch):
@@ -26,8 +27,7 @@ def test_the_wait_can_be_shortened(monkeypatch):
 def test_the_size_check_reads_the_loaded_model(tmp_path, monkeypatch):
     import json
     big = tmp_path / "big.gguf"
-    with open(big, "wb") as f:
-        f.truncate(9 * 1024 ** 3)
+    sparse_file(big, 9 * 1024 ** 3)
     (tmp_path / "runtime_snapshot.json").write_text(json.dumps({"model_path": str(big)}))
     monkeypatch.setattr("eli.core.paths.get_paths", lambda: type("P", (), {"artifacts_dir": tmp_path})())
     monkeypatch.setattr(av, "_cfg", lambda k, d=None: False if k == "vision_fast_no_swap" else d)
