@@ -178,10 +178,10 @@ atmosphere and post-processing — no model needed. Plus optional SSD-1B diffusi
 with VRAM hot-swap, and matplotlib plotting from your data.
 
 ### 🎵 Media
-Play a song or playlist on the platform you name (Spotify playlist-tab,
-YouTube Mix-radio); play / pause / stop / next / previous / repeat / shuffle via
-MPRIS — honest about reachability, and an explicitly-named platform never drifts
-to another.
+Play a song or playlist on the platform you name (Spotify plays its top result for the song
+over MPRIS, no window focus needed, so Wayland works too; YouTube Mix-radio in mpv);
+play / pause / stop / next / previous / repeat / shuffle via MPRIS — success only when the
+song asked for is the one playing, and an explicitly-named platform never drifts to another.
 
 ### 🌐 Web & news (toggle-gated)
 Flip the Net switch on and ELI fetches web answers, weather, and **synthesised

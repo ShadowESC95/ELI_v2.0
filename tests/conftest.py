@@ -9,6 +9,13 @@ os.environ["ELI_FORCE_CPU"] = "1"
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+# Tests never reach this machine's desktop, as on a CI runner: no session bus (media players,
+# notifications) and no display for an app a test launches. A test run once started the real
+# Spotify and played a song.
+for _desktop_var in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_SESSION_TYPE"):
+    os.environ.pop(_desktop_var, None)
+os.environ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + str(ROOT / "artifacts" / "_pytest" / "no-session-bus")
+
 # Redirect ALL artifact writes (documents, runtime snapshots, the scheduled-task
 # store) to a throwaway IN-PROJECT dir for the whole test session, so a test run can
 # never pollute the real artifacts/ or wipe the user's standing scheduled jobs. This
@@ -121,6 +128,14 @@ def mock_heavy_imports():
         "transformers": MagicMock(), "pydantic": MagicMock(),
     }):
         yield
+
+@pytest.fixture(autouse=True)
+def _tests_never_launch_spotify(monkeypatch):
+    """A test that reached the real launcher started Spotify on the developer's machine and played
+    a song; with no display it would still spawn the process. Tests that need a launch stub it."""
+    monkeypatch.setattr("eli.execution.media_runtime.open_spotify",
+                        lambda: "Could not open Spotify: tests never launch it")
+
 
 @pytest.fixture
 def temp_db(tmp_path):

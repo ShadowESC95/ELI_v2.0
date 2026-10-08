@@ -2204,6 +2204,10 @@ def _record_tool_execution(action: str, args: Any, result: Any) -> None:
         return
     from eli.runtime.evidence_ledger import predict_success, record_event
     ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
+    # "I opened the search but nothing played" came back ok: four failed Spotify plays in a row
+    # left PLAY_MEDIA recorded at 95% success.
+    if isinstance(result, dict) and result.get("played") is False:
+        ok = False
     predicted = predict_success(action)
     text = ""
     if isinstance(result, dict):
@@ -3819,30 +3823,35 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
         # ── Track / generic search (tracks tab, not playlists) ──
         _track_q = search_q
         _launch_attempted = False
-        # Drive Spotify's own search box directly and play the top suggestion —
-        # open.spotify.com's search page is a JS shell with no server-rendered
-        # track data on an unauthenticated fetch (confirmed against the real
-        # site), so URI-scraping below can never resolve a real track here.
+        _spotify_up = True
+        # Linux: ask Spotify over MPRIS to play its top search result. No focus or keystrokes, so
+        # it is the path that works on Wayland; it is only accepted when the song that starts is
+        # the one asked for.
+        try:
+            from eli.integrations.media.cross_platform import (
+                spotify_launch_if_needed as _sp_launch, spotify_play_top_search_result as _sp_top)
+            _launch_attempted = True
+            _spotify_up = bool(_sp_launch())  # once for every path below
+            if _spotify_up and _sp_top(_track_q, launch=False):
+                _, _np_artist, _np_title = _spotify_live_meta()
+                _np = f"{_np_artist} — {_np_title}" if _np_artist and _np_title else _track_q
+                _set_now_playing("spotify", _np)
+                msg = f"Playing “{_np}” on Spotify."
+                return {"ok": True, "action": "PLAY_MEDIA", "played": True,
+                        "content": msg, "response": msg}
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+        # Then type into Spotify's own search box (X11, or an XWayland window) — open.spotify.com's
+        # search page is a JS shell with no server-rendered track data, so it can't be scraped.
         try:
             from eli.integrations.media.cross_platform import spotify_search_type_and_play as _sp_type_play
-            _launch_attempted = True  # its first step is spotify_launch_if_needed()
-            if _sp_type_play(_track_q):
+            if _spotify_up and _sp_type_play(_track_q, launch=not _launch_attempted):
                 _set_now_playing("spotify", _track_q)
                 msg = f"Playing “{_track_q}” on Spotify."
                 return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                         "content": msg, "response": msg}
         except Exception:
             log.debug("suppressed exception", exc_info=True)
-        # Resolve to the real top-hit URI next — same mechanism as album/playlist/
-        # artist above. Rarely resolves anything today (same JS-shell limitation)
-        # but is cheap to try and costs nothing if Spotify ever server-renders
-        # search again.
-        _hit = _spotify_try_open_and_play(
-            _spotify_resolve_track_uri(_track_q),
-            label=f"“{_track_q}”", kind="track",
-        )
-        if _hit:
-            return _hit
         # Type-and-play above already launched and waited 8s. If Spotify still
         # isn't up, a second launch + 8s wait just delays the "couldn't reach it"
         # answer — it was only here because the type-and-play path was put in
@@ -3869,10 +3878,17 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
                 msg = f"Playing “{_track_q}” on Spotify."
                 return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                         "content": msg, "response": msg}
-            msg = (f"I opened the Spotify search for “{_track_q}” but couldn't confirm "
-                   f"it started playing — press play in Spotify, or check that "
-                   f"playerctl/dbus can reach it.")
-            return {"ok": True, "action": "PLAY_MEDIA", "played": False,
+            _np_head, _np_artist, _np_title = _spotify_live_meta()
+            if _np_head.startswith("▶") and (_np_artist or _np_title):
+                # Whatever is playing, it is not what was asked for: Spotify's top result for a
+                # different song, or an earlier track that carried on. Say which, claim nothing.
+                msg = (f"Spotify is playing “{_np_artist} — {_np_title}”, not “{_track_q}”. Give me "
+                       f"the artist as well, or say “play {_track_q} on youtube”.")
+                return {"ok": True, "action": "PLAY_MEDIA", "played": False, "mismatch": True,
+                        "search_only": True, "target": "spotify", "content": msg, "response": msg}
+            msg = (f"Spotify didn't start anything for “{_track_q}”: it showed its search results "
+                   f"but no song began playing, and its media controls didn't respond to play.")
+            return {"ok": False, "action": "PLAY_MEDIA", "played": False,
                     "search_only": True, "target": "spotify",
                     "content": msg, "response": msg}
         msg = (f"I couldn't reach Spotify to play “{_track_q}” — is it installed and "

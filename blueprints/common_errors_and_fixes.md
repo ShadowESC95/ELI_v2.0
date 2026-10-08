@@ -237,6 +237,20 @@ winget install mpv.MPV
 
 ---
 
+## Spotify: "play <song>" opened the search but played nothing
+
+**Symptom:** on a Wayland desktop (GNOME 50 has no X11 session) every "play X" took about 16 s and
+ended with "I opened the Spotify search ... couldn't confirm it started playing".
+**Cause:** the only way ELI had to start a named song was typing into Spotify's search box. Spotify
+runs there as a native Wayland window: xdotool/wmctrl cannot see it, so nothing could focus it or
+confirm focus, and ELI (rightly) refused to type blind.
+**Fix (in the code):** ELI asks Spotify over MPRIS to open `spotify:search:<song>`, which makes the
+desktop client play its top result with no window focus, then checks the song that started is the
+one asked for. If Spotify's top result is a different song, ELI says what is playing. Typing into
+the search box is now only tried on X11 or for an XWayland window.
+
+---
+
 ## Wayland: mouse clicks do nothing / ydotool errors
 
 **Symptom:** MOUSE_CONTROL or screen locate clicks fail on GNOME/KDE Wayland; error mentions `ydotoold`.

@@ -211,6 +211,13 @@ _COMMIT_LEAD = _re.compile(
     r"^(?:(?:for thoroughness|first(?:ly)?|then|next|also|finally|to help(?: you)?(?: with this)?)[,:]?\s+)?"
     r"(?:i'?ll|i will|i can|i could|let'?s|let me|we'?ll|we can|consider|you (?:can|could|might))\b", _re.I)
 _MAX_ITEMS = 8
+# A list item is a step when it says what to do ("Check the calendar", "Open the report"), not
+# when it describes something: "I need the executor to stop returning NOOP when it should send
+# PAUSE_MEDIA" routed to STOP_MEDIA and sat waiting for a "yes".
+_DESCRIBES = _re.compile(
+    r"^(?:i(?!'ll\b|\s+will\b|\s+can\b|\s+could\b)\b|i'm|i've|i'd|my|me|we(?!'ll\b|\s+can\b)\b|our|you|"
+    r"your|it|its|it's|this|that|these|those|there|here|a|an|the|since|if|when|while|because|"
+    r"as|so|but|and|or|which|what|why|how|who|maybe|perhaps)\b", _re.I)
 # Never run because ELI offered it: these change ELI or the system and need the user's own words.
 _NOT_OFFERABLE = frozenset((
     "CHAT", "UNKNOWN", "NOOP", "MULTI_COMMAND", "SEQUENCE", "TIME", "DATE", "GET_TIME", "GET_DATE",
@@ -368,7 +375,7 @@ def read_reply(response_text: str, *, offers_only: bool = False) -> Dict[str, An
                 phrase = " ".join((st.group("a") or st.group("b") or "").split()).strip(" .,;:")
                 if phrase and not _REMEDIATION.match(phrase) and not _VACUOUS_OFFER.search(phrase):
                     cands.append({"n": None, "text": phrase, "src": "offer", "said": sentence})
-            elif not offers_only and (mark or inline):
+            elif not offers_only and (mark or inline) and not _DESCRIBES.match(sentence.lstrip("*_ ")):
                 cands.append({"n": number, "text": sentence.rstrip(".! "), "src": "list", "said": sentence,
                               "label": named})
             elif not offers_only and _COMMIT_LEAD.match(sentence):

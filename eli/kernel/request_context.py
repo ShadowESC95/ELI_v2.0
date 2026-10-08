@@ -50,6 +50,9 @@ in_orchestrator_var: ContextVar[Optional[bool]] = ContextVar("eli_in_orchestrato
 # whichever of its many exits it took. A fresh dict per process() call; a nested
 # call gets its own and never writes into its parent's.
 turn_facts_var: ContextVar[Optional[dict]] = ContextVar("eli_turn_facts", default=None)
+# "typed" when the user typed this turn's message, "voice" when it was spoken, None when the
+# caller did not say. Only speech can arrive as a fragment ("ply", "find your mo").
+input_channel_var: ContextVar[Optional[str]] = ContextVar("eli_input_channel", default=None)
 
 
 def note_turn_fact(name: str, value: Any) -> None:

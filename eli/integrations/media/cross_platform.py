@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import time
@@ -153,7 +154,7 @@ def spotify_running() -> bool:
     return is_process_running("spotify") or is_process_running("Spotify")
 
 
-def spotify_search_type_and_play(query: str) -> bool:
+def spotify_search_type_and_play(query: str, *, launch: bool = True) -> bool:
     """Drive Spotify's own search box directly — type into it and play the top
     hit — instead of scraping open.spotify.com (confirmed to return a JS shell
     with no server-rendered track data on a real fetch) or blindly opening a
@@ -176,16 +177,22 @@ def spotify_search_type_and_play(query: str) -> bool:
     blindly re-pressing Down+Enter into whatever state that first, unverified
     attempt left the UI in.
     """
-    from eli.system.portable_app_control import focus_app, active_window_matches, window_exists
+    from eli.system.portable_app_control import (
+        active_window_matches, display_server, focus_app, window_exists)
     from eli.utils.platform_compat import key_press, type_text
 
-    if not spotify_launch_if_needed():
+    if launch and not spotify_launch_if_needed():
         return False
     spotify_wait_running(timeout=8.0)
-    # Process existing isn't window existing yet — Electron apps are slow to map.
-    _win_deadline = time.monotonic() + 12.0
+    # Process existing isn't window existing yet — Electron apps are slow to map. Under Wayland
+    # the X tools see only XWayland windows: a native Wayland Spotify never appears to them, so
+    # nothing could focus it or confirm focus and the wait would only add delay.
+    _win_deadline = time.monotonic() + (3.0 if display_server() == "wayland" else 12.0)
     while time.monotonic() < _win_deadline and not window_exists("spotify"):
         time.sleep(0.3)
+    if display_server() == "wayland" and not window_exists("spotify"):
+        log.debug("[SPOTIFY] native Wayland window: keystrokes cannot be confirmed, not typing")
+        return False
 
     def _attempt() -> bool:
         focus_app("spotify")
@@ -213,6 +220,45 @@ def spotify_search_type_and_play(query: str) -> bool:
         return True
     log.debug("[SPOTIFY] first attempt unconfirmed, retrying once")
     return _attempt()
+
+
+def _session_bus_reachable() -> bool:
+    ok, _, _ = _run(["dbus-send", "--session", "--print-reply", "--dest=org.freedesktop.DBus",
+                     "/org/freedesktop/DBus", "org.freedesktop.DBus.GetId"], timeout=3)
+    return ok
+
+
+def spotify_play_top_search_result(query: str, timeout: float = 10.0, *, launch: bool = True) -> bool:
+    """Have Spotify play its top search result for `query`; True once the song asked for plays.
+
+    Over MPRIS, OpenUri("spotify:search:<query>") makes the desktop client play the top result
+    (the https://open.spotify.com/search/... form only shows the results). No window focus or
+    keystrokes are involved, so it works on Wayland, where nothing can confirm which window has
+    focus, and on X11 alike. Linux only: elsewhere a search URI opens the results without playing.
+    """
+    q = str(query or "").strip()
+    if not q or not pc.LINUX or not shutil.which("dbus-send") or not _session_bus_reachable():
+        return False
+    if launch and not spotify_launch_if_needed():
+        return False
+    if not spotify_wait_running(timeout=8.0):
+        return False
+    deadline = time.monotonic() + timeout
+    sent_at, resent = None, False
+    while time.monotonic() < deadline:
+        # The client registers on D-Bus a moment after its process starts (sending fails until
+        # then), and a cold start may ignore the first request while its interface loads.
+        now = time.monotonic()
+        if sent_at is None:
+            if spotify_open_uri(f"spotify:search:{q}"):
+                sent_at = now
+        elif not resent and now - sent_at > timeout / 2:
+            resent = spotify_open_uri(f"spotify:search:{q}") or True
+        time.sleep(0.5)
+        head, artist, title = spotify_live_meta()
+        if head.startswith("▶") and query_matches_track(q, artist, title):
+            return True
+    return False
 
 
 def spotify_open_uri(uri: str) -> bool:
@@ -516,15 +562,32 @@ def track_query_matches_now_playing(query: str, player: str = "spotify") -> bool
     specific song must check this, not just the transport status.
     """
     _, artist, track = spotify_live_meta(player)
-    live = f"{artist} {track}".lower()
-    if not live.strip():
+    return query_matches_track(query, artist, track)
+
+
+def _match_tokens(text: str) -> set[str]:
+    # "The Notorious B.I.G." is "notorious big", "Don't" is "dont", "Beyoncé" is "beyonce"
+    import unicodedata
+    low = unicodedata.normalize("NFKD", str(text or "").lower())
+    low = "".join(ch for ch in low if not unicodedata.combining(ch))
+    low = re.sub(r"(?<=\w)[.'’](?=\w)", "", low)
+    return {t for t in re.findall(r"\w+", low) if t not in _TRACK_MATCH_STOPWORDS}
+
+
+def query_matches_track(query: str, artist: str, title: str) -> bool:
+    """Most of the words asked for are in the playing track, and some are in its title.
+
+    One shared word was enough before, so "trouble eminem" accepted any Eminem track that
+    happened to be loaded.
+    """
+    if not f"{artist}{title}".strip():
         return False
-    q_tokens = {t for t in str(query or "").lower().split()
-                if t not in _TRACK_MATCH_STOPWORDS and len(t) > 2}
-    if not q_tokens:
+    wanted = _match_tokens(query)
+    if not wanted:
         return True
-    live_tokens = {t for t in live.split() if t not in _TRACK_MATCH_STOPWORDS}
-    return bool(q_tokens & live_tokens)
+    in_title = _match_tokens(title)
+    found = wanted & (_match_tokens(artist) | in_title)
+    return len(found) * 4 >= len(wanted) * 3 and bool(wanted & in_title)
 
 
 def spotify_loop_status() -> str:

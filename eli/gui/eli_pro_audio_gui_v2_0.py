@@ -3956,6 +3956,7 @@ class EliMainWindow(QMainWindow):
         except Exception:
             log.debug("suppressed exception", exc_info=True)
         self.chat_input.setPlainText(text)
+        self._spoken_send = True
         self.send_message()
 
     def _populate_mic_device_combo(self, restore: bool = False):
@@ -11409,7 +11410,16 @@ class EliMainWindow(QMainWindow):
         self.status_signal.emit('Generating')
         self.status_signal.emit('🔄 Generating response...')
 
+        _typed = not getattr(self, "_spoken_send", False)
+        self._spoken_send = False
+
         def generate_worker():
+            if _typed:
+                try:
+                    from eli.kernel.request_context import input_channel_var
+                    input_channel_var.set("typed")
+                except Exception:
+                    log.debug("suppressed exception", exc_info=True)
             try:
                 max_tokens  = self.max_tokens_input.value()
                 temperature = self.temperature_input.value()
@@ -13337,19 +13347,17 @@ class EliMainWindow(QMainWindow):
                 log.debug("suppressed exception", exc_info=True)
 
         try:
-            _ce = getattr(self, '_cognitive_engine', None)
-            if _ce is not None and hasattr(_ce, 'shutdown'):
-                _ce.shutdown()
-        except Exception as _sd_err:
-            log.debug(f"[GUI] CognitiveEngine shutdown failed (non-fatal): {_sd_err}")
-
-        try:
             if self.auto_save_checkbox.isChecked() and self.conversation_history:
                 self.save_conversation()
         except Exception as _save_err:
             log.debug(f"[GUI] Conversation autosave failed during close: {_save_err}")
 
+        # The engine's shutdown (session summary, a model call that can take half a minute, memory
+        # flush, model unload) runs once the event loop has ended: main() runs the registered
+        # exit handlers after app.exec(). Run here, on this thread, it kept the window on screen
+        # and unresponsive until it finished ("ELI is not responding").
         try:
+            self.hide()
             event.accept()
         except Exception:
             log.debug("suppressed exception", exc_info=True)

@@ -24,7 +24,7 @@ def test_resolve_binary_from_venv_dir(monkeypatch, tmp_path):
     fake.write_text("#!/bin/sh\necho mpv\n")
     fake.chmod(0o755)
 
-    monkeypatch.setattr(md.shutil, "which", lambda name: None)
+    monkeypatch.setattr(md.shutil, "which", lambda name, *a, **k: None)
     monkeypatch.setattr(md.sys, "executable", str(bindir / "python"))
     assert md.resolve_binary("mpv") == str(fake)
 

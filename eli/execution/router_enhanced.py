@@ -716,6 +716,20 @@ def _mk(
     return out
 
 
+_COURTESY_TAIL = re.compile(
+    r"(?:[\s,.!]+(?:please|pls|plz|thanks|thank\s+you|thx|cheers|mate|pal|bud|buddy|for\s+me|"
+    r"right\s+now|now|eli))+[\s,.!?]*$", re.I)
+
+
+def _without_courtesy(text: str) -> str:
+    """`text` without the please / thanks / for me / now / mate after it, when what is left still
+    names something (a bare "play" is kept as said: "play thank you" is a song)."""
+    stripped = _COURTESY_TAIL.sub("", str(text or "")).strip()
+    if stripped == str(text or "").strip() or len(stripped.split()) < 2:
+        return str(text or "")
+    return stripped
+
+
 def _normalize_text(text: str) -> Tuple[str, str]:
     """
     Returns (raw_clean, low_clean)
@@ -7556,6 +7570,14 @@ def _eli_phase38_media_query_cleaner_post(result):
 def _eli_phase38_tiny_fragment_post(raw, result):
     import re as _re
 
+    # A typed one-word message ("thanks", "cheers", "bye") is what the user meant to send; asking
+    # them to say it again is for speech, where a word can be all that was caught.
+    try:
+        from eli.kernel.request_context import input_channel_var
+        if input_channel_var.get() == "typed":
+            return result
+    except Exception:
+        _SWLOG.debug("suppressed exception", exc_info=True)
     try:
         if isinstance(result, dict) and str(result.get("action") or "").upper() == "CHAT":
             low = _re.sub(r"\s+", " ", str(raw or "").lower()).strip(" .,!?:;")
@@ -8640,6 +8662,18 @@ try:
             return out
 
         def _eli_priority_route(raw="", *args, **kwargs):
+            # Courtesy after a command ended up in its target: "open spotify please" looked for an
+            # app called "spotify please" and offered to install it. A command is routed without
+            # it; anything that is not a command keeps the user's words as they were.
+            text = str(raw or "")
+            clean = _without_courtesy(text)
+            if clean != text:
+                out = _eli_priority_route_core(clean, *args, **kwargs)
+                if isinstance(out, dict) and str(out.get("action") or "").upper() not in ("", "CHAT"):
+                    return out
+            return _eli_priority_route_core(text, *args, **kwargs)
+
+        def _eli_priority_route_core(raw="", *args, **kwargs):
             text = str(raw or "")
             result = None
             matched_by = "unmatched"

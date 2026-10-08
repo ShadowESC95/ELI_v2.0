@@ -59,47 +59,51 @@ def test_resolve_track_uri_from_search_html(monkeypatch):
     assert spotify_resolve_track_uri("soldiers logic diabolic") == "spotify:track:7xpjmdv9k5zgdH3EbLn4N1"
 
 
-def test_play_specific_tries_keystroke_automation_first(monkeypatch):
-    """Typing into Spotify's own search box is tried before URI-scraping — the
-    scrape can never resolve anything against the real site (its search page
-    is a JS shell with no server-rendered track data), so it must not be the
-    only, or first, thing standing between a request and real playback."""
-    monkeypatch.setattr(
-        "eli.integrations.media.cross_platform.spotify_search_type_and_play",
-        lambda q: True,
-    )
+def test_play_specific_asks_spotify_for_its_top_result_first(monkeypatch):
+    """Spotify plays its top search result over MPRIS before anything types into its window: that
+    path needs no window focus, so it is the one that works on Wayland."""
+    typed = []
+    monkeypatch.setattr("eli.integrations.media.cross_platform.spotify_launch_if_needed", lambda: True)
+    monkeypatch.setattr("eli.integrations.media.cross_platform.spotify_play_top_search_result",
+                        lambda q, timeout=10.0, launch=True: True)
+    monkeypatch.setattr("eli.integrations.media.cross_platform.spotify_search_type_and_play",
+                        lambda q, launch=True: typed.append(q) or True)
+    monkeypatch.setattr(ex, "_spotify_live_meta", lambda *a, **k: ("▶ Playing", "Diabolic", "Soldiers Logic"))
 
     result = ex.play_specific("soldiers logic by diabolic", target="spotify")
 
-    assert result["ok"] is True
-    assert result["played"] is True
+    assert result["ok"] is True and result["played"] is True and not typed
 
 
-def test_play_specific_resolves_and_plays_the_real_track_uri(monkeypatch):
-    """When keystroke automation is unavailable (non-Linux, no xdotool), the real
-    track URI must be resolved and opened directly, same as the album/playlist/
-    artist paths already do — not a bare search with nothing selected."""
-    opened_uris = []
-    monkeypatch.setattr(
-        "eli.integrations.media.cross_platform.spotify_search_type_and_play",
-        lambda q: False,
-    )
-    monkeypatch.setattr(ex, "_spotify_resolve_track_uri", lambda q: "spotify:track:abc123")
+def test_play_specific_types_into_spotify_when_the_top_result_is_not_it(monkeypatch):
+    monkeypatch.setattr("eli.integrations.media.cross_platform.spotify_launch_if_needed", lambda: True)
+    monkeypatch.setattr("eli.integrations.media.cross_platform.spotify_play_top_search_result",
+                        lambda q, timeout=10.0, launch=True: False)
+    monkeypatch.setattr("eli.integrations.media.cross_platform.spotify_search_type_and_play",
+                        lambda q, launch=True: True)
+
+    result = ex.play_specific("soldiers logic by diabolic", target="spotify")
+
+    assert result["ok"] is True and result["played"] is True
+
+
+def test_the_track_path_does_not_scrape_open_spotify(monkeypatch):
+    """open.spotify.com's search page is a JS shell; scraping it for a track never resolved
+    anything and only sent the query out and waited on it."""
+    def no_scrape(q):
+        raise AssertionError("scraped")
+    monkeypatch.setattr("eli.integrations.media.cross_platform.spotify_launch_if_needed", lambda: True)
+    monkeypatch.setattr("eli.integrations.media.cross_platform.spotify_play_top_search_result",
+                        lambda q, timeout=10.0, launch=True: False)
+    monkeypatch.setattr("eli.integrations.media.cross_platform.spotify_search_type_and_play",
+                        lambda q, launch=True: False)
+    monkeypatch.setattr(ex, "_spotify_resolve_track_uri", no_scrape)
     monkeypatch.setattr(ex, "_spotify_running", lambda: True)
-    monkeypatch.setattr(ex, "_spotify_open_uri", lambda u: opened_uris.append(u) or True)
-    monkeypatch.setattr(ex, "_spotify_clear_track_repeat", lambda: True)
-    monkeypatch.setattr(ex, "_spotify_play", lambda: True)
-    # Nothing was playing before the resolved URI opened; the requested track
-    # is playing after — a real change, not a stale resumed track.
-    live_meta = iter([("", "", ""), ("", "Diabolic", "Soldiers Logic")])
-    monkeypatch.setattr(ex, "_spotify_live_meta", lambda *a, **k: next(live_meta))
+    monkeypatch.setattr(ex, "_spotify_search", lambda q, prefer=None: False)
+    monkeypatch.setattr(ex, "_spotify_open_uri", lambda u: False)
     monkeypatch.setattr(ex.time, "sleep", lambda _s: None)
 
-    result = ex.play_specific("soldiers logic by diabolic", target="spotify")
-
-    assert result["ok"] is True
-    assert result["played"] is True
-    assert opened_uris == ["spotify:track:abc123"]
+    ex.play_specific("soldiers logic by diabolic", target="spotify")
 
 
 def test_play_specific_falls_back_to_search_when_no_track_uri_resolves(monkeypatch):

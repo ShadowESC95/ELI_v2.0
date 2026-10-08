@@ -192,6 +192,10 @@ def build_mpv_youtube_argv(
             "--ytdl-format=bestvideo+bestaudio/best",
         ])
 
+    from eli.integrations.media.media_deps import yt_dlp_for_mpv
+    ytdl = yt_dlp_for_mpv()
+    if ytdl:
+        cmd.append(f"--script-opts=ytdl_hook-ytdl_path={ytdl}")
     if "list=RD" in target:
         cmd.append("--ytdl-raw-options=yes-playlist=")
     if client:

@@ -35,6 +35,12 @@ def test_a_failure_is_recorded_as_failed(ledger):
     assert _events(ledger)[0]["outcome"] == "failed"
 
 
+def test_a_play_that_played_nothing_is_a_failure(ledger):
+    # "opened the search but nothing played" was ok, so failed plays counted as successes
+    EX._record_tool_execution("PLAY_MEDIA", {"query": "x"}, {"ok": True, "played": False, "search_only": True})
+    assert _events(ledger)[0]["outcome"] == "failed"
+
+
 def test_chat_and_the_off_switch_record_nothing(ledger, monkeypatch):
     EX._record_tool_execution("CHAT", {}, {"ok": True})
     monkeypatch.setenv("ELI_LEDGER_TOOL_EVENTS", "0")
