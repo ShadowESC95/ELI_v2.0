@@ -121,6 +121,28 @@ for name in ("capability_manifest.json", "capability_inventory.generated.json"):
     else:
         print(f"[ELI.spec] WARNING: {name} missing — run tools/bootstrap_claims_artifacts.py to bundle it")
 
+# Which source this bundle was built from. The runtime hook copies eli/ into the user's data folder
+# once per bundle; keyed on the version alone, a second build under the same number (a dry run, a
+# release rebuilt under its tag) found the first one's copy and ran its code.
+def _build_stamp() -> str:
+    def _git(*args: str) -> str:
+        try:
+            return subprocess.run(["git", *args], capture_output=True, text=True, cwd=ROOT).stdout
+        except OSError:
+            return ""
+    stamp = _git("rev-parse", "HEAD").strip() or "unknown"
+    changed = _git("diff", "HEAD")
+    if changed:
+        import hashlib
+        stamp += "-" + hashlib.sha1(changed.encode("utf-8", "replace")).hexdigest()[:12]
+    return stamp
+
+
+import tempfile as _tempfile
+_stamp_file = Path(_tempfile.mkdtemp(prefix="eli_stamp_")) / "build_stamp.txt"
+_stamp_file.write_text(_build_stamp() + "\n", encoding="utf-8")
+datas.append((str(_stamp_file), "."))
+
 # Piper TTS voices — full voice UX ships in the bundle. The .onnx weights are
 # NOT in git (too big); CI downloads them from the project's own
 # `local-assets-v2.1` release into tts_piper/piper before building (the same

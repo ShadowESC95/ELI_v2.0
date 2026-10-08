@@ -130,6 +130,17 @@ def _app_version(bundle: Path) -> str:
     return "unknown"
 
 
+def _seed_stamp(bundle: Path) -> str:
+    """The version and the source the bundle was built from (build_stamp.txt, written by ELI.spec):
+    a second build under the same version number still gets its own code copied in."""
+    try:
+        built = (bundle / "build_stamp.txt").read_text(encoding="utf-8").strip()
+    except Exception:
+        built = ""
+    version = _app_version(bundle)
+    return f"{version}+{built}" if built else version
+
+
 def _user_root() -> Path:
     if sys.platform == "win32":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
@@ -173,7 +184,7 @@ def _safe_copy_tree(src: Path, dst: Path) -> None:
 
 
 def _seed(bundle: Path, root: Path) -> None:
-    version = _app_version(bundle)
+    version = _seed_stamp(bundle)
     marker = root / ".eli_frozen_seed_version"
     try:
         if marker.exists() and marker.read_text(encoding="utf-8").strip() == version:
