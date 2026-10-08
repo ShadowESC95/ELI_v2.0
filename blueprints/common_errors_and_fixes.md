@@ -251,6 +251,37 @@ the search box is now only tried on X11 or for an XWayland window.
 
 ---
 
+## AppImage: an app ELI opened closes at once, or Spotify/yt-dlp calls fail
+
+**Symptom:** "open spotify" says "Opened app: Spotify" but nothing appears; "play X on spotify"
+names the wrong song every time; `dbus-send` fails with `LIBDBUS_PRIVATE_1.16.2 not found`, or the
+system `yt-dlp` fails on `libcrypto`. Seen from the AppImage; a source install works.
+**Cause:** a frozen build points `LD_LIBRARY_PATH` at its own libraries and sets `QT_PLUGIN_PATH`,
+`SSL_CERT_FILE` and similar to paths inside itself. Programs ELI started inherited that, so a system
+program loaded the bundle's older libraries and died.
+**Fix (in the code):** every program from outside the bundle now gets the machine's own environment
+(`LD_LIBRARY_PATH` as it was before ELI started, no paths into the bundle); ELI's own helper
+processes keep theirs. "Opened app" is only said once the app is still running a moment later;
+otherwise ELI says it started and closed. Programs Qt starts itself (links opened in the browser)
+are not covered.
+
+---
+
+## Startup: "could not verify your settings in time"
+
+**Symptom:** at launch the log says `[GUI][LOAD] could not verify your settings in time (probe timed
+out after Ns ...)` and the model loads with fewer GPU layers than you set.
+**Cause:** your GPU layers are above what ELI measured as fitting the free VRAM, so before loading
+them it runs them once in a separate process with a prompt the size of a real conversation. That
+check did not finish within its time budget. The line now says how far it got: "the model had not
+finished loading", or "loaded in Ns; the N-token test prompt had not finished".
+**Fix:** free VRAM (another program holding the card is listed at startup), lower the GPU layers or
+context to the measured fit, give the check more time with `ELI_LOAD_PROBE_TIMEOUT=<seconds>`, or
+skip it with `ELI_LOAD_PROBE=0` to load your settings unchecked. A timeout is remembered for an
+hour, so the next launch within that hour does not wait again.
+
+---
+
 ## Wayland: mouse clicks do nothing / ydotool errors
 
 **Symptom:** MOUSE_CONTROL or screen locate clicks fail on GNOME/KDE Wayland; error mentions `ydotoold`.

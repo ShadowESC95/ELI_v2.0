@@ -275,8 +275,11 @@ def coerce_user_visible(result: Any, user_input: Any = "", mode: Any = "") -> st
                     if _facts.get("differences"):
                         _lines.append("Loaded differently from what was requested:")
                         _lines += [f"  - {d}" for d in _facts["differences"]]
-                    elif _facts:
+                    elif _facts and not _facts.get("above_request"):
                         _lines.append("Requested and loaded values match.")
+                    if _facts.get("above_request"):
+                        _lines.append("Loaded more than the saved setting:")
+                        _lines += [f"  - {d}" for d in _facts["above_request"]]
                     _tun = _facts.get("tuner_recommendation") or {}
                     if _tun:
                         _lines.append(

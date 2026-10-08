@@ -72,6 +72,25 @@ def test_a_snapshot_from_before_the_requested_split_still_surfaces_a_saved_misma
     assert any("saved setting 12200, loaded 4096" in d for d in facts["differences"])
 
 
+def test_a_context_rounded_up_is_not_reported_as_below_the_request():
+    """llama.cpp pads n_ctx: 16000 saved loads as 16128. Live, that was listed as
+    "loaded_below_request: context (n_ctx): saved setting 16000, loaded 16128"."""
+    snap = {"n_ctx": 16128, "n_gpu_layers": 26, "n_batch": 192,
+            "requested": {"n_ctx": 16000, "n_gpu_layers": 26, "n_batch": 192},
+            "effective": {"n_ctx": 16128, "n_gpu_layers": 26, "n_batch": 192}}
+    facts = runtime_load_facts(snap, {"n_ctx": 16000, "n_gpu_layers": 26, "batch_size": 192})
+    assert facts["differences"] == [] and facts["consistent"] is True
+    assert any("saved setting 16000, loaded 16128" in d for d in facts["above_request"])
+    from eli.contracts import runtime_status as rs
+    import eli.execution.executor_enhanced as ex
+    cfg = {"n_ctx": 16000, "n_gpu_layers": 26, "batch_size": 192}
+    for text in (rs.build_content(rs.build_live_evidence(runtime_snapshot=snap, settings=cfg),
+                                  requested_mode="quick", surface="test"),
+                 ex._format_runtime_status({"settings": cfg, "runtime": snap})):
+        assert "loaded_above_request: context (n_ctx): saved setting 16000, loaded 16128" in text
+        assert "loaded_below_request" not in text and "requested_vs_loaded: match" not in text
+
+
 def test_no_data_does_not_raise_and_claims_nothing_is_wrong():
     for snap, cfg in ((None, None), ({}, {}), ({}, SETTINGS)):
         facts = runtime_load_facts(snap, cfg)

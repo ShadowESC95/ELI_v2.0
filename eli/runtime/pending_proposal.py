@@ -214,6 +214,9 @@ _MAX_ITEMS = 8
 # A list item is a step when it says what to do ("Check the calendar", "Open the report"), not
 # when it describes something: "I need the executor to stop returning NOOP when it should send
 # PAUSE_MEDIA" routed to STOP_MEDIA and sat waiting for a "yes".
+# "provider: gguf", "context_size: 16128": a field and its value in a listing, not a step. A status
+# dump's "- provider: gguf" was kept as a step for a "yes".
+_FIELD_LINE = _re.compile(r"^[a-z][a-z0-9_ ]{0,30}:\s+\S")
 _DESCRIBES = _re.compile(
     r"^(?:i(?!'ll\b|\s+will\b|\s+can\b|\s+could\b)\b|i'm|i've|i'd|my|me|we(?!'ll\b|\s+can\b)\b|our|you|"
     r"your|it|its|it's|this|that|these|those|there|here|a|an|the|since|if|when|while|because|"
@@ -221,7 +224,7 @@ _DESCRIBES = _re.compile(
 # Never run because ELI offered it: these change ELI or the system and need the user's own words.
 _NOT_OFFERABLE = frozenset((
     "CHAT", "UNKNOWN", "NOOP", "MULTI_COMMAND", "SEQUENCE", "TIME", "DATE", "GET_TIME", "GET_DATE",
-    "SELF_REPORT", "ROUTING_FAULT_EXPLAIN", "DETERMINISTIC_INTROSPECTION", "MEMORY_STATUS",
+    "SELF_REPORT", "RUNTIME_STATUS", "ROUTING_FAULT_EXPLAIN", "DETERMINISTIC_INTROSPECTION", "MEMORY_STATUS",
     "PERSONAL_MEMORY_SUMMARY", "USER_IDENTITY_SUMMARY", "EXPLAIN_MEMORY_RUNTIME", "EXPLAIN_COGNITION_RUNTIME",
     "AWARENESS_STATUS", "META_DIAGNOSTIC", "SELF_ANALYZE", "RUNTIME_AUDIT", "REASONING_MODE_STATUS",
     "EXPLAIN_ALL_REASONING_MODES", "CAPABILITY", "CAPABILITY_STATUS", "LIST_CAPABILITIES", "HABIT_STATUS",
@@ -375,7 +378,8 @@ def read_reply(response_text: str, *, offers_only: bool = False) -> Dict[str, An
                 phrase = " ".join((st.group("a") or st.group("b") or "").split()).strip(" .,;:")
                 if phrase and not _REMEDIATION.match(phrase) and not _VACUOUS_OFFER.search(phrase):
                     cands.append({"n": None, "text": phrase, "src": "offer", "said": sentence})
-            elif not offers_only and (mark or inline) and not _DESCRIBES.match(sentence.lstrip("*_ ")):
+            elif (not offers_only and (mark or inline) and not _DESCRIBES.match(sentence.lstrip("*_ "))
+                  and not _FIELD_LINE.match(sentence)):
                 cands.append({"n": number, "text": sentence.rstrip(".! "), "src": "list", "said": sentence,
                               "label": named})
             elif not offers_only and _COMMIT_LEAD.match(sentence):

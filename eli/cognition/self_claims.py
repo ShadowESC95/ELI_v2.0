@@ -49,7 +49,9 @@ _COMPLAINT_RE = re.compile(
     r"|\byou(?:'re|’re| are| were)\s+(?:wrong|lying|making|not listening|useless|broken|ignoring)\b"
     r"|\byou\s+(?:forgot|ignored|missed|lied|made\s+(?:that|it|this|shit|stuff)\s+up|got\s+(?:that|it|this)\s+wrong|hallucinat\w+)\b"
     r"|\bthat(?:'s|’s| is| was)\s+(?:wrong|incorrect|bullshit|not\s+(?:right|true|what\s+i\s+(?:asked|said)))\b"
-    r"|\bi\s+asked\s+you\b|\bwhy\s+the\s+(?:fuck|hell)\b",
+    r"|\bi\s+asked\s+you\b|\bwhy\s+the\s+(?:fuck|hell)\b"
+    r"|\byou\s+(?:did\s+not|didn'?t|have\s+not|haven'?t)\s+(?:actually\s+|even\s+)?\w+"
+    r"|\byou\s+never\s+(?!know\b)\w+",
     re.I)
 
 

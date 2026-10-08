@@ -254,6 +254,82 @@ def resolve_app(query: str) -> AppCandidate:
     return AppCandidate(name=raw)
 
 
+# Desktop-id and name parts that say who made an app or how it is packaged, not which app it is:
+# "gnome" from org.gnome.Calculator would find gnome-shell running.
+_NOT_THE_APP = frozenset({"desktop", "client", "application", "flatpak", "snap", "gnome", "freedesktop",
+                          "github", "mozilla", "google", "microsoft", "apple"})
+
+
+def _process_needles(target: "AppCandidate") -> list[str]:
+    """Words a running copy of this app has in its command line: the binary's name, the desktop
+    id's parts, the app name's longer words."""
+    words: list[str] = []
+    if target.command:
+        words.append(os.path.basename(str(target.command[0])))
+    if target.desktop_id:
+        words += re.split(r"[._\-]+", Path(str(target.desktop_id)).stem)
+    words += re.split(r"\W+", str(target.name or ""))
+    out: list[str] = []
+    for w in words:
+        w = w.strip().lower()
+        if len(w) >= 4 and w not in _NOT_THE_APP and w not in out:
+            out.append(w)
+    return out
+
+
+# Launchers, and tools that name an app in their arguments without being it ("playerctl -p spotify").
+_NOT_AN_APP = frozenset({"gtk-launch", "xdg-open", "gio", "flatpak-spawn", "env", "sh", "bash", "playerctl",
+                         "grep", "pgrep", "pkill", "dbus-send", "gdbus", "busctl", "xdotool", "wmctrl"})
+
+
+def _app_running(needles: list[str], *, loose: bool = True) -> bool:
+    """A process other than ELI whose command line names the app (loose), or whose name or program
+    path does (strict). Before a launch the strict form decides whether the app was already up:
+    "settings" is in gsd-xsettings. After it the loose form decides whether it stayed up, so an app
+    run by an interpreter (java -jar app.jar) is not reported closed."""
+    if not needles:
+        return False
+    try:
+        import psutil
+    except Exception:
+        return False
+    me = os.getpid()
+    for proc in psutil.process_iter(["pid", "name", "cmdline"]):
+        try:
+            info = proc.info
+            name = str(info.get("name") or "").lower()
+            if info["pid"] == me or name in _NOT_AN_APP:
+                continue
+            argv = [str(a).lower() for a in (info.get("cmdline") or [])]
+            if loose:
+                found = any(n in " ".join([name] + argv) for n in needles)
+            else:
+                parts = set(re.split(r"[\\/]+", argv[0] if argv else name)) | {name}
+                found = any(n in parts for n in needles)
+            if found:
+                return True
+        except Exception:
+            continue
+    return False
+
+
+def _stayed_up(needles: list[str], was_running: bool, window: float = 8.0) -> bool:
+    """True when the app is running a moment after the launch. A launch that "worked" can still
+    end at once: Spotify started from the AppImage died on the bundle's libraries while ELI said
+    "Opened app: Spotify". An app already running counts (the launch hands over to it)."""
+    import time as _time
+    if was_running or not needles:
+        return True
+    deadline = _time.monotonic() + window
+    while _time.monotonic() < deadline:
+        if _app_running(needles):
+            _time.sleep(1.0)
+            if _app_running(needles):
+                return True
+        _time.sleep(0.25)
+    return False
+
+
 def open_app(name: str) -> dict:
     target = resolve_app(name)
     sysname = _system()
@@ -261,14 +337,23 @@ def open_app(name: str) -> dict:
         return _result(False, "OPEN_APP", "No app name supplied.")
 
     if sysname == "linux":
+        needles = _process_needles(target)
+        was_running = _app_running(needles, loose=False)
+        launched = False
         launcher = shutil.which("gtk-launch")
         if launcher and target.desktop_id and _popen([launcher, target.desktop_id]):
-            return _result(True, "OPEN_APP", f"Opened app: {target.name}", resolved=target.__dict__)
-        if target.command and shutil.which(target.command[0]) and _popen(target.command):
-            return _result(True, "OPEN_APP", f"Opened app: {target.name}", resolved=target.__dict__)
-        exe = shutil.which(target.name)
-        if exe and _popen([exe]):
-            return _result(True, "OPEN_APP", f"Opened app: {target.name}", resolved=target.__dict__)
+            launched = True
+        elif target.command and shutil.which(target.command[0]) and _popen(target.command):
+            launched = True
+        else:
+            exe = shutil.which(target.name)
+            launched = bool(exe and _popen([exe]))
+        if launched:
+            if _stayed_up(needles, was_running):
+                return _result(True, "OPEN_APP", f"Opened app: {target.name}", resolved=target.__dict__)
+            return _result(False, "OPEN_APP",
+                           f"{target.name} started but closed straight away, so it isn't open.",
+                           resolved=target.__dict__)
 
     if sysname == "darwin":
         opener = shutil.which("open")

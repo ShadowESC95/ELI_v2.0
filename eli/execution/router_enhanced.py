@@ -5442,6 +5442,9 @@ def _eli_mqc_clean_query(q: str) -> str:
     """
     q = _eli_mqc_re.sub(r"\s+", " ", str(q or "")).strip(" .,!?:;")
     q = _eli_mqc_re.sub(r"^(open|play|search|find)\s+", "", q, flags=_eli_mqc_re.I).strip()
+    # Punctuation between words is not part of the song: "play evil; by eminem" searched "evil; eminem".
+    # Inside a word it stays (P!nk, AC/DC, B.I.G.).
+    q = _eli_mqc_re.sub(r"[\"“”]+|(?:[;!?,]+|\.{2,}|…)(?=\s|$)", " ", q)
     # Strip trailing service qualifiers — the router already extracted `target`.
     # Without this, "logic by diabolic on spotify" → query="logic by diabolic on spotify"
     # instead of the expected "logic by diabolic".

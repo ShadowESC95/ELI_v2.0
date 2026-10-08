@@ -4527,6 +4527,15 @@ def _required_pipeline_stages(action_u: str, mode: str) -> set:
     return required_ids
 
 
+def _said_about_the_user(text: str) -> bool:
+    """Whether a reply's statements (its questions aside) are about the user more than about ELI."""
+    statements = [x for x in re.split(r"(?<=[.!?])\s+", str(text or "")) if x.strip() and not x.strip().endswith("?")]
+    joined = " ".join(statements)
+    you = len(re.findall(r"\byou(?:'re|'ve|'d|'ll|r|rs|rself)?\b", joined, re.I))
+    me = len(re.findall(r"\b(?:i|i'm|i've|i'd|i'll|me|my|mine|myself)\b", joined, re.I))
+    return you > me
+
+
 class CognitiveEngine:
     def __init__(
         self,
@@ -10451,6 +10460,17 @@ Answer:"""
             _biographical_dispute = _bio_dispute(user_input or "")
         except Exception:
             _biographical_dispute = False
+        # "Why do you say that?" disputes a claim about the user only when the claim WAS about the
+        # user. After "Feels like I've had a bit more caffeine than usual" it asks ELI what it meant;
+        # treated as a dispute, ELI apologised for "implying anything about your caffeine intake".
+        if _biographical_dispute and _prev_eli and not _said_about_the_user(_prev_eli):
+            _biographical_dispute = False
+            _corr_system += (
+                " The user is asking about something YOU said about YOURSELF in the exchange above. "
+                "Say plainly what you meant, in ELI's voice. If it was a figure of speech or a joke "
+                "(you are software: no body, sleep, food or caffeine), say so. Do not apologise for "
+                "something about the user that you never said."
+            )
         if _biographical_dispute:
             _corr_system += (
                 " The user is disputing a specific claim YOU made about their life, habits, or experiences. "

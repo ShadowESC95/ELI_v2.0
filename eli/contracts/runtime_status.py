@@ -397,8 +397,9 @@ def build_content(
         lines.append("Requested vs loaded:")
         if facts.get("differences"):
             lines += [f"- loaded_below_request: {d}" for d in facts["differences"]]
-        else:
+        elif not facts.get("above_request"):
             lines.append("- requested_vs_loaded: match")
+        lines += [f"- loaded_above_request: {d}" for d in facts.get("above_request") or ()]
         tuner = facts.get("tuner_recommendation") or {}
         if tuner:
             lines.append("- tuner_suggestion (a stored fallback, NOT what loaded): "

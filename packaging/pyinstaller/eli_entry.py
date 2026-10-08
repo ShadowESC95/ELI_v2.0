@@ -37,6 +37,14 @@ multiprocessing.freeze_support()
 # GNOME/KDE set QT_STYLE_OVERRIDE=adwaita; PySide6 only ships Fusion/Windows.
 os.environ.pop("QT_STYLE_OVERRIDE", None)
 
+# Programs ELI starts get the machine's environment, not the bundle's libraries and paths
+# (eli/core/host_env.py). Before -c/-m, so helper processes are covered too.
+try:
+    from eli.core.host_env import install as _install_host_env
+    _install_host_env()
+except Exception as _host_env_exc:
+    print(f"[ELI] host environment for child programs not installed: {_host_env_exc}", file=sys.stderr)
+
 # python -c / -m passthrough for self-spawned helpers (see module docstring).
 if len(sys.argv) >= 2 and sys.argv[1] == "-c":
     _code = sys.argv[2] if len(sys.argv) >= 3 else ""

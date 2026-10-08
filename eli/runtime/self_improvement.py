@@ -348,8 +348,15 @@ def _change_in_workspace(path: Path, old: str, new: str) -> bool:
     return True
 
 
+# Colour codes inside "FAILED tests/x.py::t" hid every failure from the parse below when the user's
+# shell sets FORCE_COLOR: a regression read as "unchanged".
+_ANSI = re.compile(r"\x1b\[[0-9;]*[A-Za-z]")
+
+
 def _run_cmd(cmd: List[str], cwd: Path, timeout: float) -> Dict[str, Any]:
-    env = dict(os.environ, PYTHONPATH=str(cwd), ELI_TEST_MODE="1", PYTHONDONTWRITEBYTECODE="1")
+    env = dict(os.environ, PYTHONPATH=str(cwd), ELI_TEST_MODE="1", PYTHONDONTWRITEBYTECODE="1",
+               PY_COLORS="0", NO_COLOR="1")
+    env.pop("FORCE_COLOR", None)
     t0 = time.time()
     try:
         proc = subprocess.run(cmd, cwd=str(cwd), env=env, capture_output=True, text=True, timeout=timeout)
@@ -357,7 +364,8 @@ def _run_cmd(cmd: List[str], cwd: Path, timeout: float) -> Dict[str, Any]:
         return {"status": "timeout", "seconds": round(time.time() - t0, 1), "failed": []}
     except Exception as exc:
         return {"status": "error", "error": str(exc), "seconds": round(time.time() - t0, 1), "failed": []}
-    failed = sorted(set(re.findall(r"^FAILED (\S+)", proc.stdout or "", re.M)))
+    out = _ANSI.sub("", proc.stdout or "")
+    failed = sorted(set(re.findall(r"^FAILED (\S+)", out, re.M)))
     if proc.returncode == 5:
         status = "no_tests"
     elif proc.returncode in (0, 1):
@@ -365,7 +373,7 @@ def _run_cmd(cmd: List[str], cwd: Path, timeout: float) -> Dict[str, Any]:
     else:
         status = "error"
     return {"status": status, "returncode": proc.returncode, "seconds": round(time.time() - t0, 1), "failed": failed,
-            "tail": "\n".join((proc.stdout or proc.stderr or "").strip().splitlines()[-4:])}
+            "tail": "\n".join((out or _ANSI.sub("", proc.stderr or "")).strip().splitlines()[-4:])}
 
 
 def compare_runs(baseline: Dict[str, Any], candidate: Dict[str, Any]) -> str:

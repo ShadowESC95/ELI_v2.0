@@ -1975,8 +1975,10 @@ def _format_runtime_status(report: Dict[str, Any]) -> str:
         if _facts.get('differences'):
             for _d in _facts['differences']:
                 lines.append(f"- loaded_below_request: {_d}")
-        elif runtime.get('requested') or runtime.get('effective'):
+        elif (runtime.get('requested') or runtime.get('effective')) and not _facts.get('above_request'):
             lines.append("- requested_vs_loaded: match")
+        for _d in _facts.get('above_request') or ():
+            lines.append(f"- loaded_above_request: {_d}")
         if _facts.get('tuner_recommendation'):
             lines.append(
                 "- tuner_suggestion (stored fallback, NOT what loaded): "

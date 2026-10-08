@@ -395,13 +395,8 @@ def _external_tool_env() -> Dict[str, str]:
     4096 MB VRAM guess and roughly halves every GPU layer count downstream.
     Not frozen: LD_LIBRARY_PATH_ORIG is unset and this is a no-op copy.
     """
-    env = os.environ.copy()
-    orig = env.get("LD_LIBRARY_PATH_ORIG")
-    if orig is not None:
-        env["LD_LIBRARY_PATH"] = orig
-    elif "LD_LIBRARY_PATH" in env and getattr(sys, "frozen", False):
-        env.pop("LD_LIBRARY_PATH", None)
-    return env
+    from eli.core.host_env import host_env
+    return host_env()
 
 
 def nvidia_smi_path() -> Optional[str]:

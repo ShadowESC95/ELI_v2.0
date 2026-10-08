@@ -105,3 +105,15 @@ def test_the_unproven_switch_restores_the_old_behaviour(project, tmp_path, monke
     monkeypatch.setattr(si, "_run_targeted_tests", lambda path, timeout=120.0: (False, True, "no matching tests"))
     e = _engine(tmp_path)
     assert e.apply_autonomously({"file": "eli/calc.py", "old": "return -a", "new": "return -a  # x", "description": "d"})["applied"]
+
+
+def test_failures_are_read_when_the_shell_forces_colour(tmp_path, monkeypatch):
+    """FORCE_COLOR in the user's shell put colour codes inside every "FAILED tests/..." line, the
+    parse found none, and a candidate that broke a test read as "unchanged"."""
+    import sys
+    monkeypatch.setenv("FORCE_COLOR", "3")
+    shows = ("import os, sys; print('colour' if os.environ.get('FORCE_COLOR') else 'plain'); "
+             "print('\\x1b[31mFAILED\\x1b[0m tests/a.py::\\x1b[1mt\\x1b[0m - x'); sys.exit(1)")
+    res = si._run_cmd([sys.executable, "-c", shows], tmp_path, 30)
+    assert res["failed"] == ["tests/a.py::t"]
+    assert "plain" in res["tail"] and "\x1b" not in res["tail"]

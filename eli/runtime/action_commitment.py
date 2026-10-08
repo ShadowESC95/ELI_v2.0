@@ -58,7 +58,13 @@ _REDO_RE = re.compile(
     r"(?:are|were)\s+you\s+(?:actually|even|really)\s+\w+ing|"
     r"did\s+you\s+(?:actually|even|really)\s+\w+|"
     r"go\s+(?:on|ahead)\s+(?:then|and\s+\w+)|"
-    r"actually\s+(?:do|run|check|fetch|search)\s+it"
+    r"actually\s+(?:do|run|check|fetch|search)\s+it|"
+    # It didn't happen: "you did not open spotify", "spotify didn't open", "nothing happened".
+    # Live: "You did not open spotify again!!!" got a made-up account of checking the logs.
+    r"you\s+(?:did\s*n[o']?t|didn'?t|never|have\s*n[o']?t|haven'?t)\s+(?:actually\s+|even\s+|really\s+)?\w+|"
+    r"\b(?!(?:i|we)\b)\w+\s+(?:did\s*n[o']?t|didn'?t|never|has\s*n[o']?t|hasn'?t|won'?t)\s+"
+    r"(?:open|opened|play|played|start|started|launch|launched|load|loaded|work|worked|happen|happened)|"
+    r"nothing\s+(?:happened|opened|played|started|is\s+playing)"
     r")\b",
     re.I,
 )
@@ -87,7 +93,15 @@ REDO_MAX_AGE_S = 300.0
 _GENERIC_REDO_VERBS = {
     "do", "doing", "did", "done", "run", "running", "check", "checking", "try",
     "trying", "go", "look", "looking", "fetch", "fetching", "search", "searching",
-    "it", "that", "again", "work", "working", "happen", "happening",
+    "it", "that", "again", "work", "working", "worked", "happen", "happening", "happened",
+}
+# Words that say nothing about WHAT should have happened.
+_NOT_AN_OBJECT = {
+    "the", "a", "an", "it", "that", "this", "again", "me", "my", "for", "properly", "even",
+    "actually", "really", "when", "i", "asked", "you", "to", "at", "all", "fucking", "fuckin",
+    "bloody", "just", "yet", "now", "please", "song", "track", "music", "app", "still",
+    "not", "didn't", "didnt", "never", "has", "hasn't", "hasnt", "have", "haven't", "havent",
+    "won't", "wont", "nothing", "is",
 }
 
 
@@ -107,7 +121,18 @@ def redo_applies(text: str, last_cmd: Optional[Dict[str, Any]],
     age = (time.time() if now is None else float(now)) - float(last_cmd.get("ts") or 0.0)
     if age > REDO_MAX_AGE_S:
         return False
+    # A complaint that names what didn't happen ("you did not open spotify") is about the last
+    # command only if that command was about the same thing.
     verb = _redo_verb(text)
+    s = str(text or "")
+    m = _REDO_RE.search(s)
+    said = re.findall(r"[a-z0-9']+", m.group(0).lower()) + re.findall(r"[a-z0-9']+", s[m.end():].lower())[:4]
+    named = [w for w in said if w != verb and w not in _NOT_AN_OBJECT and w not in _GENERIC_REDO_VERBS]
+    if named:
+        last_words = " ".join([str(last_cmd.get("input") or ""), str(last_cmd.get("action") or "").replace("_", " ")]
+                              + [str(v) for v in (last_cmd.get("args") or {}).values()]).lower()
+        if not any(w in last_words for w in named):
+            return False
     if not verb or verb in _GENERIC_REDO_VERBS:
         return True
     stem = re.sub(r"(?:ing|ed)$", "", verb)  # pausing -> paus, played -> play

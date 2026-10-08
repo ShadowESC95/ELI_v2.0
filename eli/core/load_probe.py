@@ -308,7 +308,8 @@ def _record(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
 # identically from a source checkout and from a PyInstaller bundle, where a
 # `-m eli.core.load_probe` invocation is not available.
 _CHILD = r'''
-import json, sys
+import json, os, sys, time
+_t0 = time.monotonic()
 cfg = json.loads(sys.argv[1])
 try:
     from llama_cpp import Llama
@@ -342,6 +343,7 @@ finally:
             _moe_ctx.__exit__(None, None, None)
         except Exception:
             pass
+print("LOADED %.1f" % (time.monotonic() - _t0), flush=True)
 # Drive a real decode: loading alone proves nothing (the abort happened with the model resident and
 # the context created). The compute buffer for a large prompt isn't allocated until generation, so
 # push a prompt of the size the caller will really use.
@@ -352,8 +354,10 @@ try:
 except Exception as e:
     print("DECODE_FAIL:%s" % e, file=sys.stderr)
     raise SystemExit(5)
-print("PROBE_OK")
-raise SystemExit(0)
+print("PROBE_OK %.1f" % (time.monotonic() - _t0), flush=True)
+sys.stderr.flush()
+# A throwaway process: nothing to tidy, and a slow teardown must not cost the verdict.
+os._exit(0)
 '''
 
 
@@ -365,6 +369,20 @@ PROVEN_BAD = "bad"          # ran, failed (this is what the CUDA abort looks lik
 UNPROVEN_TIMEOUT = "timeout"      # ran, did not finish in the budget
 UNPROVEN_UNAVAILABLE = "unavailable"  # could not run at all — no information
 SKIPPED = "skipped"         # nothing to prove (cpu-only, disabled)
+
+
+def _stage_reached(stdout: str, probe_tokens: int) -> str:
+    """How far the child got, from the lines it printed as it went."""
+    marks = {}
+    for line in str(stdout or "").splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] in ("LOADED", "PROBE_OK"):
+            marks[parts[0]] = parts[1]
+    if "PROBE_OK" in marks:
+        return f"loaded and ran the {probe_tokens}-token test prompt in {marks['PROBE_OK']}s"
+    if "LOADED" in marks:
+        return f"loaded in {marks['LOADED']}s; the {probe_tokens}-token test prompt had not finished"
+    return "the model had not finished loading"
 
 
 def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
@@ -444,13 +462,20 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
             [sys.executable, "-c", _CHILD, payload],
             capture_output=True, text=True, timeout=timeout,
         )
-    except subprocess.TimeoutExpired:
+    except subprocess.TimeoutExpired as _late:
+        seen = _late.stdout or ""
+        seen = seen.decode("utf-8", "replace") if isinstance(seen, bytes) else str(seen)
+        if "PROBE_OK" in seen:
+            _record(model_path, n_ctx, n_gpu_layers, n_batch, True, "ok", free_mb=free_now)
+            log.debug("[LOAD_PROBE] passed; the probe process did not exit inside %.0fs", timeout)
+            return PROVEN_OK, f"verified ({_stage_reached(seen, probe_tokens)})"
         # Slow, not proven broken. Do not override the operator on a timeout, and do
         # not cache a VERDICT that was never reached — only the fact that it timed
         # out, briefly, so the next launch does not re-pay the same budget.
         _record_timeout(model_path, n_ctx, n_gpu_layers, n_batch, free_mb=free_now)
-        log.debug("[LOAD_PROBE] timed out after %.0fs — treating as unproven", timeout)
-        return UNPROVEN_TIMEOUT, f"probe timed out after {timeout:.0f}s (unproven)"
+        stage = _stage_reached(seen, probe_tokens)
+        log.debug("[LOAD_PROBE] timed out after %.0fs — treating as unproven; %s", timeout, stage)
+        return UNPROVEN_TIMEOUT, f"probe timed out after {timeout:.0f}s (unproven): {stage}"
     except Exception as e:
         log.debug("[LOAD_PROBE] could not run: %s", e)
         return UNPROVEN_UNAVAILABLE, f"probe unavailable: {e}"

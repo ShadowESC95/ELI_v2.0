@@ -73,12 +73,18 @@ META_CAPABILITY_COMPLAINT_RE = re.compile(
 )
 
 # User correcting ELI's claimed model identity ("you are GLM", "no you are not Ornith").
+# A dispute about which model ELI runs names the model, or is the whole reply ("no you are not").
+# "You are not" anywhere matched before: "...but you are not properly searching for songs" got
+# the runtime-status dump.
+_MODEL_WORDS = (r"(?:glm|qwen\w*|ornith|llama|mistral|claude|gemma|phi|deepseek|gpt\w*|nemotron|"
+                r"(?:the|that|a|this)\s+model|running\s+\w+|loaded|using\s+\w+)")
 MODEL_IDENTITY_DISPUTE_RE = re.compile(
-    r"\b(?:no you are not|you are not|you're not|not what i said)\b"
+    rf"\byou(?:'re| are)\s+not\s+(?:\w+\s+){{0,2}}?{_MODEL_WORDS}\b"
     r"|\byou(?:'re| are)\s+(?:glm|qwen|ornith|llama|mistral|claude)\b"
     r"|\b(?:wrong model|not ornith|not glm|not qwen)\b"
     r"|\bcheck(?:\s+the|\s+your)?\s+model\s+again\b"
-    r"|\blook at (?:the|your) model\b",
+    r"|\blook at (?:the|your) model\b"
+    r"|^\W*(?:no\W+)?you(?:'re| are)\s+not\W*$",
     re.I,
 )
 

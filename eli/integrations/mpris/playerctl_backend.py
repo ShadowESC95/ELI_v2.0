@@ -22,6 +22,7 @@ import os
 import re
 import shutil
 import subprocess
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 from eli.utils import platform_compat as platform
@@ -118,6 +119,22 @@ def list_players() -> List[str]:
 def _metadata(player: str, key: str) -> str:
     ok, out, _ = _run(["playerctl", "-p", player, "metadata", key], timeout=3)
     return out if ok else ""
+
+
+def _track_key(player: str) -> str:
+    return _metadata(player, "mpris:trackid") or (
+        _metadata(player, "xesam:artist") + "\t" + _metadata(player, "xesam:title")).strip()
+
+
+def _switched(player: str, before: str, wait: float = 2.0) -> bool:
+    """True once the player shows a different track from `before`."""
+    deadline = time.monotonic() + wait
+    while True:
+        if _track_key(player) != before:
+            return True
+        if time.monotonic() >= deadline:
+            return False
+        time.sleep(0.1)
 
 
 def get_player_info(player: str) -> Dict[str, Any]:
@@ -421,13 +438,18 @@ def _playerctl(cmd: str, player: Optional[str] = None, extra: Optional[List[str]
         suffix = f" matching '{player}'" if player else ""
         return _err(f"No media player{suffix} is currently running")
 
+    # A player takes a moment to change track; read straight away, "next" named the track it
+    # had just left ("⏭ Next track — spotify (Eminem — Trouble)", live 2.5.6).
+    skips = cmd in ("next", "previous")
+    before = _track_key(p) if skips else ""
     argv = ["playerctl", "-p", p, cmd] + (extra or [])
     ok, stdout, stderr = _run(argv)
 
     if ok:
+        named = _switched(p, before) if skips else True
         info = get_player_info(p)
         now_playing = ""
-        if info.get("title"):
+        if info.get("title") and named:
             artist = str(info.get("artist") or "").strip()
             title = str(info.get("title") or "").strip()
             now_playing = f" ({artist} — {title})" if artist else f" ({title})"

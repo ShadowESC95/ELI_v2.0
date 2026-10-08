@@ -84,6 +84,8 @@ def runtime_load_facts(snapshot: Dict[str, Any] | None,
         _why += f"; other programs held {_held})" if _held else ")"
 
     differences: list[str] = []
+    # More than was saved is not a shortfall: llama.cpp pads n_ctx up (16000 loads as 16128).
+    above: list[str] = []
     for key, label in _LOAD_LABELS.items():
         pair = reduced.get(key)
         if pair:
@@ -101,7 +103,7 @@ def runtime_load_facts(snapshot: Dict[str, Any] | None,
         except Exception:
             continue
         if configured > 0 and loaded > 0 and configured != loaded:
-            differences.append(
+            (above if loaded > configured else differences).append(
                 f"{_LOAD_LABELS[key]}: saved setting {configured}, loaded {loaded}")
 
     tuner: Dict[str, Any] = {}
@@ -118,6 +120,7 @@ def runtime_load_facts(snapshot: Dict[str, Any] | None,
         "vram_free_mb_at_load": _free_at_load,
         "vram_held_by_others": _held,
         "differences": differences,
+        "above_request": above,
         "consistent": not differences,
         "tuner_recommendation": tuner,
         "tuner_note": (
