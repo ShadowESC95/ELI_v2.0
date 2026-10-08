@@ -28,8 +28,10 @@ separate and more honest: what I've genuinely **run**.
   does not bundle. Qt's error is **misleading**: it always says *"libxcb-cursor0 is needed"* whichever
   member is actually missing (on this VM the real culprit was `libxcb-icccm.so.4`). v2.1.20 bundled
   only `libxcb-cursor` and put it in the wrong directory, so it still failed; **v2.1.21 bundles the
-  full family into `PySide6/Qt/lib`** (the dir the plugin's RUNPATH searches) and CI asserts each
-  member is present there + runs a virtual-X GUI selftest, so it can't regress. The AppImage now
+  full family into `PySide6/Qt/lib`** (the dir the plugin's RUNPATH searches). The list is now read
+  from the plugin itself at build time (PySide6 6.11 added `libxcb-shape` and other xcb extension
+  libraries), CI asserts each is present there, and the virtual-X selftest starts Qt for real (it
+  only imported it before, so it could not catch a missing library). The AppImage now
   launches out of the box on minimal distros with no `pacman`/`apt` needed.
 - **Database on WAL-hostile filesystems fixed (2026-07-20, v2.1.19):** the portable build stores its
   database under the folder it is extracted to. On filesystems that don't support SQLite's
@@ -77,7 +79,7 @@ A few edges worth knowing going in:
   bundles the full xcb-util family as of v2.1.21, but a **source / portable** install uses your
   system's Qt libraries. On a minimal desktop the GUI may need the xcb-util family installed:
   Debian/Ubuntu `libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0
-  libxcb-util1`; Arch `xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil
+  libxcb-util1 libxcb-shape0`; Arch `xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil
   xcb-util`. The AppImage does not — it ships them itself.
 - **AMD voice is CPU-only** — the speech-to-text engine (CTranslate2) has no ROCm support, so on an
   AMD GPU it stays on the CPU (works, just not accelerated). The main model + vision use the AMD GPU

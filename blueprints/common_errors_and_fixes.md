@@ -439,12 +439,14 @@ always blames `libxcb-cursor0` even when the real missing library is a different
 test Arch box the actual culprit was `libxcb-icccm.so.4`).
 **Fix:** fixed in **v2.1.21** — the AppImage now bundles the full xcb-util family (in
 `PySide6/Qt/lib`), so it launches out of the box on bare Arch/Debian with no extra packages.
+Since PySide6 6.11 the plugin also links `libxcb-shape` and the other xcb extension libraries; the
+build now reads the list from the plugin itself, bundles every one, and fails if one is missing.
 On an older build, install them yourself:
 ```bash
 # Arch
 sudo pacman -S xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util
 # Debian/Ubuntu
-sudo apt install libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-util1
+sudo apt install libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-util1 libxcb-shape0
 ```
 Diagnose exactly which library is missing (Qt's own trace names it):
 ```bash

@@ -88,7 +88,7 @@ Two fixes worth knowing, both resolved in current builds and verified on a clean
   real missing library is often `libxcb-icccm.so.4`, not the cursor lib). **v2.1.21+** bundles
   all of them in the AppImage. On an older build or a **source** install, add them:
   - Arch: `sudo pacman -S xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util`
-  - Debian/Ubuntu: `sudo apt install libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-util1`
+  - Debian/Ubuntu: `sudo apt install libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-util1 libxcb-shape0`
 
 Run the AppImage **directly** (as above) rather than with `--appimage-extract-and-run`, which
 unpacks ~4 GB into `/tmp` and can fail with `libz.so.1: file too short` on a small `tmpfs`.

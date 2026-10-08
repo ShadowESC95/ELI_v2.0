@@ -26,6 +26,7 @@ Design notes
 """
 
 import os
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -340,30 +341,26 @@ if sys.platform == "win32":
 # standard on every X system and mixing them with the host's risks conflicts.
 if sys.platform.startswith("linux"):
     _qt_lib_dest = os.path.join("PySide6", "Qt", "lib")
-    _xcb_util_libs = (
-        "libxcb-cursor.so.*", "libxcb-icccm.so.*", "libxcb-image.so.*",
-        "libxcb-keysyms.so.*", "libxcb-render-util.so.*", "libxcb-util.so.*",
-    )
-    _xcb_dirs = ("/usr/lib/x86_64-linux-gnu", "/usr/lib64", "/usr/lib",
-                 "/lib/x86_64-linux-gnu", "/lib")
-    for _pat in _xcb_util_libs:
-        _hit = None
-        for _d in _xcb_dirs:
-            _dp = Path(_d)
-            if not _dp.is_dir():
-                continue
-            _matches = sorted(_dp.glob(_pat))
-            if _matches:
-                _hit = _matches[0]
-                break
-        if _hit is not None:
-            binaries.append((str(_hit), _qt_lib_dest))
-            print(f"[ELI.spec] bundling Qt xcb dependency: {_hit} -> {_qt_lib_dest}")
-        else:
-            print(f"[ELI.spec] WARNING: {_pat} not found on build host — Qt's xcb "
-                  "plugin needs the full xcb-util family on lean distros (Debian: "
-                  "libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 "
-                  "libxcb-util1 libxcb-cursor0)")
+    # Which ones: what the plugin itself links, read from it. A hand-written list of six missed
+    # libxcb-shape (PySide6 6.11's libQt6XcbQpa needs it), so the GUI could not start on an X11 desktop
+    # without it, and the xcb selftest failed the first time it really started Qt.
+    import PySide6 as _pyside
+    from PyInstaller.depend.bindepend import get_imports as _needed_libs
+    _qt_dir = Path(_pyside.__file__).parent / "Qt"
+    _xcb_needed: dict = {}
+    for _so in (_qt_dir / "lib" / "libQt6XcbQpa.so.6", _qt_dir / "plugins" / "platforms" / "libqxcb.so"):
+        if _so.is_file():
+            for _name, _path in _needed_libs(str(_so)):
+                if re.match(r"lib(?:xcb-|xkbcommon)", _name):
+                    _xcb_needed.setdefault(_name, _path)
+    _missing = sorted(n for n, p in _xcb_needed.items() if not p)
+    if _missing:
+        _fail("Qt's xcb plugin links " + ", ".join(_missing) + ", not installed on this build host; install "
+              "them (Debian/Ubuntu: the matching libxcb-* / libxkbcommon packages) or the app will not start on "
+              "an X11 desktop that lacks them")
+    for _name, _path in sorted(_xcb_needed.items()):
+        binaries.append((str(_path), _qt_lib_dest))
+        print(f"[ELI.spec] bundling Qt xcb dependency: {_path} -> {_qt_lib_dest}")
 
 for pkg in ("llama_cpp", "faster_whisper", "openwakeword", "piper"):
     datas += _optional_collect(pkg, data=True)

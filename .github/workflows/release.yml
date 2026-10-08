@@ -412,7 +412,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             portaudio19-dev libasound2-dev libegl1 libgl1 libxkbcommon-x11-0 \
             libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 \
-            libxcb-render-util0 libxcb-util1 espeak-ng xvfb
+            libxcb-render-util0 libxcb-util1 libxcb-shape0 libxcb-randr0 libxcb-render0 \
+            libxcb-shm0 libxcb-sync1 libxcb-xfixes0 libxcb-xkb1 libxkbcommon0 espeak-ng xvfb
 
       - name: Install dependencies (core hard-fails; optional extras degrade loudly)
         run: |
@@ -540,9 +541,12 @@ jobs:
           # v2.1.20 bundled libxcb-cursor into the bundle root instead, which the
           # plugin never searches, so the GUI still failed on lean distros. Checking
           # the precise dir (not just "present somewhere") is what closes that gap.
+          # The list is what the bundled plugin links (readelf), not a list kept by hand.
           QTLIBDIR=dist/ELI/_internal/PySide6/Qt/lib
-          for _lib in libxcb-cursor.so libxcb-icccm.so libxcb-image.so \
-                      libxcb-keysyms.so libxcb-render-util.so libxcb-util.so; do
+          _needed=$(readelf -d dist/ELI/_internal/PySide6/Qt/plugins/platforms/libqxcb.so "$QTLIBDIR/libQt6XcbQpa.so.6" \
+                    | grep -o 'Shared library: \[lib\(xcb-\|xkbcommon\)[^]]*' | sed 's/.*\[//' | sort -u)
+          test -n "$_needed" || { echo "::error::could not read the xcb plugin's libraries"; exit 1; }
+          for _lib in $_needed; do
             if ! ls "$QTLIBDIR/$_lib"* >/dev/null 2>&1; then
               echo "::error::$_lib is NOT bundled in $QTLIBDIR — Qt xcb GUI will fail on minimal distros"
               exit 1
