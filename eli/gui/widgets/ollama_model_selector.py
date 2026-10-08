@@ -22,7 +22,7 @@ import logging
 import threading
 from typing import List, Optional
 
-from eli.gui.qt_compat import Qt, QTimer, pyqtSignal
+from eli.gui.qt_compat import QObject, Qt, QTimer, pyqtSignal
 from eli.gui.qt_compat import (
     QComboBox,
     QDialog,
@@ -227,6 +227,41 @@ class OllamaSetupDialog(QDialog):
             QMessageBox.critical(self, "Error", str(e))
 
 
+class _WorkerRelay(QObject):
+    """Where worker threads report. A worker that held the selector itself could end up with its
+    last reference when the selector was dropped, and the widget (and its timer) would then be
+    destroyed on that thread, which corrupts Qt. The relay lives for the process, on the GUI
+    thread; each selector takes only the results tagged with its own id."""
+    # the key is id(selector): object, because a Qt int is 32 bits and an id is not
+    models_ready = pyqtSignal(object, bool, list, object)
+    pull_progress = pyqtSignal(object, str, int)
+    pull_done = pyqtSignal(object, dict)
+
+
+_relay: Optional[_WorkerRelay] = None
+
+
+def _worker_relay() -> _WorkerRelay:
+    # first called from a selector's constructor, so it is created on the GUI thread
+    global _relay
+    if _relay is None:
+        _relay = _WorkerRelay()
+    return _relay
+
+
+def _fetch_models(key: int) -> None:
+    try:
+        from eli.integrations.ollama.client import is_running, list_models, get_active_model
+        running = is_running()
+        models = list_models() if running else []
+        active = get_active_model()
+    except Exception:
+        running = False
+        models = []
+        active = None
+    _worker_relay().models_ready.emit(key, bool(running), list(models or []), active)
+
+
 class OllamaModelSelector(QWidget):
     """
     Compact toolbar widget: [● ▼ model ] [↻] [⬇] [⚙]
@@ -235,16 +270,14 @@ class OllamaModelSelector(QWidget):
 
     model_changed = pyqtSignal(str)
 
-    _models_ready = pyqtSignal(bool, list, object)
-    _pull_progress = pyqtSignal(str, int)
-    _pull_done = pyqtSignal(dict)
 
     def __init__(self, parent=None):
         super().__init__(parent)
         self._setup_ui()
-        self._models_ready.connect(self._update_ui)
-        self._pull_progress.connect(self._on_pull_progress)
-        self._pull_done.connect(self._on_pull_done)
+        relay = _worker_relay()
+        relay.models_ready.connect(self._relayed_models)
+        relay.pull_progress.connect(self._relayed_pull_progress)
+        relay.pull_done.connect(self._relayed_pull_done)
         self._pull_dialog = None
         self._pull_model_name = ""
         self._last_models: List[str] = []
@@ -307,19 +340,19 @@ class OllamaModelSelector(QWidget):
 
     def _refresh_async(self):
         self._combo.setEnabled(False)
-        threading.Thread(target=self._fetch_models, daemon=True).start()
+        threading.Thread(target=_fetch_models, args=(id(self),), daemon=True).start()
 
-    def _fetch_models(self):
-        try:
-            from eli.integrations.ollama.client import is_running, list_models, get_active_model
-            running = is_running()
-            models = list_models() if running else []
-            active = get_active_model()
-        except Exception:
-            running = False
-            models = []
-            active = None
-        self._models_ready.emit(bool(running), list(models or []), active)
+    def _relayed_models(self, key: int, running: bool, models: list, active: object):
+        if key == id(self):
+            self._update_ui(running, models, active)
+
+    def _relayed_pull_progress(self, key: int, status: str, pct: int):
+        if key == id(self):
+            self._on_pull_progress(status, pct)
+
+    def _relayed_pull_done(self, key: int, result: dict):
+        if key == id(self):
+            self._on_pull_done(result)
 
     def _update_ui(self, running: bool, models: List[str], active: Optional[str]):
         self._dot.set_state(running)
@@ -395,10 +428,11 @@ class OllamaModelSelector(QWidget):
         self._pull_model_name = model
         try:
             from eli.integrations.ollama.client import pull_model_async
+            relay, key = _worker_relay(), id(self)
             pull_model_async(
                 model,
-                progress_cb=lambda status, pct: self._pull_progress.emit(str(status or ""), int(pct or 0)),
-                done_cb=lambda result: self._pull_done.emit(dict(result or {})),
+                progress_cb=lambda status, pct: relay.pull_progress.emit(key, str(status or ""), int(pct or 0)),
+                done_cb=lambda result: relay.pull_done.emit(key, dict(result or {})),
             )
         except Exception as e:
             progress.close()

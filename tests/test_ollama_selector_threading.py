@@ -112,10 +112,27 @@ def test_ollama_selector_marshals_over_signals_not_timers(qapp):
     """Guard the mechanism itself, so a refactor can't reintroduce the defect."""
     import inspect
     from eli.gui.widgets import ollama_model_selector as mod
-    src = inspect.getsource(mod.OllamaModelSelector._fetch_models)
+    src = inspect.getsource(mod._fetch_models)
     # Strip comments/docstring mentions — we care about a real call, not the word.
     code = "\n".join(ln.split("#", 1)[0] for ln in src.splitlines())
     assert "QTimer.singleShot(" not in code, \
         "_fetch_models runs off-thread; a QTimer started there never fires. Emit a signal."
-    assert "_models_ready.emit(" in code, "_fetch_models must hand back over the signal"
-    assert hasattr(mod.OllamaModelSelector, "_models_ready")
+    assert "models_ready.emit(" in code, "_fetch_models must hand back over the signal"
+    assert "self" not in inspect.signature(mod._fetch_models).parameters
+
+
+def test_a_selector_dropped_mid_fetch_is_not_destroyed_on_the_worker(qapp, _stub_ollama):
+    """The worker used to hold the selector; dropping the selector while a fetch ran left the
+    worker with its last reference, so the widget and its timer were destroyed on that thread
+    ("Timers cannot be stopped from another thread"), and the next test's event loop crashed."""
+    import gc
+    import threading
+    from eli.gui.widgets.ollama_model_selector import OllamaModelSelector
+    before = {t.ident for t in threading.enumerate()}
+    w = OllamaModelSelector()
+    del w
+    gc.collect()
+    for t in [t for t in threading.enumerate() if t.ident not in before]:
+        t.join(timeout=5)
+    later = OllamaModelSelector()
+    assert _drive(qapp, lambda: later._combo.count() > 0)

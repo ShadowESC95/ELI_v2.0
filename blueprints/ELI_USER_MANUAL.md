@@ -401,6 +401,9 @@ topic, not only reminders.
 
 ### 🔧 ELI improving itself
 - "improve yourself" → a self-improvement patch cycle — proposed, and **gated by your approval**.
+- "generate patch" · "improve yourself and propose verified fixes" → the coding agent drafts verified
+  fixes for recent failures as a **background job**
+  (it can take many model calls); "check job N" for the result. Say "in the foreground" to wait for it.
 - "show your self-improvement log" · "patch yourself" · "upgrade yourself" (git pull → deps →
   rebuild indexes) · "run your self-tests". The **Self-Improve** tab shows what it's proposing.
 

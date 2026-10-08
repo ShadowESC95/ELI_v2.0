@@ -148,6 +148,7 @@ jobs:
           tests/test_env_repair.py
           tests/test_linux_build_baseline.py
           tests/test_test_files_stay_sparse.py
+          tests/test_gui_names_resolve.py
           tests/test_model_costs_come_from_the_file.py
           tests/test_context_is_what_loaded.py
           tests/test_vram_held_by_others.py

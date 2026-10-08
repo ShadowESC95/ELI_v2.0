@@ -2905,7 +2905,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("SELF_REPAIR_PLAYBOOK", {"question": raw}, 0.99, matched_by="self.repair_playbook")
 
     if re.search(r"\b(generate|create)\s+patch\b|\bpatch\s+(eli|system)\b", low):
-        return _mk("SELF_IMPROVE", {"mode": "propose"}, 0.93, matched_by="self.patch_propose")
+        return _mk("SELF_IMPROVE", {"mode": "propose", "_raw_user_text": raw}, 0.93, matched_by="self.patch_propose")
 
     if re.search(r"\bpatch\s+yourself\b|\bself.?patch\b|\bapply.*patch\b|\bfix\s+your\s+own\s+code\b", low):
         return _mk("SELF_PATCH", {}, 0.95, matched_by="self.patch_cycle")
@@ -3240,7 +3240,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
 
     if "improve" in low and (
             "yourself" in low or "self" in low or "code" in low):
-        return _mk("SELF_IMPROVE", {}, 0.9, matched_by="self.improve")
+        return _mk("SELF_IMPROVE", {"_raw_user_text": raw}, 0.9, matched_by="self.improve")
 
     if "suggest" in low and (
             "improvement" in low or "optimization" in low or "optimisation" in low):
@@ -5996,7 +5996,8 @@ def _eli_self_improvement_phrase_guard(text):
     ):
         return {
             "action": "SELF_IMPROVE",
-            "args": {},
+            # the executor reads the words for "propose" / "self fix" / "in the foreground"
+            "args": {"_raw_user_text": raw},
             "confidence": 0.99,
             "meta": {
                 "matched_by": "eli.self_improvement_cycle_guard",

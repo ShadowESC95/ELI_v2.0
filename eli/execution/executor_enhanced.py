@@ -2226,8 +2226,8 @@ def _record_tool_execution(action: str, args: Any, result: Any) -> None:
 
 
 def _maybe_background_code_work(action, args):
-    """Route FIX_FILE / EXAMINE_CODE to the in-process background job queue when
-    they would monopolize the shared model lock (CodeAgent, tier-3 review, sweeps).
+    """Route FIX_FILE / EXAMINE_CODE / SELF_IMPROVE propose to the in-process background job
+    queue when they would monopolize the shared model lock (CodeAgent, tier-3 review, sweeps).
     Returns None to run inline. The worker carries `_no_background` so it doesn't
     re-queue."""
     try:
@@ -2235,9 +2235,12 @@ def _maybe_background_code_work(action, args):
         if args.get("_no_background"):
             return None
         a = str(action or "").upper()
-        if a not in ("FIX_FILE", "EXAMINE_CODE"):
+        if a not in ("FIX_FILE", "EXAMINE_CODE", "SELF_IMPROVE"):
             return None
-        _env_key = "ELI_FIX_FILE_BACKGROUND" if a == "FIX_FILE" else "ELI_EXAMINE_CODE_BACKGROUND"
+        if a == "SELF_IMPROVE" and str(args.get("mode") or "").strip().lower() != "propose":
+            return None
+        _env_key = {"FIX_FILE": "ELI_FIX_FILE_BACKGROUND", "EXAMINE_CODE": "ELI_EXAMINE_CODE_BACKGROUND",
+                    "SELF_IMPROVE": "ELI_SELF_IMPROVE_BACKGROUND"}[a]
         if os.environ.get(_env_key, "1").strip().lower() in ("0", "false", "no", "off"):
             return None
 
@@ -2251,6 +2254,12 @@ def _maybe_background_code_work(action, args):
             if explicit_foreground(desc):
                 return None
             bg, reason = True, "verified file repair pipeline"
+        elif a == "SELF_IMPROVE":
+            # The coding agent over recent failures: tens of sequential model calls with the
+            # model lock held and nothing shown until it returns (a chat turn sat on it for hours).
+            if explicit_foreground(str(args.get("_raw_user_text") or "")):
+                return None
+            bg, reason = True, "coding-agent fix proposals for recent failures"
         else:
             request = (args.get("request") or args.get("query") or "").strip()
             from eli.runtime import code_examiner as _ce
@@ -2290,6 +2299,7 @@ def _maybe_background_code_work(action, args):
         _label = (
             str(_bg_args.get("path") or "")[:60]
             if a == "FIX_FILE"
+            else "fix proposals" if a == "SELF_IMPROVE"
             else (str(_bg_args.get("request") or _bg_args.get("query") or "")[:60])
         )
         jid = bt.submit(
@@ -2303,7 +2313,7 @@ def _maybe_background_code_work(action, args):
             f"background as job #{jid} — say \"check job {jid}\" for the result, or "
             f"\"background jobs\" to list them."
         )
-        return {
+        out = {
             "ok": True,
             "action": a,
             "background": True,
@@ -2311,6 +2321,9 @@ def _maybe_background_code_work(action, args):
             "content": msg,
             "response": msg,
         }
+        if a == "SELF_IMPROVE":
+            out["evidence_source"] = "coding_agent"
+        return out
     except Exception as _bg_e:
         log.debug(f"[CODE_BG] background decision failed: {_bg_e}")
         return None
@@ -8814,6 +8827,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             mode = "propose"
         if mode == "analyze" and any(k in _raw_si for k in ("self fix", "apply patch", "patch cycle")):
             mode = "patch"
+        if mode == "propose":
+            _bg = _maybe_background_code_work(a, dict(args or {}, mode="propose"))
+            if _bg is not None:
+                return _bg
         try:
             from eli.runtime.self_maintenance import (
                 fire_maintenance_world_event,
