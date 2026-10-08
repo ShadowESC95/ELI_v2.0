@@ -94,13 +94,17 @@ def test_confirm_habit_enables_rule(tmp_artifacts, tmp_memory):
     assert H.get_pending_habit() is None
 
 
-def test_decline_habit_removes_suggestion(tmp_artifacts, tmp_memory):
+def test_a_declined_habit_is_kept_disabled_and_not_offered_again(tmp_artifacts, tmp_memory):
+    """Live: "no" deleted the suggestion, the next detection made the same rule under a new id that had
+    never been offered, and ELI asked again the next session."""
     from eli.execution import executor_enhanced as EX
     rid = tmp_memory.add_habit_rule("Open spotify at 09:00", "spotify", 9, 0, None, enabled=False)
     H.set_pending_habit(rid, "Open spotify at 09:00", 9, 0, "spotify")
+    H.mark_offered(rid)
     res = EX.execute("DECLINE_HABIT", {"message": "no"})
     assert res["ok"]
-    assert rid not in {r["id"] for r in tmp_memory.get_habit_rules(enabled_only=False)}
+    rules = {r["id"]: r for r in tmp_memory.get_habit_rules(enabled_only=False)}
+    assert rid in rules and not rules[rid]["enabled"] and H.was_offered(rid)
     assert H.get_pending_habit() is None
 
 

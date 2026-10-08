@@ -107,6 +107,35 @@ def _explicit_dates(low: str, n: datetime) -> list:
     return sorted(found)
 
 
+def days_named(text: str, window: Window) -> list:
+    """The dates ("YYYY-MM-DD") inside window that text names: calendar dates as read above, and weekdays
+    when the window is a week or less (each weekday then names one date)."""
+    try:
+        since, until = float(window[0]), float(window[1])
+    except (TypeError, ValueError, IndexError):
+        return []
+    low = str(text or "").lower()
+    first, last = datetime.fromtimestamp(since), datetime.fromtimestamp(until)
+    found: list = []
+
+    def add(day: datetime) -> None:
+        d = day.strftime("%Y-%m-%d")
+        if first.strftime("%Y-%m-%d") <= d <= last.strftime("%Y-%m-%d") and d not in found:
+            found.append(d)
+    for _pos, day in _explicit_dates(low, last):
+        add(day)
+    if until - since <= 7 * 86400 + 3600:
+        sod = _start_of_day(first)
+        for i, name in enumerate(_WEEKDAYS):
+            if re.search(rf"\b{name}s?\b", low):
+                for k in range(8):
+                    day = sod + timedelta(days=k)
+                    if day.weekday() == i and day <= last:
+                        add(day)
+                        break
+    return found
+
+
 def _explicit_window(low: str, n: datetime) -> Optional[Window]:
     days = _explicit_dates(low, n)
     if len(days) >= 2 and re.search(r"\b(?:between|from)\b", low):

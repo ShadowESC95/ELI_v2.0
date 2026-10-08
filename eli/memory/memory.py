@@ -3241,11 +3241,7 @@ class Memory(metaclass=_MemoryMeta):
             conn.commit()
         finally:
             conn.close()
-        try:
-            from eli.memory.retrieval import invalidate_turn_cache
-            invalidate_turn_cache()
-        except Exception:
-            log.debug("turn cache not cleared", exc_info=True)
+        self._drop_turn_cache()
         return report
 
     @staticmethod
@@ -3324,11 +3320,74 @@ class Memory(metaclass=_MemoryMeta):
             report["turns"] += conn.execute("DELETE FROM conversation_turns WHERE lower(COALESCE(content, '')) = ? OR lower(COALESCE(content, '')) LIKE ?",
                                             (needle, f"%{needle}%")).rowcount or 0
 
+    def _drop_turn_cache(self) -> None:
+        """Retrieval caches each turn's evidence; after memories or claims change the next question must not get the old one."""
+        try:
+            from eli.memory.retrieval import invalidate_turn_cache
+            invalidate_turn_cache()
+        except Exception:
+            log.debug("turn cache not cleared", exc_info=True)
+
     def _claims_conn(self):
         from eli.memory import claims as _claims
         conn = self._get_connection()
         _claims.ensure_schema(conn)
         return conn
+
+    def record_observed(self, relation: str, value: str, when: Optional[float] = None, source: str = "") -> Optional[int]:
+        """Something ELI saw rather than was told, such as the show playing in the user's player. Activities only."""
+        from eli.memory import claims as _claims
+        if relation not in _claims.CHANGES_OFTEN or not str(value or "").strip():
+            return None
+        conn = self._claims_conn()
+        try:
+            cid = _claims.record(conn, relation, value, valid_from=when, source_text=source, origin="observed",
+                                 confidence=0.6)
+            conn.commit()
+        finally:
+            conn.close()
+        self._drop_turn_cache()
+        return cid
+
+    def backfill_claims(self, dry_run: bool = False) -> Dict[str, Any]:
+        """Read the whole conversation for claims, oldest first, once per extraction version: what the user said
+        in every message, and the episodes ELI's own player replies named ("(Game of Thrones — S2 E5 ...)")."""
+        from eli.memory import claims as _claims
+        out: Dict[str, Any] = {"turns": 0, "claims": 0}
+        conn = self._claims_conn()
+        try:
+            if self._meta_get(conn, "claims_extract_version") == _claims.EXTRACT_VERSION:
+                out["skipped"] = "current"
+                return out
+            if "conversation_turns" not in _table_names(conn):
+                return out
+            rows = conn.execute("SELECT role, content, COALESCE(ts, timestamp, 0) FROM conversation_turns "
+                                "ORDER BY COALESCE(ts, timestamp, 0), id").fetchall()
+            for role, content, ts in rows:
+                text, when = str(content or ""), float(ts or 0.0) or None
+                out["turns"] += 1
+                if str(role or "").lower() == "user":
+                    found = _claims.extract(text)
+                    out["claims"] += len(found)
+                    if found and not dry_run:
+                        _claims.record_from_text(conn, text, when=when)
+                elif str(role or "").lower() == "assistant":
+                    for inner in re.findall(r"\(([^()]{3,160})\)", text):
+                        show = _claims.observed_show(inner)
+                        if show:
+                            out["claims"] += 1
+                            if not dry_run:
+                                _claims.record(conn, "watching", show, valid_from=when, source_text=inner,
+                                               origin="observed", confidence=0.6)
+            if not dry_run:
+                self._meta_set(conn, "claims_extract_version", _claims.EXTRACT_VERSION)
+                conn.commit()
+            return out
+        except Exception as e:
+            out["error"] = str(e)
+            return out
+        finally:
+            conn.close()
 
     def record_claims_from(self, text: str, memory_id: Optional[int] = None, when: Optional[float] = None) -> List[int]:
         """Turn first-person statements into dated claims. A changed fact supersedes the old one and keeps it as history."""
@@ -3343,11 +3402,7 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
         if ids:
-            try:
-                from eli.memory.retrieval import invalidate_turn_cache
-                invalidate_turn_cache()
-            except Exception:
-                log.debug("turn cache not cleared", exc_info=True)
+            self._drop_turn_cache()
         return ids
 
     def _claims_query(self, fn, *args):
@@ -3735,7 +3790,10 @@ class Memory(metaclass=_MemoryMeta):
         """True when upkeep has not completed today. A partly failed run is retried after an hour."""
         conn = self._get_connection()
         try:
-            if self._meta_get(conn, "last_upkeep_day") == time.strftime("%Y-%m-%d"):
+            # A history read pending after an update runs on this start, not tomorrow.
+            from eli.memory import claims as _claims
+            pending = self._meta_get(conn, "claims_extract_version") != _claims.EXTRACT_VERSION
+            if self._meta_get(conn, "last_upkeep_day") == time.strftime("%Y-%m-%d") and not pending:
                 return False
             try:
                 attempt = float(self._meta_get(conn, "last_upkeep_attempt") or 0.0)
@@ -3754,6 +3812,7 @@ class Memory(metaclass=_MemoryMeta):
         steps = (
             ("backfill", lambda: self.backfill_policy_fields(dry_run=dry_run)),
             ("rekey", lambda: self.rekey_text_keys(dry_run=dry_run)),
+            ("claims", lambda: self.backfill_claims(dry_run=dry_run)),
             ("consolidate", lambda: self.consolidate_memories(dry_run=dry_run)),
             ("decay", lambda: {"updated": self.apply_weight_decay()} if not dry_run else {}),
             ("archive", lambda: self.archive_faded(dry_run=dry_run)),
@@ -3905,6 +3964,12 @@ class Memory(metaclass=_MemoryMeta):
             try:
                 from eli.memory.knowledge_graph import get_knowledge_graph
                 get_knowledge_graph().extract_from_memory(_content_s, source="user")
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+            # A dated claim from every message, not only those kept as memories: "GOT is on in the
+            # background" said in passing was never stored, and ELI answered with a show from a month before.
+            try:
+                self.record_claims_from(_content_s, None, now)
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
             try:

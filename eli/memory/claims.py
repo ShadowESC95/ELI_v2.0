@@ -39,6 +39,13 @@ CREATE INDEX IF NOT EXISTS idx_claims_rel ON memory_claims(subject, relation, st
 
 _KEY = re.compile(r"\s+")
 
+# What the user is doing at the moment. These change often, so a newer value replaces the old one
+# whoever reported it, instead of the two standing side by side as a dispute.
+CHANGES_OFTEN = frozenset({"watching", "playing", "reading", "listening_to"})
+
+# Bumped when extraction changes, so the history is read again (Memory.backfill_claims).
+EXTRACT_VERSION = "2"
+
 
 def ensure_schema(conn) -> None:
     conn.executescript(SCHEMA)
@@ -50,6 +57,18 @@ def ensure_schema(conn) -> None:
 
 def _norm(value: str) -> str:
     return _KEY.sub(" ", str(value or "").strip().lower()).strip(" .,!?\"'")
+
+
+def _same(a: str, b: str) -> bool:
+    """The same value, or one is the other's initials: "GOT" is "Game of Thrones", "TWD" "The Walking Dead"."""
+    na, nb = _norm(a), _norm(b)
+    if na == nb or sorted(re.findall(r"[a-z0-9]+", na)) == sorted(re.findall(r"[a-z0-9]+", nb)):
+        return True
+    for short, long_ in ((na, nb), (nb, na)):
+        words = re.findall(r"[a-z0-9]+", long_)
+        if " " not in short and 2 <= len(short) <= 6 and len(words) >= 2 and short == "".join(w[0] for w in words):
+            return True
+    return False
 
 
 def record(conn, relation: str, value: str, *, subject: str = "user", single_valued: bool = True,
@@ -72,18 +91,31 @@ def record(conn, relation: str, value: str, *, subject: str = "user", single_val
         return None
     root = root_id if root_id is not None else source_memory_id
     cur = conn.execute(
-        "SELECT id, value, origin, source_roots FROM memory_claims WHERE subject = ? AND relation = ? AND status = 'current'",
+        "SELECT id, value, origin, source_roots, valid_from FROM memory_claims "
+        "WHERE subject = ? AND relation = ? AND status = 'current'",
         (subject, relation)).fetchall()
     if not historical:
-        for cid, cval, _o, roots_json in cur:
-            if _norm(cval) == _norm(value):
+        for cid, cval, _o, roots_json, _vf in cur:
+            if _same(cval, value):
                 roots = json.loads(roots_json or "[]")
                 if root is not None and root not in roots:
                     roots.append(root)
                     conn.execute("UPDATE memory_claims SET confirmations = ?, source_roots = ?, last_confirmed = ?, "
                                  "confidence = MIN(0.99, confidence + 0.05) WHERE id = ?", (max(len(roots), 1), json.dumps(roots), now, cid))
                 return int(cid)
-    if not historical and single_valued and cur and origin != "user_said" and any(o == "user_said" for _c, _v, o, _r in cur):
+    # Said before what ELI already holds (history read back in order, or a late report): it held until
+    # the newer value took over, and it does not replace it.
+    standing_from = max((float(r[4] or 0.0) for r in cur), default=0.0)
+    if not historical and single_valued and cur and vfrom < standing_from:
+        cursor = conn.execute(
+            "INSERT INTO memory_claims (subject, relation, value, single_valued, valid_from, valid_to, recorded_at, "
+            "superseded_at, status, source_memory_id, source_text, origin, confidence, last_confirmed, source_roots) "
+            "VALUES (?,?,?,1,?,?,?,?,'superseded',?,?,?,?,?,?)",
+            (subject, relation, value, vfrom, standing_from, now, now, source_memory_id, str(source_text or "")[:400],
+             origin, float(confidence), now, json.dumps([root] if root is not None else [])))
+        return int(cursor.lastrowid)
+    if (not historical and single_valued and cur and relation not in CHANGES_OFTEN and origin != "user_said"
+            and any(o == "user_said" for _c, _v, o, _r, _f in cur)):
         conn.execute("UPDATE memory_claims SET contested = 1 WHERE subject = ? AND relation = ? AND status = 'current'", (subject, relation))
         cursor = conn.execute(
             "INSERT INTO memory_claims (subject, relation, value, single_valued, valid_from, recorded_at, status, "
@@ -225,11 +257,80 @@ _NO_LONGER = re.compile(r"\bI\s+(?:no longer|don'?t\s+(?:work|live)\b.{0,30}\ban
 _HEDGED = re.compile(r"\b(?:maybe|might|perhaps|thinking of|considering|planning to|hoping to|hope to|would like to|if i|when i|imagine|suppose|what if)\b", re.I)
 
 
+# "I'm watching X", "still watching X", "I've been playing X", "X is on in the background". Present tense
+# only: "going to play", "was watching" and "watching it was days ago" are not what is happening now.
+_VERBS = (("watching", r"w[a-z]{0,2}tch(?:ing|in)"), ("playing", r"pla?y(?:ing|in)"),
+          ("reading", r"read(?:ing|in)"), ("listening_to", r"listen(?:ing|in)\s+to"))
+_ADVERBS = r"(?:(?:still|currently|now|just|actually|also|literally|only|really)\s+)*"
+_VALUE = r"(?P<v>[^,.;:!?()\n]{1,60})"
+_ACTIVITY = [(rel, re.compile(
+    rf"(?:\bi(?:'m|\s+am|'ve\s+been|\s+have\s+been)\s+{_ADVERBS}|\bi\s+(?:just\s+)?(?:started|began)\s+|^{_ADVERBS}"
+    rf"|,\s*(?:still|currently|now|just|actually)\s+{_ADVERBS}){verb}\s+{_VALUE}",
+    re.I)) for rel, verb in _VERBS]
+_ON_SCREEN = re.compile(r"(?:^|[,;:]\s*|\band\s+)(?P<v>[^,.;:!?()\n]{1,40}?)\s+is\s+on\s+"
+                        r"(?:in\s+the\s+b\w+|the\s+(?:tv|telly|box|television)|tv|telly)\b", re.I)
+_TAIL = re.compile(r"\s+(?:and|but|though|tho|with|while|whilst|because|cos|so|haha\w*|lol|lmao|now|tonight|today|"
+                   r"again|atm|lately|right now|at the (?:moment|minute)|in the b\w+|for (?:a|the) \w+|for ages|"
+                   r"all (?:week|day|night|morning|evening|weekend)|this (?:week|morning|evening|weekend)|since \w+|"
+                   r"on (?:netflix|prime(?: video)?|amazon|disney\+?|hulu|youtube|now tv|sky|the (?:tv|telly)|tv|telly|my \w+))\b.*$",
+                   re.I)
+_NOT_A_TITLE = {"it", "that", "this", "them", "something", "nothing", "stuff", "tv", "telly", "the tv", "the telly",
+                "a film", "a movie", "a show", "films", "movies", "shows", "youtube", "videos", "music", "a game",
+                "games", "some tv", "a bit", "around", "with you", "you", "me", "along", "out", "the news",
+                "please", "pls", "plz", "mate", "bud", "now", "again"}
+# "check what series I am watching" asks; it does not tell.
+_ASKED = re.compile(r"\b(?:what|which|whatever|whichever)\b[^.!?]{0,80}$", re.I)
+_TAG_QUESTION = re.compile(r",\s*(?:and\s+)?(?:you|u|yourself|how about you|what about you|wbu|hbu)\s*\?+\s*$", re.I)
+# A season and episode: "season 3, episode 6", "S1 E10", "S02E05". Also read by grounding_escalation.
+EPISODE_MARKER = r"\b(?:season|s)\s*\d{1,2}\s*[,·x]?\s*(?:episode|ep|e)\.?\s*\d{1,3}\b"
+_EPISODE = re.compile(rf"^\s*(?P<show>[^—–|]+?)\s*(?:[—–:|-]+\s*)?{EPISODE_MARKER}", re.I)
+
+
+def _title(raw: str) -> str:
+    value = " ".join(str(raw or "").split())
+    while True:
+        cut = _TAIL.sub("", value).strip()
+        if cut == value:
+            break
+        value = cut
+    value = value.strip(" -'\"")
+    if (not re.search(r"[A-Za-z]", value) or value.lower() in _NOT_A_TITLE or len(value.split()) > 6
+            or value.lower().startswith(("to ", "for ", "at ", "the fact"))):
+        return ""
+    return value
+
+
+def activities(text: str) -> List[Dict[str, Any]]:
+    """What the user says they are doing now, sentence by sentence (a question is not a statement)."""
+    out: List[Dict[str, Any]] = []
+    for sentence in re.split(r"(?<=[.!?])\s+", str(text or "").strip()):
+        sentence = _TAG_QUESTION.sub("", sentence.strip())
+        if not sentence or sentence.endswith("?") or _HEDGED.search(sentence):
+            continue
+        found = [(rel, m.group("v")) for rel, pat in _ACTIVITY for m in [pat.search(sentence)]
+                 if m and not _ASKED.search(sentence[:m.start()])]
+        m = _ON_SCREEN.search(sentence)
+        if m:
+            found.append(("watching", m.group("v")))
+        for rel, raw in found:
+            value = _title(raw)
+            if value and not any(o["relation"] == rel for o in out):
+                out.append({"relation": rel, "value": value, "single_valued": True, "historical": False, "retire": False})
+    return out
+
+
+def observed_show(title: str) -> str:
+    """The show in a player's title when it is an episode ("Game of Thrones — S2 E5 – ..."), else ""."""
+    m = _EPISODE.match(str(title or ""))
+    return _title(m.group("show")) if m else ""
+
+
 def extract(text: str) -> List[Dict[str, Any]]:
     """Claims stated in one user message. Each is {relation, value, single_valued, historical, retire}."""
     t = str(text or "").strip()
+    now_doing = activities(t)
     if len(t.split()) < 3 or t.endswith("?") or _HEDGED.search(t):
-        return []
+        return now_doing
     stop = bool(_NO_LONGER.search(t))
     past = bool(_PAST.search(t)) and not stop
     # Take the negating or past marker out so the same patterns read what the statement is about.
@@ -248,7 +349,7 @@ def extract(text: str) -> List[Dict[str, Any]]:
     if m:
         out.append({"relation": f"{m.group(1).lower()}_name", "value": m.group(2), "single_valued": True,
                     "historical": past, "retire": False})
-    return out
+    return out + [a for a in now_doing if not any(o["relation"] == a["relation"] for o in out)]
 
 
 def record_from_text(conn, text: str, *, source_memory_id: Optional[int] = None, when: Optional[float] = None,

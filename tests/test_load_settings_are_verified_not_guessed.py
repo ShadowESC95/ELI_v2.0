@@ -44,6 +44,7 @@ from __future__ import annotations
 import json
 import pathlib
 import re
+import subprocess
 
 import pytest
 
@@ -272,7 +273,7 @@ def test_the_probe_decodes_rather_than_only_loading():
     already created — loading alone proves nothing."""
     src = pathlib.Path(load_probe.__file__).read_text(encoding="utf-8")
     child = src[src.index("_CHILD = r'''"):src.index("def probe_config(")]
-    assert "max_tokens" in child and "llm(" in child
+    assert "llm.eval(toks[i:i + step])" in child and "llm.eval(toks[-1:])" in child
 
 
 # ── caching ────────────────────────────────────────────────────────────────
@@ -531,3 +532,49 @@ def test_a_real_failure_still_reads_as_bad():
     from eli.core import load_probe
     assert load_probe.PROVEN_BAD != load_probe.UNPROVEN_TIMEOUT
     assert load_probe.PROVEN_BAD != load_probe.PROVEN_OK
+
+
+# A settings check that runs out of time says how far it got, and a pass is kept even if late.
+#
+# Every launch since mid-September logged only "probe timed out after 106s (unproven)": nothing said
+# whether the model had loaded, or whether the test prompt was what ran long.
+@pytest.fixture
+def probe(monkeypatch, tmp_path):
+    monkeypatch.setattr(load_probe, "_cache_path", lambda: tmp_path / "cache.json")
+    monkeypatch.setattr(load_probe, "_gpu_identity", lambda: "test-gpu|8192")
+    monkeypatch.setattr(load_probe, "_free_vram_mb", lambda: 6000)
+    monkeypatch.delenv("ELI_LOAD_PROBE", raising=False)
+
+    def run_with(stdout):
+        def _run(*a, **k):
+            raise subprocess.TimeoutExpired(cmd="probe", timeout=k.get("timeout"), output=stdout)
+        monkeypatch.setattr(load_probe.subprocess, "run", _run)
+        return load_probe.probe_verdict(str(tmp_path / "m.gguf"), 16000, 28, 192, use_cache=False, timeout_s=5)
+    return run_with
+
+
+def test_loaded_but_the_prompt_did_not_finish(probe):
+    verdict, why = probe(b"LOADED 31.4\n")
+    assert verdict == load_probe.UNPROVEN_TIMEOUT
+    assert "loaded in 31.4s" in why and "7200-token test prompt had not finished" in why
+
+
+def test_a_slow_prompt_says_where_it_was_and_how_fast(probe):
+    verdict, why = probe(b"LOADED 1.1\nEVAL 1536 7200 40.0\nEVAL 3072 7200 101.1\n")
+    assert verdict == load_probe.UNPROVEN_TIMEOUT
+    assert "at 3072/7200 tokens after 101s (31 tokens/s)" in why
+
+
+def test_did_not_finish_loading(probe):
+    verdict, why = probe(b"")
+    assert verdict == load_probe.UNPROVEN_TIMEOUT and "had not finished loading" in why
+
+
+def test_a_pass_printed_before_the_cut_is_a_pass(probe):
+    verdict, _ = probe("LOADED 20.0\nPROBE_OK 41.2\n")
+    assert verdict == load_probe.PROVEN_OK
+
+
+def test_the_child_reports_each_stage_and_skips_teardown():
+    assert 'print("LOADED' in load_probe._CHILD and 'print("PROBE_OK' in load_probe._CHILD and 'print("EVAL' in load_probe._CHILD
+    assert "os._exit(0)" in load_probe._CHILD

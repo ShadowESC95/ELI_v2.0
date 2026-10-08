@@ -1252,6 +1252,27 @@ class AgentOrchestrator:
                                         user_input, max_chars=_period_log_chars(reasoning_mode))
             if _period:
                 wm.assembled_context = (_period + "\n\n" + str(wm.assembled_context or "").strip()).strip()
+                # The days of the period with anything in them. A reply that writes about another day made
+                # it up: a "Wednesday" section, when nothing was said that Wednesday (self_claims checks it).
+                _stats = getattr(getattr(self.memory_agent, "_last_turn_retrieval", None), "window_stats", None) or {}
+                if _stats.get("since") and _stats.get("until"):
+                    import time as _t_pd
+                    from datetime import datetime as _dt_pd, timedelta as _td_pd
+                    _since, _until = float(_stats["since"]), float(_stats["until"])
+                    _days = set()
+                    _day = _dt_pd.fromtimestamp(_since).replace(hour=0, minute=0, second=0, microsecond=0)
+                    while _day.timestamp() <= _until:
+                        _next = _day + _td_pd(days=1)
+                        if self.engine.memory.get_recent_conversation(limit=1, since=max(_since, _day.timestamp()),
+                                                                      until=min(_until, _next.timestamp())):
+                            _days.add(_day.strftime("%Y-%m-%d"))
+                        _day = _next
+                    for _a in getattr(self.memory_agent._last_turn_retrieval, "actions", None) or []:
+                        if _a.get("ts"):
+                            _days.add(_t_pd.strftime("%Y-%m-%d", _t_pd.localtime(float(_a["ts"]))))
+                    from eli.kernel.request_context import note_turn_fact as _note_period
+                    _note_period("_period_days", sorted(_days))
+                    _note_period("_period_window", (float(_stats["since"]), float(_stats["until"])))
         except Exception as _pl_err:
             log.debug(f"[ORCHESTRATOR] period log skipped: {_pl_err}")
         try:

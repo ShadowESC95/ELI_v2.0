@@ -721,10 +721,18 @@ _COURTESY_TAIL = re.compile(
     r"right\s+now|now|eli))+[\s,.!?]*$", re.I)
 
 
+# The same before a command: "good. play the third world by immortal technique" searched for
+# "good. play the third world". Only with punctuation after it ("right click" is a command), and never
+# yes/no: those answer a question ELI asked.
+_COURTESY_HEAD = re.compile(
+    r"^\s*(?:(?:good|great|nice|cool|ok|okay|right|alright|perfect|lovely|grand|brilliant|sweet|cheers|thanks|"
+    r"thank\s+you)\s*[,.!;:]+\s*)+(?=\w)", re.I)
+
+
 def _without_courtesy(text: str) -> str:
-    """`text` without the please / thanks / for me / now / mate after it, when what is left still
-    names something (a bare "play" is kept as said: "play thank you" is a song)."""
-    stripped = _COURTESY_TAIL.sub("", str(text or "")).strip()
+    """`text` without the please / thanks / for me / now / mate after it, or the "good." / "ok," before
+    it, when what is left still names something (a bare "play" is kept as said: "play thank you" is a song)."""
+    stripped = _COURTESY_TAIL.sub("", _COURTESY_HEAD.sub("", str(text or ""))).strip()
     if stripped == str(text or "").strip() or len(stripped.split()) < 2:
         return str(text or "")
     return stripped
@@ -4165,7 +4173,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     m = re.match(r"^(?:search\s+(?:for\s+)?)(.+)$", raw, re.I)
     if m:
         query = m.group(1).strip()
-        if query and not re.match(r"(?:your\s+)?memor(?:y|ies)\b", query, re.I):
+        # "search your fucking memories, ..." opened a web search: a word or two between "your" and the
+        # store, or another of ELI's own stores, is still a lookup in ELI's memory.
+        if query and not re.match(r"(?:(?:through|in|into)\s+)?(?:(?:your|my|the)\s+)?(?:\w+\s+){0,2}?"
+                                  r"(?:memor(?:y|ies)|records|logs|history|notes|database|conversations?|chats?)\b",
+                                  query, re.I):
             return _mk("OPEN_BROWSER", {"query": query}, 0.95,
                        matched_by="web.search", entities={"query": query})
 
@@ -4233,9 +4245,12 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                    matched_by="browser.tab_new")
 
     # Screen-locator routes — find/click visible UI text on the screen.
-    m = re.search(r"\b(?:find|locate|where\s+is)\s+(?:the\s+)?(.+?)\s+on\s+(?:the\s+)?screen\b", low)
+    # "find the word compose" names on-screen text without saying "on screen" (it searched the web).
+    m = (re.search(r"\b(?:find|locate|where\s+is)\s+(?:the\s+)?(.+?)\s+on\s+(?:the\s+)?(?:screen|page)\b", low)
+         or re.match(r"^(?:please\s+|can\s+you\s+)?(?:find|locate|highlight|show\s+me|where\s+is)\s+(?:the\s+)?"
+                     r"(?:word|words|text|button|link|label)\s+(.{1,40}?)[\s.!?]*$", low))
     if m:
-        query = m.group(1).strip()
+        query = re.sub(r"^(?:word|words|text|label)\s+", "", m.group(1).strip(" \"'"))
         if query:
             return _mk("SCREEN_LOCATE", {"query": query}, 0.93,
                        matched_by="screen.locate", entities={"query": query})
@@ -4258,13 +4273,18 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         if query:
             return _mk("SCREEN_LOCATE", {"query": query, "click": True}, 0.94,
                        matched_by="screen.locate_click", entities={"query": query})
+    # Also bare "click compose" / "tap send" (it went to the model's guess: dictation, and a raw
+    # "<click> compose </click>" as the reply). "press" alone stays with the keyboard.
     m = re.search(
         r"\b(?:click|tap|press)\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:link|tab|icon|menu|item)\b",
         low,
-    )
+    ) or re.match(r"^(?:please\s+|can\s+you\s+|eli,?\s+)?(?:click|tap)\s+(?:on\s+)?(?:the\s+)?"
+                  r"(\S+(?:\s+\S+){0,4}?)[\s.!]*$", low)
     if m:
         query = (m.group(1) or "").strip(" .,:;-")
-        if query and len(query) >= 2:
+        if query and len(query) >= 2 and not re.match(
+                r"^(?:the\s+)?(?:left|right|middle|double|it|that|this|here|there|screen|mouse|cursor|at|where|"
+                r"play|pause|stop|next|previous|\d)\b", query):
             return _mk("SCREEN_LOCATE", {"query": query, "click": True}, 0.91,
                        matched_by="screen.click_ui_element", entities={"query": query})
     if re.search(r"\b(?:click|tap|press)\s+play\b", low):
@@ -6430,6 +6450,15 @@ def _eli_recent_memory_processing_question(text: object) -> bool:
 
     # Preserve existing count-only route.
     if _eli_recent_mem_re.search(r"\b(how many|count|number of)\b.{0,40}\b(memories|memory rows|memory entries)\b", low):
+        return False
+
+    # Looking something up in memory, or asking about the user's own life, is recall, not the memory
+    # store's activity: "check your memories again for the most recent show i have been watching" got
+    # a count of memory rows.
+    if (_eli_recent_mem_re.search(r"\b(?:check|search|look|dig|go|scan)\b.{0,24}\b(?:memor(?:y|ies)|records|logs|history|notes)\b"
+                                  r".{0,16}\b(?:for|and|to|about|what|when|which|if)\b", low)
+            or _eli_recent_mem_re.search(r"\bi(?:'ve|'m|\s+have|\s+am|\s+was|\s+had)?(?:\s+been)?\s+"
+                                         r"(?:watch|said|told|mention|ask|play|read|listen|work)\w*", low)):
         return False
 
     # "processed"/"processing" are deliberately not memory terms. They're also in recent_terms

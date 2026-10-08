@@ -17,6 +17,8 @@ import pytest
 
 from eli.cognition import self_claims as sc
 from eli.kernel import request_context as rc
+from eli.cognition import self_claims
+from eli.kernel.request_context import turn_facts_var
 
 
 @pytest.fixture()
@@ -419,3 +421,68 @@ def test_a_tone_word_elsewhere_in_a_question_does_not_set_the_tone(text):
 def test_a_tone_asked_for_is_still_set(text):
     from eli.execution.router_enhanced import route
     assert route(text)["action"] in ("SET_TONE", "SET_COMMUNICATION_STYLE")
+
+
+# A summary of a period writes only about days that have something in them.
+#
+# Live: "summarise the past 5 days" got a "Wednesday, 7 October" section full of things said on the
+# Thursday; nothing at all was said that Wednesday. Asked "are you making that up?", ELI said no.
+def _t(s):
+    return time.mktime(time.strptime(s, "%Y-%m-%d %H:%M"))
+
+
+WINDOW = (_t("2026-10-03 00:00"), _t("2026-10-08 21:48"))
+RECORDED = ["2026-10-03", "2026-10-05", "2026-10-06", "2026-10-08"]
+REPLY = """### Summary of the past 5 days
+
+**Thursday, 8 October 2026**
+- You asked about the show you are watching.
+
+---
+
+**Wednesday, 7 October 2026**
+- Repeated questions about a show.
+- A long talk about the calendar.
+
+---
+
+**Monday, 5 October 2026**
+- You planned a presentation."""
+
+
+@pytest.fixture
+def period():
+    token = turn_facts_var.set({"user_input": "summarise what we discussed over the past 5 days",
+                                "_period_window": WINDOW, "_period_days": RECORDED})
+    yield
+    turn_facts_var.reset(token)
+
+
+def test_a_day_with_nothing_recorded_loses_its_whole_section(period):
+    out = self_claims.drop_invented_self_claims(REPLY)
+    assert "Wednesday" not in out.split("Nothing is recorded")[0]
+    assert "calendar" not in out and "Repeated questions" not in out
+    assert "Thursday, 8 October" in out and "Monday, 5 October" in out
+    assert out.strip().endswith("Nothing is recorded on Wednesday 7 October.")
+
+
+def test_the_same_when_the_sections_run_together(period):
+    flat = REPLY.replace("\n\n---\n\n", " --- ")
+    out = self_claims.drop_invented_self_claims(flat)
+    assert "Repeated questions" not in out and "planned a presentation" in out
+
+
+def test_days_are_read_from_names_and_dates():
+    from eli.cognition.query_planner import days_named
+    assert days_named("On Wednesday you asked", WINDOW) == ["2026-10-07"]
+    assert days_named("**Tuesday, 6 October 2026**", WINDOW) == ["2026-10-06"]
+    assert days_named("Oct 5th and 2026-10-03", WINDOW) == ["2026-10-05", "2026-10-03"]
+    assert days_named("in 2025 on 7 March", WINDOW) == []
+
+
+def test_without_a_period_nothing_is_checked():
+    assert self_claims.drop_invented_self_claims(REPLY).count("Wednesday") == 1
+
+
+def test_asking_if_it_was_made_up_is_a_challenge():
+    assert self_claims.complains_about_eli("Are you making that up? where are my timestamps")

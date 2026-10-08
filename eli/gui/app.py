@@ -306,6 +306,12 @@ def _save_config(cfg: dict):
 # ── Main ─────────────────────────────────────────────────────────────────────
 
 def main():
+    # An extension that drops references to None cannot abort the window (eli/core/singleton_refs.py).
+    try:
+        from eli.core.singleton_refs import pin_singletons
+        pin_singletons()
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
     # Pin THIS install's root for the `eli`/`eli-gui` console scripts. They enter here
     # directly (not via RUN_ELI.sh, which already exports ELI_PROJECT_ROOT), so without
     # this the runtime paths resolve via _find_project_root() and can leak into ANOTHER

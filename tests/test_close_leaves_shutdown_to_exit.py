@@ -36,3 +36,29 @@ def test_close_event_does_not_call_shutdown():
 def test_main_runs_the_exit_handlers_after_the_event_loop():
     body = ast.unparse(_function(_window_source(), "main"))
     assert body.index("app.exec()") < body.index("_run_exitfuncs()")
+
+
+def test_the_conversation_is_saved_as_it_grows_into_one_file(tmp_path):
+    """The conversation file was written only on close; the 2026-10-08 crash lost the whole evening.
+    It is now rewritten after each reply, one file per conversation."""
+    import json
+    import logging
+    import types
+    from datetime import datetime
+
+    src = next(p.read_text(encoding="utf-8") for p in sorted((ROOT / "eli/gui").rglob("*.py"))
+               if "def save_conversation" in p.read_text(encoding="utf-8"))
+    ns = {"datetime": datetime, "json": json, "CONVERSATIONS_DIR": tmp_path, "now_timestamp": lambda: "now",
+          "QMessageBox": None, "log": logging.getLogger("test")}
+    exec(compile(ast.Module([_function(src, "save_conversation")], []), "save", "exec"), ns)
+    window = types.SimpleNamespace(conversation_history=[{"role": "user", "content": "hi"}],
+                                   status_signal=types.SimpleNamespace(emit=lambda *a: None))
+    ns["save_conversation"](window, quiet=True)
+    window.conversation_history.append({"role": "assistant", "content": "hello"})
+    ns["save_conversation"](window, quiet=True)
+    files = list(tmp_path.glob("conversation_*.json"))
+    assert len(files) == 1 and len(json.loads(files[0].read_text())["messages"]) == 2
+    window._autosave_enabled = False
+    window.conversation_history.append({"role": "user", "content": "more"})
+    ns["save_conversation"](window, quiet=True)
+    assert len(json.loads(files[0].read_text())["messages"]) == 2

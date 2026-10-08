@@ -128,3 +128,91 @@ def test_a_disputed_claim_reaches_the_evidence_marked(mem):
     c.close()
     text = " ".join(h["text"] for h in _claim_hits(mem, "where do I live, what do you know about me", None))
     assert "Berlin" in text and "DISPUTED" in text
+
+
+# "What am I watching?" is answered from the newest thing the user said or ELI saw, with dates.
+#
+# Live: the user said "GOT is on in the background" a week earlier and ELI's own pause replies named
+# "Game of Thrones — S2 E5", yet ELI answered with a show from a month before and then said there was no
+# record of GOT. Nothing about what the user was watching ever became a claim: the extractor knew only
+# jobs, homes and pets, and only read the messages the storage policy kept.
+def _dt(s):
+    return time.mktime(time.strptime(s, "%Y-%m-%d %H:%M"))
+
+
+@pytest.mark.parametrize("said,expected", [
+    ("Just woke up, GOT is on in the bckground, and i am checking in", ("watching", "GOT")),
+    ("i just told you that i am watching GOT!!!", ("watching", "GOT")),
+    ("all done with that. I'm actually watching TWD dead city", ("watching", "TWD dead city")),
+    ("looks like you are back. Still watching dead city TWD, bud.", ("watching", "dead city TWD")),
+    ("all good, still watching the walking dead", ("watching", "the walking dead")),
+    ("i am still watching the matrix now, it is on its 4th film", ("watching", "the matrix")),
+    ("I've been playing Baldur's Gate 3 all week", ("playing", "Baldur's Gate 3")),
+    ("I'm reading Dune at the moment", ("reading", "Dune")),
+    ("there is never any quiet, and i am watching the walking dead, you?", ("watching", "the walking dead")),
+])
+def test_what_the_user_is_doing_now(said, expected):
+    assert [(a["relation"], a["value"]) for a in claims.activities(said)] == [expected]
+
+
+@pytest.mark.parametrize("said", [
+    "You remember what I am currently watching?",
+    "check again for what series i am currently watching please!!",
+    "no, i am asking you what is the latest show i am watching",
+    "now i am going to play fallout 4 and watch something",
+    "the headache and watching it was a few days ago",
+    "I'm not watching anything",
+    "i played xcom 2 last night",
+    "i am watching ____ and about to start playing ____.",
+    "maybe i'm watching it later",
+])
+def test_questions_plans_and_the_past_are_not_claims(said):
+    assert claims.activities(said) == []
+
+
+def test_the_newest_wins_and_an_older_statement_is_history():
+    conn = sqlite3.connect(":memory:")
+    claims.record(conn, "watching", "Dead City", valid_from=_dt("2026-09-01 20:00"))
+    claims.record(conn, "watching", "GOT", valid_from=_dt("2026-10-01 09:00"))
+    claims.record(conn, "watching", "The Matrix", valid_from=_dt("2026-08-25 14:00"))   # read back late
+    assert [c["value"] for c in claims.current(conn)] == ["GOT"]
+    old = [c for c in claims.history(conn, "watching") if c["value"] == "The Matrix"][0]
+    assert old["status"] == "superseded" and old["valid_to"] == _dt("2026-10-01 09:00")
+
+
+def test_what_eli_saw_playing_replaces_what_was_said_and_initials_are_the_same_show():
+    conn = sqlite3.connect(":memory:")
+    claims.record(conn, "watching", "Dead City", valid_from=_dt("2026-09-01 20:00"))
+    claims.record(conn, "watching", "Game of Thrones", origin="observed", valid_from=_dt("2026-10-01 15:00"))
+    assert [c["value"] for c in claims.current(conn)] == ["Game of Thrones"] and claims.open_conflicts(conn) == []
+    claims.record(conn, "watching", "GOT", valid_from=_dt("2026-10-08 21:00"))          # the same show, confirmed
+    assert [c["value"] for c in claims.current(conn)] == ["Game of Thrones"]
+
+
+def test_an_episode_in_a_player_names_the_show():
+    assert claims.observed_show("Game of Thrones — S1 E10 – Fire and Blood") == "Game of Thrones"
+    assert claims.observed_show("Game of Thrones S02E05") == "Game of Thrones"
+    assert claims.observed_show("Eminem — Trouble") == ""
+
+
+def test_history_is_read_in_order_and_answers_the_question(mem):
+    conn = mem._get_connection()
+    for role, text, when in [
+        ("user", "I'm actually watching Dead City", "2026-09-01 20:12"),
+        ("user", "Just woke up, GOT is on in the background", "2026-10-01 09:15"),
+        ("assistant", "Paused — chromium (Game of Thrones — S2 E5 – The Ghost of Harrenhal)", "2026-10-01 22:43"),
+        ("user", "You remember what I am currently watching?", "2026-10-08 21:38"),
+    ]:
+        conn.execute("INSERT INTO conversation_turns (session_id, user_id, role, content, ts, timestamp) "
+                     "VALUES ('s', 'u', ?, ?, ?, ?)", (role, text, _dt(when), _dt(when)))
+    conn.commit()
+    conn.close()
+    assert mem.backfill_claims()["claims"] == 3
+    assert mem.backfill_claims().get("skipped") == "current"
+    hits = _claim_hits(mem, "what show am I currently watching", None)
+    assert len(hits) == 1 and "watching: GOT" in hits[0]["text"] and "since 2026-10-01" in hits[0]["text"]
+
+
+def test_a_message_said_in_passing_becomes_a_claim(mem):
+    mem.add_conversation_turn("user", "just checking in, GOT is on in the background")
+    assert [c["value"] for c in mem.claims_current() if c["relation"] == "watching"] == ["GOT"]

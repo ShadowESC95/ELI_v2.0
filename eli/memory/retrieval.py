@@ -119,10 +119,21 @@ def _claim_hits(mem: Any, query: str, window: Optional[tuple]) -> List[Dict[str,
         if window:
             rows = mem.claims_during(window[0], window[1])
         else:
-            words = {w for w in re.findall(r"[a-z]{3,}", (query or "").lower())}
-            rows = [c for c in (mem.claims_current() + mem.claims_disputed())
-                    if words & set(re.findall(r"[a-z]{3,}", f"{c['relation']} {c['value']}".lower()))
-                    or re.search(r"\b(?:about me|know about|remember about|my (?:job|work|home|pet))\b", (query or "").lower())]
+            # Words that say what the question is about. Every question shares "you" and "what" with some
+            # stored preference that quotes the user, and the first eight of those crowded out the claim
+            # asked for ("what am I currently watching" got eight preferences and no show).
+            from eli.memory.unified_retrieval import _STOP
+            words = {w for w in re.findall(r"[a-z]{3,}", (query or "").lower())} - _STOP
+            broad = bool(re.search(r"\b(?:about me|know about|remember about|my (?:job|work|home|pet))\b",
+                                   (query or "").lower()))
+
+            def _fit(c):
+                in_relation = len(words & set(re.findall(r"[a-z]{3,}", str(c["relation"]).replace("_", " ").lower())))
+                in_value = len(words & set(re.findall(r"[a-z]{3,}", str(c["value"]).lower())))
+                return 2 * in_relation + in_value
+
+            rows = [c for c in (mem.claims_current() + mem.claims_disputed()) if broad or _fit(c)]
+            rows.sort(key=lambda c: (_fit(c), float(c.get("valid_from") or c.get("recorded_at") or 0)), reverse=True)
         return [{"id": f"claim:{c['id']}", "text": _claims.describe(c), "content": _claims.describe(c),
                  "source": "claims", "kind": "claim", "score": 0.9, "importance": 0.8,
                  "timestamp": c["recorded_at"], "event_ts": c["valid_from"] or c["recorded_at"],

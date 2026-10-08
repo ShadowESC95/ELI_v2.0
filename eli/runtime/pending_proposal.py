@@ -215,8 +215,9 @@ _MAX_ITEMS = 8
 # when it describes something: "I need the executor to stop returning NOOP when it should send
 # PAUSE_MEDIA" routed to STOP_MEDIA and sat waiting for a "yes".
 # "provider: gguf", "context_size: 16128": a field and its value in a listing, not a step. A status
-# dump's "- provider: gguf" was kept as a step for a "yes".
-_FIELD_LINE = _re.compile(r"^[a-z][a-z0-9_ ]{0,30}:\s+\S")
+# dump's "- provider: gguf" was kept as a step for a "yes"; so was a dated record from a memory dump,
+# "[2026-10-08 18:06] Top topics: spotify, play, ...".
+_FIELD_LINE = _re.compile(r"^(?:[a-z][a-z0-9_ ]{0,30}:\s+\S|\[[^\]]{1,40}\]\s)")
 _DESCRIBES = _re.compile(
     r"^(?:i(?!'ll\b|\s+will\b|\s+can\b|\s+could\b)\b|i'm|i've|i'd|my|me|we(?!'ll\b|\s+can\b)\b|our|you|"
     r"your|it|its|it's|this|that|these|those|there|here|a|an|the|since|if|when|while|because|"

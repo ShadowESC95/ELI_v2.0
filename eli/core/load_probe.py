@@ -347,10 +347,16 @@ print("LOADED %.1f" % (time.monotonic() - _t0), flush=True)
 # Drive a real decode: loading alone proves nothing (the abort happened with the model resident and
 # the context created). The compute buffer for a large prompt isn't allocated until generation, so
 # push a prompt of the size the caller will really use.
+# In chunks, so a check that runs out of time says how far it got and how fast. Then one decode step on
+# top of the full context: generation allocates nothing the prompt did not, and its CPU-side layers are
+# what slows ~10x when other programs keep the cores busy (measured: 31 tokens 1.9 s idle, 19 s loaded).
 try:
-    prompt = "word " * int(cfg["probe_tokens"])
-    out = llm(prompt, max_tokens=int(cfg["probe_gen"]), echo=False)
-    _ = (out or {}).get("choices", [{}])[0].get("text", "")
+    toks = llm.tokenize(("word " * int(cfg["probe_tokens"])).encode("utf-8"))
+    step = max(1, int(cfg["n_batch"])) * 8
+    for i in range(0, len(toks), step):
+        llm.eval(toks[i:i + step])
+        print("EVAL %d %d %.1f" % (min(i + step, len(toks)), len(toks), time.monotonic() - _t0), flush=True)
+    llm.eval(toks[-1:])
 except Exception as e:
     print("DECODE_FAIL:%s" % e, file=sys.stderr)
     raise SystemExit(5)
@@ -373,15 +379,29 @@ SKIPPED = "skipped"         # nothing to prove (cpu-only, disabled)
 
 def _stage_reached(stdout: str, probe_tokens: int) -> str:
     """How far the child got, from the lines it printed as it went."""
-    marks = {}
+    marks, done = {}, None
     for line in str(stdout or "").splitlines():
         parts = line.split()
         if len(parts) == 2 and parts[0] in ("LOADED", "PROBE_OK"):
             marks[parts[0]] = parts[1]
+        elif len(parts) == 4 and parts[0] == "EVAL":
+            try:
+                done = (int(parts[1]), int(parts[2]), float(parts[3]))
+            except ValueError:
+                continue  # a progress line cut off by the timeout
     if "PROBE_OK" in marks:
         return f"loaded and ran the {probe_tokens}-token test prompt in {marks['PROBE_OK']}s"
     if "LOADED" in marks:
-        return f"loaded in {marks['LOADED']}s; the {probe_tokens}-token test prompt had not finished"
+        loaded = marks["LOADED"]
+        if done:
+            n, total, at = done
+            try:
+                rate = n / max(0.1, at - float(loaded))
+            except ValueError:
+                rate = 0.0
+            return (f"loaded in {loaded}s; the test prompt was at {n}/{total} tokens after {at:.0f}s "
+                    f"({rate:.0f} tokens/s)")
+        return f"loaded in {loaded}s; the {probe_tokens}-token test prompt had not finished its first chunk"
     return "the model had not finished loading"
 
 
@@ -438,7 +458,6 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
     # size ELI will really send: a cheaper probe passed startups that later aborted at 5189 tokens,
     # because llama.cpp's peak allocation depends on prompt length. The timeout above bounds the cost.
     probe_tokens = max(256, int(n_ctx * 0.45))
-    probe_gen = max(8, min(32, int(n_ctx * 0.01)))
 
     timeout = float(timeout_s if timeout_s is not None
                     else probe_timeout_for(model_path, n_ctx))
@@ -453,7 +472,6 @@ def probe_verdict(model_path: str, n_ctx: int, n_gpu_layers: int, n_batch: int,
         "n_batch": n_batch,
         "moe_expert_offload": moe_expert_offload,
         "probe_tokens": probe_tokens,
-        "probe_gen": probe_gen,
     })
 
     t0 = time.perf_counter()

@@ -260,3 +260,42 @@ def test_action_is_uppercase():
         action = result.get("action", "")
         if action:
             assert action == action.upper(), f"Action '{action}' should be uppercase"
+
+
+# Asking ELI to look in its memory gets memory, not a row count, a web search or a timestamp dump.
+#
+# Live: "check your memories again for the most recent show i have been watching" got the memory store's
+# row counts; "search your fucking memories, ... tell me the latest series i am watching" opened a
+# DuckDuckGo search; ELI's own "Let me double-check more recent timestamps to find out what you've been
+# watching" ran a timestamp diagnostic and showed it as the answer.
+@pytest.mark.parametrize("said", [
+    "check your memories again for the most recent show i have been watching",
+    "search your fucking memories and tell me the latest series that i am watching",
+    "search through your records for when i mentioned my brother",
+    "look in your memory for what i said about the car",
+])
+def test_looking_in_memory_is_recall(said):
+    assert route(said)["action"] not in ("MEMORY_STATUS", "OPEN_BROWSER", "WEB_SEARCH")
+
+
+@pytest.mark.parametrize("said", [
+    "what memories have you been processing lately",
+    "what have you been learning recently",
+])
+def test_questions_about_the_memory_store_still_get_its_status(said):
+    assert route(said)["action"] == "MEMORY_STATUS"
+
+
+def test_a_real_search_still_goes_to_the_web():
+    assert route("search for cheap flights to rome")["action"] in ("OPEN_BROWSER", "WEB_SEARCH")
+
+
+def test_the_goal_of_a_promise_does_not_pick_what_runs():
+    try:
+        from eli.kernel.engine import _followthrough_may_run as may_run
+    except ImportError:
+        from eli.kernel.stages.generation import _followthrough_may_run as may_run
+    asked = "what is the latest show i am watching, check your timeframes"
+    said = "Let me double-check more recent timestamps to find out what you have been watching lately"
+    assert not may_run("TIMESTAMP_DIAG", asked, said)
+    assert may_run("TIMESTAMP_DIAG", "check the timestamps of the last turns", "Let me check the timestamps")

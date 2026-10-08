@@ -96,7 +96,7 @@ families are grouped below so the real surface is visible.
 | `ANALYZE_IMAGE` | Local GGUF vision-language description of an image. |
 | `OCR_IMAGE` | Tesseract OCR text extraction. |
 | `AMBIENT_VISION` | Toggle periodic background screen glances. |
-| `SCREEN_LOCATE` | OCR-locate a named UI element on screen ("the button that says X"). |
+| `SCREEN_LOCATE` | OCR-locate a named UI element or word on screen ("the button that says X", "find the word compose"), and click it ("click compose"). |
 | `SCREEN_READ_ANALYZE` | Screenshot → analyse what's on screen. |
 | `IMAGE_STATUS` | Report vision/image-engine state. |
 

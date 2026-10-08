@@ -101,7 +101,7 @@ _NOT_AN_OBJECT = {
     "actually", "really", "when", "i", "asked", "you", "to", "at", "all", "fucking", "fuckin",
     "bloody", "just", "yet", "now", "please", "song", "track", "music", "app", "still",
     "not", "didn't", "didnt", "never", "has", "hasn't", "hasnt", "have", "haven't", "havent",
-    "won't", "wont", "nothing", "is",
+    "won't", "wont", "nothing", "is", "what", "which", "who", "how", "why", "where", "whatever", "series", "show",
 }
 
 

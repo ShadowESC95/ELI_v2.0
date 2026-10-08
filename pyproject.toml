@@ -62,7 +62,10 @@ dependencies = [
 #   packaged distribution must remain PySide6-only to honour the
 #   project license declared above.
 gui = [
-    "PySide6>=6.5",
+    # 6.12.0 loses a reference to None on every Qt call on Python 3.11 and earlier, which aborts the
+    # app ("deallocating None"); eli/core/singleton_refs.py guards it, builds should not ship it.
+    "PySide6>=6.5,!=6.12.0; python_version < '3.12'",
+    "PySide6>=6.5; python_version >= '3.12'",
 ]
 tts = [
     "piper-tts>=1.2",

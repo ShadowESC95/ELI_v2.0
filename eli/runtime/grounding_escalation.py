@@ -25,6 +25,7 @@ import os
 import re
 from typing import Any, Dict, Optional, Tuple
 
+from eli.memory.claims import EPISODE_MARKER
 from eli.utils.log import get_logger
 
 log = get_logger(__name__)
@@ -211,8 +212,8 @@ _RAPPORT_EL_STATE_RE = re.compile(
 )
 # User telling ELI where they are in a show — "season 3, episode 6 now".
 _WATCH_PROGRESS_RE = re.compile(
-    r"\b(?:season|s)\s*\d+\s*,?\s*(?:episode|ep)\.?\s*\d+\b"
-    r"|\b(?:episode|ep)\.?\s*\d+\s+now\b"
+    EPISODE_MARKER
+    + r"|\b(?:episode|ep)\.?\s*\d+\s+now\b"
     r"|\bon\s+(?:season|s)\s*\d+(?:\s*,?\s*(?:episode|ep)\.?\s*\d+)?\b",
     re.I,
 )

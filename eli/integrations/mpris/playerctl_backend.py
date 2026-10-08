@@ -147,11 +147,30 @@ def get_player_info(player: str) -> Dict[str, Any]:
         "identity": _metadata(player, "mpris:identity"),
         "desktop_entry": _metadata(player, "mpris:desktopEntry"),
     }
+    _note_what_is_on(player, fields.get("title") or "")
     return {
         "player": player,
         "status": (status or "unknown").strip().lower(),
         **fields,
     }
+
+
+_last_show = [""]
+
+
+def _note_what_is_on(player: str, title: str) -> None:
+    """An episode in a player ("Game of Thrones — S2 E5 – ...") is what the user is watching: a dated claim,
+    so "what am I watching" has an answer even when it was never said. Written when the show changes."""
+    try:
+        from eli.memory.claims import observed_show
+        show = observed_show(title)
+        if not show or show == _last_show[0]:
+            return
+        _last_show[0] = show
+        from eli.memory.memory import get_memory
+        get_memory().record_observed("watching", show, source=f"{player}: {title}")
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
 
 
 def list_player_infos() -> List[Dict[str, Any]]:

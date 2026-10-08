@@ -1202,6 +1202,8 @@ _FT_PROMISED_REPORT = re.compile(
     r"(?i)\bi(?:'ll| will| am going to| can)\s+(?:\w+\s+){0,3}?"
     r"(?:flag|report|tell you|let you know|surface|call out|point out|highlight|come back to you)\b")
 _FT_WORD = re.compile(r"[a-z][a-z0-9']{3,}")
+_FT_PURPOSE = re.compile(r"\b(?:to|so\s+(?:that\s+)?(?:i|we)\s+can|in\s+order\s+to)\s+"
+                         r"(?:find\s+out|see|know|work\s+out|figure\s+out|learn|confirm|check|tell|answer)\b.*$")
 _FT_COMMON = frozenset("""that this with from have what when where which will would could should there their about your
 you're please just some more very check let's lets going want need like know think make sure okay yeah""".split())
 
@@ -1220,7 +1222,10 @@ def _followthrough_may_run(action: str, user_input: Any, clause: Any) -> bool:
     except Exception:
         return False
     asked = set(_FT_WORD.findall(str(user_input or "").lower())) - _FT_COMMON
-    said = set(_FT_WORD.findall(str(clause or "").lower())) - _FT_COMMON
+    # The goal after "to find out ..." is not the action: "Let me double-check more recent timestamps to
+    # find out what you've been watching" shared "watching" with the question and ran a timestamp dump.
+    doing = _FT_PURPOSE.sub("", str(clause or "").lower())
+    said = set(_FT_WORD.findall(doing)) - _FT_COMMON
     return bool(asked & said)
 
 

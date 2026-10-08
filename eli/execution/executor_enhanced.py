@@ -11400,12 +11400,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                            f"Habits tab.")
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg,
                         'evidence_source': 'habit_confirm'}
-            else:  # DECLINE_HABIT — remove the suggestion so it doesn't linger
-                if hasattr(mem, 'delete_habit_rule'):
-                    try:
-                        mem.delete_habit_rule(rid)
-                    except Exception:
-                        log.debug("suppressed exception", exc_info=True)
+            else:  # DECLINE_HABIT — the suggestion stays, disabled. Deleting it let the next detection make
+                # the same rule again under a new id that had never been offered, and ELI asked again.
                 clear_pending_habit()
                 msg = f"No problem — I won't add “{name}”. I'll stop suggesting it."
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg,

@@ -287,9 +287,11 @@ class KnowledgeGraph:
                     (sid, predicate, oid)
                 ).fetchone()
                 if existing:
+                    # ts stays when it was first learned. The profile sync re-adds every relation, and
+                    # stamping each with "now" made all of the user's shows look equally recent.
                     conn.execute(
-                        "UPDATE kg_relations SET weight=MAX(weight,?), ts=? WHERE id=?",
-                        (weight, now, existing["id"])
+                        "UPDATE kg_relations SET weight=MAX(weight,?) WHERE id=?",
+                        (weight, existing["id"])
                     )
                     conn.commit()
                     return False

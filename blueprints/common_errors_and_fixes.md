@@ -273,12 +273,29 @@ are not covered.
 out after Ns ...)` and the model loads with fewer GPU layers than you set.
 **Cause:** your GPU layers are above what ELI measured as fitting the free VRAM, so before loading
 them it runs them once in a separate process with a prompt the size of a real conversation. That
-check did not finish within its time budget. The line now says how far it got: "the model had not
-finished loading", or "loaded in Ns; the N-token test prompt had not finished".
+check did not finish within its time budget. It runs the prompt in chunks and the line says how far
+it got: "the model had not finished loading", or "loaded in Ns; the test prompt was at N/M tokens after
+Ns (R tokens/s)". Other programs keeping every core busy slow it most (measured: the layers left on
+the CPU ran about ten times slower), so a slow rate points at what else is running.
 **Fix:** free VRAM (another program holding the card is listed at startup), lower the GPU layers or
 context to the measured fit, give the check more time with `ELI_LOAD_PROBE_TIMEOUT=<seconds>`, or
 skip it with `ELI_LOAD_PROBE=0` to load your settings unchecked. A timeout is remembered for an
 hour, so the next launch within that hour does not wait again.
+
+---
+
+## ELI quits with "Fatal Python error: none_dealloc: deallocating None"
+
+**Symptom:** after a while (twenty minutes in one session) the window closes and the terminal shows
+`Fatal Python error: none_dealloc: deallocating None: bug likely caused by a refcount error in a C
+extension`, with the main thread in a Qt call such as `refresh_audit_tab`.
+**Cause:** PySide6 6.12.0 on Python 3.11 and earlier takes one reference to `None` away on every Qt
+call that returns nothing (`setText`, `setItem`, `addItem`, ...). When the count reaches zero Python
+aborts. From Python 3.12 `None` cannot be freed, so source installs on 3.12+ never see it.
+**Fix (in the code):** ELI gives `None`, `True` and `False` a large reserve of references at startup
+on Python before 3.12 (`eli/core/singleton_refs.py`), so no extension can bring them to zero; builds
+use PySide6 6.11.2, and the release self-test fails when the bundled Qt loses references. From
+source on Python 3.10/3.11, `pip install "PySide6!=6.12.0"` also avoids it.
 
 ---
 

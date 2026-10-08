@@ -34,6 +34,14 @@ from pathlib import Path
 
 multiprocessing.freeze_support()
 
+# None/True/False get a reference reserve, so an extension that drops references to them cannot
+# abort the app (eli/core/singleton_refs.py). First, before anything else is imported.
+try:
+    from eli.core.singleton_refs import pin_singletons as _pin_singletons
+    _pin_singletons()
+except Exception as _pin_exc:
+    print(f"[ELI] could not reserve references for None: {_pin_exc}", file=sys.stderr)
+
 # GNOME/KDE set QT_STYLE_OVERRIDE=adwaita; PySide6 only ships Fusion/Windows.
 os.environ.pop("QT_STYLE_OVERRIDE", None)
 
@@ -148,6 +156,14 @@ def _selftest() -> int:
                 f"({llama_cpp.__file__}) — GPU pack shadowing would be broken"
             )
         _assert_paths_outside_bundle()
+        # A Qt binding that loses a reference to None on each call kills the app within the hour on
+        # Python before 3.12 (PySide6 6.12.0 on 3.11). The reserve hides it; the build must not ship it.
+        from eli.core.singleton_refs import none_refs_lost_per_qt_call
+        _lost = none_refs_lost_per_qt_call()
+        if _lost > 0.5:
+            import PySide6
+            raise RuntimeError(f"PySide6 {PySide6.__version__} loses {_lost:.2f} references to None per Qt call "
+                               f"on Python {sys.version.split()[0]}; build with a version that does not")
         print(f"selftest OK — ELI {gui.APP_VERSION}, python {sys.version.split()[0]}")
 
         # Report the inference runtime and whether it can actually reach a GPU.

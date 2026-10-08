@@ -103,6 +103,16 @@ now", "what held in spring" and "what did you believe on 1 March". Retrieval add
 to the evidence (a period question gets what held then), and deleting the source memory withdraws its
 claims. Extraction is a small exact set of patterns, not a model call.
 
+What the user is doing now is a claim too: `watching`, `playing`, `reading` and `listening_to`, from
+"I'm watching X", "still watching X", "I've been playing X" or "X is on in the background". They are
+read from every message the user sends, not only the ones kept as memories, and from what ELI sees
+playing (a player title with a season and episode, "Game of Thrones — S2 E5", is `watching` with
+origin `observed`). These change often, so the newest value replaces the old one whoever reported
+it, and a value that is the other's initials ("GOT" for "Game of Thrones") confirms it. A statement
+older than the standing claim, as when history is read again, is kept as history and does not
+replace it. Questions match a claim by its relation first ("what am I watching" finds `watching`),
+ignoring filler words, newest first.
+
 ### Forgetting, lineage and conflicts
 
 - **Forget.** "forget that my locker is 212" lists the matching memories and asks; on yes (or
@@ -132,6 +142,8 @@ engine start and after responses (`upkeep_async()`), and skipped under `ELI_TEST
    database to a `.pre_policy.bak` file the first time). A dry run reports what it would fill
    and writes nothing;
 1a. **rekey**: recompute dedupe keys once after the key definition changes;
+1b. **claims**: read the whole conversation again for claims, oldest first, once per extraction
+   version (`claims.EXTRACT_VERSION`); a version not yet read makes upkeep due on the next start;
 2. **consolidate**: merge exact duplicates and rebuild `memories_fts`;
 3. **decay**: recompute `weight` with the policy strength (idempotent: a pure function of age,
    importance and use, so a missed run cannot leave a row over-weighted);
@@ -309,7 +321,8 @@ FAISS `IndexFlat`, embeddings from a local nomic embedder (llama.cpp).
 `kg_relations(subject_id, predicate, object_id, weight, source)`: a subject-predicate-object
 graph. FTS5 over entities with insert, update and delete triggers for fuzzy `search_entities`.
 `upsert_entity`; `context_for_prompt` gives lightweight SQLite-only prompt context with no
-embedding. A stop-word list stops common words becoming entities.
+embedding. A stop-word list stops common words becoming entities. A relation's `ts` is when it was
+first learned: adding it again raises its weight and leaves the date alone.
 
 ## Truth layer (`memory_truth.py`)
 

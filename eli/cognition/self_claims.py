@@ -15,9 +15,11 @@ active" for logging that was always on. Two things fix that at the source:
 from __future__ import annotations
 
 import re
+import time
 from functools import lru_cache
 from typing import Any, Dict, Iterable, List, Optional
 
+from eli.cognition.query_planner import days_named
 from eli.utils.log import get_logger
 
 log = get_logger(__name__)
@@ -50,6 +52,7 @@ _COMPLAINT_RE = re.compile(
     r"|\byou\s+(?:forgot|ignored|missed|lied|made\s+(?:that|it|this|shit|stuff)\s+up|got\s+(?:that|it|this)\s+wrong|hallucinat\w+)\b"
     r"|\bthat(?:'s|’s| is| was)\s+(?:wrong|incorrect|bullshit|not\s+(?:right|true|what\s+i\s+(?:asked|said)))\b"
     r"|\bi\s+asked\s+you\b|\bwhy\s+the\s+(?:fuck|hell)\b"
+    r"|\b(?:are|were)\s+you\s+(?:just\s+)?making\s+(?:that|this|it|stuff|things|shit)\s+up\b"
     r"|\byou\s+(?:did\s+not|didn'?t|have\s+not|haven'?t)\s+(?:actually\s+|even\s+)?\w+"
     r"|\byou\s+never\s+(?!know\b)\w+",
     re.I)
@@ -384,6 +387,11 @@ class _Check:
         self._heading: Optional[str] = None
         self._dropped_under_heading = False
         self._last_dropped = False
+        # A question about a period: the days in it that have anything recorded.
+        self._period_window = facts.get("_period_window")
+        self._period_days = set(facts.get("_period_days") or [])
+        self._skip_section = False
+        self.unrecorded_days: List[str] = []
         self._line_open = False  # served text since the last newline
         self.dropped: List[str] = []
         self.kept_words = 0
@@ -392,6 +400,14 @@ class _Check:
         s = str(unit or "")
         if not s.strip():
             return ""
+        if self._period_window:
+            named = days_named(s, self._period_window)
+            missing = [d for d in named if d not in self._period_days]
+            if missing and len(missing) == len(named):
+                for d in missing:
+                    if d not in self.unrecorded_days:
+                        self.unrecorded_days.append(d)
+                return f"writes about {', '.join(missing)}, when nothing is recorded that day"
         ran = self._ran_at_start or bool(self._facts.get("executed_actions"))
         if not ran and _ENABLED_CLAIM.search(s):
             return "reports a change nothing made"
@@ -440,13 +456,18 @@ class _Check:
             return [unit] if self._heading is None else []
         if _HEADING.match(unit):
             out = [] if (self._heading is None or self._dropped_under_heading) else [self._heading]
-            # a heading can carry the invention too ("The Temporal Drift"); its section stands without it
+            # a heading can carry the invention too ("The Temporal Drift"); its section stands without it,
+            # unless the heading is a day with nothing recorded: then everything under it was made up
             titled = self.why(unit)
+            self._skip_section = bool(titled) and titled.startswith("writes about ")
             if titled:
                 out += self._dropped(unit)
             self._heading, self._dropped_under_heading, self._last_dropped = (None if titled else unit), False, False
             return out
-        reason = self.why(unit)
+        if self._period_window and _is_day_label(unit, self._period_window):
+            # a day label written inline ("... --- **Wednesday, 7 October**") opens a section like a heading
+            self._skip_section = all(d not in self._period_days for d in days_named(unit, self._period_window))
+        reason = self.why(unit) or ("sits under a day with nothing recorded" if self._skip_section else "")
         if reason:
             log.debug("[SELF-CLAIM] dropped a sentence that %s: %s", reason, unit.strip()[:100])
             self._dropped_under_heading = True
@@ -468,6 +489,9 @@ class _Check:
         left, a line saying causes were left out when several were, otherwise nothing."""
         if not self.dropped:
             return ""
+        if self.unrecorded_days:
+            days = [time.strftime("%A %d %B", time.strptime(d, "%Y-%m-%d")).replace(" 0", " ") for d in self.unrecorded_days]
+            return "\n\nNothing is recorded on " + ", ".join(days[:-1]) + (" or " if len(days) > 1 else "") + days[-1] + "."
         lines = self._facts.get("_record_lines") or []
         if self.kept_words < 4:
             if self.about_self and lines:
@@ -498,6 +522,12 @@ def _next_unit(buf: str, final: bool = False):
             at = m.end()
             continue
         return buf[:m.end()], buf[m.end():]
+
+
+def _is_day_label(unit: str, window: Any) -> bool:
+    """A short unit that only names a day ("**Wednesday, 7 October 2026**"), not a sentence about it."""
+    words = re.findall(r"[A-Za-z0-9]+", str(unit or ""))
+    return 1 <= len(words) <= 6 and bool(days_named(unit, window))
 
 
 def _turn_context() -> Dict[str, Any]:

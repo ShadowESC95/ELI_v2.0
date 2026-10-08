@@ -320,7 +320,8 @@ and ELI opens or reports the right thing.
   document-type quality profiles. It's generation-first, not a one-shot dump.
 
 ### 📊 Screen, images, PDFs, spreadsheets
-- "what's on my screen?" · "find the submit button on screen" · "take a screenshot"
+- "what's on my screen?" · "find the submit button on screen" · "find the word compose" ·
+  "click compose" (finds the text and clicks it) · "take a screenshot"
 - "describe cat.jpg" · "read the text in image.jpg" (OCR)
 - "summarise report.pdf" · "analyse data.csv" · "watch my screen" / "stop watching"
 

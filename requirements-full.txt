@@ -24,7 +24,9 @@ packaging>=26
 typing_extensions>=4.15
 
 # GUI
-PySide6>=6.11
+# 6.12.0 drops a reference to None on every Qt call before Python 3.12 (eli/core/singleton_refs.py)
+PySide6>=6.11,!=6.12.0; python_version < "3.12"
+PySide6>=6.11; python_version >= "3.12"
 
 # LLM and vector search
 llama-cpp-python>=0.3.30  # <0.3.30 cannot read hybrid attention+SSM GGUFs
