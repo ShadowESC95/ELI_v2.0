@@ -1274,15 +1274,19 @@ When the cognition pipeline (stages 5–7) needs memory, it calls **`recall_memo
 hybrid retriever that runs in this order:
 1. **Vector search first (FAISS).** The semantic index is the primary path — it finds things that
    *mean* the same even if worded differently.
-2. **Keyword supplement (FTS5/LIKE) — only if needed.** If the vector index is cold/empty or
-   returns fewer than half the requested results (e.g. a very short query), a keyword search tops
-   it up. (When another part of the system already did the vector search, this step is skipped to
-   avoid double-searching.)
+2. **Keyword search (FTS5) alongside it.** Both run every time and their rankings are combined,
+   so a memory found by meaning and by the exact word comes first. The keyword search reads what
+   was said, never the labels ELI files it under. A plain LIKE scan covers the case where it finds
+   nothing.
 3. **Noise filter.** Results are scrubbed of ELI's *own* output — assistant insights, reflections,
    session summaries, the "orchestrator" source, and any over-long blobs (>1500 chars). This is
    the safeguard that stops ELI's past musings from masquerading as *your* facts.
 4. **Importance-weighted ordering.** What survives is ranked by an importance score so the most
    significant memories surface first.
+
+When you ask what ELI remembers, every memory it shows has its date in front of it. Asking how
+its memory is doing ("how's your memory holding up?") gets a short health check instead: how
+much is stored and whether every store is readable.
 
 Alongside this, the **knowledge graph** contributes a lightweight relational context, and your
 **User Model brief** is read **fresh every single turn** — that's why ELI stays in context about

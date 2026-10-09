@@ -812,3 +812,14 @@ def test_elis_own_piper_is_looked_for_beside_the_python_that_is_running():
     from eli.perception import tts_router as tts
     beside = {os.path.normcase(str(Path(p).parent)) for p in tts._own_piper_candidates()}
     assert os.path.normcase(str(Path(sys.executable).parent)) in beside
+
+
+def test_a_place_piper_could_be_is_not_run_or_reported(tmp_path, monkeypatch, caplog):
+    """The frozen app logged "piper at ~/.local/share/ELI_v2/.venv/bin/piper does not start (No such
+    file)": only a source install has that environment."""
+    import logging
+    from eli.perception import tts_router
+    monkeypatch.setattr("subprocess.run", lambda *a, **k: (_ for _ in ()).throw(AssertionError("ran")))
+    with caplog.at_level(logging.DEBUG):
+        assert tts_router._piper_runs(str(tmp_path / "nowhere" / "piper")) is False
+    assert "does not start" not in caplog.text

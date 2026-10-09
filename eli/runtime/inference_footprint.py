@@ -149,7 +149,7 @@ def _read_llama_live(llm) -> Dict[str, Any]:
         except Exception:
             log.debug("llama_n_ctx failed", exc_info=True)
         try:
-            val = _as_int(lc.llama_get_state_size(ctx))
+            val = _as_int((getattr(lc, "llama_state_get_size", None) or lc.llama_get_state_size)(ctx))
             if val is not None:
                 out["kv_state_bytes"] = val
         except Exception:

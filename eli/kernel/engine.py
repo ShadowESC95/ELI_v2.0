@@ -944,12 +944,20 @@ def _correction_embeds_memory_question(text: str) -> bool:
     retrieval, only the last few raw turns, so that question must escalate to the full
     pipeline instead of getting a context-free deflection.
     """
-    return bool(re.search(
+    low = (text or "").lower()
+    if re.search(
         r"\b(?:your (?:memory|conversation) logs?|check your (?:memory|logs)|"
         r"nothing in your logs|aware of anything|what happened|"
         r"do you (?:remember|recall)|what do you remember|memory recall)\b",
-        (text or "").lower(),
-    ))
+        low,
+    ):
+        return True
+    # A question about an earlier reply than the last one, or about when something was said: the
+    # shortcut sees only the last exchange ("that is not true. in your long response above, what
+    # day is that from?" got "I don't recall that conversation").
+    from eli.cognition.correction_patterns import refers_to_earlier_reply
+    return bool(re.search(r"\btimestamps?\b|\bwhat (?:day|date|time)\b|\bwhen (?:was|is|did)\b", low)
+                or (refers_to_earlier_reply(low) and re.search(r"\?|\b(?:what|when|which|where|who|how)\b", low)))
 
 
 # A part of a multi-question message counts as a question when it opens like one

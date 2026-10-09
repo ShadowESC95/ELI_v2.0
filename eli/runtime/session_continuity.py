@@ -101,7 +101,11 @@ def build_inline_exchange_block(
     max_chars_per: int = INLINE_EXCHANGE_CHARS_PER_TURN,
     user_input: str = "",
 ) -> str:
-    """Same thread, prepended directly to the user prompt (broker + stream paths)."""
+    """Same thread, prepended directly to the user prompt (broker + stream paths). When the user
+    points back at something ELI said, ELI's turns are given whole: the date asked about was past
+    the cut."""
+    from eli.cognition.correction_patterns import refers_to_earlier_reply
+    whole_replies = refers_to_earlier_reply(user_input)
     prior = prior_turns_excluding_current(turns, user_input)
     lines: List[str] = []
     for item in prior[-max_turns:]:
@@ -109,7 +113,7 @@ def build_inline_exchange_block(
         if not content:
             continue
         label = "You" if role == "user" else "ELI"
-        if len(content) > max_chars_per:
+        if len(content) > max_chars_per and not (whole_replies and role != "user"):
             content = content[: max_chars_per - 3].rstrip() + "..."
         lines.append(_stamped(item, f"{label}: {content}"))
     if len(lines) < 2:

@@ -488,7 +488,6 @@ class KnowledgeGraph:
                 header += f": {desc}"
             if aliases:
                 header += f" — also known as: {aliases}"
-            lines.append(header)
             # Query-aware ordering: float relations whose predicate/object match a
             # query token to the top, so "what is my dog's name" surfaces
             # has_dog→Shadow instead of it being crowded out by the [:5] cap.
@@ -509,13 +508,21 @@ class KnowledgeGraph:
                  if float(r.get("weight", 1.0) or 0) > 0.1 and not _junk_name_relation(r)),
                 key=_rel_relevance, reverse=True,
             )
+            # Inbound too: "User is_a saying your memory is fine now" reached a recall reply from the
+            # value's side, where nothing filtered it.
+            _inbound = [r for r in (ent_detail.get("inbound") or [])
+                        if float(r.get("weight", 1.0) or 0) > 0.1
+                        and not _junk_name_relation({"predicate": r.get("predicate"), "object": name})]
+            if (not (desc or aliases or _outbound or _inbound)
+                    and (ent_detail.get("outbound") or ent_detail.get("inbound"))):
+                continue                     # all it had were junk relations
+            lines.append(header)
             for rel in _outbound[:max_relations]:
                 triple = (name, rel["predicate"], rel["object"])
                 if triple not in seen_triples:
                     seen_triples.add(triple)
                     lines.append(f"  {name} —[{rel['predicate']}]→ {rel['object']}")
-            for rel in [r for r in (ent_detail.get("inbound") or [])
-                        if float(r.get("weight", 1.0) or 0) > 0.1][:max(3, max_relations // 2)]:
+            for rel in _inbound[:max(3, max_relations // 2)]:
                 triple = (rel["subject"], rel["predicate"], name)
                 if triple not in seen_triples:
                     seen_triples.add(triple)

@@ -6610,6 +6610,13 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not q:
             return {"ok": False, "action": a, "error": "empty_query", "content": "empty_query", "response": "empty_query"}
 
+        def _dated(h: Dict[str, Any], text: str) -> str:
+            # Each memory says when it is from: asked "when was that?", ELI made a time up.
+            from eli.cognition.evidence_format import row_time, turn_stamp
+            when = row_time(h)
+            stamp = turn_stamp(when) if when else ""
+            return f"[{stamp}] {text}" if stamp else text
+
         # 1) Canonical Memory class (proven working)
         try:
             from eli.memory.memory import get_memory as _get_mem_recall
@@ -6625,7 +6632,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     t = (h.get("text", "") or "").strip()
                     if not t:
                         continue
-                    t = t[:_PER_HIT_CHARS]
+                    t = _dated(h, t[:_PER_HIT_CHARS])
                     lines.append(t)
                     total += len(t)
                     if total >= _MAX_TOTAL_CHARS:
@@ -6666,6 +6673,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                             t = (h.get("text") or "").strip()
                             if not t:
                                 continue
+                            t = _dated(h, t)
                             score = h.get("score", None)
                             tags = h.get("tags", "")
                             if score is not None:
@@ -6690,7 +6698,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             from eli.memory.memory import get_memory
             _mem = get_memory()
             hits = _mem.search_memory(q, limit=20) or []
-            content = "\n".join((h.get("text", "") or "") for h in hits) if isinstance(hits, list) else "Memory recall:\n(no matches)"
+            content = "\n".join(_dated(h, h.get("text", "") or "") for h in hits) if isinstance(hits, list) else "Memory recall:\n(no matches)"
             if not content.strip():
                 content = "Memory recall:\n(no matches)"
             return {"ok": True, "action": a, "hits": hits, "content": content, "response": content}
@@ -16073,6 +16081,14 @@ try:
                 "response": content,
             }
 
+        def _eli_exec_mw_memory_health(ctx, nxt):
+            if ctx["action"] != "MEMORY_STATUS" or str((ctx.get("args") or {}).get("memory_scope") or "") != "health":
+                return nxt(ctx)
+            from eli.memory.memory_truth import memory_truth_report, format_memory_truth
+            content = format_memory_truth(memory_truth_report())
+            return {"ok": True, "action": "MEMORY_STATUS", "evidence_source": "memory_truth",
+                    "content": content, "response": content}
+
         def _eli_exec_mw_memory_count(ctx, nxt):
             if ctx["action"] != "MEMORY_STATUS":
                 return nxt(ctx)
@@ -16154,6 +16170,7 @@ try:
             ("runtime_status_metadata", _eli_exec_mw_runtime_status_metadata),
             ("self_report_recent_updates", _eli_exec_mw_self_report_recent_updates),
             ("recent_memory_processing", _eli_exec_mw_recent_memory_processing),
+            ("memory_health", _eli_exec_mw_memory_health),
             ("memory_count", _eli_exec_mw_memory_count),
             ("memory_runtime_sanitizer", _eli_exec_mw_memory_runtime_sanitizer),
             ("profile_scope", _eli_exec_mw_profile_scope),

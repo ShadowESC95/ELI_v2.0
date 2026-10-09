@@ -32,3 +32,15 @@ def test_other_phrasings_of_a_real_memory_question_are_caught():
         "what do you remember about that",
     ):
         assert _correction_embeds_memory_question(msg)
+
+
+def test_a_question_about_an_earlier_reply_or_when_something_was_said_is_caught():
+    """Live 2026-10-09: "That is not true. In your long response above, what day is that
+    memory/conversation from?" got the shortcut, which sees the last exchange only, and answered
+    "I don't recall that specific conversation or day"."""
+    for msg in (
+        "That is not true. In your long response above, what day is that memory/conversation from ?",
+        "that's not true, can you check the response from above and give me a timestamp",
+        "no that's wrong, when was that?",
+    ):
+        assert _correction_embeds_memory_question(msg), msg

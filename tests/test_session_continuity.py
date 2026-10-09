@@ -51,3 +51,17 @@ def test_prior_turns_count():
     prior = prior_turns_excluding_current(turns, "t5")
     assert len(prior) == 5
     assert SESSION_THREAD_MAX_TURNS == 12
+
+
+def test_a_reply_the_user_points_back_at_is_given_whole():
+    """The date asked about in "what day is that from, in your long response above?" was past the
+    cut every earlier turn gets."""
+    long_reply = "Memory recall:\n" + "\n---\n".join(f"[Mon 28 Sep 21:{i:02d}] line {i}" for i in range(40))
+    turns = [{"role": "user", "content": "how is the memory doing?"},
+             {"role": "assistant", "content": long_reply},
+             {"role": "user", "content": "ok"},
+             {"role": "assistant", "content": "Grand."}]
+    pointed = build_inline_exchange_block(turns, user_input="In your long response above, what day is that from?")
+    assert "line 39" in pointed
+    plain = build_inline_exchange_block(turns, user_input="what's the weather like")
+    assert "line 39" not in plain

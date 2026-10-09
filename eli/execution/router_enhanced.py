@@ -3141,6 +3141,12 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             r"\b(?:awareness|self[- ]?awareness)\s+(?:status|report|check)\b", low):
         return _mk("AWARENESS_STATUS", {"query": raw}, 0.95, matched_by="awareness.status",
                    entities={"query": raw}, need_grounding=True, task_family="grounded_audit")
+    # How the memory is doing gets the short health report. "and the memory, how is that doing?" went
+    # to the model's intent guess, which ran a recall of "memory status" and dumped eighteen messages.
+    if re.search(r"\bhow(?:'s|\s+is|\s+are)\s+(?:your|the|ur)\s+memor(?:y|ies)\b(?!\s+(?:of|about|for|on)\b)"
+                 r"|\bmemor(?:y|ies)\W{0,4}how(?:'s|\s+is|\s+are)\s+(?:that|it|they)\s+(?:doing|holding|working|going|getting|coming)\b"
+                 r"|\bis\s+(?:your|the)\s+memory\s+(?:ok|okay|fine|good|working|back|alright|holding)\b", low):
+        return _mk("MEMORY_STATUS", {"memory_scope": "health", "question": raw}, 0.97, matched_by="memory.health")
     if re.search(r"memory\s*(status|stats|report|info|summary|check|usage|count|size|total)|how many memories|memories (do you have|count|total)", low):
         try:
             from eli.runtime.inference_footprint import is_inference_ram_question

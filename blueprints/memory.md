@@ -255,7 +255,9 @@ budgets.
 The primitive `retrieve_for_turn()` builds on:
 
 1. **FAISS and FTS5 both run** and are fused by reciprocal rank (`fuse_ranked_lists`); a LIKE
-   scan covers the case where FTS returns nothing. `keyword_only=True` skips FAISS.
+   scan covers the case where FTS returns nothing. `keyword_only=True` skips FAISS. FTS5 is
+   asked about the `text` column only: the tokenizer splits tags at `_`, so "memory" used to
+   match every row tagged `memory_recall` or `working_memory`, whatever it said.
 2. **Noise filtering** (`memory_exclusion_sql` in `core/self_provenance.py`): ELI's own
    bookkeeping kinds and sources never resurface as recalled user memories.
 3. **Importance-weighted ordering** via `COALESCE(importance, 0.5)`.
@@ -321,14 +323,20 @@ FAISS `IndexFlat`, embeddings from a local nomic embedder (llama.cpp).
 `kg_relations(subject_id, predicate, object_id, weight, source)`: a subject-predicate-object
 graph. FTS5 over entities with insert, update and delete triggers for fuzzy `search_entities`.
 `upsert_entity`; `context_for_prompt` gives lightweight SQLite-only prompt context with no
-embedding. A stop-word list stops common words becoming entities. A relation's `ts` is when it was
+embedding. Relations an older extractor stored that are not facts (an is_a that is a mood or an
+activity, a has_name that is not a name; `_junk_name_relation`) are left out from both sides,
+and an entity that had nothing else is left out with them. A stop-word list stops common words becoming entities. A relation's `ts` is when it was
 first learned: adding it again raises its weight and leaves the date alone.
 
 ## Truth layer (`memory_truth.py`)
 
 `inspect_sqlite` and `inspect_vector_store`: read-only inspection used by status surfaces;
 reads `vectors/meta.json` and falls back to the legacy pickle. Backs `truth_report` and the
-memory-status surfaces.
+memory-status surfaces; `format_memory_truth` is the short answer to "how is your memory doing?"
+(`MEMORY_STATUS` with `memory_scope=health`).
+
+A recall reply (`MEMORY_RECALL`) puts each memory's date in front of it (`turn_stamp`), so
+"when was that?" has an answer on the screen instead of one the model makes up.
 
 ## Promotion across tiers
 

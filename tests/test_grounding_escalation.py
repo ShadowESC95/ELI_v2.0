@@ -282,3 +282,15 @@ def test_rapport_and_watch_progress_not_web_candidate(monkeypatch):
 def test_episode_recap_still_web_candidate():
     q = "what happened in season 3 episode 6 of blue harbor?"
     assert G.classify_web_candidate(q) is True
+
+
+def test_a_question_about_this_conversation_is_never_an_outside_fact():
+    """Live 2026-10-09: "can you tell me when that was?" about "that conversation" was classed an
+    outside fact and sent to a web search."""
+    for t in ("Okay i seem to be annoyed in that conversation, can you tell me when that was? "
+              "or do you have a timestamp?",
+              "Can you check the long response from above Eli, and tell me what date it is from i.e a timestamp?",
+              "That is not the response from you that i was talking about!"):
+        assert G.classify_factual(t) == (False, "none"), t
+        assert G.classify_web_candidate(t) is False, t
+    assert G.classify_factual("what was the government response to the floods")[1] == "external"

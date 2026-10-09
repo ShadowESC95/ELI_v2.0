@@ -137,3 +137,15 @@ def test_keyword_channel_is_no_longer_gated_behind_vector_count():
     src = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
     assert "len(vector_results) < max(1, limit // 2)" not in src, \
         "keyword search is gated behind the vector result count again"
+
+
+def test_the_keyword_channel_reads_what_was_said_not_the_tags(tmp_path):
+    """Tags are split at "_" by the index, so "memory" matched every row tagged memory_recall or
+    working_memory: a recall of "memory status" brought back eighteen unrelated messages."""
+    from eli.memory.memory import Memory
+    mem = Memory(db_path=str(tmp_path / "user.sqlite3"))
+    mem.store_memory("Both setups are in Bristol", tags=["working_memory", "memory_recall"])
+    mem.store_memory("my memory of the trip is hazy", tags=["conversation"])
+    by_keyword = [h["text"] for h in mem.search_memory("memory", limit=10) if h.get("_source") == "fts"]
+    assert by_keyword == ["my memory of the trip is hazy"]
+

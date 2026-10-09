@@ -631,7 +631,7 @@ def test_earlier_sessions_stay_out_of_recent_turns_unless_the_question_is_about_
     assert said("what did we talk about earlier?") == ["i was working on the solar hydrogen model", "morning"]
 
 
-def test_the_calendar_plugin_uses_the_same_calendar(agenda):
+def test_the_calendar_plugin_uses_the_same_calendar(monday):
     from eli.plugins.calendar.plugin import CalendarPlugin
     plugin = CalendarPlugin.__new__(CalendarPlugin)
     added = plugin.add_event({"text": "add dentist appointment on friday at 2:30pm to my calendar"})

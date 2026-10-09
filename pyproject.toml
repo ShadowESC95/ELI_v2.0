@@ -113,7 +113,7 @@ vision = [
 ]
 # Web search + browser automation plugins.
 web = [
-    "duckduckgo-search>=6.0",
+    "ddgs>=9.0",
     "playwright>=1.40",
 ]
 # Data/CSV analysis + 2D/3D/4D plotting, simulation/dynamics, and 3D-mesh inspection.

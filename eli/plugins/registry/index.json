@@ -34,7 +34,7 @@
       "author": "ELI Core",
       "license": "MIT",
       "requires": [],
-      "pip": ["duckduckgo-search"],
+      "pip": ["ddgs"],
       "actions": ["WEB_SEARCH"],
       "builtin": true
     },

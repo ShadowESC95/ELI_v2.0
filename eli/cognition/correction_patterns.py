@@ -55,6 +55,24 @@ def is_continuity_complaint(text: str) -> bool:
     return bool(CONTINUITY_COMPLAINT_RE.search(str(text or "")))
 
 
+# The user pointing back at something already said ("your long response above", "that
+# conversation", "the response from you"), not asking about the outside world. Live: "can you
+# tell me when that was?" about that conversation was web-searched, and "what day is that from"
+# about ELI's long reply was answered from the last exchange only.
+EARLIER_REPLY_RE = re.compile(
+    r"\b(?:that|our|last|previous|earlier)\s+(?:\w+\s+)?(?:conversation|chat|exchange)\b"
+    r"|\b(?:your|my|that|the|this)\s+(?:(?:long|last|previous|earlier|first|whole)\s+)?"
+    r"(?:reply|response|answer|message|list)\s+(?:above|earlier|before|from\s+(?:above|earlier|before|you))\b"
+    r"|\b(?:your|my)\s+(?:long|last|previous|earlier|first)\s+(?:reply|response|answer|message|list)\b"
+    r"|\b(?:reply|response|answer|message)\s+from\s+you\b",
+    re.I,
+)
+
+
+def refers_to_earlier_reply(text: str) -> bool:
+    return bool(EARLIER_REPLY_RE.search(str(text or "")))
+
+
 # User correcting ELI's recency ("that was today", "not last week").
 TEMPORAL_CORRECTION_RE = re.compile(
     r"\b(?:was|is)\s+(?:today|yesterday|this morning|this evening|just now|earlier today)\b"

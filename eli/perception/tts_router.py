@@ -618,6 +618,8 @@ def _own_piper_candidates() -> list:
 def _piper_runs(path: str) -> bool:
     """The file is the Piper speech engine and it starts. Asked once per file."""
     key = str(path)
+    if key not in _PIPER_RUNS and not os.path.isfile(key):
+        _PIPER_RUNS[key] = False             # a place it could be, not a piper that failed
     if key not in _PIPER_RUNS:
         import subprocess
         try:

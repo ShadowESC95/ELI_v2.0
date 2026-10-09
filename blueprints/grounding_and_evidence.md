@@ -206,6 +206,12 @@ exist, and said "the audit trail is now active" for logging that was always on.
   turn ("why did that take so long", "what did you just do", "why did you search the web") are
   answered from those rows with no model call (`ROUTING_FAULT_EXPLAIN`). None of these turns
   is ever escalated to a web search.
+- **A question about something already said is about the conversation.** "When was that, in
+  that conversation?", "your long response above", "the response from you"
+  (`correction_patterns.refers_to_earlier_reply`) are never web-searched; the history block
+  then gives ELI's earlier replies whole instead of cut to 280 characters, and a correction
+  that asks one (`that is not true, what day is that from?`) leaves the correction shortcut,
+  which only sees the last exchange, for the full pipeline.
 - **The claim check** (`gate_stream` on streamed replies, `drop_invented_self_claims` in
   `govern_output`). A sentence is dropped when it reports a change nothing made ("logging is
   now active", when no action ran); promises a standing change a reply cannot make ("no web

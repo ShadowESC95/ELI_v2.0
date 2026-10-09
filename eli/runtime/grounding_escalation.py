@@ -321,8 +321,8 @@ def _turn_excluded_from_factual(raw: str, *, include_local: bool = False) -> boo
         return True
     low, low_clean = _clean_turn_text(raw)
     try:
-        from eli.cognition.correction_patterns import is_correction_query as _is_corr
-        if _is_corr(raw):
+        from eli.cognition.correction_patterns import is_correction_query as _is_corr, refers_to_earlier_reply
+        if _is_corr(raw) or refers_to_earlier_reply(raw):
             return True
     except Exception:
         log.debug("suppressed exception", exc_info=True)

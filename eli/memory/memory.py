@@ -2428,7 +2428,9 @@ class Memory(metaclass=_MemoryMeta):
                     # the raw tokens rather than searching for nothing.
                     if not _terms:
                         _terms = [t for t in re.split(r"[^a-zA-Z0-9_]+", q) if len(t) > 1]
-                    fts_q = " OR ".join(f'"{t}"' for t in _terms)
+                    # The text column only: tags are split at "_", so "memory" matched every row tagged
+                    # memory_recall or working_memory whatever it said.
+                    fts_q = " OR ".join(f'text:"{t}"' for t in _terms)
                     if fts_q:
                         fts_rows = conn.execute(
                             f"""

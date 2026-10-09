@@ -442,3 +442,15 @@ def test_the_distinct_tracks_are_worked_out_for_the_model():
     assert out.count("Bagpipes From Baghdad") == 1 and "Mos Def — Sunshine" in out
     assert "t6 Immortal Technique — Point Of No Return" in out   # request and player title merged
     assert "“liked” (search opened, playback not confirmed)" in out
+
+
+def test_a_junk_relation_an_old_extractor_stored_stays_out_from_either_side(tmp_path):
+    """Stored before the extractor was fixed, "User is_a saying your memory is fine now" was hidden
+    from the user's side but printed from the value's side, in a recall reply (2026-10-09)."""
+    from eli.memory.knowledge_graph import KnowledgeGraph
+    kg = KnowledgeGraph(db_path=tmp_path / "kg.sqlite3")
+    kg.add_relation("User", "is_a", "saying your memory is fine now")
+    kg.add_relation("User", "lives_in", "Bristol")
+    text = kg.context_for_prompt("saying your memory is fine now") + kg.context_for_prompt("memory")
+    assert "saying your memory" not in text
+    assert "Bristol" in kg.context_for_prompt("Bristol")

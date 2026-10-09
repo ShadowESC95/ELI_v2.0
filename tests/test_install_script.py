@@ -224,10 +224,11 @@ def test_windows_cuda_wheel_is_version_bounded():
 
 def test_ddgs_replaces_the_deprecated_package_name():
     """duckduckgo-search was renamed; the old name installs a shim that warns on
-    every search and will stop being published."""
+    every search and will stop being published. pyproject's web extra is what the
+    release bundles, and it still had the old name."""
     root = Path(__file__).resolve().parents[1]
     for name in ("requirements.txt", "requirements-full.txt",
-                 "requirements-macos.txt", "requirements-windows.txt"):
+                 "requirements-macos.txt", "requirements-windows.txt", "pyproject.toml"):
         p = root / name
         if not p.exists():
             continue
