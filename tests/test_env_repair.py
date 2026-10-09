@@ -14,6 +14,8 @@ launcher call it; these tests run on Linux, macOS and Windows.
 from __future__ import annotations
 
 import importlib.util
+import io
+import json
 import os
 import subprocess
 import sys
@@ -45,20 +47,26 @@ def _packages_dir(root: Path) -> Path:
 
 # ── which Python a new install uses ──────────────────────────────────────────
 
-@pytest.mark.parametrize("on_offer,chosen", [
-    ([(3, 14), (3, 12)], (3, 12)),          # ready-made packages for the inference engine
-    ([(3, 14), (3, 11), (3, 10)], (3, 11)),
-    ([(3, 13), (3, 14)], (3, 13)),          # newer than that still installs, building one package
-    ([(3, 14)], (3, 14)),                   # the only one there is: use it, do not refuse
-    ([(3, 15)], (3, 15)),                   # a version this file has never heard of
-    ([(3, 9), (2, 7)], None),               # too old to run ELI
-    ([], None),
+@pytest.mark.parametrize("on_offer,gaps,chosen", [
+    ([(3, 12), (3, 14)], None, (3, 14)),                                 # nothing measured: the newest
+    ([(3, 15)], None, (3, 15)),                                          # a version this file has never heard of
+    ([(3, 12), (3, 14)], {(3, 12): [], (3, 14): ["numpy"]}, (3, 12)),    # fewer packages to build wins
+    ([(3, 12), (3, 13), (3, 14)], {(3, 12): [], (3, 13): [], (3, 14): []}, (3, 14)),   # a tie: the newest
+    ([(3, 14)], {(3, 14): ["numpy", "scipy"]}, (3, 14)),                 # the only one there is: use it
+    ([(3, 9), (2, 7)], None, None),                                      # too old to run ELI
+    ([], None, None),
 ])
-def test_a_new_install_takes_the_python_that_installs_fastest_and_never_refuses_a_new_one(on_offer, chosen):
-    assert eli_env.prefer(on_offer) == chosen
+def test_a_new_install_takes_the_python_most_packages_come_ready_made_for_and_never_refuses_a_new_one(
+        on_offer, gaps, chosen):
+    assert eli_env.prefer(on_offer, gaps) == chosen
 
 
-def test_the_python_picked_on_this_machine_exists_and_is_new_enough():
+def test_the_floor_is_the_one_pyproject_declares():
+    assert eli_env.declared_minimum(str(ROOT)) == eli_env.MINIMUM
+
+
+def test_the_python_picked_on_this_machine_exists_and_is_new_enough(monkeypatch):
+    monkeypatch.setattr(eli_env, "wheel_gaps", lambda versions, root=None: None)     # PyPI is not asked from a test
     python = eli_env.pick_python()
     assert python and os.path.isfile(python)
     assert eli_env._version_of(python) >= eli_env.MINIMUM
@@ -66,6 +74,116 @@ def test_the_python_picked_on_this_machine_exists_and_is_new_enough():
 
 def test_an_interpreter_that_does_not_run_has_no_version(tmp_path):
     assert eli_env._version_of(str(tmp_path / "not-a-python")) is None
+
+
+def _fake_index(monkeypatch, tmp_path, pages):
+    """PyPI (and PyTorch's list) as {url piece: answer}; anything else does not answer."""
+    asked = []
+
+    def urlopen(url, timeout=None):
+        asked.append(url)
+        for piece, answer in pages.items():
+            if piece in url:
+                return io.BytesIO(answer.encode() if isinstance(answer, str) else
+                                  json.dumps({"urls": [{"filename": f} for f in answer]}).encode())
+        raise OSError("no answer")
+    monkeypatch.setattr(eli_env.urllib.request, "urlopen", urlopen)
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path / "cache"))
+    return asked
+
+
+FOREIGN = "manylinux_2_17_x86_64" if sys.platform.startswith("win") else "win_amd64"
+HERE_TAG = next((tag for tag in ("manylinux_2_28_x86_64", "manylinux_2_28_aarch64", "win_amd64", "win_arm64",
+                                 "macosx_11_0_universal2") if eli_env._platform_fits(tag)), "any")
+
+
+@pytest.mark.parametrize("python_tag,abi,version,fits", [
+    ("cp312", "cp312", (3, 12), True),
+    ("cp312", "cp312", (3, 13), False),
+    ("cp39", "abi3", (3, 14), True),             # the stable ABI: built once, runs on every later Python
+    ("cp313", "abi3", (3, 12), False),
+    ("py3", "none", (3, 15), True),
+    ("py2.py3", "none", (3, 12), True),
+    ("py2", "none", (3, 12), False),
+    ("cp313", "cp313t", (3, 13), False),         # free-threaded builds need a free-threaded Python
+])
+def test_a_wheel_is_read_for_the_python_it_installs_on(python_tag, abi, version, fits):
+    assert eli_env._python_fits(python_tag, abi, version) is fits
+
+
+def test_a_wheel_built_for_another_system_does_not_count():
+    assert eli_env._platform_fits("any") and eli_env._platform_fits(HERE_TAG)
+    assert not eli_env._platform_fits(FOREIGN)
+
+
+def test_which_python_the_locked_packages_come_ready_made_for_is_asked_of_pypi(tmp_path, monkeypatch):
+    (tmp_path / "requirements.lock.txt").write_text(
+        'only312==1.0\nstable==2.0\npure==3.0\nnowhere==4.0\n'
+        'elsewhere==5.0 ; sys_platform == "nosuchsystem"\nlater==6.0 ; python_version >= "3.99"\n'
+        'backport==7.0 ; python_version >= "3.13"\n')
+    asked = _fake_index(monkeypatch, tmp_path, {
+        "/only312/": ["only312-1.0-cp312-cp312-%s.whl" % HERE_TAG],
+        "/backport/": ["backport-7.0-cp313-abi3-%s.whl" % HERE_TAG],      # not installed on 3.12 at all
+        "/stable/": ["stable-2.0-cp39-abi3-%s.whl" % HERE_TAG],
+        "/pure/": ["pure-3.0-py3-none-any.whl"],
+        "/nowhere/": ["nowhere-4.0-cp312-cp312-%s.whl" % FOREIGN],     # built here on every Python alike
+    })
+    gaps = eli_env.wheel_gaps([(3, 12), (3, 14)], str(tmp_path))
+    assert gaps == {(3, 12): [], (3, 14): ["only312"]}
+    assert not any("elsewhere" in url or "later" in url for url in asked)   # not installed on this machine
+    asked.clear()
+    assert eli_env.wheel_gaps([(3, 12), (3, 14)], str(tmp_path)) == gaps and not asked   # kept, not asked again
+
+
+@pytest.mark.parametrize("pip_here", [True, False])
+@pytest.mark.parametrize("marker,version,holds", [
+    ("", (3, 12), True),
+    ('python_version >= "3.13"', (3, 12), False),
+    ('python_version >= "3.13"', (3, 14), True),
+    ('sys_platform == "%s"' % sys.platform, (3, 12), True),
+    ('sys_platform != "%s"' % sys.platform, (3, 12), False),
+])
+def test_a_locked_package_is_judged_for_the_python_it_would_install_on(monkeypatch, pip_here, marker, version, holds):
+    """Judged by the running Python, audioop-lts (3.13 and later) counted against 3.12 and 3.11."""
+    if not pip_here:
+        monkeypatch.setitem(sys.modules, "pip._vendor.packaging.markers", None)    # a Python without pip
+    assert eli_env._marker_holds(marker, version) is holds
+
+
+def test_without_pypi_the_wheels_a_release_ships_decide_and_with_neither_nothing_is_made_up(tmp_path, monkeypatch):
+    (tmp_path / "requirements.lock.txt").write_text("only312==1.0\npure==3.0\n")
+    _fake_index(monkeypatch, tmp_path, {})
+    assert eli_env.wheel_gaps([(3, 12), (3, 14)], str(tmp_path)) is None
+    (tmp_path / "wheelhouse").mkdir()
+    (tmp_path / "wheelhouse" / ("only312-1.0-cp312-cp312-%s.whl" % HERE_TAG)).write_bytes(b"")
+    assert eli_env.wheel_gaps([(3, 12), (3, 14)], str(tmp_path)) == {(3, 12): [], (3, 14): ["only312"]}
+
+
+def test_the_pytorch_build_is_chosen_from_what_pytorch_publishes_for_this_python_and_driver(tmp_path, monkeypatch):
+    """cu121 and rocm6.2 were fixed in both installers. Neither has a build past Python 3.12, so a
+    3.13 or 3.14 install with a GPU got CPU PyTorch, and on Linux the engine was built for CPU too."""
+    here = "cp%d%d" % HERE
+    page = "".join('<a href="/whl/%s/torch-2.9.0%%2B%s-%s-%s-%s.whl">x</a>\n' % (v, v, py, py, tag) for v, py, tag in [
+        ("cu130", here, HERE_TAG), ("cu128", here, HERE_TAG), ("cu126", here, HERE_TAG),
+        ("cu124", "cp39", HERE_TAG),                   # no build for this Python
+        ("cu118", here, FOREIGN),                      # not for this machine
+        ("rocm6.4", here, HERE_TAG), ("rocm7.1", here, HERE_TAG), ("cpu", here, HERE_TAG)])
+    _fake_index(monkeypatch, tmp_path, {"/whl/torch/": page})
+    index = "https://download.pytorch.org/whl/%s"
+    monkeypatch.setattr(eli_env, "_driver_cuda", lambda: (12, 8))
+    assert eli_env.torch_indexes("cuda") == [index % "cu128", index % "cu126"]     # cu130 needs a newer driver
+    assert eli_env.torch_indexes("rocm") == [index % "rocm7.1", index % "rocm6.4"]
+    assert eli_env.torch_indexes("cpu") == [index % "cpu"]
+    monkeypatch.setattr(eli_env, "_driver_cuda", lambda: None)
+    assert eli_env.torch_indexes("cuda") == []          # a driver that cannot say what it runs gets no CUDA build
+    assert eli_env.main(["eli_env.py", "torch-index", "cuda"]) == 7
+
+
+def test_the_driver_is_read_by_the_frozen_apps_own_reader():
+    gpu_pack = (ROOT / "packaging" / "pyinstaller" / "eli_gpu_pack.py").read_text(encoding="utf-8")
+    assert "def _driver_cuda_version(" in gpu_pack
+    assert "_driver_cuda_version()" in HELPER.read_text(encoding="utf-8")
 
 
 # ── whether an environment still works ───────────────────────────────────────
@@ -135,17 +253,23 @@ def test_the_command_reports_by_exit_status(install, tmp_path_factory):
     empty = tmp_path_factory.mktemp("no_install")
     missing = subprocess.run([sys.executable, str(HELPER), "status", str(empty)], capture_output=True, text=True)
     assert missing.returncode == 3
-    picked = subprocess.run([sys.executable, str(HELPER), "pick"], capture_output=True, text=True)
+    away = str(tmp_path_factory.mktemp("away"))      # only the running Python in reach: nothing to measure, no cache written
+    alone = dict(os.environ, PATH=os.path.dirname(sys.executable), HOME=away, USERPROFILE=away,
+                 LOCALAPPDATA=away, XDG_CACHE_HOME=away)
+    picked = subprocess.run([sys.executable, str(HELPER), "pick"], capture_output=True, text=True, env=alone)
     assert picked.returncode == 0 and os.path.isfile(picked.stdout.strip())
 
 
 def test_the_helper_needs_nothing_but_the_standard_library():
-    """It is run by whatever Python can be found, with ELI's own packages out of reach."""
+    """It is run by whatever Python can be found, with ELI's own packages out of reach. pip may be
+    used where the Python has it, inside a try that does without."""
     import ast
     tree = ast.parse(HELPER.read_text(encoding="utf-8"))
-    imported = {n.names[0].name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import)}
-    imported |= {(n.module or "").split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom)}
-    assert imported <= {"__future__", "glob", "json", "os", "shutil", "subprocess", "sys", "typing"}
+    guarded = {id(n) for t in ast.walk(tree) if isinstance(t, ast.Try) for part in t.body for n in ast.walk(part)}
+    imported = {(a.name if isinstance(n, ast.Import) else n.module or "").split(".")[0]
+                for n in ast.walk(tree) if isinstance(n, (ast.Import, ast.ImportFrom)) and id(n) not in guarded
+                for a in (n.names if isinstance(n, ast.Import) else n.names[:1])}
+    assert imported <= set(sys.stdlib_module_names)
 
 
 @pytest.mark.skipif(not POSIX, reason="the shell launchers")
@@ -256,6 +380,13 @@ def test_an_environment_that_could_not_be_made_is_not_left_half_made(tmp_path, m
     assert not (tmp_path / ".venv").exists()
 
 
+def test_a_python_older_than_eli_runs_on_is_refused_with_the_way_out(tmp_path, monkeypatch):
+    monkeypatch.setattr(eli_env, "_version_of", lambda python: (eli_env.MINIMUM[0], eli_env.MINIMUM[1] - 1))
+    got = eli_env.create(str(tmp_path), sys.executable)
+    assert got["ok"] is False and "older than ELI runs on" in got["say"] and "python.org" in got["fix"]
+    assert not (tmp_path / ".venv").exists()
+
+
 def test_create_reports_by_exit_status(tmp_path):
     made = subprocess.run([sys.executable, str(HELPER), "create", str(tmp_path)], capture_output=True, text=True)
     assert made.returncode == 0, made.stderr
@@ -347,6 +478,35 @@ def test_the_ranged_requirements_can_be_met_on_the_oldest_python_eli_supports(na
         floor = tuple(int(part) for part in on_310[0].split(">=")[1].split(";")[0].strip().split(".")[:2])
         assert floor <= newest_for_310
         assert all("python_version" in line for line in mine), f"{name}: an unmarked {package} line still applies to 3.10"
+
+
+@pytest.mark.parametrize("system,declared", [("linux", "requirements-full.txt"), ("win32", "requirements-windows.txt")])
+def test_the_lock_installs_what_the_declared_requirements_do_on_every_python(system, declared):
+    """The lock is frozen from one environment, so what only another Python or system needs was not in
+    it: audioop-lts (3.13 and later), comtypes and pycaw (Windows), and four packages the environment
+    it was frozen from never had. Whenever ELI's own package set did not install as a whole, they were
+    missing. macOS installs from requirements-macos.txt, never the lock."""
+    Requirement = pytest.importorskip("packaging.requirements").Requirement
+
+    def table(name):
+        out = {}
+        for line in eli_env.requirement_lines(str(ROOT / name)):
+            req = Requirement(line)
+            out.setdefault(eli_env._normal(req.name), []).append(req.marker)
+        return out
+    lock, wanted = table("requirements.lock.txt"), table(declared)
+    own_step = {"torch", "llama-cpp-python"}                  # the installers fetch these by their own steps
+    wrong = []
+    for minor in range(eli_env.MINIMUM[1], HERE[1] + 4):
+        env = {"sys_platform": system, "platform_system": {"linux": "Linux", "win32": "Windows"}[system],
+               "os_name": "nt" if system == "win32" else "posix",
+               "python_version": "3.%d" % minor, "python_full_version": "3.%d.0" % minor}
+
+        def on(markers):
+            return any(m is None or m.evaluate(env) for m in markers)
+        wrong += ["3.%d %s: %s" % (minor, name, "declared, not locked" if on(marks) else "locked, not declared")
+                  for name, marks in wanted.items() if name not in own_step and on(marks) != on(lock.get(name, []))]
+    assert not wrong, "requirements.lock.txt and %s disagree on %s:\n  %s" % (declared, system, "\n  ".join(wrong))
 
 
 def _dist(root: Path, name: str, requires: list) -> None:

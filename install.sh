@@ -6,12 +6,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$SCRIPT_DIR/.venv"
 # The Python this install is built with. PYTHON=... still decides when given. Left to itself
-# the installer used whatever `python3` was, even with a version that has ready-made packages
-# for the inference engine sitting next to it (scripts/eli_env.py pick).
+# the installer used whatever `python3` was; now it takes the installed Python the most of
+# ELI's packages come ready-made for, measured on this machine (scripts/eli_env.py pick).
 if [ -z "${PYTHON:-}" ]; then
     _boot_py="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
     if [ -n "$_boot_py" ] && [ -f "$SCRIPT_DIR/scripts/eli_env.py" ]; then
-        PYTHON="$("$_boot_py" "$SCRIPT_DIR/scripts/eli_env.py" pick 2>/dev/null || true)"
+        PYTHON="$("$_boot_py" "$SCRIPT_DIR/scripts/eli_env.py" pick || true)"
     fi
     PYTHON="${PYTHON:-python3}"
 fi
@@ -245,7 +245,7 @@ echo "${B}${CYN}╚════════════════════�
 
 # Detect Python
 if ! command -v "$PYTHON" &>/dev/null; then
-    echo "${REDC}[ERROR]${R} Python 3.10+ required. Install from python.org."
+    echo "${REDC}[ERROR]${R} No Python 3 found. Install one from python.org."
     exit 1
 fi
 PY_VER=$("$PYTHON" -c "import sys; print(sys.version_info[:2])")
@@ -520,19 +520,33 @@ _install_pytorch_cpu() {
         || _pip_quiet torch
 }
 
-_install_pytorch_cuda() {
-    echo "[..] Installing PyTorch (CUDA 12.1)..."
-    if _pip_quiet torch --index-url https://download.pytorch.org/whl/cu121; then
-        return 0
-    fi
-    warn "CUDA PyTorch download failed (network/SSL/firewall on download.pytorch.org)."
-    warn "Falling back to CPU PyTorch — ELI still installs; GPU torch can be retried later."
-    if _install_pytorch_cpu; then
-        CPU_ONLY=1
-        return 0
-    fi
-    warn "PyTorch install failed — continuing without torch."
-    SKIP_TORCH=1
+_torch_runs_on() {
+    "$PYTHON_VENV" -c "import sys, torch; x = torch.ones(1, device='$([ "$1" = xpu ] && echo xpu || echo cuda)'); sys.exit(0 if (x + 1).item() == 2 else 1)" >/dev/null 2>&1
+}
+
+# PyTorch publishes a build per CUDA / ROCm release and per Python. Which of them this Python can
+# install, and this driver can run, is read from PyTorch's own list, newest first (eli_env.py
+# torch-index); a fixed cu121 had nothing past Python 3.12. A newer build can drop older cards, so
+# one that installs but cannot run on this GPU is replaced by the oldest on offer.
+# PyTorch is not the inference engine: whatever happens here, its GPU build is decided on its own.
+_install_pytorch_gpu() {
+    local _kind="$1" _list _first _last _idx
+    _list="$("$PYTHON_VENV" "$SCRIPT_DIR/scripts/eli_env.py" torch-index "$_kind" || true)"
+    _first="$(printf '%s\n' "$_list" | head -1)"
+    _last="$(printf '%s\n' "$_list" | tail -1)"
+    for _idx in "$_first" "$_last"; do
+        [ -n "$_idx" ] || continue
+        echo "[..] Installing PyTorch ($_kind build ${_idx##*/})..."
+        if _pip_quiet torch --index-url "$_idx" && _torch_runs_on "$_kind"; then
+            echo "[OK] PyTorch ${_idx##*/} runs on the GPU."
+            return 0
+        fi
+        [ "$_idx" = "$_last" ] && break
+        warn "PyTorch ${_idx##*/} did not install or does not run on this GPU; trying ${_last##*/}."
+        _pip uninstall -y torch >/dev/null 2>&1 || true
+    done
+    warn "No PyTorch $_kind build installed and ran here; what uses PyTorch (wake word, local speech"
+    warn "recognition, natural voices, images) runs on the CPU. The language model is not affected."
     return 1
 }
 
@@ -546,23 +560,23 @@ if [ "$SKIP_TORCH" -eq 0 ]; then
     elif [ "$OS" = "Darwin" ]; then
         echo "[..] Installing PyTorch (macOS / MPS)..."
         _pip_quiet torch torchvision torchaudio || _pip_quiet torch
-    elif [ "$HAS_AMD" -eq 1 ]; then
-        echo "[..] Installing PyTorch (AMD ROCm)..."
-        _pip_quiet torch --index-url https://download.pytorch.org/whl/rocm6.2 || {
-            warn "ROCm PyTorch wheel unavailable — falling back to CPU PyTorch."
-            _install_pytorch_cpu; }
     else
-        _install_pytorch_cuda || true
+        _TORCH_KIND=""
+        if [ "$HAS_NVIDIA" -eq 1 ]; then _TORCH_KIND=cuda
+        elif [ "$HAS_AMD" -eq 1 ]; then _TORCH_KIND=rocm
+        elif [ "$HAS_INTEL_ARC" -eq 1 ]; then _TORCH_KIND=xpu; fi
+        if [ -z "$_TORCH_KIND" ] || ! _install_pytorch_gpu "$_TORCH_KIND"; then
+            "$PYTHON_VENV" -c "import torch" 2>/dev/null || _install_pytorch_cpu \
+                || { warn "PyTorch install failed — continuing without torch."; SKIP_TORCH=1; }
+        fi
     fi
 fi
 
-# llama-cpp-python publishes wheels only for the interpreters its maintainers build
-# for (currently up to ~3.12). A rolling distro defaults to whatever python is newest
-# — Arch ships 3.14 — where pip finds NO wheel and quietly falls back to a SOURCE
-# build. That build needs cmake + a C++ toolchain, which a bare Arch/Fedora install
-# does not have, so it failed and (under `set -e`) took the whole installer with it:
-# ELI's inference engine never installed and the app could not start at all. Ubuntu
-# 24.04 ships 3.12, has a wheel, and never hit this. Detect it and provide the tools.
+# Where pip finds no ready-made llama-cpp-python for this Python (PyPI has had none for any
+# Python since 0.3.x; the release's wheelhouse may have one), it builds from source. That
+# needs cmake + a C++ toolchain, which a bare Arch/Fedora install does not have, so it
+# failed and (under `set -e`) took the whole installer with it: ELI's inference engine
+# never installed and the app could not start at all. Detect it and provide the tools.
 _llama_wheel_available() {
     _pip install --only-binary=:all: --dry-run llama-cpp-python >/dev/null 2>&1
 }
@@ -729,11 +743,6 @@ eli_progress llama 30 "Building inference engine (llama-cpp-python)"
 echo "[..] Installing llama-cpp-python..."
 if ! _llama_wheel_available; then
     warn "No prebuilt llama-cpp-python wheel for $("$PYTHON_VENV" -V 2>&1) on PyPI — it may be built here, which takes several minutes."
-    # only for a Python newer than the prebuilt wheels cover
-    if ! "$PYTHON_VENV" -c 'import sys; sys.exit(0 if sys.version_info[:2] <= (3, 12) else 1)' 2>/dev/null; then
-        warn "This is normal on a rolling distro (Arch ships a newer python than upstream builds for)."
-        warn "A python with a prebuilt wheel (3.10-3.12) installs faster:  PYTHON=python3.12 bash install.sh"
-    fi
     ensure_build_toolchain
 fi
 if [ "$OS" = "Darwin" ]; then
@@ -865,10 +874,6 @@ if ! "$PYTHON_VENV" -c "import llama_cpp" 2>/dev/null; then
     warn "llama-cpp-python is NOT installed — ELI cannot run a local model yet."
     if ! _llama_wheel_available; then
         warn "Cause: no prebuilt wheel for $("$PYTHON_VENV" -V 2>&1), and the source build failed."
-        if ! "$PYTHON_VENV" -c 'import sys; sys.exit(0 if sys.version_info[:2] <= (3, 12) else 1)' 2>/dev/null; then
-            warn "Fix (fastest): re-run with a python that has wheels —"
-            warn "    PYTHON=python3.12 bash install.sh"
-        fi
         warn "Fix (build here): install a toolchain, then re-run —"
         if command -v pacman &>/dev/null; then warn "    sudo pacman -S --needed base-devel cmake git"
         elif command -v dnf &>/dev/null; then warn "    sudo dnf install -y gcc-c++ make cmake git"
@@ -894,7 +899,7 @@ fi
 
 # Verify GPU offload actually compiled into llama-cpp (catch a silent CPU-only wheel —
 # this is exactly the trap where ELI runs 30-50x slower without anyone noticing).
-if [ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; then
+if [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; then
     _GPU_KIND="$([ "$HAS_AMD" -eq 1 ] && echo ROCm || echo CUDA)"
     if "$PYTHON_VENV" -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>/dev/null; then
         echo "[OK] llama-cpp-python has ${_GPU_KIND} GPU offload."

@@ -71,7 +71,7 @@ A few edges worth knowing going in:
   Ubuntu), like essentially every AppImage. On a musl-libc distro such as **Alpine** the bundled
   binary won't start — you get a misleading `no such file or directory` on the launcher (that's the
   glibc dynamic linker being absent, not a missing file). Install the `gcompat` glibc-compat layer,
-  or run ELI from source in a `python:3.11` (glibc) environment instead. Every mainstream desktop
+  or run ELI from source in a `python:3` (glibc) image instead. Every mainstream desktop
   distro (Arch, Ubuntu/Debian, Fedora, openSUSE, Mint, Pop!_OS, …) is glibc and, at a current
   release (glibc 2.39 or newer, see above), runs the AppImage directly — see the run-verified list
   above.

@@ -31,6 +31,15 @@ def test_before_312_none_gets_a_reserve():
     assert out.stdout.split() == ["True", "False"], out.stderr   # applied once, not twice
 
 
+def test_the_frozen_app_is_built_on_a_python_where_none_cannot_be_freed():
+    """The bundle was on 3.11, where it can; the GPU packs load into it, so they build on the same one."""
+    import re
+    versions = [re.search(r'^\s*PYTHON_VERSION:\s*"(\d+)\.(\d+)"', (ROOT / ".github/workflows" / name).read_text(
+        encoding="utf-8"), re.M) for name in ("release.yml", "gpu-packs.yml")]
+    release, packs = [(int(m.group(1)), int(m.group(2))) for m in versions]
+    assert release == packs and release >= (3, 12)
+
+
 def test_the_frozen_app_reserves_first_and_its_selftest_measures_qt():
     entry = (ROOT / "packaging/pyinstaller/eli_entry.py").read_text(encoding="utf-8")
     assert entry.index("_pin_singletons()") < entry.index("_install_host_env()")

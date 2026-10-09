@@ -114,7 +114,7 @@ system.
 ## Local builds
 
 ```
-python -m venv .venv-build && source .venv-build/bin/activate   # any 3.10–3.11
+python3.12 -m venv .venv-build && source .venv-build/bin/activate   # the release builds on 3.12 (release.yml PYTHON_VERSION)
 pip install -r requirements-build.txt
 pip install ".[gui,llm,server,docs,analysis,extras]"            # + optional extras you want bundled
 pyinstaller --noconfirm --clean ELI.spec

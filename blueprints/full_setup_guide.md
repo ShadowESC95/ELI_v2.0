@@ -26,7 +26,7 @@ completely offline.
 | Requirement | Details |
 |---|---|
 | A computer | Linux is the best-tested. Windows and macOS installers exist too. |
-| Python 3.10 or newer | Only for the from-source install; the release packages bring their own. Most systems already have it (`python3 --version`). 3.10 to 3.12 install fastest; a newer one (3.13, 3.14) works too and builds one component itself. |
+| Python 3.10 or newer | Only for the from-source install; the release packages bring their own. Most systems already have it (`python3 --version`). Any version from 3.10 up works, the newest included; with several installed, the installer measures which one the most packages come ready-made for. |
 | Disk space | ~2 GB for ELI itself, plus 2–5 GB for a model (more if you pick a big one) |
 | A GPU (graphics card) | **Optional but recommended.** NVIDIA is best supported. Without one, ELI still works — just slower. |
 | Internet | Only for the install itself and the one-time model download. |
@@ -73,7 +73,8 @@ That one command does all of this for you:
    before touching anything.
 3. **Creates a private workspace** (a "virtual environment" in a `.venv` folder) so it
    never interferes with the rest of your system. If you have more than one Python, it picks
-   the one that installs fastest; `PYTHON=python3.11 bash install.sh` chooses for it.
+   the one the most of ELI's packages come ready-made for on your machine (it says which and
+   why); `PYTHON=python3.13 bash install.sh` chooses for it.
 4. **Installs the AI engine** built for *your* hardware — CUDA build for NVIDIA, ROCm
    for AMD, Metal for Mac, or a plain CPU build.
 5. **Verifies the GPU actually works** — and warns you loudly if you ended up with the

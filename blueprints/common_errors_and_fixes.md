@@ -293,9 +293,9 @@ extension`, with the main thread in a Qt call such as `refresh_audit_tab`.
 call that returns nothing (`setText`, `setItem`, `addItem`, ...). When the count reaches zero Python
 aborts. From Python 3.12 `None` cannot be freed, so source installs on 3.12+ never see it.
 **Fix (in the code):** ELI gives `None`, `True` and `False` a large reserve of references at startup
-on Python before 3.12 (`eli/core/singleton_refs.py`), so no extension can bring them to zero; builds
-use PySide6 6.11.2, and the release self-test fails when the bundled Qt loses references. From
-source on Python 3.10/3.11, `pip install "PySide6!=6.12.0"` also avoids it.
+on Python before 3.12 (`eli/core/singleton_refs.py`), so no extension can bring them to zero, and
+installs on 3.10/3.11 skip PySide6 6.12.0. The release packages bundle Python 3.12 (they were on 3.11
+up to 2.5.8), and the release self-test fails when the bundled Qt loses references.
 
 ---
 
@@ -456,8 +456,8 @@ QT_DEBUG_PLUGINS=1 ./ELI_v2-*-x86_64.AppImage 2>&1 | grep -iE 'cannot|not found'
 ---
 
 ## Running ELI on Arch — verified working steps
-The **AppImage** is the easiest path: it bundles its own **Python 3.11**, so Arch's system
-Python 3.14 (which has no `llama-cpp-python` wheel) is irrelevant, and as of **v2.1.21** it
+The **AppImage** is the easiest path: it bundles its own **Python 3.12**, so Arch's system
+Python is irrelevant, and as of **v2.1.21** it
 bundles every Qt xcb library too. Download and run:
 ```bash
 U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.4.84

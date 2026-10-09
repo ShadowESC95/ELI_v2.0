@@ -142,7 +142,7 @@ if [ "${ELI_PORTABLE_WHEELHOUSE:-1}" = "1" ]; then
       -d "$STAGING/wheelhouse" --prefer-binary -q 2>/dev/null || true
   fi
   for _plat in manylinux2014_x86_64 manylinux2014_aarch64; do
-    for _pv in 310 311 312 313; do
+    for _pv in $("$PYTHON" "$ROOT/scripts/eli_env.py" versions | tr -d .); do      # what pyproject declares
       "$PYTHON" -m pip download -d "$STAGING/wheelhouse" \
         --platform "$_plat" --python-version "$_pv" --implementation cp \
         --abi "cp${_pv}" --only-binary=:all: --prefer-binary \

@@ -57,8 +57,9 @@ Write-Host "  100% local - private - offline-by-default" -ForegroundColor DarkGr
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Check Python. A version with ready-made packages for the inference engine is preferred to
-# whatever `python` happens to be (scripts\eli_env.py pick).
+# Check Python. Of the Pythons installed, the one the most of ELI's packages come ready-made for,
+# measured on this machine, is preferred to whatever `python` happens to be (scripts\eli_env.py
+# pick). Its stderr is left alone: Windows PowerShell turns redirected stderr into errors.
 $Python = "python"
 $BootPython = $null
 if (Get-Command python -ErrorAction SilentlyContinue) { $BootPython = "python" }
@@ -66,17 +67,20 @@ elseif (Get-Command py -ErrorAction SilentlyContinue) { $BootPython = "py" }
 $EnvHelper = Join-Path $ScriptDir "scripts\eli_env.py"
 if ($BootPython -and (Test-Path $EnvHelper)) {
     try {
-        $Picked = & $BootPython $EnvHelper pick 2>$null
+        $Picked = & $BootPython $EnvHelper pick
         if ($LASTEXITCODE -eq 0 -and $Picked) { $Python = ("$Picked").Trim() }
     } catch { $Python = "python" }
 }
+# The oldest Python ELI runs on is the one pyproject.toml declares (eli_env.py versions, oldest first).
+$Floor = $null
 try {
     $pyVer = & $Python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
-    if ([Version]$pyVer -lt [Version]"3.10") {
-        throw "Python 3.10+ required, found $pyVer"
+    $Floor = @(& $Python $EnvHelper versions)[0]
+    if (-not $Floor -or [Version]$pyVer -lt [Version]$Floor) {
+        throw "Python $Floor or newer required, found $pyVer"
     }
 } catch {
-    Write-Host "[ERROR] Python 3.10+ not found." -ForegroundColor Red
+    Write-Host "[ERROR] Python $(if ($Floor) { "$Floor or newer" } else { '3' }) not found." -ForegroundColor Red
     Write-Host "        Download from https://python.org/downloads/" -ForegroundColor Yellow
     exit 1
 }
@@ -222,11 +226,34 @@ if ($CpuOnly) {
     Write-Host "[..] Installing PyTorch (CPU)..."
     Invoke-Pip (@("install") + $PipFindLinksArgs + @("torch", "--index-url", "https://download.pytorch.org/whl/cpu", "--quiet"))
 } else {
-    Write-Host "[..] Installing PyTorch (CUDA $CudaVersion)..."
-    try {
-        Invoke-Pip @("install", "torch", "--index-url", "https://download.pytorch.org/whl/$CudaVersion", "--only-binary=:all:", "--quiet")
-    } catch {
-        Write-Host "[WARN] No CUDA $CudaVersion PyTorch wheel for Python $pyVer - using the CPU build." -ForegroundColor Yellow
+    # PyTorch publishes a CUDA build per CUDA release and per Python. Which of them this Python can
+    # install and this driver can run is read from PyTorch's own list, newest first (eli_env.py
+    # torch-index); a fixed cu121 had nothing past Python 3.12. -CudaVersion still decides when
+    # given. A newer build can drop older cards, so one that cannot run here gives way to the oldest.
+    if ($PSBoundParameters.ContainsKey('CudaVersion')) {
+        $TorchIndexes = @("https://download.pytorch.org/whl/$CudaVersion")
+    } else {
+        $TorchIndexes = @(& $PythonVenv $EnvHelper torch-index cuda | Where-Object { $_ })
+    }
+    $TorchTry = @(@($TorchIndexes | Select-Object -First 1) + @($TorchIndexes | Select-Object -Last 1) | Select-Object -Unique)
+    $TorchOnGpu = $false
+    foreach ($TorchIndex in $TorchTry) {
+        Write-Host "[..] Installing PyTorch (CUDA build $($TorchIndex.Split('/')[-1]))..."
+        $prevEap = $ErrorActionPreference
+        $ErrorActionPreference = "Continue"
+        try {
+            & $PythonVenv -m pip install torch --index-url $TorchIndex --only-binary=:all: --quiet
+            if ($LASTEXITCODE -eq 0) {
+                & $PythonVenv -c "import sys, torch; x = torch.ones(1, device='cuda'); sys.exit(0 if (x + 1).item() == 2 else 1)" *> $null
+                $TorchOnGpu = ($LASTEXITCODE -eq 0)
+            }
+            if (-not $TorchOnGpu) { & $PythonVenv -m pip uninstall -y torch *> $null }
+        } finally { $ErrorActionPreference = $prevEap }
+        if ($TorchOnGpu) { Write-Host "[OK] PyTorch $($TorchIndex.Split('/')[-1]) runs on the GPU." -ForegroundColor Green; break }
+    }
+    if (-not $TorchOnGpu) {
+        Write-Host "[WARN] No PyTorch CUDA build installed and ran on this GPU with Python $pyVer - using the CPU build." -ForegroundColor Yellow
+        Write-Host "       What uses PyTorch runs on the CPU; the language model is not affected." -ForegroundColor Yellow
         Invoke-Pip (@("install") + $PipFindLinksArgs + @("torch", "--index-url", "https://download.pytorch.org/whl/cpu", "--only-binary=:all:", "--quiet"))
     }
 }
@@ -260,7 +287,6 @@ if ($CpuOnly) {
         Write-Host "       ELI will run without GPU offload. Options:" -ForegroundColor Yellow
         Write-Host "         - re-run with -CudaVersion cu124 (or another published version)" -ForegroundColor Yellow
         Write-Host "         - re-run with -InstallCuda to build with CUDA locally" -ForegroundColor Yellow
-        Write-Host "         - use Python 3.11, which has the widest wheel coverage" -ForegroundColor Yellow
     }
     if (-not $llamaCudaOk) {
         Invoke-Pip (@("install") + $PipFindLinksArgs + @("llama-cpp-python>=0.3.30", "--only-binary=:all:", "--quiet"))

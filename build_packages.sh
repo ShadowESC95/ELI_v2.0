@@ -224,7 +224,7 @@ WOA_EOF
         mkdir -p "$STAGING/wheelhouse"
         cp "$PROJECT_ROOT/requirements-portable-bootstrap.txt" "$STAGING/"
         for _plat in win_amd64 win_arm64; do
-            for _pv in 311 312; do
+            for _pv in $("$PY" "$PROJECT_ROOT/scripts/eli_env.py" versions | tr -d .); do      # what pyproject declares
                 "$PY" -m pip download -r "$PROJECT_ROOT/requirements-portable-bootstrap.txt" \
                     -d "$STAGING/wheelhouse" \
                     --platform "$_plat" --python-version "$_pv" --implementation cp \

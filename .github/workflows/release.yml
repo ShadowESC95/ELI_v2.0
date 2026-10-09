@@ -41,7 +41,10 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  PYTHON_VERSION: "3.11"   # newest version with binary wheels for the FULL stack (piper-phonemize, tflite-runtime cap at 3.11)
+  # 3.12 and later: None cannot be freed, so no extension can abort the app that way (PySide6 6.12.0
+  # on 3.11 did). It was 3.11 for piper-phonemize and tflite-runtime wheels; piper-tts no longer uses
+  # the first, and the wake word runs on ONNX. The version the full test suite runs on.
+  PYTHON_VERSION: "3.12"
   # glibc of the build image. The Linux job fails if the bundle needs newer.
   LINUX_GLIBC_FLOOR: "2.39"
   # Every pip install in every job is held to the llama-cpp-python the GPU packs are

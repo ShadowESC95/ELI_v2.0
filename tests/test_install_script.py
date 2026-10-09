@@ -190,6 +190,31 @@ def test_linux_nvidia_build_finds_nvcc_off_path():
     assert "CUDACXX" in nvidia
 
 
+def test_the_pytorch_build_is_read_from_the_machine_and_never_decides_the_engine_build():
+    """cu121 and rocm6.2 were fixed in both installers; neither has a build past Python 3.12. On 3.13
+    and later an NVIDIA machine got CPU PyTorch, blamed on the network, and on Linux CPU_ONLY=1 then
+    built the inference engine without CUDA as well. Intel Arc was sent CUDA PyTorch."""
+    sh, ps = _sh_text(), _ps1_code()
+    assert "torch-index" in sh and "torch-index" in ps
+    for text in (sh, ps):
+        assert "pytorch.org/whl/cu121" not in text and "pytorch.org/whl/rocm6.2" not in text, "a fixed PyTorch build is back"
+    gpu = sh[sh.index("_install_pytorch_gpu() {"):]
+    gpu = gpu[:gpu.index("\n}\n")]
+    assert "CPU_ONLY" not in gpu and "SKIP_TORCH" not in gpu
+    assert "_torch_runs_on" in gpu, "a build that installs is not proof it runs on this GPU"
+    assert '[ "$SKIP_TORCH" -eq 0 ] && [ "$CPU_ONLY" -eq 0 ]' not in sh, "the engine's GPU check waits on PyTorch"
+    assert "_TORCH_KIND=xpu" in sh
+
+
+def test_no_installer_advises_a_python_version_for_ready_made_engine_builds():
+    """\"PYTHON=python3.12 installs faster\" and \"use Python 3.11\": no Python has a ready-made
+    llama-cpp-python new enough for current GGUFs, and which Python installs fastest is measured."""
+    sh, ps = _sh_text(), _ps1_code()
+    assert "PYTHON=python3." not in sh
+    assert "sys.version_info[:2] <= (3, 12)" not in sh
+    assert "use Python 3." not in ps
+
+
 def test_windows_cuda_wheel_is_version_bounded():
     text = _ps1_text()
     llama = text[text.index("llama-cpp-python (CUDA"):]

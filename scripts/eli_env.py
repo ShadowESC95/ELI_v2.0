@@ -7,6 +7,9 @@ the environment it looks after cannot: it is started by whatever Python the laun
 installer can find.
 
     eli_env.py pick                 print the interpreter a new install should use
+    eli_env.py versions             print the Python versions ELI declares, oldest first
+    eli_env.py torch-index KIND     print the PyTorch indexes with a KIND build (cuda, rocm, xpu, cpu)
+                                    for the Python running this, newest first
     eli_env.py status [ROOT]        exit 0 when ROOT/.venv is usable, 3 when it is not
     eli_env.py repair [ROOT]        mend ROOT/.venv if that can be done in place, else say how
     eli_env.py create [ROOT]        make ROOT/.venv on the Python running this, or say what is missing
@@ -29,16 +32,41 @@ from __future__ import annotations
 import glob
 import json
 import os
+import platform
+import re
 import shutil
 import subprocess
 import sys
+import time
+import urllib.request
+from concurrent.futures import ThreadPoolExecutor
 from typing import Dict, Iterable, List, Optional, Tuple
 
-MINIMUM = (3, 10)
-# Versions the inference engine publishes ready-made packages for come first: on those an
-# install takes minutes. A newer Python still works, but builds that one package from source.
-PREFERRED = ((3, 12), (3, 11), (3, 10), (3, 13), (3, 14))
 WINDOWS = os.name == "nt"
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
+
+def _pyproject(root: str) -> str:
+    try:
+        with open(os.path.join(root, "pyproject.toml"), encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def declared_minimum(root: str = ROOT) -> Optional[Tuple[int, int]]:
+    """The oldest Python ELI runs on, as pyproject.toml declares it."""
+    m = re.search(r'requires-python\s*=\s*["\']\s*>=\s*(\d+)\.(\d+)', _pyproject(root))
+    return (int(m.group(1)), int(m.group(2))) if m else None
+
+
+MINIMUM = declared_minimum() or (3, 10)
+
+
+def declared_versions(root: str = ROOT) -> List[Tuple[int, int]]:
+    """The Python versions pyproject.toml's classifiers say ELI runs on, oldest first."""
+    found = re.findall(r'"Programming Language :: Python :: (\d+)\.(\d+)"', _pyproject(root))
+    return sorted({(int(a), int(b)) for a, b in found})
 
 
 def _version_of(python: str) -> Optional[Tuple[int, int]]:
@@ -67,79 +95,311 @@ def _real_executable(python: str) -> Optional[str]:
     return path if out.returncode == 0 and path and os.path.isfile(path) else None
 
 
+def _places(dotted: str, tag: str) -> List[str]:
+    """Where an interpreter of version `dotted` ("3.12", or "3.*" for any) is installed outside PATH."""
+    home = os.path.expanduser("~")
+    places = [
+        # uv and pyenv keep whole interpreters under the home directory
+        os.path.join(home, ".local", "share", "uv", "python", "cpython-%s*" % dotted, "bin", "python%s" % dotted),
+        os.path.join(home, ".pyenv", "versions", "%s.*" % dotted, "bin", "python%s" % dotted),
+        # Homebrew (Apple silicon, Intel) and python.org on macOS
+        "/opt/homebrew/opt/python@%s/bin/python%s" % (dotted, dotted),
+        "/usr/local/opt/python@%s/bin/python%s" % (dotted, dotted),
+        "/Library/Frameworks/Python.framework/Versions/%s/bin/python%s" % (dotted, dotted),
+        "/usr/local/bin/python%s" % dotted,
+    ]
+    if WINDOWS:
+        local = os.environ.get("LOCALAPPDATA", os.path.join(home, "AppData", "Local"))
+        places += [
+            os.path.join(local, "Programs", "Python", "Python%s" % tag, "python.exe"),
+            os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Python%s" % tag, "python.exe"),
+            os.path.join(home, "AppData", "Roaming", "uv", "python", "cpython-%s*" % dotted, "python.exe"),
+            os.path.join(home, ".pyenv", "pyenv-win", "versions", "%s.*" % dotted, "python.exe"),
+        ]
+    return places
+
+
+_INTERPRETER = re.compile(r"^python(?:3(?:\.\d+)?)?(?:\.exe)?$", re.I)
+
+
 def _candidates(minor: Optional[Tuple[int, int]] = None) -> List[str]:
-    """Places an interpreter may be, most specific first. `minor` narrows to one version."""
-    names: List[str] = []
-    wanted = [minor] if minor else list(PREFERRED)
-    for major, mnr in wanted:
-        names.append("python%d.%d" % (major, mnr))
-    if not minor:
-        names += ["python3", "python"]
+    """Interpreters installed on this machine; `minor` narrows to one version. Without it every 3.x
+    is looked for, so a release this file has never heard of is found too. What version each one
+    is gets asked of the interpreter itself (_version_of), not read from its name."""
+    dotted, tag = ("%d.%d" % minor, "%d%d" % minor) if minor else ("3.*", "3*")
     found: List[str] = []
-    for name in names:
+    for name in (["python%s" % dotted] if minor else ["python3", "python"]):
         hit = shutil.which(name)
         if hit:
             found.append(hit)
-    home = os.path.expanduser("~")
-    for major, mnr in wanted:
-        tag, dotted = "%d%d" % (major, mnr), "%d.%d" % (major, mnr)
-        patterns = [
-            # uv and pyenv keep whole interpreters under the home directory
-            os.path.join(home, ".local", "share", "uv", "python", "cpython-%s*" % dotted, "bin", "python%s" % dotted),
-            os.path.join(home, ".pyenv", "versions", "%s.*" % dotted, "bin", "python%s" % dotted),
-            # Homebrew (Apple silicon, Intel) and python.org on macOS
-            "/opt/homebrew/opt/python@%s/bin/python%s" % (dotted, dotted),
-            "/usr/local/opt/python@%s/bin/python%s" % (dotted, dotted),
-            "/Library/Frameworks/Python.framework/Versions/%s/bin/python%s" % (dotted, dotted),
-            "/usr/local/bin/python%s" % dotted,
-        ]
-        if WINDOWS:
-            local = os.environ.get("LOCALAPPDATA", os.path.join(home, "AppData", "Local"))
-            patterns += [
-                os.path.join(local, "Programs", "Python", "Python%s" % tag, "python.exe"),
-                os.path.join(os.environ.get("ProgramFiles", r"C:\Program Files"), "Python%s" % tag, "python.exe"),
-                os.path.join(home, "AppData", "Roaming", "uv", "python", "cpython-%s*" % dotted, "python.exe"),
-                os.path.join(home, ".pyenv", "pyenv-win", "versions", "%s.*" % dotted, "python.exe"),
-            ]
-        for pattern in patterns:
-            found += sorted(glob.glob(pattern), reverse=True)
+    if not minor:
+        for folder in os.environ.get("PATH", "").split(os.pathsep):
+            if folder:
+                found += sorted(glob.glob(os.path.join(folder, "python3.*")), reverse=True)
+    for pattern in _places(dotted, tag):
+        found += sorted(glob.glob(pattern), reverse=True)
     if WINDOWS and shutil.which("py"):
         # the launcher knows every registered install
-        for major, mnr in wanted:
-            try:
-                out = subprocess.run(["py", "-%d.%d" % (major, mnr), "-c", "import sys; print(sys.executable)"],
+        try:
+            if minor:
+                out = subprocess.run(["py", "-%d.%d" % minor, "-c", "import sys; print(sys.executable)"],
                                      capture_output=True, text=True, timeout=30)
-                if out.returncode == 0 and out.stdout.strip():
-                    found.append(out.stdout.strip())
-            except (OSError, subprocess.SubprocessError):
-                pass
+                found += [out.stdout.strip()] if out.returncode == 0 and out.stdout.strip() else []
+            else:
+                out = subprocess.run(["py", "-0p"], capture_output=True, text=True, timeout=30)
+                found += [line.split()[-1] for line in out.stdout.splitlines() if line.strip().lower().endswith(".exe")]
+        except (OSError, subprocess.SubprocessError):
+            pass
     seen, unique = set(), []
     for path in found:
         key = os.path.normcase(os.path.realpath(path))
-        if key not in seen and os.path.isfile(path):
+        if key not in seen and os.path.isfile(path) and _INTERPRETER.match(os.path.basename(path)):
             seen.add(key)
             unique.append(path)
     return unique
 
 
-def prefer(versions: Iterable[Tuple[int, int]]) -> Optional[Tuple[int, int]]:
-    """Of the versions on offer, the one a new install should use. None when none will do."""
+def prefer(versions: Iterable[Tuple[int, int]],
+           gaps: Optional[Dict[Tuple[int, int], List[str]]] = None) -> Optional[Tuple[int, int]]:
+    """Of the versions on offer, the one a new install should use. None when none will do.
+
+    With `gaps` (wheel_gaps: per version, the locked packages with no ready-made build for it), the
+    one with the fewest, the newest of those. Without them, the newest."""
     on_offer = {v for v in versions if v and v >= MINIMUM}
-    for version in PREFERRED:
-        if version in on_offer:
-            return version
-    return max(on_offer) if on_offer else None
+    if not on_offer:
+        return None
+    return min(on_offer, key=lambda v: (len((gaps or {}).get(v, [])), -v[0], -v[1]))
 
 
-def pick_python() -> Optional[str]:
-    """The interpreter a new environment should be built with."""
+# ── which Pythons the locked packages come ready-made for ─────────────────────
+
+_PYPI_RELEASE = "https://pypi.org/pypi/{name}/{version}/json"
+
+
+def _lock_pins(root: str) -> List[Tuple[str, str, str]]:
+    """(name, version, marker) of every package requirements.lock.txt pins."""
+    try:
+        lines = requirement_lines(os.path.join(root, "requirements.lock.txt"))
+    except OSError:
+        return []
+    pins: List[Tuple[str, str, str]] = []
+    for line in lines:
+        req, _sep, marker = line.partition(";")
+        m = re.match(r"\s*([A-Za-z0-9_.-]+)==([^\s#]+)", req)
+        if m:
+            pins.append((m.group(1), m.group(2), marker.strip()))
+    return pins
+
+
+_COMPARE = {"==": lambda a, b: a == b, "!=": lambda a, b: a != b, ">=": lambda a, b: a >= b,
+            "<=": lambda a, b: a <= b, ">": lambda a, b: a > b, "<": lambda a, b: a < b}
+
+
+def _marker_holds(marker: str, version: Tuple[int, int]) -> bool:
+    """A requirement's marker is true on this machine with Python `version` installed. Judged by pip's
+    own reader when the Python running this has pip; without it, sys_platform and python_version."""
+    if not marker:
+        return True
+    env = {"python_version": "%d.%d" % version, "python_full_version": "%d.%d.0" % version}
+    try:
+        from pip._vendor.packaging.markers import Marker
+        return bool(Marker(marker).evaluate(env))
+    except ImportError:
+        pass
+    except Exception:
+        return True
+    for key, op, value in re.findall(r'(sys_platform|python_version)\s*(==|!=|>=|<=|>|<)\s*["\']([^"\']+)["\']', marker):
+        here, there = (sys.platform, value) if key == "sys_platform" else \
+            (version, tuple(int(x) for x in value.split(".")[:2] if x.isdigit()))
+        if not _COMPARE[op](here, there):
+            return False
+    return True
+
+
+def _platform_fits(platform_tags: str) -> bool:
+    """A wheel's platform tag ("manylinux_2_17_x86_64", "win_amd64", "any") runs on this machine."""
+    machine = platform.machine().lower()
+    for tag in platform_tags.split("."):
+        if tag == "any":
+            return True
+        if sys.platform.startswith("linux"):
+            arch = {"amd64": "x86_64", "arm64": "aarch64"}.get(machine, machine)
+            if tag.startswith(("manylinux", "linux")) and tag.endswith("_" + arch):
+                return True
+        elif sys.platform == "darwin":
+            arch = "arm64" if machine == "arm64" else "x86_64"
+            if tag.startswith("macosx") and tag.endswith(("_" + arch, "_universal2")):
+                return True
+        elif WINDOWS and tag == {"amd64": "win_amd64", "x86_64": "win_amd64", "arm64": "win_arm64"}.get(machine, "win32"):
+            return True
+    return False
+
+
+def _python_fits(python_tags: str, abi: str, version: Tuple[int, int]) -> bool:
+    """A wheel's python and ABI tags ("cp312-cp312", "cp38-abi3", "py3-none") install on `version`."""
+    for tag in python_tags.split("."):
+        m = re.fullmatch(r"(cp|py)(\d)(\d*)", tag)
+        if not m or int(m.group(2)) != version[0]:
+            continue
+        minor = int(m.group(3)) if m.group(3) else None
+        if m.group(1) == "py" and abi == "none" and minor in (None, version[1]):
+            return True
+        if m.group(1) == "cp" and minor is not None and not abi.endswith("t"):
+            if (abi == "abi3" and minor <= version[1]) or minor == version[1]:
+                return True
+    return False
+
+
+def _normal(name: str) -> str:
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+def _wheel_tags(filename: str) -> Optional[List[str]]:
+    """[python, abi, platform] tags of a wheel's file name, None for anything else."""
+    parts = os.path.basename(filename)[:-4].split("-") if filename.endswith(".whl") else []
+    return parts[-3:] if len(parts) >= 5 else None
+
+
+def _cache_file() -> str:
+    base = os.environ.get("XDG_CACHE_HOME") or (os.environ.get("LOCALAPPDATA") if WINDOWS else "") \
+        or os.path.join(os.path.expanduser("~"), ".cache")
+    return os.path.join(base, "eli", "pypi_wheels.json")
+
+
+def wheel_gaps(versions: Iterable[Tuple[int, int]], root: str = ROOT) -> Optional[Dict[Tuple[int, int], List[str]]]:
+    """Per version, the locked packages that have ready-made builds for this machine but none for that
+    Python. Asked of PyPI, one request per package (kept for a month), plus the wheels a release
+    package ships next to the installer. A package with no ready-made build for this machine at all
+    is the same on every Python, so it decides nothing and is left out. None when neither answers."""
+    versions = list(versions)
+    pins = [pin for pin in _lock_pins(root) if any(_marker_holds(pin[2], v) for v in versions)]
+    if not pins or not versions:
+        return None
+    shipped: Dict[Tuple[str, str], List[List[str]]] = {}
+    for folder in ("wheelhouse", os.path.join("dist", "wheelhouse")):
+        for path in glob.glob(os.path.join(root, folder, "*.whl")):
+            tags, parts = _wheel_tags(path), os.path.basename(path).split("-")
+            if tags:
+                shipped.setdefault((_normal(parts[0]), parts[1]), []).append(tags)
+    try:
+        with open(_cache_file(), encoding="utf-8") as fh:
+            cache = json.load(fh)
+    except (OSError, ValueError):
+        cache = {}
+    fresh = time.time() - 30 * 86400
+
+    def wheels_of(pin: Tuple[str, str, str]) -> Optional[List[List[str]]]:
+        key = "%s==%s" % (pin[0].lower(), pin[1])
+        hit = cache.get(key)
+        if isinstance(hit, dict) and hit.get("at", 0) > fresh:
+            return hit.get("wheels")
+        try:
+            with urllib.request.urlopen(_PYPI_RELEASE.format(name=pin[0], version=pin[1]), timeout=20) as r:
+                files = json.load(r).get("urls") or []
+        except Exception:
+            return None
+        found = [t for t in (_wheel_tags(str(f.get("filename", ""))) for f in files) if t]
+        cache[key] = {"at": time.time(), "wheels": found}
+        return found
+
+    with ThreadPoolExecutor(max_workers=16) as pool:
+        answers = dict(zip(pins, pool.map(wheels_of, pins)))
+    if sum(1 for w in answers.values() if w is None) * 2 > len(pins):
+        if not shipped:
+            return None
+        answers = {pin: None for pin in pins}
+    for pin in pins:
+        answers[pin] = (answers[pin] or []) + shipped.get((_normal(pin[0]), pin[1]), [])
+    try:
+        os.makedirs(os.path.dirname(_cache_file()), exist_ok=True)
+        with open(_cache_file(), "w", encoding="utf-8") as fh:
+            json.dump(cache, fh)
+    except OSError:
+        pass
+    gaps: Dict[Tuple[int, int], List[str]] = {v: [] for v in versions}
+    for (name, _version, marker), wheels in sorted(answers.items()):
+        here = [w for w in (wheels or []) if _platform_fits(w[2])]
+        if not here:
+            continue
+        for v in versions:
+            if _marker_holds(marker, v) and not any(_python_fits(py, abi, v) for py, abi, _plat in here):
+                gaps[v].append(name)
+    return gaps
+
+
+def pick_python(root: str = ROOT) -> Optional[str]:
+    """The interpreter a new environment should be built with: of those installed, the one the most
+    locked packages come ready-made for (measured, see wheel_gaps), the newest of those."""
     by_version: Dict[Tuple[int, int], str] = {}
     for path in _candidates():
         version = _version_of(path)
         if version and version not in by_version:
             by_version[version] = path
-    best = prefer(by_version)
+    usable = sorted(v for v in by_version if v >= MINIMUM)
+    gaps = wheel_gaps(usable, root) if len(usable) > 1 else None
+    best = prefer(by_version, gaps)
+    if gaps and best:
+        for v in sorted(gaps, reverse=True):
+            missing = gaps[v]
+            print("[ELI] Python %d.%d: %s" % (v[0], v[1], "every locked package comes ready-made" if not missing else
+                  "%d locked packages have no ready-made build for it (%s%s)" % (
+                      len(missing), ", ".join(missing[:4]), ", ..." if len(missing) > 4 else "")),
+                  file=sys.stderr)
+    elif len(usable) > 1:
+        print("[ELI] PyPI could not be asked which Python the packages come ready-made for; taking the newest",
+              file=sys.stderr)
     return by_version[best] if best else None
+
+
+# ── which PyTorch build fits this machine ────────────────────────────────────
+
+_TORCH_BUILDS = "https://download.pytorch.org/whl/torch/"
+_TORCH_INDEX = "https://download.pytorch.org/whl/%s"
+
+
+def _driver_cuda() -> Optional[Tuple[int, int]]:
+    """The CUDA version the NVIDIA driver supports, read by the frozen app's own GPU reader."""
+    try:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "eli_gpu_pack", os.path.join(ROOT, "packaging", "pyinstaller", "eli_gpu_pack.py"))
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)                                  # type: ignore[union-attr]
+        return module._driver_cuda_version()
+    except Exception:
+        return None
+
+
+def torch_indexes(kind: str) -> List[str]:
+    """PyTorch indexes with a `kind` build ("cuda", "rocm", "xpu", "cpu") for the running Python on
+    this machine, newest first. CUDA builds newer than the driver supports are left out. Read from
+    PyTorch's own list of every build it publishes, so a new CUDA, ROCm or Python needs no edit here."""
+    try:
+        with urllib.request.urlopen(_TORCH_BUILDS, timeout=30) as r:
+            page = r.read().decode("utf-8", "replace").replace("%2B", "+")
+    except Exception:
+        return []
+    here = (sys.version_info[0], sys.version_info[1])
+    driver = _driver_cuda() if kind == "cuda" else None
+    ranked: List[Tuple[Tuple[int, ...], str]] = []
+    for name in set(re.findall(r"torch-[^\"'#<>/\s]+?\.whl", page)):
+        tags = _wheel_tags(name)
+        local = name.split("-")[1].partition("+")[2]
+        if not tags or not local or not _python_fits(tags[0], tags[1], here) or not _platform_fits(tags[2]):
+            continue
+        cuda = re.fullmatch(r"cu(\d+)(\d)", local)
+        rocm = re.fullmatch(r"rocm([\d.]+)", local)
+        if kind == "cuda" and cuda and driver and (int(cuda.group(1)), int(cuda.group(2))) <= driver:
+            ranked.append(((int(cuda.group(1)), int(cuda.group(2))), local))
+        elif kind == "rocm" and rocm:
+            ranked.append((tuple(int(x) for x in rocm.group(1).split(".") if x), local))
+        elif kind == local and kind in ("cpu", "xpu"):
+            ranked.append(((0,), local))
+    seen: List[str] = []
+    for _version, local in sorted(set(ranked), reverse=True):
+        if _TORCH_INDEX % local not in seen:
+            seen.append(_TORCH_INDEX % local)
+    return seen
 
 
 def find_python(minor: Tuple[int, int]) -> Optional[str]:
@@ -334,6 +594,10 @@ def create(root: str, python: Optional[str] = None) -> Dict[str, object]:
     python = python or sys.executable
     target = venv_dir(root)
     version = _version_of(python) or (sys.version_info[0], sys.version_info[1])
+    if version < MINIMUM:
+        return {"ok": False, "say": "Python %d.%d is older than ELI runs on (%d.%d or newer)." % (version + MINIMUM),
+                "fix": "Install a newer Python from https://www.python.org/downloads/ or your package manager, "
+                       "then run the installer again; it finds it by itself."}
     if not _can_make_environments(python):
         command = _system_package(version)
         if command:
@@ -446,17 +710,13 @@ print(json.dumps(out))
 
 
 def project_name(root: str) -> Optional[str]:
-    try:
-        with open(os.path.join(root, "pyproject.toml"), encoding="utf-8") as fh:
-            in_project = False
-            for line in fh:
-                text = line.strip()
-                if text.startswith("["):
-                    in_project = text == "[project]"
-                elif in_project and text.startswith("name") and "=" in text:
-                    return text.split("=", 1)[1].strip().strip("\"'")
-    except OSError:
-        pass
+    in_project = False
+    for line in _pyproject(root).splitlines():
+        text = line.strip()
+        if text.startswith("["):
+            in_project = text == "[project]"
+        elif in_project and text.startswith("name") and "=" in text:
+            return text.split("=", 1)[1].strip().strip("\"'")
     return None
 
 
@@ -481,14 +741,26 @@ def verify(root: str) -> Dict[str, object]:
 
 def main(argv: List[str]) -> int:
     command = argv[1] if len(argv) > 1 else "status"
-    root = argv[2] if len(argv) > 2 else os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    root = argv[2] if len(argv) > 2 and command != "torch-index" else ROOT
     if command == "pick":
-        python = pick_python()
+        python = pick_python(root)
         if not python:
             print("No Python %d.%d or newer was found. Install one from https://www.python.org/downloads/ and run this again."
                   % MINIMUM, file=sys.stderr)
             return 2
         print(python)
+        return 0
+    if command == "versions":
+        print("\n".join("%d.%d" % v for v in declared_versions(root)))
+        return 0
+    if command == "torch-index" and len(argv) > 2:
+        found = torch_indexes(argv[2])
+        if not found:
+            print("PyTorch publishes no %s build for Python %d.%d on this machine%s." % (
+                argv[2], sys.version_info[0], sys.version_info[1],
+                " with this driver's CUDA" if argv[2] == "cuda" else ""), file=sys.stderr)
+            return 7
+        print("\n".join(found))
         return 0
     if command == "status":
         got = status(root)

@@ -214,7 +214,7 @@ echo "  Hardware policy: ELI_INSTALL_CPU_ONLY=${ELI_INSTALL_CPU_ONLY}"
 echo
 
 if ! command -v python3 >/dev/null 2>&1; then
-  echo "${YEL}[!]${R} Python 3.10+ required."
+  echo "${YEL}[!]${R} No Python 3 found. Install one from python.org."
   exit 1
 fi
 

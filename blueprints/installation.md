@@ -62,8 +62,8 @@ Every release ships the platform assets below plus `SHA256SUMS.txt`.
 
 ## Linux — Arch and other lean distros
 
-The **AppImage** is the easiest path on any distro: it bundles its own **Python 3.11** (so
-Arch's system Python 3.14, which has no `llama-cpp-python` wheel, is irrelevant) and, since
+The **AppImage** is the easiest path on any distro: it bundles its own **Python 3.12** (so
+whichever Python the distro ships is irrelevant) and, since
 **v2.1.21**, every Qt xcb library it needs — so it launches out of the box with no extra
 packages. Download and run it **directly**:
 
@@ -127,12 +127,19 @@ The default install already uses prebuilt CUDA wheels (no toolkit needed); the o
 only matters when those don't match the user's CUDA or a source build is required.
 
 ## What `bash install.sh` does
-1. Detects Python (3.10+) and OS; checks for what the install builds with (a compiler,
+1. Picks the Python: of those installed at or above the floor `pyproject.toml` declares, the one
+   the most locked packages have ready-made builds for on this machine (asked of PyPI, kept a
+   month; offline, the release's own wheels decide, else the newest). `PYTHON=...` overrides.
+   Detects the OS; checks for what the install builds with (a compiler,
    Python's headers, PortAudio's, and on Debian/Ubuntu `python3-venv`) and for the system
    libraries the window loads (GLib, `libGL`, `libEGL`, the xcb helpers), adds what is missing
    when that takes no password and otherwise prints the one `sudo` command; creates `.venv`;
    upgrades pip/setuptools/wheel. The `.deb` declares the same packages as dependencies.
-2. Installs **PyTorch** (CUDA 12.1 / CPU / macOS-MPS per flags/OS).
+2. Installs **PyTorch**: for NVIDIA the newest CUDA build PyTorch publishes for this Python that the
+   driver supports, for AMD the newest ROCm build, for Intel Arc the XPU build (all read from
+   PyTorch's own list, `eli_env.py torch-index`), then checks it runs on the GPU and otherwise
+   takes the oldest one on offer, which keeps older cards; CPU when none runs. macOS uses MPS.
+   PyTorch's outcome never changes how the inference engine is built.
 3. Installs **llama-cpp-python** with GPU acceleration (CUDA wheel index / Metal /
    CPU) — then **verifies `llama_supports_gpu_offload()`** and, if it landed CPU-only,
    prints the exact CUDA-rebuild command (closes the silent-CPU-wheel trap).
