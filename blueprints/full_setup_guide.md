@@ -294,7 +294,7 @@ These are the promises the software makes, in plain terms:
 
 | Symptom | The fix |
 |---|---|
-| "Python 3.10+ required" | Install Python from python.org (Windows) or your package manager (`sudo apt install python3`). |
+| "No Python 3 found" or "No Python 3.10 or newer was found" | Install Python from python.org (Windows) or your package manager (`sudo apt install python3`), any version from 3.10 up. Run the installer again; it finds it by itself. |
 | ELI stopped starting after a system or Python upgrade | The workspace was built for the Python you had before. ELI says so when you start it and, if that Python is still installed somewhere, points the workspace back at it with nothing reinstalled. Otherwise run `bash install.sh` (`install.bat` on Windows) to rebuild it: your models, memory and settings are not touched. The release packages are not affected. |
 | ELI is painfully slow | Your AI engine is probably running on CPU. Re-run `bash install.sh --install-cuda` (NVIDIA). The installer tells you at the end whether GPU offload is on. |
 | `.venv not found — run install.sh first` | You skipped the install, or you're in the wrong folder. `cd` into the ELI folder and run `./scripts/eli_setup.sh` (GUI) or `bash install.sh` (terminal). |

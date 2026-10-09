@@ -43,8 +43,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # the oldest ELI declares, the one the full suite runs on, and the newest stable release:
-        # "3.x" moves to a new Python on the day it ships, so nothing here has to be edited for it
+        # oldest supported, the one the full suite runs on, and the newest stable ("3.x" follows new releases)
         python: ["3.10", "3.12", "3.x"]
     runs-on: ${{ matrix.os }}
     # Windows runners default to PowerShell, which cannot parse the `python - <<'PY'`

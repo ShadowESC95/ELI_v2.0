@@ -236,6 +236,8 @@ bash install.sh                 # interactive: report → plan → install → p
 ```
 Flags: `--yes` (no prompts) · `--install-cuda` (auto-install CUDA toolkit) · `--cpu-only` ·
 `--model=qwen2.5-7b` / `--no-model`.
+With several Pythons installed, the installer uses the one the most of ELI's packages come
+ready-made for on your machine, and the newest PyTorch build your GPU and driver can run.
 A stock Debian/Ubuntu has only Python. The installer checks for what it builds with
 (`python3-venv`, Python's headers, a compiler, PortAudio's headers), adds them when that takes
 no password, and otherwise prints the one `sudo apt-get install …` command to run first.

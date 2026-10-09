@@ -5,9 +5,8 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 VENV="$SCRIPT_DIR/.venv"
-# The Python this install is built with. PYTHON=... still decides when given. Left to itself
-# the installer used whatever `python3` was; now it takes the installed Python the most of
-# ELI's packages come ready-made for, measured on this machine (scripts/eli_env.py pick).
+# The Python this install is built with. PYTHON=... decides when given; otherwise the installed
+# Python the most of ELI's packages come ready-made for (scripts/eli_env.py pick).
 if [ -z "${PYTHON:-}" ]; then
     _boot_py="$(command -v python3 2>/dev/null || command -v python 2>/dev/null || true)"
     if [ -n "$_boot_py" ] && [ -f "$SCRIPT_DIR/scripts/eli_env.py" ]; then
@@ -524,11 +523,9 @@ _torch_runs_on() {
     "$PYTHON_VENV" -c "import sys, torch; x = torch.ones(1, device='$([ "$1" = xpu ] && echo xpu || echo cuda)'); sys.exit(0 if (x + 1).item() == 2 else 1)" >/dev/null 2>&1
 }
 
-# PyTorch publishes a build per CUDA / ROCm release and per Python. Which of them this Python can
-# install, and this driver can run, is read from PyTorch's own list, newest first (eli_env.py
-# torch-index); a fixed cu121 had nothing past Python 3.12. A newer build can drop older cards, so
-# one that installs but cannot run on this GPU is replaced by the oldest on offer.
-# PyTorch is not the inference engine: whatever happens here, its GPU build is decided on its own.
+# The newest PyTorch build for this Python and driver, from PyTorch's own list (eli_env.py torch-index).
+# Newer builds drop older cards, so one that won't run on this GPU gives way to the oldest on offer.
+# None of this decides how the inference engine is built.
 _install_pytorch_gpu() {
     local _kind="$1" _list _first _last _idx
     _list="$("$PYTHON_VENV" "$SCRIPT_DIR/scripts/eli_env.py" torch-index "$_kind" || true)"
@@ -572,11 +569,9 @@ if [ "$SKIP_TORCH" -eq 0 ]; then
     fi
 fi
 
-# Where pip finds no ready-made llama-cpp-python for this Python (PyPI has had none for any
-# Python since 0.3.x; the release's wheelhouse may have one), it builds from source. That
-# needs cmake + a C++ toolchain, which a bare Arch/Fedora install does not have, so it
-# failed and (under `set -e`) took the whole installer with it: ELI's inference engine
-# never installed and the app could not start at all. Detect it and provide the tools.
+# With no ready-made llama-cpp-python for this Python (PyPI has none for any), pip builds it from
+# source, which needs cmake and a C++ toolchain. A bare Arch/Fedora has neither, and the failure
+# took the whole installer down with it. Detect it and provide the tools.
 _llama_wheel_available() {
     _pip install --only-binary=:all: --dry-run llama-cpp-python >/dev/null 2>&1
 }

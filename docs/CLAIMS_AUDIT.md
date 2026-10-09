@@ -85,8 +85,9 @@ repository is public, and Actions on standard runners is free and unmetered for 
 repos. The cost of the gate was zero and it was switched off anyway.
 
 It now runs on every pull request and every push to `main`, across
-`ubuntu-latest / macos-latest / windows-latest` × Python 3.10 and 3.12 — **verified
-green on all six jobs**, not merely configured.
+`ubuntu-latest / macos-latest / windows-latest` × Python 3.10, 3.12 and the newest stable
+release (`3.x`, 3.14 in October 2026) — **verified green on all nine jobs**, not merely
+configured.
 
 Turning it on immediately paid for itself. The first run failed all six jobs on two
 defects that had been latent for as long as the workflow had existed, invisible

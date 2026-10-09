@@ -317,9 +317,21 @@ One standard-library file decides everything about the interpreter ELI runs on, 
 macOS and Windows. It is run by whatever Python can be found, because it is needed exactly
 when ELI's own environment cannot start.
 
-- `pick`: the interpreter a new install is built with. 3.12, 3.11 and 3.10 come first (ready
-  made packages for the inference engine); 3.13 and newer are used when they are all there is.
-  `install.sh` and `install.ps1` call it unless `PYTHON` is set.
+- `pick`: the interpreter a new install is built with. Every Python 3 on the machine at or above
+  the floor in `pyproject.toml` is found, and for each one PyPI is asked which locked packages
+  have no ready-made build for it on this system (kept for a month; a release's own wheelhouse
+  counts too). The one with the fewest wins, the newest on a tie, and the installer prints what
+  it found per version. Offline with no wheelhouse, the newest. `install.sh` and `install.ps1`
+  call it unless `PYTHON` is set.
+- `torch-index cuda|rocm|xpu|cpu`: the PyTorch indexes with that kind of build for the Python
+  running it, newest first, read from PyTorch's own list of builds. CUDA builds newer than the
+  NVIDIA driver supports are left out (the driver is read by `eli_gpu_pack.py`, the same reader
+  the frozen app uses). The installers take the first, check it runs on the GPU, and fall back
+  to the oldest on offer, then CPU. They used to fix cu121 and rocm6.2, which stop at Python
+  3.12: a 3.13 or 3.14 install with an NVIDIA card got CPU PyTorch, and on Linux the inference
+  engine was then built without CUDA too.
+- `versions`: the Python versions `pyproject.toml` lists, oldest first. The Windows installer
+  reads its floor from it and the release packages bundle wheels for each one.
 - `status`: whether `.venv` can run ELI, and in plain words why not. A system upgrade that
   replaces the Python an environment was built with (Ubuntu 24.04 to 26.04: 3.12 to 3.14)
   leaves it starting as the new version and finding no packages.
@@ -327,7 +339,7 @@ when ELI's own environment cannot start.
   (PATH, the `py` launcher, uv, pyenv, Homebrew, python.org), the environment is pointed back
   at it and nothing is reinstalled. Otherwise it says to run the installer.
 
-- `create`: makes `.venv`. Debian and Ubuntu ship Python without the part that makes
+- `create`: makes `.venv`, never on a Python older than the declared floor. Debian and Ubuntu ship Python without the part that makes
   environments (`python3-venv`); the installers used to stop there on Python's own error. The
   missing package is added when that takes no password (root, or sudo without one); otherwise
   the user is given the one command, and no half-made `.venv` is left behind.

@@ -123,9 +123,8 @@ _INTERPRETER = re.compile(r"^python(?:3(?:\.\d+)?)?(?:\.exe)?$", re.I)
 
 
 def _candidates(minor: Optional[Tuple[int, int]] = None) -> List[str]:
-    """Interpreters installed on this machine; `minor` narrows to one version. Without it every 3.x
-    is looked for, so a release this file has never heard of is found too. What version each one
-    is gets asked of the interpreter itself (_version_of), not read from its name."""
+    """Interpreters installed on this machine, any 3.x unless `minor` narrows it. Versions are
+    asked of each interpreter (_version_of), not read from its name."""
     dotted, tag = ("%d.%d" % minor, "%d%d" % minor) if minor else ("3.*", "3*")
     found: List[str] = []
     for name in (["python%s" % dotted] if minor else ["python3", "python"]):
@@ -161,10 +160,8 @@ def _candidates(minor: Optional[Tuple[int, int]] = None) -> List[str]:
 
 def prefer(versions: Iterable[Tuple[int, int]],
            gaps: Optional[Dict[Tuple[int, int], List[str]]] = None) -> Optional[Tuple[int, int]]:
-    """Of the versions on offer, the one a new install should use. None when none will do.
-
-    With `gaps` (wheel_gaps: per version, the locked packages with no ready-made build for it), the
-    one with the fewest, the newest of those. Without them, the newest."""
+    """Of the versions on offer, the one with the fewest `gaps` (wheel_gaps), newest first on a tie.
+    None when none will do."""
     on_offer = {v for v in versions if v and v >= MINIMUM}
     if not on_offer:
         return None
@@ -196,8 +193,8 @@ _COMPARE = {"==": lambda a, b: a == b, "!=": lambda a, b: a != b, ">=": lambda a
 
 
 def _marker_holds(marker: str, version: Tuple[int, int]) -> bool:
-    """A requirement's marker is true on this machine with Python `version` installed. Judged by pip's
-    own reader when the Python running this has pip; without it, sys_platform and python_version."""
+    """A requirement's marker holds here with Python `version`. pip's reader when there is one,
+    otherwise just sys_platform and python_version."""
     if not marker:
         return True
     env = {"python_version": "%d.%d" % version, "python_full_version": "%d.%d.0" % version}
@@ -267,10 +264,8 @@ def _cache_file() -> str:
 
 
 def wheel_gaps(versions: Iterable[Tuple[int, int]], root: str = ROOT) -> Optional[Dict[Tuple[int, int], List[str]]]:
-    """Per version, the locked packages that have ready-made builds for this machine but none for that
-    Python. Asked of PyPI, one request per package (kept for a month), plus the wheels a release
-    package ships next to the installer. A package with no ready-made build for this machine at all
-    is the same on every Python, so it decides nothing and is left out. None when neither answers."""
+    """Per version, the locked packages with ready-made builds for this machine but none for that
+    Python. Asked of PyPI (cached a month) plus a release's own wheelhouse. None when neither answers."""
     versions = list(versions)
     pins = [pin for pin in _lock_pins(root) if any(_marker_holds(pin[2], v) for v in versions)]
     if not pins or not versions:
@@ -328,8 +323,7 @@ def wheel_gaps(versions: Iterable[Tuple[int, int]], root: str = ROOT) -> Optiona
 
 
 def pick_python(root: str = ROOT) -> Optional[str]:
-    """The interpreter a new environment should be built with: of those installed, the one the most
-    locked packages come ready-made for (measured, see wheel_gaps), the newest of those."""
+    """The installed interpreter the most locked packages come ready-made for, newest on a tie."""
     by_version: Dict[Tuple[int, int], str] = {}
     for path in _candidates():
         version = _version_of(path)
@@ -371,9 +365,8 @@ def _driver_cuda() -> Optional[Tuple[int, int]]:
 
 
 def torch_indexes(kind: str) -> List[str]:
-    """PyTorch indexes with a `kind` build ("cuda", "rocm", "xpu", "cpu") for the running Python on
-    this machine, newest first. CUDA builds newer than the driver supports are left out. Read from
-    PyTorch's own list of every build it publishes, so a new CUDA, ROCm or Python needs no edit here."""
+    """PyTorch indexes with a `kind` build (cuda, rocm, xpu, cpu) for this Python and machine, newest
+    first, read from PyTorch's own list. CUDA builds newer than the driver are left out."""
     try:
         with urllib.request.urlopen(_TORCH_BUILDS, timeout=30) as r:
             page = r.read().decode("utf-8", "replace").replace("%2B", "+")

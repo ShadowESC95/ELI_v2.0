@@ -173,10 +173,10 @@ flowchart TD
 
 1. Parse CLI flags (`--cpu-only`, `--gpu`, `--skip-torch`, `--latest`, `--install-cuda`, `--yes`, model flags).
 2. Export canonical paths: `ELI_PROJECT_ROOT`, `ELI_DATA_DIR`, `ELI_CONFIG_DIR`, `ELI_MODELS_DIR`, `ELI_CACHE_DIR`, `PYTHONPATH`.
-3. Print **system report**: Python version, CPU/RAM/disk, NVIDIA/AMD/Intel GPU detection.
+3. Pick the Python (`scripts/eli_env.py pick`, unless `PYTHON` is set): of those installed, the one the most locked packages come ready-made for on this machine. Print **system report**: Python version, CPU/RAM/disk, NVIDIA/AMD/Intel GPU detection.
 4. Confirm plan (unless `--yes` or non-TTY); optional model menu.
 5. Create or rebuild `.venv` if broken/copied from another machine.
-6. Upgrade pip; install PyTorch (CPU/CUDA/ROCm/Metal per hardware).
+6. Upgrade pip; install PyTorch: the newest CUDA/ROCm/XPU build for this Python and driver (`eli_env.py torch-index`), checked on the GPU, else the oldest on offer, else CPU. Metal on macOS.
 7. Install **llama-cpp-python** ≥0.3.30 with GPU-appropriate `CMAKE_ARGS`; CPU-safe rebuild on SIGILL; smoke-test `llama_backend_init()`.
 8. Verify GPU offload when not CPU-only.
 9. `pip install -e ".[full]"` (editable) or bundled wheel fallback.
@@ -207,7 +207,7 @@ flowchart TD
 | **When to use** | Windows installer; invoked by `install.bat` and GUI fallback. |
 | **Requires** | Python 3.10+, PowerShell. |
 
-**Step-by-step:** Mirrors `install.sh` for Windows: system report (including non-NVIDIA GPU detection), venv creation, PyTorch CUDA/CPU wheels, llama-cpp-python, editable ELI install, requirements lock, config seed, init_data, model/voice fetch, progress markers.
+**Step-by-step:** Mirrors `install.sh` for Windows: Python pick, system report (including non-NVIDIA GPU detection), venv creation, PyTorch (newest CUDA build for this Python and driver unless `-CudaVersion` is given, checked on the GPU, else CPU), llama-cpp-python, editable ELI install, requirements lock, config seed, init_data, model/voice fetch, progress markers.
 
 **Parameters:** `-CpuOnly`, `-Gpu`, `-Latest`, `-InstallCuda`, `-Yes`, `-AutoModel`, `-NoModel`, `-Model`, `-CudaVersion`.
 
@@ -1224,8 +1224,8 @@ Symptoms gathered from installer logic, startup repair paths, and field reports.
 
 ### `llama-cpp-python` missing or SIGILL / Illegal instruction
 
-**Cause:** No wheel for your Python version (Arch 3.14); prebuilt wheel uses AVX-VNNI instructions your CPU lacks.  
-**Fix:** `PYTHON=python3.12 bash install.sh`; or install build toolchain (`base-devel`, `cmake`, `git`) for source build. Startup auto-repair: `eli_startup.sh` re-runs `install.sh` on probe failure (exit 132 if still broken).
+**Cause:** No ready-made llama-cpp-python new enough exists for any Python, so it is built here and needs a toolchain; or a prebuilt wheel uses AVX-VNNI instructions your CPU lacks.  
+**Fix:** Install the build toolchain (`base-devel`, `cmake`, `git`) for source build. Startup auto-repair: `eli_startup.sh` re-runs `install.sh` on probe failure (exit 132 if still broken).
 
 ### GPU detected but ELI runs CPU-only / slow
 
@@ -1234,13 +1234,13 @@ Symptoms gathered from installer logic, startup repair paths, and field reports.
 
 ### PyTorch CUDA download failed
 
-**Cause:** Network/firewall blocking `download.pytorch.org`.  
-**Fix:** Installer falls back to CPU torch; retry CUDA torch later or use `--cpu-only`.
+**Cause:** Network/firewall blocking `download.pytorch.org`, or PyTorch publishes no build for this Python that the driver supports.  
+**Fix:** Installer falls back to CPU torch and says which; the inference engine's GPU build is not affected. Retry later, or update the NVIDIA driver.
 
 ### Pinned requirements failed on rolling distro
 
-**Cause:** `requirements.lock.txt` pins lack wheels for your Python.  
-**Fix:** Automatic fallback to `requirements.txt` ranges; or use `--latest`.
+**Cause:** `requirements.lock.txt` pins lack wheels for your Python (3.10: numpy, scipy, pandas and others are pinned past it).  
+**Fix:** Automatic fallback to the ranges in `requirements-full.txt`, then one package at a time; or use `--latest`.
 
 ### GUI installer unavailable / icons do nothing
 
@@ -1270,7 +1270,7 @@ Symptoms gathered from installer logic, startup repair paths, and field reports.
 ### AppImage first launch fails
 
 **Cause:** No host Python 3.10+ (source-based AppImage); setup log at `~/.local/share/ELI_v2/setup.log`.  
-**Fix:** Install Python 3.10–3.12; or use PyInstaller AppImage (`build-appimage-pyinstaller.sh`) which needs no host Python.
+**Fix:** Install Python 3.10 or newer; or use PyInstaller AppImage (`build-appimage-pyinstaller.sh`) which needs no host Python.
 
 ### Windows PowerShell execution policy
 

@@ -57,9 +57,8 @@ Write-Host "  100% local - private - offline-by-default" -ForegroundColor DarkGr
 Write-Host "==================================================" -ForegroundColor Cyan
 Write-Host ""
 
-# Check Python. Of the Pythons installed, the one the most of ELI's packages come ready-made for,
-# measured on this machine, is preferred to whatever `python` happens to be (scripts\eli_env.py
-# pick). Its stderr is left alone: Windows PowerShell turns redirected stderr into errors.
+# Check Python: the installed one the most of ELI's packages come ready-made for (scripts\eli_env.py
+# pick). Its stderr isn't redirected: Windows PowerShell turns redirected stderr into errors.
 $Python = "python"
 $BootPython = $null
 if (Get-Command python -ErrorAction SilentlyContinue) { $BootPython = "python" }
@@ -71,7 +70,7 @@ if ($BootPython -and (Test-Path $EnvHelper)) {
         if ($LASTEXITCODE -eq 0 -and $Picked) { $Python = ("$Picked").Trim() }
     } catch { $Python = "python" }
 }
-# The oldest Python ELI runs on is the one pyproject.toml declares (eli_env.py versions, oldest first).
+# The floor is what pyproject.toml declares (eli_env.py versions, oldest first).
 $Floor = $null
 try {
     $pyVer = & $Python -c "import sys; print(f'{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}')"
@@ -226,10 +225,8 @@ if ($CpuOnly) {
     Write-Host "[..] Installing PyTorch (CPU)..."
     Invoke-Pip (@("install") + $PipFindLinksArgs + @("torch", "--index-url", "https://download.pytorch.org/whl/cpu", "--quiet"))
 } else {
-    # PyTorch publishes a CUDA build per CUDA release and per Python. Which of them this Python can
-    # install and this driver can run is read from PyTorch's own list, newest first (eli_env.py
-    # torch-index); a fixed cu121 had nothing past Python 3.12. -CudaVersion still decides when
-    # given. A newer build can drop older cards, so one that cannot run here gives way to the oldest.
+    # The newest CUDA build for this Python and driver (eli_env.py torch-index) unless -CudaVersion
+    # is given. Newer builds drop older cards, so one that won't run here gives way to the oldest.
     if ($PSBoundParameters.ContainsKey('CudaVersion')) {
         $TorchIndexes = @("https://download.pytorch.org/whl/$CudaVersion")
     } else {

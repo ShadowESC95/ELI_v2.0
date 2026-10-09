@@ -182,8 +182,9 @@ from auto-restore: ryan, lessac, cori — see `models/MODEL_LICENSES.md`.
 
 ## Files
 - `install.sh` (Linux/macOS), `install.bat` / `install.ps1` (Windows).
-- `requirements.lock.txt` — frozen exact versions (excludes torch/llama-cpp, which
-  install via their CUDA indices).
+- `requirements.lock.txt` — frozen exact versions, with markers for what only some
+  Pythons or systems need (excludes torch and llama-cpp, which the installers fetch for
+  the machine's GPU).
 - `pyproject.toml` — package metadata + `[project.scripts]` (`eli` → `eli.gui.app:main`).
 
 ## Launch
