@@ -116,6 +116,17 @@ def test_the_versions_eli_lists_start_at_its_floor_without_gaps():
         assert "for _pv in 3" not in text and "eli_env.py\" versions" in text, script
 
 
+def test_wheel_builds_do_not_count_on_setuptools_being_there():
+    """Python 3.12 stopped shipping setuptools. A build told to use this Python's own backend
+    (--no-isolation) fails on a fresh one, so the same line has to fall back to an isolated build."""
+    scripts = [p for pattern in ("*.sh", "scripts/*.sh", "packaging/**/*.sh") for p in REPO.glob(pattern)]
+    assert scripts
+    for script in scripts:
+        for line in script.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "--no-isolation" in line and not line.lstrip().startswith("#"):
+                assert line.count("-m build") > line.count("--no-isolation"), f"{script.name}: {line.strip()}"
+
+
 def test_every_module_parses_on_the_oldest_supported_python(interpreters):
     minimum = eli_env.MINIMUM
     older = sorted(v for v in interpreters if v < HERE)

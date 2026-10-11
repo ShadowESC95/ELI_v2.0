@@ -113,7 +113,9 @@ fi
 # shipped binary == shipped source. Only this version's wheel ends up in dist/.
 if [ "$SKIP_WHEEL" -eq 0 ]; then
   echo "[package] building wheel from clean staging tree ($PYTHON)"
-  ( cd "$STAGING" && "$PYTHON" -m build --wheel --no-isolation ) \
+  # this Python's own build backend when it has one (works offline). Python 3.12 stopped
+  # shipping setuptools, so otherwise the build fetches it into an isolated environment.
+  ( cd "$STAGING" && { "$PYTHON" -m build --wheel --no-isolation || "$PYTHON" -m build --wheel; } ) \
     || { echo "[package] wheel build failed" >&2; exit 1; }
   # keep only this version's wheel in the staged dist/
   find "$STAGING/dist" -maxdepth 1 -name 'eli_v2_0-*.whl' ! -name "eli_v2_0-${VERSION}-*.whl" -delete 2>/dev/null || true
