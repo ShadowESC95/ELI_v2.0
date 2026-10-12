@@ -71,3 +71,21 @@ def test_ensure_radio_delegates_by_platform(monkeypatch):
     monkeypatch.setattr(bp, "_darwin_ensure_radio", lambda: (True, "default"))
     ok, msg = bp.ensure_radio()
     assert ok and msg == "default"
+
+
+def test_an_adapter_with_no_address_file_is_read_without_a_traceback(monkeypatch, tmp_path, caplog):
+    """Linux 7 gives hci devices no `address` file. Each look at the adapters logged
+    FileNotFoundError with its traceback, twenty times in one short session."""
+    import logging
+
+    from eli.runtime import bt_platform as bt
+
+    (tmp_path / "hci0").mkdir()
+    monkeypatch.setattr(bt.glob, "glob", lambda pattern: [str(tmp_path / "hci0")])
+    monkeypatch.setattr(bt.shutil, "which", lambda name: "/usr/bin/hciconfig" if name == "hciconfig" else None)
+    monkeypatch.setattr(bt, "_sh", lambda cmd, timeout=4: (0, "hci0:\tType: Primary  Bus: USB\n"
+                                                             "\tBD Address: AA:BB:CC:DD:EE:FF  ACL MTU: 1021:8\n\tUP RUNNING\n"))
+    with caplog.at_level(logging.DEBUG):
+        found = bt._linux_kernel_adapters()
+    assert [(a.id, a.address, a.state) for a in found] == [("hci0", "AA:BB:CC:DD:EE:FF", "up")]
+    assert not [r for r in caplog.records if r.exc_info], "nothing went wrong: nothing to trace"

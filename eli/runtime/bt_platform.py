@@ -89,11 +89,16 @@ def _linux_kernel_adapters() -> List[BtAdapter]:
     for path in sorted(glob.glob("/sys/class/bluetooth/hci*")):
         name = os.path.basename(path)
         addr = ""
-        try:
-            with open(os.path.join(path, "address"), encoding="utf-8") as f:
-                addr = f.read().strip().upper()
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
+        # Current kernels give an adapter no `address` file. That is not an error (the address is
+        # read from hciconfig below); treated as one, its traceback filled the terminal on every
+        # look at the adapters.
+        address_file = os.path.join(path, "address")
+        if os.path.isfile(address_file):
+            try:
+                with open(address_file, encoding="utf-8") as f:
+                    addr = f.read().strip().upper()
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
         state = "unknown"
         if shutil.which("hciconfig"):
             _, out = _sh(["hciconfig", name], timeout=4)
