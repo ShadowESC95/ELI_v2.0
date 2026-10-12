@@ -150,3 +150,132 @@ def test_no_fixed_window_stands_in_for_the_real_one():
         text = (ROOT / name).read_text(encoding="utf-8")
         for needle in needles:
             assert needle not in text, f"{name} still has {needle!r}"
+
+
+# ── the KV cache type that was asked for is the one that loads ───────────────
+
+class _Llama:
+    """llama-cpp-python's Llama as far as loading goes: it names its parameters, takes anything
+    else in **kwargs without a word, and refuses a quantized cache without flash attention."""
+    loads: list = []
+    refuse_quantized = False
+
+    def __init__(self, model_path=None, n_ctx=0, n_threads=0, n_gpu_layers=0, n_batch=0,
+                 use_mmap=True, use_mlock=False, type_k=None, type_v=None, flash_attn=False,
+                 verbose=False, **kwargs):
+        got = dict(n_ctx=n_ctx, n_gpu_layers=n_gpu_layers, type_k=type_k, type_v=type_v,
+                   flash_attn=flash_attn, swallowed=sorted(kwargs))
+        type(self).loads.append(got)
+        if type_v is not None and (type(self).refuse_quantized or not flash_attn):
+            raise ValueError("Failed to create llama_context")
+        self._n_ctx = n_ctx
+
+    def n_ctx(self):
+        return self._n_ctx
+
+
+def _headless(monkeypatch, tmp_path, settings, log_lines=()):
+    import sys
+    import types
+    from contextlib import contextmanager
+    import eli.cognition.model_load_diagnostics as mld
+    import eli.core.llama_cpu_compat as lcc
+    _Llama.loads, _Llama.refuse_quantized = [], False
+    model = tmp_path / "m.gguf"
+    model.write_bytes(b"GGUF" + b"\0" * 64)
+    native = types.SimpleNamespace(llama_supports_gpu_offload=lambda: False)
+    monkeypatch.setitem(sys.modules, "llama_cpp", types.SimpleNamespace(Llama=_Llama, llama_cpp=native))
+    monkeypatch.setenv("ELI_GGUF_SMART_FIT", "0")
+    for name in ("ELI_GGUF_N_CTX", "ELI_GGUF_N_GPU_LAYERS", "ELI_GGUF_N_BATCH", "ELI_GGUF_THREADS"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(G, "get_model_path", lambda: model)
+    monkeypatch.setattr(G, "_load_runtime_settings", lambda: dict(settings))
+    # a load leaves its facts in the module and in the runtime snapshot: every one is put back,
+    # and the snapshot goes to this test's folder, so the next test finds nothing of this one
+    for name in ("_llm", "_kv_cache_refused", "_live_runtime_params", "_last_params",
+                 "_vram_at_load", "_last_load_error"):
+        monkeypatch.setattr(G, name, {"_llm": None, "_kv_cache_refused": False}.get(name, getattr(G, name, None)),
+                            raising=False)
+    monkeypatch.setattr(G, "_install_llama_abort_callback", lambda llm: None)
+    monkeypatch.setattr(G, "_sync_world_model_runtime", lambda payload: None)
+    import eli.core.paths as paths
+    real = paths.get_paths()
+
+    class _Here:
+        artifacts_dir = tmp_path
+
+        def __getattr__(self, name):
+            return getattr(real, name)
+
+    monkeypatch.setattr(paths, "get_paths", lambda: _Here())
+    monkeypatch.setattr(lcc, "preflight_runtime", lambda: None)
+    monkeypatch.setattr(mld, "preflight_gguf_model", lambda p: None)
+    said = list(log_lines)
+
+    @contextmanager
+    def _log():
+        yield [said.pop(0)] if said else []
+
+    monkeypatch.setattr(mld, "capture_llama_log", _log)
+    return G
+
+
+def test_the_headless_loader_gives_llama_cpp_the_cache_type_under_names_it_takes(monkeypatch, tmp_path):
+    # q4_0 is what an earlier tuner wrote into settings; it loads as q8_0 (the measured-safe one)
+    g = _headless(monkeypatch, tmp_path, {"n_ctx": 4096, "cache_type_k": "q4_0", "cache_type_v": "q4_0"},
+                  ["llama_kv_cache: size = 238.00 MiB ( 4096 cells, 28 layers, 1/1 seqs), "
+                   "K (q8_0): 119.00 MiB, V (q8_0): 119.00 MiB\n"])
+    g.load_model(force_reload=True)
+    asked = _Llama.loads[-1]
+    assert (asked["type_k"], asked["type_v"], asked["flash_attn"]) == (8, 8, True)
+    assert asked["swallowed"] == [], "nothing llama.cpp would take and ignore"
+    assert g._live_runtime_params["cache_type_k"] == "q8_0"
+
+
+def test_the_default_cache_asks_llama_cpp_for_nothing_special(monkeypatch, tmp_path):
+    g = _headless(monkeypatch, tmp_path, {"n_ctx": 4096, "cache_type_k": "", "cache_type_v": ""})
+    g.load_model(force_reload=True)
+    asked = _Llama.loads[-1]
+    assert (asked["type_k"], asked["type_v"], asked["flash_attn"]) == (None, None, False)
+    assert g._live_runtime_params["cache_type_k"] == "f16"
+
+
+def test_a_cache_llama_cpp_refuses_is_loaded_again_as_the_default_and_stays_that_way(monkeypatch, tmp_path):
+    g = _headless(monkeypatch, tmp_path, {"n_ctx": 4096, "cache_type_k": "q4_0", "cache_type_v": "q4_0"},
+                  ["llama_init_from_model: quantized V cache requires flash_attn to be enabled\n"])
+    _Llama.refuse_quantized = True
+    g.load_model(force_reload=True)
+    loads = [l["type_v"] for l in _Llama.loads if l["n_ctx"]]      # not the header-only read
+    assert loads == [8, None], "once refused, then the default"
+    assert g._cache_types({"cache_type_k": "q4_0"}) == ("", ""), "every later fit is for the default too"
+    assert g._live_runtime_params["cache_type_k"] == "f16"
+
+
+def test_an_argument_llama_cpp_does_not_take_is_left_out_and_said(caplog):
+    from eli.cognition.model_load_diagnostics import kv_cache_refused, llama_accepts
+    with caplog.at_level("WARNING"):
+        kept = llama_accepts(_Llama, {"model_path": "m", "n_ctx": 8, "cache_type_k": "q4_0"})
+    assert kept == {"model_path": "m", "n_ctx": 8}
+    assert "cache_type_k" in caplog.text
+    assert kv_cache_refused(["quantized V cache requires flash_attn to be enabled\n"])
+    assert not kv_cache_refused(["CUDA error: out of memory\n"])
+
+
+def test_every_loader_and_the_probe_use_the_one_helper():
+    for rel in ("eli/cognition/gguf_inference.py", "eli/gui/app.py", "eli/gui/eli_pro_audio_gui_v2_0.py",
+                "eli/core/load_probe.py"):
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert "llama_cache_args" in text, rel
+        assert 'kwargs["cache_type_k"]' not in text and 'kwargs["cache_type_v"]' not in text, rel
+    # and the three loaders read the stored setting one way, so each fits for the cache it loads
+    for rel in ("eli/cognition/gguf_inference.py", "eli/gui/app.py", "eli/gui/eli_pro_audio_gui_v2_0.py"):
+        assert "cache_setting" in (ROOT / rel).read_text(encoding="utf-8"), rel
+
+
+def test_the_settings_page_offers_only_cache_types_that_load():
+    text = (ROOT / "eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
+    offered = [line for line in text.splitlines() if "cache_type_" in line and ".addItems(" in line]
+    assert len(offered) == 2, offered
+    for line in offered:
+        assert '["", "q8_0", "f16"]' in line, line
+

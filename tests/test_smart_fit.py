@@ -2,7 +2,8 @@
 the VRAM left after vision+nomic. Pure math — no GPU needed."""
 from eli.core.hardware_profile import smart_fit_config, unified_fit_config, _layers_for_size
 
-# A 7B-class Q3 model on an 8GB card (q4_0 KV), user asked for 16384 ctx / 256 batch.
+# A 7B-class Q3 model on an 8GB card (quantized KV: q8_0, about half of fp16), user asked for
+# 16384 ctx / 256 batch. The free-memory figures below are where each behaviour shows at that size.
 MODEL_GB = 3.28
 TOTAL = _layers_for_size(MODEL_GB)  # 32
 USER_CTX, USER_BATCH = 16384, 256
@@ -33,7 +34,7 @@ def test_tight_vram_reduces_layers_first_preserving_ctx_and_batch():
 def test_tighter_vram_reduces_batch_before_ctx():
     # Tight enough that layer-floor alone fails and batch must drop — but ctx
     # should still be preserved (batch is reduced before ctx).
-    ctx, layers, batch = _fit(3400)
+    ctx, layers, batch = _fit(4000)
     assert ctx == USER_CTX, "ctx must be preserved until batch reduction is exhausted"
     assert batch < USER_BATCH, "batch should have been reduced"
 
@@ -42,9 +43,9 @@ def test_tight_vram_preserves_ctx_by_shedding_layers():
     # "ctx last, quality over speed": when VRAM is tight but the KV cache still fits
     # CPU-only, ctx is PRESERVED and the GPU layers are shed instead (trade speed,
     # keep context — the fraction is the user's speed↔context dial).
-    # (free=2700 is the demonstration point under the 128 batch floor — batch never
+    # (free=3500 is the demonstration point under the 128 batch floor — batch never
     # drops below 128, so a touch more VRAM is needed to hold full ctx at 0 layers.)
-    ctx, layers, batch = _fit(2700)
+    ctx, layers, batch = _fit(3500)
     assert ctx == USER_CTX, "ctx preserved by shedding GPU layers before crushing ctx"
     assert layers == 0, "tight VRAM sheds to CPU-only to keep ctx"
     assert batch >= 128, "batch floor (128) is honoured even at the tightest GPU offload"
@@ -91,7 +92,7 @@ def test_user_gpu_layers_is_never_exceeded_by_the_backfill():
 def test_user_gpu_layers_ceiling_still_sheds_when_it_does_not_fit():
     # Tight VRAM: 10 layers still doesn't fit, so the ceiling must still yield
     # to the same shed-first behaviour as an unconstrained fit.
-    ctx, layers, batch = _fit(2700, user_gpu_layers=10)
+    ctx, layers, batch = _fit(4000, user_gpu_layers=10)
     assert layers <= 10
     assert ctx == USER_CTX, "ctx preserved by shedding GPU layers before crushing ctx"
 
@@ -137,7 +138,7 @@ def test_moe_resident_gb_lets_full_layers_fit_despite_large_file_size():
 
 def test_moe_resident_gb_still_sheds_layers_when_vram_starved():
     # Genuine partial fallback: even the real (small) resident footprint doesn't fully fit.
-    ctx, layers, batch = _moe_fit(3000)
+    ctx, layers, batch = _moe_fit(4000)
     assert 0 < layers < _MOE_LAYERS, f"expected a genuine partial MoE fit, got {layers}"
     assert ctx == 12000, "ctx should still be preserved before layers are fully exhausted"
 

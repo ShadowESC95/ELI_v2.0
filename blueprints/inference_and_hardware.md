@@ -89,7 +89,17 @@ identical whatever the card.
   that sets this flag; `has_gpu` itself stays `False` either way (still the
   safe default for offload decisions) — this field is for anything that
   *reports* the result.
-- `_kv_cache_mb(n_ctx, n_layers)` — KV-cache cost.
+- `_kv_cache_mb(n_ctx, n_layers)` — KV-cache cost, for the cache type the load will use.
+- **KV cache type** — the settings `cache_type_k` / `cache_type_v` are empty (fp16, the default)
+  or `q8_0`. Any other quantized type stored there reads, sizes and loads as `q8_0`
+  (`core/gguf_sizes.py`: `cache_setting`, `effective_cache_type`): measured on llama.cpp 0.3.35,
+  a `q8_0` cache answered the same as fp16 at the same speed on CUDA, Vulkan and the processor,
+  and a `q4_0` cache answered wrongly. The tuner chooses `q8_0` only when an fp16 cache would
+  not hold the context in the memory left after the weights. llama.cpp is given the type as
+  `type_k` / `type_v` with `flash_attn` (`llama_cache_args`); arguments it does not take are
+  dropped and logged (`model_load_diagnostics.llama_accepts`), a cache it refuses is loaded
+  again as the default with the fit redone, and the type it reports is what the runtime
+  snapshot records.
 - `_compute_graph_reserve_mb(n_ctx, batch)` — the model-agnostic compute
   buffer estimate (`256MB + 24MB/1K ctx + 1.5MB/batch`), reserved so a profile
   that loads cleanly doesn't then hard-crash on the first decode when the lazy

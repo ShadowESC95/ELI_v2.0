@@ -321,6 +321,34 @@ def test_the_cache_key_distinguishes_parameters(monkeypatch, tmp_path):
     assert load_probe._key("/x.gguf", 4096, 99, 256) != base
 
 
+def test_the_probe_loads_with_the_cache_type_the_real_load_will_use(monkeypatch, tmp_path):
+    """A quantized cache is about half of an fp16 one: a probe with the wrong one proves nothing,
+    and its verdict is not the other's."""
+    import sys
+    seen = []
+
+    class _R:
+        returncode = 0
+        stdout = "PROBE_OK"
+        stderr = ""
+
+    def _run(cmd, **k):
+        if isinstance(cmd, (list, tuple)) and cmd and cmd[0] == sys.executable:
+            seen.append(json.loads(cmd[-1]))
+        return _R()
+
+    monkeypatch.setattr(load_probe, "_cache_path", lambda: tmp_path / "p.json")
+    monkeypatch.setattr(load_probe, "_gpu_identity", lambda: "TestCard|8192")
+    monkeypatch.setattr(load_probe.subprocess, "run", _run)
+    load_probe.probe_config("/x.gguf", 4096, 99, 128, cache_type_k="q8_0", cache_type_v="q8_0")
+    assert seen[-1]["llama_args"] == {"type_k": 8, "type_v": 8, "flash_attn": True}
+    assert "**(cfg.get(\"llama_args\") or {})" in load_probe._CHILD
+    load_probe.probe_config("/x.gguf", 4096, 99, 128)
+    assert len(seen) == 2 and seen[-1]["llama_args"] == {}, "the default cache is its own question"
+    load_probe.probe_config("/x.gguf", 4096, 99, 128, cache_type_k="q8_0", cache_type_v="q8_0")
+    assert len(seen) == 2, "and each verdict is remembered under its own cache type"
+
+
 def test_a_stale_verdict_is_re_proven(monkeypatch, tmp_path):
     """Drivers, other GPU tenants and resident models all move."""
     monkeypatch.setattr(load_probe, "_cache_path", lambda: tmp_path / "p.json")

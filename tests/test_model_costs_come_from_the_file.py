@@ -108,7 +108,59 @@ def test_cache_types_scale_by_their_block_layout(tmp_path):
     path = _dense(tmp_path)
     f16 = gguf_sizes.kv_bytes_per_token(path, "f16")
     assert gguf_sizes.kv_bytes_per_token(path, "q8_0") == pytest.approx(f16 * 34 / 64)
-    assert gguf_sizes.kv_bytes_per_token(path, "q4_0") == pytest.approx(f16 * 18 / 64)
+    # ggml's layout of a q4_0 block, used to read a load report whatever made the cache
+    assert gguf_sizes.bytes_per_element("q4_0") == 18 / 32
+
+
+def test_a_quantized_cache_is_the_one_measured_to_answer_the_same(tmp_path):
+    # llama.cpp 0.3.35, a 0.6B and a 7B model, processor / card / split: q8_0 answered word for
+    # word as fp16; q4_0 answered "Unity." for the capital of France. So q4_0 is never loaded,
+    # and a fit never counts on its size.
+    assert gguf_sizes.QUANTIZED_CACHE == "q8_0"
+    for asked in ("q4_0", "q4_1", "q5_0", "q5_1", "iq4_nl", "Q8_0"):
+        assert gguf_sizes.effective_cache_type(asked) == "q8_0", asked
+    for asked in ("", None, "f16", "no-such-type"):
+        assert gguf_sizes.effective_cache_type(asked) == "f16", asked
+    assert gguf_sizes.effective_cache_type("bf16") == "bf16"
+    # a stored setting as every loader and the settings page read it
+    assert [gguf_sizes.cache_setting(s) for s in ("", None, "q4_0", "q8_0", "f16")] == ["", "", "q8_0", "q8_0", "f16"]
+    path = _dense(tmp_path)
+    assert gguf_sizes.kv_bytes_per_token(path, "q4_0") == gguf_sizes.kv_bytes_per_token(path, "q8_0")
+    cost = hp.model_cost(path, kv_quantized=True)
+    assert cost.kv_bytes_per_token == gguf_sizes.kv_bytes_per_token(path, "q8_0")
+
+
+def test_the_cache_type_is_given_to_llama_cpp_under_the_names_it_takes():
+    # It was passed as cache_type_k, which llama-cpp-python swallows in **kwargs: every load was
+    # fp16 (448 MiB for the model above at 4096) while every fit assumed q4_0 (126 MiB).
+    assert gguf_sizes.llama_cache_args("q8_0") == {"type_k": 8, "type_v": 8, "flash_attn": True}
+    assert gguf_sizes.llama_cache_args("q4_0") == gguf_sizes.llama_cache_args("q8_0")   # never q4_0
+    assert gguf_sizes.llama_cache_args("q8_0", "f16") == {"type_k": 8, "flash_attn": True}
+    assert gguf_sizes.llama_cache_args("bf16") == {"type_k": 30, "type_v": 30}   # not quantized
+    for default in ("", None, "f16", "F16 ", "no-such-type"):
+        assert gguf_sizes.llama_cache_args(default) == {}
+    # every type the sizes are known for can be asked for, and none other
+    assert set(gguf_sizes._GGML_TYPE_ID) == set(gguf_sizes._BYTES_PER_ELEMENT)
+
+
+def test_those_names_and_ids_are_llama_cpp_s_own():
+    import inspect
+    llama_cpp = pytest.importorskip("llama_cpp")
+    if not inspect.isclass(getattr(llama_cpp, "Llama", None)):
+        pytest.skip("llama_cpp is a stand-in here")
+    taken = inspect.signature(llama_cpp.Llama.__init__).parameters
+    assert set(gguf_sizes.llama_cache_args("q8_0")) <= set(taken)
+    assert "cache_type_k" not in taken, "llama-cpp-python has taken the old name up: revisit"
+    for name, ggml in (("f16", "GGML_TYPE_F16"), ("q4_0", "GGML_TYPE_Q4_0"), ("q8_0", "GGML_TYPE_Q8_0")):
+        assert gguf_sizes._GGML_TYPE_ID[name] == getattr(llama_cpp, ggml)
+
+
+def test_the_cache_llama_cpp_made_is_read_from_its_report():
+    q4 = ["llama_kv_cache: size =  126.00 MiB (  4096 cells,  28 layers,  1/1 seqs), "
+          "K (q4_0):   63.00 MiB, V (q4_0):   63.00 MiB\n"]
+    assert gguf_sizes.loaded_cache_types(q4) == ("q4_0", "q4_0")
+    assert gguf_sizes.loaded_cache_types(_GEMMA_LOAD) == ("f16", "f16")
+    assert gguf_sizes.loaded_cache_types(["llama_model_load: nothing about a cache\n"]) is None
 
 
 # llama.cpp 0.3.35, gemma-4-E4B at n_ctx 4096: two caches, the second with V wider than K

@@ -432,8 +432,9 @@ def main():
     _save_config(cfg)
 
     # Load model — with free-VRAM-aware parameters and optional KV quantization
-    kv_k = params.get("cache_type_k", "") or ""
-    kv_v = params.get("cache_type_v", "") or ""
+    from eli.core.gguf_sizes import cache_setting
+    kv_k = cache_setting(params.get("cache_type_k"))
+    kv_v = cache_setting(params.get("cache_type_v"))
     kv_tag = f"  kv_k={kv_k}" if kv_k else ""
     print(f"⏳  Loading {model_path.name} ...")
     print(f"    ctx={params['n_ctx']}  gpu_layers={params['n_gpu_layers']}  "
@@ -451,10 +452,11 @@ def main():
         use_mlock     = bool(params.get("use_mlock", False)),
         verbose       = False,
     )
-    if kv_k:
-        _llama_kwargs["cache_type_k"] = kv_k
-    if kv_v:
-        _llama_kwargs["cache_type_v"] = kv_v
+    from eli.core.gguf_sizes import llama_cache_args
+    from eli.cognition.model_load_diagnostics import (
+        capture_llama_log, kv_cache_refused, llama_accepts)
+    _kv_args = llama_cache_args(kv_k, kv_v)
+    _llama_kwargs.update(_kv_args)
 
     try:
         # ELI_CTX_ENV_AND_FALLBACK_PATCH
@@ -534,7 +536,7 @@ def main():
                     from eli.core.mem_units import file_size_gib as _fsg_app
                     _fits_any = _gpu_layers_for_model(
                         _fsg_app(model_path), int(_free_mb), int(_llama_kwargs.get("n_ctx") or 0),
-                        kv_quantized=bool(_llama_kwargs.get("cache_type_k")),
+                        kv_quantized=bool(_kv_args.get("flash_attn")),
                         model_path=str(model_path)) > 0
                 except Exception:
                     _fits_any = True
@@ -605,7 +607,12 @@ def main():
         _last_error = None
         model = None
 
-        for _i, _attempt in enumerate(_load_attempts, 1):
+        _queue = list(_load_attempts)
+        _i = 0
+        while _queue:
+            _attempt = _queue.pop(0)
+            _i += 1
+            _attempt_log: list = []
             try:
                 _attempt_kwargs = dict(_attempt)
                 _force_no_cuda = bool(_attempt_kwargs.pop("_force_no_cuda", False))
@@ -624,7 +631,8 @@ def main():
                     f"gpu_layers={_attempt_kwargs.get('n_gpu_layers')} "
                     f"batch={_attempt_kwargs.get('n_batch')}"
                 )
-                model = Llama(**_attempt_kwargs)
+                with capture_llama_log() as _attempt_log:
+                    model = Llama(**llama_accepts(Llama, _attempt_kwargs))
                 _llama_kwargs = _attempt_kwargs
                 print(
                     f"✅  Llama load OK: "
@@ -636,6 +644,12 @@ def main():
             except Exception as _e:
                 _last_error = _e
                 print(f"⚠️  Llama load attempt {_i} failed: {_e}")
+                if any(k in _attempt for k in _kv_args) and kv_cache_refused(_attempt_log):
+                    # the same attempt again with the default cache, and none after it asks
+                    print("⚠️  llama.cpp refused the quantized KV cache here (it needs flash "
+                          "attention); using the default cache.")
+                    _queue = [{k: v for k, v in a.items() if k not in _kv_args}
+                              for a in [_attempt, *_queue]]
 
         if model is None:
             # Friendly diagnostic so the user knows what to do.
@@ -658,9 +672,9 @@ def main():
             raise RuntimeError("\n".join(_diag))
 
     except TypeError:
-        # Older llama_cpp versions don't accept cache_type_k/v — retry without
-        _llama_kwargs.pop("cache_type_k", None)
-        _llama_kwargs.pop("cache_type_v", None)
+        # An older llama_cpp without the cache arguments: retry without them
+        for _kv_name in _kv_args:
+            _llama_kwargs.pop(_kv_name, None)
         model = Llama(**_llama_kwargs)
 
     print(f"✅  {model_path.name} loaded — launching GUI...\n")

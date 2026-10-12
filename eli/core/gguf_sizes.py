@@ -51,6 +51,64 @@ def bytes_per_element(cache_type: Optional[str]) -> float:
     return _BYTES_PER_ELEMENT.get(str(cache_type or "f16").strip().lower() or "f16", 2.0)
 
 
+# The one quantized KV cache ELI loads. Measured on llama.cpp 0.3.35 with a 0.6B and a 7B model,
+# on the processor, on the graphics card and split between them: a q8_0 cache gave the same
+# answers as fp16, word for word; q4_0 gave wrong ones every time ("Unity." for the capital of
+# France), and q5_1 different ones. Half the memory is what quantizing safely buys, not a quarter.
+QUANTIZED_CACHE = "q8_0"
+
+
+def effective_cache_type(cache_type: Optional[str]) -> str:
+    """The cache type that loads when this one is asked for: itself for the 16-bit default and
+    the unquantized types, q8_0 for any quantized type. Every fit sizes for this, and llama.cpp
+    is given this, so what is planned is what loads."""
+    t = str(cache_type or "").strip().lower()
+    if t in ("f32", "bf16"):
+        return t
+    return QUANTIZED_CACHE if t in _BYTES_PER_ELEMENT and t != "f16" else "f16"
+
+
+def cache_setting(stored: Any) -> str:
+    """A stored `cache_type_k` / `cache_type_v` as the loaders, the fits and the settings page
+    read it: "" for the default, else the type that loads. A q4_0 an earlier tuner wrote reads
+    as q8_0."""
+    return effective_cache_type(stored) if str(stored or "").strip() else ""
+
+
+# ggml's ids for those types (enum ggml_type in ggml.h): what llama.cpp is given.
+_GGML_TYPE_ID = {"f32": 0, "f16": 1, "q4_0": 2, "q4_1": 3, "q5_0": 6, "q5_1": 7, "q8_0": 8,
+                 "iq4_nl": 20, "bf16": 30}
+
+
+def llama_cache_args(cache_type_k: Optional[str], cache_type_v: Optional[str] = None) -> Dict[str, Any]:
+    """The arguments llama-cpp-python takes for a KV cache of these types: `type_k` and `type_v`
+    (ggml type ids) and, for a quantized type, `flash_attn`, without which llama.cpp refuses one.
+    {} for the 16-bit default, or a type bytes_per_element does not know either. A quantized type
+    is given as the one ELI loads (effective_cache_type).
+
+    The type used to be passed as `cache_type_k`, a name llama-cpp-python takes in **kwargs and
+    does nothing with: every load was fp16 while every fit was made for the smaller cache."""
+    k = effective_cache_type(cache_type_k)
+    v = effective_cache_type(cache_type_v or cache_type_k)
+    args: Dict[str, Any] = {}
+    for name, ctype in (("type_k", k), ("type_v", v)):
+        if ctype != "f16":
+            args[name] = _GGML_TYPE_ID[ctype]
+    if QUANTIZED_CACHE in (k, v):
+        args["flash_attn"] = True
+    return args
+
+
+_KV_TYPES = re.compile(r"llama_kv_cache:.*?K\s*\((\w+)\).*?V\s*\((\w+)\)")
+
+
+def loaded_cache_types(log_lines: Iterable[str]) -> Optional[Tuple[str, str]]:
+    """(K type, V type) of the cache llama.cpp says it made, from a load's log; None when it
+    did not say."""
+    found = _KV_TYPES.findall("".join(str(x) for x in (log_lines or [])))
+    return (found[-1][0].lower(), found[-1][1].lower()) if found else None
+
+
 @dataclass(frozen=True)
 class _Header:
     meta: Dict[str, Any]
@@ -278,7 +336,8 @@ def kv_bytes_per_token(model_path, cache_type_k: Optional[str] = None,
     if not got:
         return None
     k, v, _source = got
-    return k * bytes_per_element(cache_type_k) + v * bytes_per_element(cache_type_v or cache_type_k)
+    return (k * bytes_per_element(effective_cache_type(cache_type_k))
+            + v * bytes_per_element(effective_cache_type(cache_type_v or cache_type_k)))
 
 
 _KV_LINE = re.compile(

@@ -59,8 +59,10 @@ def _clean_env(monkeypatch):
 @pytest.mark.parametrize("n_ctx,layers", [(2048, 32), (10384, 32), (12288, 48), (32768, 80)])
 def test_the_optimizer_uses_the_loaders_kv_arithmetic(n_ctx, layers):
     """allocate() and the load ladder must budget the same KV cache."""
-    assert sho.kv_cache_mb(n_ctx, layers) == _kv_cache_mb(n_ctx, layers, quant=True)
+    assert sho.kv_cache_mb(n_ctx, layers, quant=True) == _kv_cache_mb(n_ctx, layers, quant=True)
     assert sho.kv_cache_mb(n_ctx, layers, quant=False) == _kv_cache_mb(n_ctx, layers, quant=False)
+    # the cache is fp16 unless the load is told otherwise: it used to be assumed quantized here
+    assert sho.kv_cache_mb(n_ctx, layers) == _kv_cache_mb(n_ctx, layers, quant=False)
 
 
 def test_the_1024_byte_kv_constant_is_gone():

@@ -6,10 +6,9 @@ template (Mistral/Mixtral [INST], Llama-3 headers, Qwen/ChatML, etc.). No model
 name, size, or path is assumed; everything resolves from config/env.
 
 (no hardcoded paths, no forced parameter lowering):
-- Adds optional KV-cache quantization via env:
-    ELI_GGUF_CACHE_TYPE_K (e.g. q4_0, q8_0)
-    ELI_GGUF_CACHE_TYPE_V (e.g. q4_0, q8_0)
-  This is the main way to keep large n_ctx on big models without llama_context allocation failure.
+- KV-cache quantization comes from the settings `cache_type_k` / `cache_type_v`: empty is fp16,
+  anything quantized loads as q8_0 (eli.core.gguf_sizes.effective_cache_type). It holds nearly
+  twice the context of fp16 in the same memory.
 
 - Adds optional runtime knobs (env) without changing your defaults:
     ELI_GGUF_THREADS
@@ -127,6 +126,21 @@ def _as_int(value, fallback):
     except Exception:
         return int(fallback)
 
+
+
+# Set when llama.cpp refused a quantized KV cache in this process (no flash attention on this
+# backend or build): from then on the default cache is asked for and fitted for.
+_kv_cache_refused = False
+
+
+def _cache_types(settings: Dict[str, Any]) -> tuple:
+    """(K, V) cache types the load asks for and every fit assumes: the operator's settings,
+    or the default once llama.cpp has refused them here."""
+    if _kv_cache_refused:
+        return "", ""
+    from eli.core.gguf_sizes import cache_setting
+    return (cache_setting(_runtime_value(settings, "cache_type_k", "type_k", default="")),
+            cache_setting(_runtime_value(settings, "cache_type_v", "type_v", default="")))
 
 
 def _requested_ctx(settings: Dict[str, Any], model_path) -> int:
@@ -918,7 +932,7 @@ def load_model(force_reload: bool = False):
             _hw = _sf_hw()
             _mp = _runtime_value(settings, "model_path", "model") or model_path or ""
             # the fit assumes the KV cache type this load will use
-            _kv_type = str(_runtime_value(settings, "cache_type_k", "type_k", default="") or "f16")
+            _kv_type = _cache_types(settings)[0] or "f16"
             _kvq = _kv_type.lower() not in ("f16", "bf16", "f32")
             _sf_gpu = _sf_sg(_sf_dng())
             _use_gpu = bool(
@@ -1003,8 +1017,7 @@ def load_model(force_reload: bool = False):
 
     use_mmap = _runtime_value(settings, "use_mmap", default=True)
     use_mlock = _runtime_value(settings, "use_mlock", default=False)
-    cache_k = _runtime_value(settings, "cache_type_k", "type_k", default=None)
-    cache_v = _runtime_value(settings, "cache_type_v", "type_v", default=None)
+    cache_k, cache_v = _cache_types(settings)
 
     # Multi-GPU split (optional). Lets ONE large model span multiple GPUs via llama.cpp
     # tensor_split. Only set when configured (env or settings / gpu_profiles.json) — the
@@ -1064,10 +1077,9 @@ def load_model(force_reload: bool = False):
     kwargs["use_mmap"] = _boolish(use_mmap, True)
     kwargs["use_mlock"] = _boolish(use_mlock, False)
 
-    if cache_k:
-        kwargs["cache_type_k"] = cache_k
-    if cache_v:
-        kwargs["cache_type_v"] = cache_v
+    from eli.core.gguf_sizes import llama_cache_args as _cache_args
+    _kv_args = _cache_args(cache_k, cache_v)
+    kwargs.update(_kv_args)
 
     # Apply multi-GPU split only when offload is on AND a split is configured.
     _tensor_split = None
@@ -1131,14 +1143,19 @@ def load_model(force_reload: bool = False):
     except Exception:
         log.debug("[GGUF] pre-load RSS capture skipped", exc_info=True)
 
+    from eli.cognition.model_load_diagnostics import (
+        llama_accepts as _accepts,
+        kv_cache_refused as _kv_refused,
+    )
+
     def _new_llama(kw):
         if not _moe or int(effective_n_gpu_layers) <= 0:
-            return Llama(**kw)
+            return Llama(**_accepts(Llama, kw))
         from eli.core import moe_offload as _moe_offload
         kw = dict(kw, n_gpu_layers=_moe_offload.full_offload_layers(
             kw.get("n_gpu_layers", effective_n_gpu_layers), kw.get("model_path")))
         with _moe_offload.expert_offload_params():
-            return Llama(**kw)
+            return Llama(**_accepts(Llama, kw))
 
     try:
         with _cap_log() as _load_log:
@@ -1146,9 +1163,9 @@ def load_model(force_reload: bool = False):
     except TypeError as e:
         _msg = str(e)
         _popped = False
-        if any(tok in _msg for tok in ("cache_type_k", "cache_type_v", "type_k", "type_v")):
-            kwargs.pop("cache_type_k", None)
-            kwargs.pop("cache_type_v", None)
+        if any(tok in _msg for tok in ("type_k", "type_v", "flash_attn")):
+            for _name in _kv_args:
+                kwargs.pop(_name, None)
             _popped = True
         if any(tok in _msg for tok in ("tensor_split", "main_gpu", "split_mode")):
             # Older llama-cpp without multi-GPU kwargs — drop them and load single-GPU.
@@ -1167,6 +1184,14 @@ def load_model(force_reload: bool = False):
         else:
             raise
     except Exception as _load_err:
+        # llama.cpp refused the quantized KV cache (no flash attention on this backend or build).
+        # The fit above was made for that cache, so the whole load is done again for the default
+        # one, which is larger: context and layers are fitted to it.
+        if _kv_args and _kv_refused(_load_log) and not _kv_cache_refused:
+            globals()["_kv_cache_refused"] = True
+            log.warning("[GGUF] llama.cpp refused a %s KV cache here (it needs flash attention); "
+                        "loading with the default cache instead", cache_k or cache_v)
+            return load_model(force_reload=True)
         # A GPU pack that can't read this model must not end the attempt. If the failure is "this
         # build doesn't understand the file" and the pack is in the way, drop the pack and load on
         # the bundled runtime; users won't set an env var by hand.
@@ -1194,12 +1219,16 @@ def load_model(force_reload: bool = False):
             raise _model_load_error(
                 _load_err, _load_log, effective_n_gpu_layers) from _load_err
 
+    _kv_loaded = None
     try:
         # llama.cpp's own KV size for this model replaces the estimate from its header
-        from eli.core.gguf_sizes import record_load_report
+        from eli.core.gguf_sizes import record_load_report, loaded_cache_types
         record_load_report(model_path, _load_log)
+        _kv_loaded = loaded_cache_types(_load_log)
     except Exception:
         log.debug("[GGUF] KV report not recorded", exc_info=True)
+    if _kv_loaded and (cache_k or "f16").lower() != _kv_loaded[0]:
+        log.warning("[GGUF] KV cache asked for as %s, loaded as %s", cache_k or "f16", _kv_loaded[0])
 
     # Keep get_last_load_params() truthful: same values, same moment.
     globals()["_last_params"] = {
@@ -1225,6 +1254,9 @@ def load_model(force_reload: bool = False):
         "n_threads": int(n_threads),
         "n_batch": int(n_batch),
         "requested_n_gpu_layers": int(requested_n_gpu_layers),
+        # the cache llama.cpp says it made; what was asked for when it did not say
+        "cache_type_k": (_kv_loaded[0] if _kv_loaded else (cache_k or "f16")),
+        "cache_type_v": (_kv_loaded[1] if _kv_loaded else (cache_v or cache_k or "f16")),
         "gpu_offload_supported": gpu_offload_supported,
         "tensor_split": kwargs.get("tensor_split"),
         "main_gpu": kwargs.get("main_gpu"),
@@ -2825,8 +2857,7 @@ try:
                     from eli.core.hardware_profile import detect_hardware, unified_fit_config, vram_reserve_mb
                     from eli.core.mem_units import file_size_gib
                     _hw = detect_hardware()
-                    _kv_type = str(_runtime_value(_load_runtime_settings(), "cache_type_k", "type_k",
-                                                  default="") or "f16")
+                    _kv_type = _cache_types(_load_runtime_settings())[0] or "f16"
                     _fit = unified_fit_config(
                         file_size_gib(_mp), free, _hw.available_ram_gb,
                         user_ctx=max(_grain, req_ctx), user_batch=req_batch,

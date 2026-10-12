@@ -996,6 +996,9 @@ class LocalModelManager:
                     f"this runtime is CPU-only; 0 active)",
                 )
             print(f"   Batch size: {effective_n_batch}")
+            # the cache type that loads for what is stored: the fits below and llama.cpp get this
+            from eli.core.gguf_sizes import cache_setting as _cache_setting
+            cache_type_k, cache_type_v = _cache_setting(cache_type_k), _cache_setting(cache_type_v)
             if cache_type_k or cache_type_v:
                 print(f"   KV cache: K={cache_type_k or 'default'} V={cache_type_v or 'default'}")
             self.n_ctx = int(n_ctx)
@@ -1443,6 +1446,8 @@ class LocalModelManager:
                         _verdict, _why = _lp.probe_verdict(
                             str(path_obj), int(_cand["n_ctx"]),
                             int(_cand["n_gpu_layers"]), int(_cand["n_batch"]),
+                            cache_type_k=str(cache_type_k or ""),
+                            cache_type_v=str(cache_type_v or ""),
                         )
                     except Exception as _probe_err:
                         # The check itself is unavailable. That is not evidence
@@ -1507,10 +1512,9 @@ class LocalModelManager:
                     chat_format="chatml",
                     verbose=False,
                 )
-                if cache_type_k:
-                    llama_kwargs["cache_type_k"] = str(cache_type_k)
-                if cache_type_v:
-                    llama_kwargs["cache_type_v"] = str(cache_type_v)
+                from eli.core.gguf_sizes import llama_cache_args as _cache_args
+                _kv_args = _cache_args(cache_type_k, cache_type_v)
+                llama_kwargs.update(_kv_args)
                 # Capture llama.cpp's own log for this attempt: verbose=False
                 # silences it, and without it the only thing the user sees is
                 # the destructor's phantom "no attribute 'sampler'".
@@ -1519,26 +1523,40 @@ class LocalModelManager:
                     capture_llama_log as _cap_log,
                     explain_load_failure as _explain,
                     is_retryable_load_failure as _retryable,
+                    kv_cache_refused as _kv_refused,
+                    llama_accepts as _accepts,
                 )
                 _harden()
 
                 def _build_llama(kw):
                     if not _moe_gui or _cand_gpu_layers <= 0:
-                        return Llama(**kw)
+                        return Llama(**_accepts(Llama, kw))
                     from eli.core import moe_offload as _moe_offload_gui2
                     kw = dict(kw, n_gpu_layers=_moe_offload_gui2.full_offload_layers(
                         kw["n_gpu_layers"], kw.get("model_path")))
                     with _moe_offload_gui2.expert_offload_params():
-                        return Llama(**kw)
+                        return Llama(**_accepts(Llama, kw))
 
                 _attempt_log: list = []
                 try:
-                    with _cap_log() as _attempt_log:
-                        try:
+                    try:
+                        with _cap_log() as _attempt_log:
                             self.model = _build_llama(llama_kwargs)
-                        except TypeError:
-                            llama_kwargs.pop("cache_type_k", None)
-                            llama_kwargs.pop("cache_type_v", None)
+                    except Exception:
+                        # llama.cpp refused the quantized KV cache (it needs flash attention,
+                        # which this backend or build lacks): the same candidate with the
+                        # default cache, and no later candidate asks for it again.
+                        if not (_kv_args and _kv_refused(_attempt_log)):
+                            raise
+                        log.warning("[GUI][LOAD] llama.cpp refused a %s KV cache here (it needs "
+                                    "flash attention); loading with the default cache instead",
+                                    cache_type_k or cache_type_v)
+                        for _kv_name in _kv_args:
+                            llama_kwargs.pop(_kv_name, None)
+                        cache_type_k = cache_type_v = ""
+                        self.model = None
+                        gc.collect()
+                        with _cap_log() as _attempt_log:
                             self.model = _build_llama(llama_kwargs)
                     _applied = dict(_cand)
                     _applied["n_gpu_layers"] = _cand_gpu_layers
@@ -1547,8 +1565,11 @@ class LocalModelManager:
                     _applied["moe_experts_gb"] = (_moe_gui or {}).get("experts_gb") if _moe_gui else None
                     try:
                         # llama.cpp's own KV size for this model replaces the estimate from its header
-                        from eli.core.gguf_sizes import record_load_report
+                        from eli.core.gguf_sizes import record_load_report, loaded_cache_types
                         record_load_report(path_obj, _attempt_log)
+                        _kv_loaded = loaded_cache_types(_attempt_log)
+                        if _kv_loaded:
+                            _applied["cache_type_k"], _applied["cache_type_v"] = _kv_loaded
                     except Exception:
                         log.debug("[GUI][LOAD] KV report not recorded", exc_info=True)
                     break
@@ -1616,6 +1637,9 @@ class LocalModelManager:
                     "n_threads": int(self.n_threads),
                     "n_batch": int(self.n_batch),
                     "requested_n_gpu_layers": int(requested_n_gpu_layers),
+                    # the cache llama.cpp says it made; what was asked for when it did not say
+                    "cache_type_k": _applied.get("cache_type_k") or str(cache_type_k or "f16"),
+                    "cache_type_v": _applied.get("cache_type_v") or str(cache_type_v or cache_type_k or "f16"),
                     "gpu_offload_supported": gpu_offload_supported,
                     "load_mode": "GPU" if int(self.n_gpu_layers) > 0 else "CPU",
                     "moe_expert_offload": bool(_moe_gui),
@@ -7986,6 +8010,12 @@ class EliMainWindow(QMainWindow):
 
         return page, vbox
 
+    @staticmethod
+    def _shown_cache_type(stored) -> str:
+        """The settings entry for a stored KV cache type (gguf_sizes.cache_setting)."""
+        from eli.core.gguf_sizes import cache_setting
+        return cache_setting(stored)
+
     def _field_label(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setStyleSheet("color:#8b9ab0;font-size:10px;font-weight:600;letter-spacing:0.3px;")
@@ -8205,19 +8235,19 @@ class EliMainWindow(QMainWindow):
         self.batch_size_input.setToolTip("Prompt processing batch size — larger is faster but uses more VRAM")
         form.addRow(self._field_label("Batch size"), self.batch_size_input)
 
-        # KV-cache quantization. q4_0 cuts KV memory ~75% with negligible
-        # quality loss for chat workloads — the unlock for ctx ≥ 16k on
-        # small VRAM cards. Empty value = no quantization (fp16).
+        # KV-cache quantization. q8_0 halves the cache and answers the same as fp16; q4_0 gives
+        # wrong answers with this llama.cpp (measured), so it is not offered and a stored one
+        # loads as q8_0. Empty value = no quantization (fp16).
         self.cache_type_k_combo = QComboBox()
-        self.cache_type_k_combo.addItems(["", "q4_0", "q8_0", "f16"])
+        self.cache_type_k_combo.addItems(["", "q8_0", "f16"])
         self.cache_type_k_combo.setToolTip(
-            "KV cache quantization for keys. q4_0 = 4× more ctx for the same "
-            "VRAM. Empty = fp16 (no quantization)."
+            "KV cache quantization for keys. q8_0 = nearly twice the context for the same "
+            "VRAM, with the same answers. Empty = fp16 (no quantization)."
         )
         form.addRow(self._field_label("KV cache K"), self.cache_type_k_combo)
 
         self.cache_type_v_combo = QComboBox()
-        self.cache_type_v_combo.addItems(["", "q4_0", "q8_0", "f16"])
+        self.cache_type_v_combo.addItems(["", "q8_0", "f16"])
         self.cache_type_v_combo.setToolTip(
             "KV cache quantization for values. Match this to the K setting."
         )
@@ -10762,20 +10792,10 @@ class EliMainWindow(QMainWindow):
 
             # KV-cache quantization: hardware fact — safe to update in the combo
             # (affects how VRAM is used, not a user performance preference).
-            _ck = str(getattr(rec, "cache_type_k", "") or "")
-            _cv = str(getattr(rec, "cache_type_v", "") or "")
-            _ki = self.cache_type_k_combo.findText(_ck)
-            if _ki < 0 and _ck:
-                self.cache_type_k_combo.addItem(_ck)
-                _ki = self.cache_type_k_combo.findText(_ck)
-            if _ki >= 0:
-                self.cache_type_k_combo.setCurrentIndex(_ki)
-            _vi = self.cache_type_v_combo.findText(_cv)
-            if _vi < 0 and _cv:
-                self.cache_type_v_combo.addItem(_cv)
-                _vi = self.cache_type_v_combo.findText(_cv)
-            if _vi >= 0:
-                self.cache_type_v_combo.setCurrentIndex(_vi)
+            _ck = self._shown_cache_type(getattr(rec, "cache_type_k", ""))
+            _cv = self._shown_cache_type(getattr(rec, "cache_type_v", ""))
+            self.cache_type_k_combo.setCurrentIndex(max(0, self.cache_type_k_combo.findText(_ck)))
+            self.cache_type_v_combo.setCurrentIndex(max(0, self.cache_type_v_combo.findText(_cv)))
 
             for line in list(getattr(rec, "reasoning", []) or []):
                 self._hardware_tuning_log(str(line))
@@ -12603,8 +12623,8 @@ class EliMainWindow(QMainWindow):
                 self.batch_size_input.setValue(int(_batch))
             # KV cache quantization combos
             try:
-                _k = str(s.get("cache_type_k", "") or "")
-                _v = str(s.get("cache_type_v", "") or "")
+                _k = self._shown_cache_type(s.get("cache_type_k", ""))
+                _v = self._shown_cache_type(s.get("cache_type_v", ""))
                 _kidx = self.cache_type_k_combo.findText(_k)
                 if _kidx >= 0:
                     self.cache_type_k_combo.setCurrentIndex(_kidx)

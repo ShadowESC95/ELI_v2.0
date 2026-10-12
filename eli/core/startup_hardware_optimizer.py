@@ -432,8 +432,10 @@ def layer_mb(model_gb: float, layers: int) -> float:
     return 999999.0 if layers <= 0 else (model_gb * 1024.0) / max(1, layers + 2)
 
 
-def kv_cache_mb(n_ctx: int, layers: int, quant: bool = True, model_path: Optional[str] = None) -> float:
-    """KV-cache cost, delegated to the one measurement the loader uses.
+def kv_cache_mb(n_ctx: int, layers: int, quant: bool = False, model_path: Optional[str] = None) -> float:
+    """KV-cache cost, delegated to the one measurement the loader uses. `quant` is whether the
+    load will use the quantized cache (the setting): it was assumed always, at a quarter of
+    fp16, while every load was fp16.
 
     This was a local ``n_ctx * layers * 1024 / 1MiB`` "q4 approximation" while
     ``hardware_profile._kv_cache_mb`` used 6000 B/token/layer (1500 at q4) — a 46%
@@ -729,7 +731,10 @@ def allocate(
 
     # ---- Determine ctx ----
     model_vram_mb = model_gb * 1024.0          # VRAM needed for full offload
-    kv_per_token  = kv_cache_mb(1, layers_total, model_path=profile_model)  # MB per ctx token (q4_0 KV)
+    # sized for the cache type the load will use (the setting), not a quantized one assumed
+    from eli.core.gguf_sizes import effective_cache_type as _kv_effective
+    _kvq = _kv_effective(settings.get("cache_type_k")) not in ("f16", "bf16", "f32")
+    kv_per_token  = kv_cache_mb(1, layers_total, quant=_kvq, model_path=profile_model)  # MB per ctx token
 
     # Auto target: trained context x fraction; an operator-chosen value is handled below.
     _default_target = round_ctx(int(train_ctx * ctx_fraction))
@@ -749,9 +754,9 @@ def allocate(
         ctx_source = f"auto {int(_DEFAULT_CTX)} (VRAM-capped, kv_budget={kv_budget:.0f}MB)"
     else:
         # Partial offload: KV for CPU-resident layers lives in RAM. Keep the default target when the
-        # model plus its real KV cache fit available RAM (q4 KV for 16384 is ~1GB; the old "1GB = 1024
+        # model plus its real KV cache fit available RAM (the old "1GB = 1024
         # tokens" rule overestimated ~16x). Use the conservative cap only when RAM is really tight.
-        _kv_default_mb = kv_cache_mb(_default_target, layers_total, model_path=profile_model)
+        _kv_default_mb = kv_cache_mb(_default_target, layers_total, quant=_kvq, model_path=profile_model)
         _ram_avail_mb = ram_gb * 1024.0
         if (model_gb * 1024.0) + _kv_default_mb + 2048 <= _ram_avail_mb:
             n_ctx = _default_target
@@ -760,7 +765,7 @@ def allocate(
             n_ctx = round_ctx(min(_default_target, ram_ctx_cap(ram_gb, model_gb, profile_model)))
             ctx_source = f"auto {int(_DEFAULT_CTX)} (RAM-capped)"
 
-    kv = kv_cache_mb(n_ctx, layers_total, model_path=profile_model)
+    kv = kv_cache_mb(n_ctx, layers_total, quant=_kvq, model_path=profile_model)
 
     # ---- Determine gpu_layers ----
     if forced_layers:

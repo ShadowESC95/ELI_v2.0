@@ -15,17 +15,23 @@ lever for winning back GPU layers. It is nearly the weakest one. On this model
 (5.03GB / 32 layers → 161MB per layer) at q4_0, cutting 1904 tokens frees 87MB —
 half a layer. The panel implied roughly two, so the operator cut ctx expecting
 layers back and got 0.5 of one.
+
+What was true all along: the cache was fp16 in every load. The type was handed
+to llama-cpp-python as `cache_type_k`, a name it ignores, so the 1901MB line was the one that
+matched what loaded and the 475MB reservation was the fiction. And a real q4_0 cache answers
+wrongly (measured), so the quantized cache is q8_0: 34/64 of fp16, not a quarter. The figures
+below are that cache's.
 """
 import pytest
 
 from eli.core.hardware_profile import _CUDA_OVERHEAD_MB, _kv_cache_mb
 
 
-def test_quantised_kv_is_a_quarter_of_fp16():
-    """The premise. If this ratio changes, the reasoning above needs revisiting."""
+def test_quantised_kv_is_about_half_of_fp16():
+    """The premise: the quantized cache is q8_0 (34 bytes for 32 values against fp16's 64)."""
     fp16 = _kv_cache_mb(10384, 32, quant=False)
-    q4 = _kv_cache_mb(10384, 32, quant=True)
-    assert round(fp16 / q4, 2) == 4.0
+    q8 = _kv_cache_mb(10384, 32, quant=True)
+    assert round(fp16 / q8, 2) == 1.88
 
 
 def test_the_reported_kv_matches_the_budgeted_kv():
@@ -42,16 +48,16 @@ def test_the_reported_kv_matches_the_budgeted_kv():
     joined = "\n".join(line)
     assert "quant=kv_q" in joined, (
         "the KV figure in the panel is computed without the quantisation flag the "
-        "fit uses — it will overstate KV fourfold on any card using q4_0"
+        "fit uses — it will overstate KV nearly twofold on any card using a quantized cache"
     )
 
 
 @pytest.mark.parametrize("ctx,layers,expected", [
-    (10384, 32, 475),
-    (12288, 32, 562),
-    (4096, 32, 188),
+    (10384, 32, 1010),
+    (12288, 32, 1195),
+    (4096, 32, 398),
 ])
-def test_q4_kv_sizes_for_a_2060_class_card(ctx, layers, expected):
+def test_quantised_kv_sizes_for_a_2060_class_card(ctx, layers, expected):
     assert round(_kv_cache_mb(ctx, layers, quant=True)) == expected
 
 
@@ -61,8 +67,8 @@ def test_context_is_a_weak_lever_for_gpu_layers():
     layers, model_gb = 32, 5.03
     per_layer_mb = (model_gb * 1024) / layers
     freed = _kv_cache_mb(12288, layers, quant=True) - _kv_cache_mb(10384, layers, quant=True)
-    assert freed < per_layer_mb, "cutting ~1900 ctx should not buy even one full layer"
-    assert round(freed / per_layer_mb, 1) == 0.5
+    assert freed < 2 * per_layer_mb, "cutting ~1900 ctx should buy about one layer, not several"
+    assert round(freed / per_layer_mb, 1) == 1.2
 
 
 def test_the_panel_states_the_per_1k_cost():

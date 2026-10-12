@@ -100,7 +100,10 @@ def _kv_cache_mb(n_ctx: int, n_layers: int = 32, quant: bool = False, *,
         return cost.kv_mb(n_ctx)
     # no readable model file: a size per layer, the last resort
     raw = n_ctx * n_layers * _KV_BYTES_PER_TOKEN_PER_LAYER / 1_048_576
-    return raw / 4 if quant else raw
+    if not quant:
+        return raw
+    from eli.core import gguf_sizes
+    return raw * gguf_sizes.bytes_per_element(gguf_sizes.QUANTIZED_CACHE) / gguf_sizes.bytes_per_element("f16")
 
 
 @dataclass(frozen=True)
@@ -131,7 +134,8 @@ class ModelCost:
 def model_cost(model_path: Optional[str], *, experts_in_ram: bool = False,
                kv_quantized: bool = False, kv_cache_type: Optional[str] = None) -> Optional[ModelCost]:
     """The model's real costs, or None when its file cannot be read (then the estimates apply).
-    kv_cache_type is the cache type the load will use; kv_quantized alone means q4_0."""
+    kv_cache_type is the cache type asked for; kv_quantized alone means the quantized type ELI
+    loads (gguf_sizes.QUANTIZED_CACHE). Either way the size is that of the cache that loads."""
     if not model_path:
         return None
     try:
@@ -139,7 +143,7 @@ def model_cost(model_path: Optional[str], *, experts_in_ram: bool = False,
         w = gguf_sizes.weights(model_path)
         if w is None:
             return None
-        ctype = kv_cache_type or ("q4_0" if kv_quantized else "f16")
+        ctype = kv_cache_type or (gguf_sizes.QUANTIZED_CACHE if kv_quantized else "f16")
         kv = gguf_sizes.kv_bytes_per_token(model_path, ctype)
         if kv is None:
             return None
@@ -1710,8 +1714,8 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
                           model_path: Optional[str] = None) -> int:
     """Compute n_gpu_layers from FREE VRAM minus KV-cache and CUDA overhead.
 
-    When kv_quantized=True, the KV cache uses ~25% of fp16 size (q4_0 K
-    and q4_0 V), letting much larger n_ctx fit on the same GPU.
+    When kv_quantized=True, the KV cache is the quantized type ELI loads (q8_0, about half of
+    fp16), letting a longer n_ctx fit on the same GPU.
 
     Returns 99 sentinel if the entire model fits (llama.cpp loads all layers
     when n_gpu_layers exceeds actual layer count; 99 is always above any
@@ -2151,7 +2155,8 @@ def unified_fit_config(
     ``smart_fit_config`` — see its docstring. With a readable model file both
     the VRAM fit and the RAM clamp use its tensor sizes (``model_cost``).
 
-    ``kv_cache_type`` is the cache type the load will use (q4_0, q8_0, f16...).
+    ``kv_cache_type`` is the cache type asked for; it is sized as the one that loads for it
+    (gguf_sizes.effective_cache_type).
     """
     total = int(total_layers or layers_for_model(model_path, model_size_gb))
     priority = (
@@ -2494,10 +2499,12 @@ def recommend(hw: Optional[HardwareProfile] = None,
         rec.n_ctx = 0           # no GGUF to size: the Ollama model's own context applies
         return rec
 
-    # KV-cache quantization: only when memory, not the model, limits the context (q4_0 holds
-    # about 3.5x the context of fp16 in the same memory).
+    # KV-cache quantization: only when memory, not the model, limits the context. q8_0 holds
+    # nearly twice the context of fp16 in the same memory and answers the same; q4_0 does not
+    # (gguf_sizes.QUANTIZED_CACHE).
+    from eli.core.gguf_sizes import QUANTIZED_CACHE as _kv_quantized_type
     _kv_m = max(models, key=lambda m: m["size_gb"]) if models else None
-    rec.cache_type_k = "q4_0" if (_kv_m and kv_cache_quantized(
+    rec.cache_type_k = _kv_quantized_type if (_kv_m and kv_cache_quantized(
         _kv_m["path"], _kv_m["size_gb"],
         free_vram_mb=hw.free_vram_mb if use_gpu_layers else 0,
         available_ram_gb=hw.available_ram_gb, use_gpu=bool(use_gpu_layers),
@@ -2506,7 +2513,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
     rec.cache_type_v = rec.cache_type_k  # match K and V quantization
     kv_q = bool(rec.cache_type_k)
     if kv_q:
-        rec.reasoning.append("KV cache: q4_0 (an fp16 cache would not hold the context in the memory left after the weights)")
+        rec.reasoning.append(f"KV cache: {_kv_quantized_type} (an fp16 cache would not hold the context in the memory left after the weights)")
     else:
         rec.reasoning.append("KV cache: fp16 (it fits the context in the memory left after the weights)")
 
@@ -2628,7 +2635,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"gpu_layers={rec.n_gpu_layers} batch={rec.batch_size} "
             f"for {hw.free_vram_mb:.0f}MB free VRAM + "
             f"{cpu_ram_budget_mb(hw.available_ram_gb)}MB RAM spill budget "
-            f"(reserve {vram_reserve_mb()}MB, kv={'q4_0' if kv_q else 'fp16'}) "
+            f"(reserve {vram_reserve_mb()}MB, kv={_kv_quantized_type if kv_q else 'fp16'}) "
             f"— was ctx={_old_ctx} gpu_layers={_old_layers} before the fit"
         )
     else:
@@ -2655,7 +2662,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"Fit (CPU/RAM — same calculation the loader runs): ctx={rec.n_ctx} "
             f"gpu_layers=0 batch={rec.batch_size} "
             f"for {hw.available_ram_gb:.1f}GB available RAM "
-            f"(total {hw.ram_gb:.1f}GB, kv={'q4_0' if kv_q else 'fp16'}) "
+            f"(total {hw.ram_gb:.1f}GB, kv={_kv_quantized_type if kv_q else 'fp16'}) "
             f"— was ctx={_old_ctx} before the fit"
         )
         if hw.has_gpu and not _backend_ready:
@@ -2725,14 +2732,13 @@ def recommend(hw: Optional[HardwareProfile] = None,
             f"all layers on GPU (free VRAM sufficient)"
         )
     elif chosen_layers > 0:
-        # Report the KV size actually budgeted, honouring kv_q. This printed the fp16 figure
-        # (1901MB) where the loader reserved 475MB at q4_0, which made ctx look like the lever for
-        # winning back layers when it is nearly the weakest.
+        # Report the KV size actually budgeted, honouring kv_q: the figure in this line and the
+        # one the fit reserves are the same call.
         rec.reasoning.append(
             f"Model: {chosen['name']} ({chosen['size_gb']:.2f}GB) — "
             f"{chosen_layers}/{total_layers} layers on GPU "
             f"(KV {_kv_cache_mb(rec.n_ctx, total_layers, quant=kv_q, cost=_rec_cost):.0f}MB "
-            f"{'q4_0' if kv_q else 'fp16'} + "
+            f"{_kv_quantized_type if kv_q else 'fp16'} + "
             f"{_CUDA_OVERHEAD_MB}MB CUDA overhead, "
             f"~{_kv_cache_mb(1024, total_layers, quant=kv_q, cost=_rec_cost):.0f}MB per 1k ctx)"
         )

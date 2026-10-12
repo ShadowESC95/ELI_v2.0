@@ -28,6 +28,7 @@ never heard of gets the same treatment.
 from __future__ import annotations
 
 import ctypes
+import inspect
 import struct
 import threading
 from contextlib import contextmanager
@@ -330,6 +331,38 @@ def capture_llama_log():
                 _LOG_BUFFER.clear()
 
 
+def llama_accepts(llama_cls, kwargs: dict) -> dict:
+    """`kwargs` without the names this llama-cpp-python's Llama does not take.
+
+    Llama takes any unknown name in **kwargs and does nothing with it, so a misnamed argument is
+    silent: the KV cache type was passed as `cache_type_k` for months and never applied. A name
+    dropped here is logged. A class that names no parameters of its own (a stand-in) is given
+    everything."""
+    if isinstance(llama_cls, Mock):
+        return dict(kwargs)
+    try:
+        params = inspect.signature(llama_cls.__init__).parameters
+    except (TypeError, ValueError):
+        return dict(kwargs)
+    named = {n for n, p in params.items()
+             if n != "self" and p.kind not in (p.VAR_KEYWORD, p.VAR_POSITIONAL)}
+    if not named:
+        return dict(kwargs)
+    unknown = sorted(k for k in kwargs if k not in named)
+    if unknown:
+        log.warning("llama.cpp does not take %s; left out of the load", ", ".join(unknown))
+    return {k: v for k, v in kwargs.items() if k in named}
+
+
+def kv_cache_refused(log_lines) -> bool:
+    """Whether llama.cpp refused the context over the KV cache type: a quantized cache needs
+    flash attention, which a backend or an older build may not have. The same load with the
+    default cache can succeed."""
+    text = "\n".join(str(l) for l in (log_lines or [])).lower()
+    return "flash" in text and any(k in text for k in ("requires", "not supported", "unsupported",
+                                                        "not compatible", "disabled"))
+
+
 def is_retryable_load_failure(log_lines) -> bool:
     """Whether retrying with different ctx/layers/batch could ever succeed.
 
@@ -630,4 +663,4 @@ __all__ = ["ModelLoadError", "deactivate_gpu_pack", "harden_llama_destructor",
            "preflight_gguf_model", "is_draft_only_gguf", "draft_only_load_message",
            "gpu_pack_is_too_old", "MIN_MODERN_ARCH_VERSION",
            "capture_llama_log", "explain_load_failure",
-           "is_retryable_load_failure"]
+           "is_retryable_load_failure", "kv_cache_refused", "llama_accepts"]

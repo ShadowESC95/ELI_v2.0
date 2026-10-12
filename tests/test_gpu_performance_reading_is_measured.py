@@ -98,6 +98,18 @@ def gpu_report(monkeypatch, tmp_path):
             stdout = smi_row
             stderr = ""
         monkeypatch.setattr(ex.subprocess, "run", lambda *a, **k: _Proc())
+        # The card is the one in the reading, on any machine and in any test order. These tests
+        # passed only where the developer's own card had been detected first and was still in
+        # the half-minute cache; after a test that left another machine there, or on a machine
+        # with no NVIDIA card, the report said "No GPU detected".
+        import eli.core.hardware_profile as hp
+        name, total, _used, free = [x.strip() for x in smi_row.split(",")[:4]]
+        card = hp.HardwareProfile(has_gpu=True, gpu_name=name, gpu_vendor="nvidia",
+                                  total_vram_mb=int(total), free_vram_mb=int(free),
+                                  vram_gb=int(free) / 1024.0)
+        monkeypatch.setattr(hp, "detect_hardware", lambda **k: card)
+        monkeypatch.setattr(hp.shutil, "which",
+                            lambda prog, *a, **k: f"/usr/bin/{prog}" if prog == "nvidia-smi" else None)
         return ex._gpu_status_report()["content"]
     return _run
 
