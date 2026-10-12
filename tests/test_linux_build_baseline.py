@@ -178,6 +178,73 @@ def test_versions_compare_as_numbers():
     assert glibc_floor.parse("2.9") < glibc_floor.parse("2.39") < glibc_floor.parse("2.43")
 
 
+# ── no GTK or GLib I/O library in the bundle ─────────────────────────────────
+
+TRIM_TOOL = ROOT / "packaging" / "linux" / "trim_bundle.py"
+
+
+def _trim_tool():
+    sys.path.insert(0, str(TRIM_TOOL.parent))
+    try:
+        import trim_bundle
+    finally:
+        sys.path.remove(str(TRIM_TOOL.parent))
+    return trim_bundle
+
+
+def test_only_what_the_gtk_and_glib_io_plug_ins_needed_leaves_the_bundle(tmp_path, monkeypatch):
+    """A bundle built on one Ubuntu and started on a newer one printed, on every start,
+    "libgvfscommon.so: undefined symbol: g_variant_builder_init_static ... Failed to load module
+    libgvfsdbus.so": the bundle's own GLib I/O library was loading the system's plug-ins."""
+    trim_bundle = _trim_tool()
+    needed = {
+        "libqgtk3.so": ["libgtk-3.so.0", "libgio-2.0.so.0", "libglib-2.0.so.0", "libQt6Gui.so.6"],
+        "libqglib.so": ["libgio-2.0.so.0", "libQt6Core.so.6"],
+        "libgtk-3.so.0": ["libgdk-3.so.0", "libgio-2.0.so.0", "libpng16.so.16"],
+        "libgdk-3.so.0": ["libglib-2.0.so.0"],
+        "libgio-2.0.so.0": ["libglib-2.0.so.0", "libmount.so.1"],
+        "libmount.so.1": [],
+        "QtWidgets.abi3.so": ["libQt6Gui.so.6", "libQt6Core.so.6"],     # the application's own use
+        "libQt6Core.so.6": ["libglib-2.0.so.0"],
+        "libQt6Gui.so.6": ["libQt6Core.so.6", "libpng16.so.16"],
+        "libglib-2.0.so.0": [],
+        "libpng16.so.16": [],
+        "libpython3.12.so.1.0": [],                                      # opened by name, needed by nothing
+    }
+    themes, network = tmp_path / "plugins/platformthemes", tmp_path / "plugins/networkinformation"
+    themes.mkdir(parents=True), network.mkdir(parents=True)
+    for name in needed:
+        folder = themes if name == "libqgtk3.so" else network if name == "libqglib.so" else tmp_path
+        (folder / name).write_bytes(b"\x7fELF")
+    (themes / "libqxdgdesktopportal.so").write_bytes(b"\x7fELF")
+    monkeypatch.setattr(trim_bundle, "_needed", lambda path: needed.get(Path(path).name, []))
+    monkeypatch.setattr(trim_bundle.shutil, "which", lambda name: "/usr/bin/" + name)
+
+    assert trim_bundle.main(["--check", str(tmp_path)]) == 1
+    removed = {Path(name).name for name in trim_bundle.trim(str(tmp_path))}
+    assert removed == {"libqgtk3.so", "libqglib.so", "libgtk-3.so.0", "libgdk-3.so.0",
+                       "libgio-2.0.so.0", "libmount.so.1"}
+    left = {path.name for path in tmp_path.rglob("*") if path.is_file()}
+    assert {"libglib-2.0.so.0", "libpng16.so.16", "libQt6Core.so.6", "libpython3.12.so.1.0",
+            "libqxdgdesktopportal.so"} <= left
+    assert trim_bundle.main(["--check", str(tmp_path)]) == 0
+    assert trim_bundle.main([str(tmp_path)]) == 0 and trim_bundle.trim(str(tmp_path)) == []
+
+
+def test_the_release_trims_the_bundle_before_it_is_checked_and_packed():
+    steps = yaml.safe_load((WORKFLOWS / "release.yml").read_text(encoding="utf-8"))["jobs"]
+    linux = next(job for job in steps.values()
+                 if any("build-appimage-pyinstaller.sh" in str(step.get("run", "")) for step in job["steps"]))
+    runs = [str(step.get("run", "")) for step in linux["steps"]]
+    order = [next(i for i, run in enumerate(runs) if marker in run)
+             for marker in ("pyinstaller --noconfirm", "trim_bundle.py dist/ELI/_internal",
+                            "--selftest", "build-appimage-pyinstaller.sh")]
+    assert order == sorted(order), "built, trimmed, started, then packed"
+    assert "trim_bundle.py --check" in runs[order[1]]
+    entry = (ROOT / "packaging" / "pyinstaller" / "eli_entry.py").read_text(encoding="utf-8")
+    assert 'os.environ["QT_QPA_PLATFORMTHEME"] = "xdgdesktopportal"' in entry
+
+
 # ── the launcher inside the AppImage ─────────────────────────────────────────
 
 def _apprun() -> str:

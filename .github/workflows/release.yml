@@ -519,6 +519,11 @@ jobs:
             exit 1
           fi
 
+      - name: No GTK or GLib I/O library in the bundle (they would load the user's system's plug-ins)
+        run: |
+          python packaging/linux/trim_bundle.py dist/ELI/_internal
+          python packaging/linux/trim_bundle.py --check dist/ELI/_internal
+
       - name: Smoke check — bundle structure + REAL launch selftest (headless + xcb)
         run: |
           test -x dist/ELI/ELI || { echo "::error::dist/ELI/ELI missing"; exit 1; }

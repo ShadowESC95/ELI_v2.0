@@ -44,6 +44,10 @@ except Exception as _pin_exc:
 
 # GNOME/KDE set QT_STYLE_OVERRIDE=adwaita; PySide6 only ships Fusion/Windows.
 os.environ.pop("QT_STYLE_OVERRIDE", None)
+# The Linux bundle carries Qt and no GTK (packaging/linux/trim_bundle.py says why). File dialogs
+# are the desktop's own, asked for through its portal; where there is none Qt shows its own.
+if sys.platform.startswith("linux"):
+    os.environ["QT_QPA_PLATFORMTHEME"] = "xdgdesktopportal"
 
 # Programs ELI starts get the machine's environment, not the bundle's libraries and paths
 # (eli/core/host_env.py). Before -c/-m, so helper processes are covered too.
