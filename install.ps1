@@ -354,20 +354,47 @@ if (-not $CpuOnly) {
 Eli-Progress -Phase eli -Pct 55 -Msg "Installing ELI core"
 Write-Host "[..] Installing ELI v2.0..."
 $Wheel = Get-ChildItem (Join-Path $ScriptDir "dist") -Filter "eli_v2_0-*.whl" -ErrorAction SilentlyContinue | Select-Object -First 1
-if ($Wheel) {
-    Invoke-Pip (@("install") + $PipFindLinksArgs + @("$($Wheel.FullName)[full]", "--quiet"))
-} else {
-    Push-Location $ScriptDir
-    try {
-        Invoke-Pip (@("install") + $PipFindLinksArgs + @("-e", ".[full]", "--quiet"))
-    } finally {
-        Pop-Location
+$EliTarget = if ($Wheel) { @("$($Wheel.FullName)[full]") } else { @("-e", ".[full]") }
+# The lock bounds this install too. Without it pip took the newest of everything here and the
+# lock replaced it below: the newest Qt's add-on packages stayed behind, built for a Qt no
+# longer installed. Where the lock cannot be met on this Python, as before.
+$Locked = @()
+if ((Split-Path $RequirementsFile -Leaf) -eq "requirements.lock.txt") { $Locked = @("-c", $RequirementsFile) }
+Push-Location $ScriptDir
+try {
+    $EliInstalled = $false
+    if ($Locked.Count -gt 0) {
+        & $Pip install @PipFindLinksArgs @EliTarget @Locked --quiet
+        $EliInstalled = ($LASTEXITCODE -eq 0)
     }
+    if (-not $EliInstalled) { Invoke-Pip (@("install") + $PipFindLinksArgs + $EliTarget + @("--quiet")) }
+} finally {
+    Pop-Location
 }
 
-# Remaining deps
+# Remaining deps. The lock pins versions captured on one Python. Where a pin has no build for
+# this one, pip installs none of the set, and that used to end the installer here. As in
+# install.sh: the version ranges as a set, then one requirement at a time.
 Write-Host "[..] Installing dependencies from $(Split-Path $RequirementsFile -Leaf)..."
-Invoke-Pip (@("install") + $PipFindLinksArgs + @("-r", $RequirementsFile, "--quiet"))
+& $Pip install @PipFindLinksArgs -r $RequirementsFile --quiet
+if ($LASTEXITCODE -ne 0) {
+    $Ranges = Join-Path $ScriptDir "requirements-windows.txt"
+    if (-not (Test-Path $Ranges)) { $Ranges = $RequirementsFile }
+    Write-Host "[WARN] The dependency set did not install as a whole on Python $pyVer." -ForegroundColor Yellow
+    $AsASet = $false
+    if ($Ranges -ne $RequirementsFile) {
+        Write-Host "[WARN] Retrying with version ranges ($(Split-Path $Ranges -Leaf))." -ForegroundColor Yellow
+        & $Pip install @PipFindLinksArgs -r $Ranges --quiet
+        $AsASet = ($LASTEXITCODE -eq 0)
+    }
+    if (-not $AsASet) {
+        Write-Host "[WARN] Installing the requirements one at a time; this takes a few minutes longer." -ForegroundColor Yellow
+        & $Python $EnvHelper install-each $ScriptDir $Ranges @PipFindLinksArgs
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "[WARN] Some packages could not be installed (named above). ELI runs without them; what uses them is unavailable." -ForegroundColor Yellow
+        }
+    }
+}
 
 # Verify core + GUI imports in the project venv (GUI wheels belong in .venv only).
 Write-Host "[..] Verifying installation..."
@@ -422,7 +449,9 @@ else { Write-Host "[WARN] Some stores deferred to first launch (self-build on fi
 Write-Host "[..] Ensuring capability manifest and command reference..."
 # Native (python) non-zero exits do NOT throw in PowerShell, so a try/catch can't see
 # them -- check $LASTEXITCODE explicitly (same pattern Invoke-Pip uses).
-& $PythonVenv -c "from eli.tools.registry.capability_updater import update_capability_manifest; r=update_capability_manifest(); assert r.get('ok'), r; print(f'[OK] {r.get(\"total\",0)} capabilities indexed')"
+# No double quote inside the code: PowerShell has no backslash escape, so \" ended the string
+# and Python was handed half a line (this step failed on every Windows install).
+& $PythonVenv -c "from eli.tools.registry.capability_updater import update_capability_manifest; r=update_capability_manifest(); assert r.get('ok'), r; print('[OK]', r.get('total', 0), 'capabilities indexed')"
 if ($LASTEXITCODE -ne 0) {
     if (Test-Path (Join-Path $ScriptDir "capability_manifest.json")) {
         Write-Host "[OK] Using shipped capability_manifest.json (regeneration skipped)." -ForegroundColor Green
@@ -486,6 +515,9 @@ Write-Host ""
 Write-Host "--- Launch ---" -ForegroundColor Magenta
 Write-Host "[..] Installing Start Menu shortcuts with ELI icon..."
 powershell -ExecutionPolicy Bypass -File "$ScriptDir\scripts\install_desktop_apps.ps1"
+if ($LASTEXITCODE -ne 0) {
+    Write-Host "[WARN] Start Menu shortcuts were not added. ELI is installed; add them later with the command below." -ForegroundColor Yellow
+}
 Write-Host "  .\eli.bat                                  # desktop app (GUI)" -ForegroundColor White
 Write-Host "  .\scripts\eli_serve.ps1 -Lan               # web app for phone / tablet" -ForegroundColor White
 Write-Host "  powershell -File scripts\install_desktop_apps.ps1   # add Start Menu shortcuts" -ForegroundColor White
@@ -496,3 +528,6 @@ if (($ModelStatus -eq "none yet") -or ($ModelStatus -like "download failed*")) {
     Write-Host ""
 }
 Write-Host "ELI stays offline by default; model downloads are a deliberate one-time action." -ForegroundColor DarkGray
+# The installation is complete. Say so to whatever started this script (the graphical
+# installer, a build job): without this the result was the last optional step's.
+exit 0

@@ -137,6 +137,57 @@ def test_shipped_ps1_uses_crlf_throughout():
     assert not mixed, f"PowerShell files with mixed line endings: {mixed}"
 
 
+# ── a print never ends a run ───────────────────────────────────────────────
+def test_printing_never_stops_the_program_on_a_stream_that_is_not_unicode():
+    """On Windows any redirected or piped output uses the legacy code page, which has no arrow:
+    the installer's shortcut step printed one and died with UnicodeEncodeError whenever its
+    output was being read (the graphical installer, a build job). Importing ELI makes the
+    streams write "?" for what they cannot show."""
+    root = Path(__file__).resolve().parents[1]
+    code = "import eli; print('ready \u2192 \u2713 \U0001F680'); import sys; print('still here', file=sys.stderr)"
+    env = dict(__import__("os").environ, PYTHONIOENCODING="cp1252", PYTHONPATH=str(root))
+    env.pop("PYTHONUTF8", None)
+    ran = subprocess.run([sys.executable, "-c", code], capture_output=True, env=env, cwd=str(root))
+    assert ran.returncode == 0, ran.stderr.decode("cp1252", "replace")
+    assert ran.stdout.decode("cp1252").strip() == "ready ? ? ?"
+    without = subprocess.run([sys.executable, "-c", code.replace("import eli; ", "")],
+                             capture_output=True, env=env, cwd=str(root))
+    assert without.returncode != 0, "the check proves nothing if this stream took the arrow anyway"
+
+
+def test_the_windows_installer_reports_its_own_result_not_its_last_optional_step_s():
+    code = _ps1_code().rstrip()
+    assert code.endswith("exit 0"), "a completed install ended with the shortcut step's exit code"
+    after_shortcuts = code.split("install_desktop_apps.ps1\"", 1)[1]
+    assert after_shortcuts.lstrip().startswith("if ($LASTEXITCODE -ne 0)"), "a failed shortcut step is said, not passed on"
+
+
+def test_no_powershell_script_escapes_a_quote_with_a_backslash():
+    """PowerShell has no backslash escape: \\" ends a double-quoted string. The capability step
+    handed Python half a line of code and failed on every Windows install, unseen, because the
+    shipped manifest was used in its place."""
+    bad = []
+    for path in _ps1_files():
+        for number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
+            if not line.lstrip().startswith("#") and re.search(r'-c\s+".*\\"', line):
+                bad.append(f"{path.name}:{number}")
+    assert not bad, bad
+
+
+def test_both_installers_install_eli_within_the_lock_and_fall_back_the_same_way():
+    """The newest of everything was installed first and the lock replaced it: every fresh
+    install kept the newest Qt's add-on packages beside the locked Qt. And on Windows a lock
+    that could not be met ended the installer, where install.sh went on to the ranges."""
+    sh = (Path(__file__).resolve().parents[1] / "install.sh").read_text(encoding="utf-8")
+    assert '_LOCKED=(-c "$REQ")' in sh
+    assert sh.index('_LOCKED=(-c "$REQ")') < sh.index('_pip install -e ".[full]"') < sh.index("--ignore-installed")
+    ps = _ps1_code()
+    assert '$Locked = @("-c", $RequirementsFile)' in ps and "@EliTarget @Locked" in ps
+    assert ps.index("@EliTarget @Locked") < ps.index("-r $RequirementsFile --quiet")
+    for installer in (sh, ps):
+        assert "install-each" in installer and "one at a time" in installer
+
+
 # ── the Windows GPU path ───────────────────────────────────────────────────
 def _ps1_text() -> str:
     return (Path(__file__).resolve().parents[1] / "install.ps1").read_text(encoding="utf-8-sig")

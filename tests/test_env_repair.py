@@ -563,6 +563,21 @@ def test_an_environment_with_eli_and_what_it_needs_passes(project):
     assert eli_env.verify(str(project))["ok"]
 
 
+def test_packages_built_for_one_another_at_other_versions_are_named(project):
+    """Every fresh install had this: the newest Qt was installed with its add-on packages, then
+    the locked Qt replaced it and the add-ons stayed, built for a Qt no longer there."""
+    _dist(project, "eli-test.0", [])
+    _dist(project, "toolkit", [])                                        # 1.0 is installed
+    _dist(project, "toolkit-addon", ["toolkit==2.0"])                    # left behind by a 2.0
+    _dist(project, "toolkit-other", ["toolkit (==1.0.0)", 'toolkit==9; sys_platform == "no-such-system"'])
+    got = eli_env.verify(str(project))
+    assert got["ok"], "ELI runs; this is said, not fatal"
+    assert got["mismatched"] == ["toolkit-addon 1.0 is built for toolkit 2.0; 1.0 is installed"]
+    assert "toolkit-addon" in got["say"] and ".venv" in got["say"]
+    assert eli_env.main(["eli_env.py", "verify", str(project)]) == 0
+    assert eli_env.main(["eli_env.py", "verify", str(project), "--strict"]) == 8
+
+
 def test_verify_reports_by_exit_status(project):
     assert subprocess.run([sys.executable, str(HELPER), "verify", str(project)], capture_output=True).returncode == 7
     _dist(project, "eli-test.0", [])

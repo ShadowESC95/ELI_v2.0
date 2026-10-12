@@ -69,7 +69,8 @@ jobs:
           if [ -f .venv/Scripts/python.exe ]; then PY="$PWD/.venv/Scripts/python.exe"; else PY="$PWD/.venv/bin/python"; fi
           test -f "$PY" || { echo "::error::the installer made no environment"; exit 1; }
           echo "PY=$PY" >> "$GITHUB_ENV"
-          "$PY" scripts/eli_env.py verify "$PWD"
+          # --strict: also no package left behind that was built for another version of one installed
+          "$PY" scripts/eli_env.py verify "$PWD" --strict
           # From outside the source folder: in it, `import eli` works with nothing installed.
           cd "$RUNNER_TEMP"
           "$PY" -c "import sys, eli, llama_cpp; print('python', sys.version.split()[0], '| llama-cpp-python', llama_cpp.__version__)"

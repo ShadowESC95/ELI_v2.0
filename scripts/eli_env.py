@@ -15,7 +15,10 @@ installer can find.
     eli_env.py create [ROOT]        make ROOT/.venv on the Python running this, or say what is missing
     eli_env.py install-each ROOT FILE [pip options]
                                     install FILE's requirements one at a time; name the ones that fail
-    eli_env.py verify [ROOT]        exit 0 when ELI and everything it cannot run without are installed
+    eli_env.py verify [ROOT] [--strict]
+                                    exit 0 when ELI and everything it cannot run without are installed;
+                                    with --strict, exit 8 when packages there were built for one another
+                                    at other versions
 
 Why this exists: a virtual environment is tied to the interpreter it was made with. When an
 operating-system upgrade replaces that interpreter (Ubuntu 24.04 -> 26.04 swaps 3.12 for
@@ -717,6 +720,37 @@ for text in declared:
         metadata.version(dist)
     except metadata.PackageNotFoundError:
         out["missing"].append(dist)
+
+# A package that names one exact version of another was built for it. When the two disagree the
+# environment holds parts of two builds: installing the newest of everything and then the locked
+# versions left Qt add-ons of the newer release beside the older Qt.
+def release(version):
+    parts = re.findall(r"\d+|[a-z]+", version.split("+")[0].lower())
+    while len(parts) > 1 and parts[-1] == "0":
+        parts.pop()
+    return parts
+PIN = re.compile(r"^\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*\(?\s*==\s*([A-Za-z0-9][A-Za-z0-9.+!_-]*)\s*\)?\s*$")
+out["mismatched"] = []
+for dist in metadata.distributions():
+    for text in dist.requires or []:
+        need, _, marker = text.partition(";")
+        if marker.strip():
+            try:
+                if not Requirement(text).marker.evaluate({"extra": ""}):
+                    continue
+            except Exception:
+                continue                           # cannot tell whether it applies here
+        pin = PIN.match(need)
+        if not pin:
+            continue
+        try:
+            have = metadata.version(pin.group(1))
+        except Exception:
+            continue
+        if release(have) != release(pin.group(2)):
+            out["mismatched"].append("%s %s is built for %s %s; %s is installed" % (
+                dist.metadata["Name"], dist.version, pin.group(1), pin.group(2), have))
+out["mismatched"] = sorted(set(out["mismatched"]))
 print(json.dumps(out))
 """
 
@@ -748,12 +782,19 @@ def verify(root: str) -> Dict[str, object]:
     if seen["missing"]:
         return {"ok": False, "missing": seen["missing"],
                 "say": "ELI is installed without packages it cannot run without: %s." % ", ".join(seen["missing"])}
-    return {"ok": True, "say": "ELI and everything it needs to run are installed."}
+    say = "ELI and everything it needs to run are installed."
+    mismatched = seen.get("mismatched") or []
+    if mismatched:
+        say += ("\nPackages here were built for one another at other versions (%s). The environment "
+                "holds parts of two builds; making it again gives one: remove %s and run the installer."
+                % ("; ".join(mismatched), venv_dir(root)))
+    return {"ok": True, "say": say, "mismatched": mismatched}
 
 
 def main(argv: List[str]) -> int:
     command = argv[1] if len(argv) > 1 else "status"
-    root = argv[2] if len(argv) > 2 and command != "torch-index" else ROOT
+    named = [a for a in argv[2:3] if not a.startswith("--")]
+    root = named[0] if named and command != "torch-index" else ROOT
     if command == "pick":
         python = pick_python(root)
         if not python:
@@ -805,7 +846,9 @@ def main(argv: List[str]) -> int:
     if command == "verify":
         got = verify(root)
         print(got["say"])
-        return 0 if got["ok"] else 7
+        if not got["ok"]:
+            return 7
+        return 8 if got.get("mismatched") and "--strict" in argv else 0
     print(__doc__)
     return 2
 

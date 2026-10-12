@@ -941,15 +941,8 @@ WHEEL="$(ls "$SCRIPT_DIR"/dist/eli_v2_0-*.whl 2>/dev/null | sort -V | tail -1 ||
 # if an editable install can't be created on this machine. The `|| true` keeps `set -e`
 # from aborting the install if neither path succeeds — the pinned requirements install
 # below is the real dependency gate and still runs.
-if ! ( cd "$SCRIPT_DIR" && _pip install -e ".[full]" ); then
-    # pip installs a set all or nothing. Install ELI itself; its dependencies follow below.
-    echo "[!] ELI and its full dependency set did not install together; installing ELI itself, then the dependencies."
-    ( cd "$SCRIPT_DIR" && _pip install -e . --no-deps ) \
-        || { [ -n "$WHEEL" ] && _pip install --no-deps "${WHEEL}"; } || true
-fi
-
-# Install remaining runtime requirements. Default = the FROZEN LOCK (exact known-good
-# versions captured from a working venv) for reproducible installs; --latest uses ranges.
+# The requirements file. Default = the FROZEN LOCK (exact known-good versions captured from a
+# working venv) for reproducible installs; --latest uses ranges.
 if [ "$OS" = "Darwin" ]; then
     REQ="$SCRIPT_DIR/requirements-macos.txt"
 elif [ "$USE_LATEST" -eq 0 ] && [ -f "$SCRIPT_DIR/requirements.lock.txt" ]; then
@@ -957,7 +950,20 @@ elif [ "$USE_LATEST" -eq 0 ] && [ -f "$SCRIPT_DIR/requirements.lock.txt" ]; then
 else
     REQ="$SCRIPT_DIR/requirements.txt"
 fi
+# The lock bounds this install too. Without it pip took the newest of everything here and the
+# lock replaced it below: the newest Qt's add-on packages stayed behind, built for a Qt no
+# longer installed. Where the lock cannot be met on this Python, as before.
+_LOCKED=()
+[ "$REQ" = "$SCRIPT_DIR/requirements.lock.txt" ] && _LOCKED=(-c "$REQ")
+if ! ( cd "$SCRIPT_DIR" && _pip install -e ".[full]" ${_LOCKED[@]+"${_LOCKED[@]}"} ) \
+   && ! ( cd "$SCRIPT_DIR" && _pip install -e ".[full]" ); then
+    # pip installs a set all or nothing. Install ELI itself; its dependencies follow below.
+    echo "[!] ELI and its full dependency set did not install together; installing ELI itself, then the dependencies."
+    ( cd "$SCRIPT_DIR" && _pip install -e . --no-deps ) \
+        || { [ -n "$WHEEL" ] && _pip install --no-deps "${WHEEL}"; } || true
+fi
 
+# Install remaining runtime requirements.
 eli_progress eli 62 "Installing locked dependencies"
 echo "[..] Installing dependencies from $(basename "$REQ")$([ "$REQ" = "$SCRIPT_DIR/requirements.lock.txt" ] && echo ' (frozen, reproducible)')..."
 # ${_PIP_LINKS[@]} points pip at the bundled wheelhouse (--find-links) when the release
@@ -1055,6 +1061,8 @@ _from_elsewhere() { ( cd / && "$PYTHON_VENV" "$@" ); }
 if ! _VERIFY_SAYS="$("$PYTHON" "$SCRIPT_DIR/scripts/eli_env.py" verify "$SCRIPT_DIR" 2>&1)"; then
     echo "[ERROR] $_VERIFY_SAYS"
     VERIFY_OK=0
+elif [ "$(printf '%s\n' "$_VERIFY_SAYS" | wc -l)" -gt 1 ]; then
+    warn "$(printf '%s\n' "$_VERIFY_SAYS" | tail -n +2)"
 fi
 if ! _from_elsewhere -c "$_REAL_QT" 2>/dev/null; then
     echo "[WARN] The desktop app's toolkit (PySide6) is not usable yet — installing it…"
