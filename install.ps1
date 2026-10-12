@@ -195,13 +195,14 @@ if ($VenvOk) {
     }
 }
 
-$Pip = "$Venv\Scripts\pip.exe"
+# pip is always run as "python -m pip". pip.exe cannot replace itself: "Upgrading pip" ended
+# the installer on every Windows Python that came with a pip older than the newest.
 $PythonVenv = "$Venv\Scripts\python.exe"
 
 function Invoke-Pip {
     param([string[]]$Arguments)
 
-    & $Pip @Arguments
+    & $PythonVenv -m pip @Arguments
     if ($LASTEXITCODE -ne 0) {
         throw "pip failed: $($Arguments -join ' ')"
     }
@@ -341,7 +342,7 @@ if (-not $CpuOnly) {
         # hybrid P-core/E-core CPU) that is not present on every core, which SIGILLs the
         # moment a thread lands on a core that lacks it. AVX2 is the safe floor.
         $env:CMAKE_ARGS = "-DGGML_CUDA=on -DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=/arch:AVX2 -DCMAKE_CXX_FLAGS=/arch:AVX2"
-        & $Pip install --force-reinstall --no-cache-dir llama-cpp-python --quiet
+        & $PythonVenv -m pip install --force-reinstall --no-cache-dir llama-cpp-python --quiet
         & $PythonVenv -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>$null
         if ($LASTEXITCODE -eq 0) { Write-Host "[OK] llama-cpp-python rebuilt with CUDA." -ForegroundColor Green }
         else { Write-Host "[WARN] still CPU-only -- ELI will run on CPU." -ForegroundColor Yellow }
@@ -364,7 +365,7 @@ Push-Location $ScriptDir
 try {
     $EliInstalled = $false
     if ($Locked.Count -gt 0) {
-        & $Pip install @PipFindLinksArgs @EliTarget @Locked --quiet
+        & $PythonVenv -m pip install @PipFindLinksArgs @EliTarget @Locked --quiet
         $EliInstalled = ($LASTEXITCODE -eq 0)
     }
     if (-not $EliInstalled) { Invoke-Pip (@("install") + $PipFindLinksArgs + $EliTarget + @("--quiet")) }
@@ -376,7 +377,7 @@ try {
 # this one, pip installs none of the set, and that used to end the installer here. As in
 # install.sh: the version ranges as a set, then one requirement at a time.
 Write-Host "[..] Installing dependencies from $(Split-Path $RequirementsFile -Leaf)..."
-& $Pip install @PipFindLinksArgs -r $RequirementsFile --quiet
+& $PythonVenv -m pip install @PipFindLinksArgs -r $RequirementsFile --quiet
 if ($LASTEXITCODE -ne 0) {
     $Ranges = Join-Path $ScriptDir "requirements-windows.txt"
     if (-not (Test-Path $Ranges)) { $Ranges = $RequirementsFile }
@@ -384,7 +385,7 @@ if ($LASTEXITCODE -ne 0) {
     $AsASet = $false
     if ($Ranges -ne $RequirementsFile) {
         Write-Host "[WARN] Retrying with version ranges ($(Split-Path $Ranges -Leaf))." -ForegroundColor Yellow
-        & $Pip install @PipFindLinksArgs -r $Ranges --quiet
+        & $PythonVenv -m pip install @PipFindLinksArgs -r $Ranges --quiet
         $AsASet = ($LASTEXITCODE -eq 0)
     }
     if (-not $AsASet) {

@@ -162,6 +162,15 @@ def test_the_windows_installer_reports_its_own_result_not_its_last_optional_step
     assert after_shortcuts.lstrip().startswith("if ($LASTEXITCODE -ne 0)"), "a failed shortcut step is said, not passed on"
 
 
+def test_on_windows_pip_is_run_as_a_module_never_as_pip_exe():
+    """pip.exe cannot replace itself while it runs, and says so with an error. "Upgrading pip"
+    was the installer's first step: it ended there on every Windows Python that came with a pip
+    older than the newest one."""
+    code = _ps1_code()
+    assert "pip.exe" not in code and "$Pip " not in code
+    assert "& $PythonVenv -m pip @Arguments" in code
+
+
 def test_no_powershell_script_escapes_a_quote_with_a_backslash():
     """PowerShell has no backslash escape: \\" ends a double-quoted string. The capability step
     handed Python half a line of code and failed on every Windows install, unseen, because the
