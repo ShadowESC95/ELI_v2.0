@@ -136,12 +136,12 @@ _ensure_gui_in_venv() {
   "$PY" -m pip install --upgrade pip wheel >/dev/null 2>&1 || true
   _qt_install_ok=0
   if [ -f "$ROOT/requirements-portable-bootstrap.txt" ]; then
-    if "$PY" -m pip install "${PIP_WH_ARGS[@]}" -r "$ROOT/requirements-portable-bootstrap.txt"; then
+    if "$PY" -m pip install ${PIP_WH_ARGS[@]+"${PIP_WH_ARGS[@]}"} -r "$ROOT/requirements-portable-bootstrap.txt"; then
       _qt_install_ok=1
-    elif "$PY" -m pip install "${PIP_WH_ARGS[@]}" 'PySide6>=6.6.0'; then
+    elif "$PY" -m pip install ${PIP_WH_ARGS[@]+"${PIP_WH_ARGS[@]}"} 'PySide6>=6.6.0'; then
       _qt_install_ok=1
     fi
-  elif "$PY" -m pip install "${PIP_WH_ARGS[@]}" 'PySide6>=6.6.0'; then
+  elif "$PY" -m pip install ${PIP_WH_ARGS[@]+"${PIP_WH_ARGS[@]}"} 'PySide6>=6.6.0'; then
     _qt_install_ok=1
   elif "$PY" -m pip install -e "$ROOT[gui]"; then
     _qt_install_ok=1

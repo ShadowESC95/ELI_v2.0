@@ -132,7 +132,7 @@ if [ "$LOG_TO_FILE" -eq 1 ]; then
   LOG_FILE="$LOG_DIR/eli_startup_$(date +%Y%m%d_%H%M%S).log"
   echo "[startup] log: $LOG_FILE"
   set +e
-  "$PY" -m eli "${APP_ARGS[@]}" 2>&1 | tee -a "$LOG_FILE"
+  "$PY" -m eli ${APP_ARGS[@]+"${APP_ARGS[@]}"} 2>&1 | tee -a "$LOG_FILE"
   status=${PIPESTATUS[0]}
   set -e
   # Ensure the shell prompt returns immediately after GUI exit (no stray wait).
@@ -140,4 +140,4 @@ if [ "$LOG_TO_FILE" -eq 1 ]; then
   exit "$status"
 fi
 
-exec "$PY" -m eli "${APP_ARGS[@]}"
+exec "$PY" -m eli ${APP_ARGS[@]+"${APP_ARGS[@]}"}

@@ -62,7 +62,8 @@ if [ ! -d "$ASSET_DIR" ]; then
   exit 1
 fi
 
-mapfile -t ASSETS < <(find "$ASSET_DIR" -maxdepth 1 -type f | sort)
+ASSETS=()
+while IFS= read -r _asset; do ASSETS+=("$_asset"); done < <(find "$ASSET_DIR" -maxdepth 1 -type f | sort)
 if [ "${#ASSETS[@]}" -eq 0 ]; then
   echo "No assets found in $ASSET_DIR" >&2
   exit 1
@@ -79,5 +80,5 @@ These assets are intentionally not committed into Git because GitHub normal Git 
 fi
 
 echo "[asset] Uploading ${#ASSETS[@]} assets to $REPO release $TAG"
-gh release upload "$TAG" "${ASSETS[@]}" --repo "$REPO" --clobber
+gh release upload "$TAG" ${ASSETS[@]+"${ASSETS[@]}"} --repo "$REPO" --clobber
 echo "[asset] Upload complete"

@@ -65,7 +65,7 @@ pdf() { # pdf <out-stem> <title> <subtitle> <src.md...>
   pandoc "$@" -o "$BP/$stem.pdf" \
     --pdf-engine=xelatex \
     --lua-filter="$ROOT/scripts/pandoc_pdf_glyphs.lua" \
-    "${FONT_ARGS[@]}" "${TITLE_ARGS[@]}" \
+    ${FONT_ARGS[@]+"${FONT_ARGS[@]}"} ${TITLE_ARGS[@]+"${TITLE_ARGS[@]}"} \
     -V geometry:margin=0.9in -V fontsize=10pt -V documentclass=article \
     -V colorlinks=true -V linkcolor=blue -V urlcolor=blue \
     --toc --toc-depth=2 \
@@ -124,8 +124,8 @@ FULL_SOURCES=(
   capabilities_and_actions.md
 )
 FULL_PATHS=()
-for f in "${FULL_SOURCES[@]}"; do
+for f in ${FULL_SOURCES[@]+"${FULL_SOURCES[@]}"}; do
   if [ -f "$BP/$f" ]; then FULL_PATHS+=("$BP/$f"); else echo "[WARN] FULL manual source missing: $f" >&2; fi
 done
 [ "${#FULL_PATHS[@]}" -ge 10 ] || { echo "too few FULL-manual sources present (${#FULL_PATHS[@]})" >&2; exit 1; }
-pdf ELI_USER_MANUAL_FULL "ELI — Complete Technical Manual" "ELI v$VERSION" "${FULL_PATHS[@]}"
+pdf ELI_USER_MANUAL_FULL "ELI — Complete Technical Manual" "ELI v$VERSION" ${FULL_PATHS[@]+"${FULL_PATHS[@]}"}

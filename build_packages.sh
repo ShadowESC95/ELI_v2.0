@@ -40,14 +40,14 @@ mkdir -p "$DIST"
 
 ALL_TARGETS=("wheel" "wheelhouse" "wheelhouse-arm64" "deb" "appimage" "macos" "windows" "windows-lean" "windows-arm64" "windows-arm64-lean")
 if [ "$#" -eq 0 ]; then
-    TARGETS=("${ALL_TARGETS[@]}")
+    TARGETS=(${ALL_TARGETS[@]+"${ALL_TARGETS[@]}"})
 else
     TARGETS=("$@")
 fi
 
 echo "================================================="
 echo "  ELI v2.0 release builder — version ${VERSION}"
-echo "  Targets: ${TARGETS[*]}"
+echo "  Targets: ${TARGETS[*]-}"
 echo "================================================="
 
 build_python_artifacts() {
@@ -88,7 +88,7 @@ build_windows_wheelhouse_for() {
                     --abi "$abi" \
                     --only-binary=:all: \
                     --prefer-binary \
-                    "${extra_download_args[@]}" \
+                    ${extra_download_args[@]+"${extra_download_args[@]}"} \
                     "$req"; then
                 echo "[wheelhouse] Missing binary wheel for ${PLATFORM} cp${pyver}: $req"
                 missing=$((missing + 1))
@@ -276,7 +276,7 @@ if [ -z "${SKIP_TESTS:-}" ]; then
 fi
 
 # ── Targets ─────────────────────────────────────────────────────────────
-for target in "${TARGETS[@]}"; do
+for target in ${TARGETS[@]+"${TARGETS[@]}"}; do
     case "$target" in
         wheel)
             echo ""

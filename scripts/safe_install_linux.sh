@@ -65,8 +65,8 @@ ok "Virtualenv ready: $VENV"
 # ── 3. Install dependencies ───────────────────────────────────────────────────
 if [ "$SKIP_DEPS" -eq 0 ]; then
   if [ -x "$ROOT/install.sh" ]; then
-    info "Running install.sh ${INSTALL_ARGS[*]}"
-    bash "$ROOT/install.sh" "${INSTALL_ARGS[@]}"
+    info "Running install.sh ${INSTALL_ARGS[*]-}"
+    bash "$ROOT/install.sh" ${INSTALL_ARGS[@]+"${INSTALL_ARGS[@]}"}
   else
     warn "install.sh not found — installing from requirements-full.txt"
     python -m pip install -r "$ROOT/requirements-full.txt"

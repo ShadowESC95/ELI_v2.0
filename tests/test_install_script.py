@@ -1,6 +1,7 @@
 """Install script regressions — catch fresh-clone failures before users hit them."""
 from __future__ import annotations
 
+import re
 import shlex
 import shutil
 import subprocess
@@ -43,6 +44,46 @@ def test_a_clone_with_no_built_wheel_gets_past_the_wheel_lookup(tmp_path):
     found = subprocess.run(["bash", "-c", script % (shlex.quote(str(tmp_path)), _wheel_lookup_line())],
                            capture_output=True, text=True)
     assert found.stdout.strip().endswith("2.10.0-py3-none-any.whl]"), found.stdout     # newest, not first
+
+
+# ── shipped shell scripts must run on the bash every Mac has (3.2) ─────────
+def _sh_code():
+    """(file, line number, line) for every code line of every shipped shell script."""
+    root = Path(__file__).resolve().parents[1]
+    try:
+        listed = subprocess.run(["git", "-C", str(root), "ls-files", "*.sh"],
+                                capture_output=True, text=True, timeout=30)
+        names = listed.stdout.split() if listed.returncode == 0 else []
+    except (OSError, subprocess.SubprocessError):
+        names = []
+    files = ([root / n for n in names] if names else
+             sorted(p for p in root.rglob("*.sh") if not (_PS1_SKIP_DIRS & set(p.relative_to(root).parts))))
+    assert files, "no shell scripts found"
+    for path in files:
+        if not path.is_file():
+            continue
+        for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
+            if not line.lstrip().startswith("#"):
+                yield path.relative_to(root).as_posix(), number, line
+
+
+def test_shell_scripts_expand_arrays_the_way_the_bash_on_a_mac_accepts():
+    """macOS ships bash 3.2, which under `set -u` reads "${ARR[@]}" of an empty array as an unset
+    variable. install.sh stopped at its first pip call on every Mac ("_PIP_LINKS[@]: unbound
+    variable") and the launcher stopped when started with no arguments. ${ARR[@]+"${ARR[@]}"}
+    is the same expansion, accepted empty; ${ARR[*]-} likewise inside a string."""
+    plain = re.compile(r'(?<!\+)"\$\{[A-Za-z_][A-Za-z0-9_]*\[@\]\}"|\$\{[A-Za-z_][A-Za-z0-9_]*\[\*\]\}')
+    bad = [f"{name}:{number}" for name, number, line in _sh_code() if plain.search(line)]
+    assert not bad, f"array expansions bash 3.2 rejects when the array is empty: {bad}"
+    assert plain.search('pip install "${LINKS[@]}" x') and plain.search('echo "all: ${LINKS[*]}"')
+    assert not plain.search('pip install ${LINKS[@]+"${LINKS[@]}"} x') and not plain.search('"${LINKS[*]-}"')
+
+
+def test_shell_scripts_use_nothing_newer_than_the_bash_on_a_mac():
+    newer = re.compile(r"\b(mapfile|readarray|coproc)\b|\b(declare|local|typeset)\s+-[a-zA-Z]*A\b"
+                       r"|\$\{[A-Za-z_][A-Za-z0-9_]*(,,|\^\^)|\|&|&>>|;;&")
+    bad = [f"{name}:{number}" for name, number, line in _sh_code() if newer.search(line)]
+    assert not bad, f"bash 4 constructs in shipped shell scripts: {bad}"
 
 
 def test_install_ps1_uses_editable_dot_full_not_scriptdir_subscript():

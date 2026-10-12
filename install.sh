@@ -128,7 +128,7 @@ attempt_build_prereqs() {
     "$PYTHON" -c "import ctypes.util, sys; sys.exit(0 if all(ctypes.util.find_library(n) for n in ('glib-2.0', 'gthread-2.0', 'GL', 'EGL', 'xkbcommon-x11', 'xcb-cursor')) else 1)" >/dev/null 2>&1 || missing+=(gui)
     [ "${#missing[@]}" -eq 0 ] && return 0
     pyv="$("$PYTHON" -c 'import sys; print("%d.%d" % sys.version_info[:2])')"
-    for m in "${missing[@]}"; do
+    for m in ${missing[@]+"${missing[@]}"}; do
         if command -v apt-get &>/dev/null; then
             cmd="apt-get install -y"
             case "$m" in venv) pkgs+=" python${pyv}-venv" ;; headers) pkgs+=" python${pyv}-dev" ;;
@@ -175,7 +175,7 @@ attempt_build_prereqs() {
         fi
     fi
     # no venv support: nothing below can run
-    case " ${missing[*]} " in *" venv "*)
+    case " ${missing[*]-} " in *" venv "*)
         "$PYTHON" -c "import venv, ensurepip" >/dev/null 2>&1 || {
             echo "[ERROR] Python ${pyv} on this system cannot create an environment: its venv part is packaged separately and is not installed. Install it and run this installer again."
             exit 1; } ;;
@@ -510,7 +510,7 @@ if [ -n "$_WHEELHOUSE" ]; then
 fi
 
 _pip_quiet() {
-    _pip install --quiet "${_PIP_LINKS[@]}" "$@" && return 0
+    _pip install --quiet ${_PIP_LINKS[@]+"${_PIP_LINKS[@]}"} "$@" && return 0
     return 1
 }
 
@@ -966,14 +966,14 @@ echo "[..] Installing dependencies from $(basename "$REQ")$([ "$REQ" = "$SCRIPT_
 # The lock pins versions captured on ONE python/distro. Where a pin has no build, or one
 # package fails to compile, pip installs none of the set (GUI toolkit included). The lock is
 # a nicety, not a requirement: fall back to the RANGES, as a set, then one at a time.
-if ! _pip install "${_PIP_LINKS[@]}" -r "$REQ" --quiet --ignore-installed; then
+if ! _pip install ${_PIP_LINKS[@]+"${_PIP_LINKS[@]}"} -r "$REQ" --quiet --ignore-installed; then
     RANGES="$SCRIPT_DIR/requirements-full.txt"
     { [ "$OS" != "Darwin" ] && [ -f "$RANGES" ]; } || RANGES="$REQ"
     warn "The dependency set did not install as a whole on $("$PYTHON_VENV" -V 2>&1)."
     [ "$RANGES" = "$REQ" ] || warn "Retrying with version ranges ($(basename "$RANGES"))."
-    if [ "$RANGES" = "$REQ" ] || ! _pip install "${_PIP_LINKS[@]}" -r "$RANGES" --quiet; then
+    if [ "$RANGES" = "$REQ" ] || ! _pip install ${_PIP_LINKS[@]+"${_PIP_LINKS[@]}"} -r "$RANGES" --quiet; then
         warn "Installing the requirements one at a time; this takes a few minutes longer."
-        "$PYTHON" "$SCRIPT_DIR/scripts/eli_env.py" install-each "$SCRIPT_DIR" "$RANGES" "${_PIP_LINKS[@]}" \
+        "$PYTHON" "$SCRIPT_DIR/scripts/eli_env.py" install-each "$SCRIPT_DIR" "$RANGES" ${_PIP_LINKS[@]+"${_PIP_LINKS[@]}"} \
             || warn "Some packages could not be installed (named above). ELI runs without them; what uses them is unavailable."
     fi
 fi
@@ -1060,10 +1060,10 @@ if ! _from_elsewhere -c "$_REAL_QT" 2>/dev/null; then
     echo "[WARN] The desktop app's toolkit (PySide6) is not usable yet — installing it…"
     _GUI_BOOT="$SCRIPT_DIR/requirements-portable-bootstrap.txt"
     if [ -f "$_GUI_BOOT" ]; then
-        _pip install "${_PIP_LINKS[@]}" -r "$_GUI_BOOT" \
-            || _pip install "${_PIP_LINKS[@]}" 'PySide6>=6.6.0' || true
+        _pip install ${_PIP_LINKS[@]+"${_PIP_LINKS[@]}"} -r "$_GUI_BOOT" \
+            || _pip install ${_PIP_LINKS[@]+"${_PIP_LINKS[@]}"} 'PySide6>=6.6.0' || true
     else
-        _pip install "${_PIP_LINKS[@]}" 'PySide6>=6.6.0' || true
+        _pip install ${_PIP_LINKS[@]+"${_PIP_LINKS[@]}"} 'PySide6>=6.6.0' || true
     fi
     if ! _from_elsewhere -c "$_REAL_QT" 2>/dev/null; then
         # Qt names one missing system library per attempt. Ask for all of them at once and

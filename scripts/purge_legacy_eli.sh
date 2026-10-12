@@ -58,7 +58,7 @@ TARGETS=(
 )
 
 found=0
-for target in "${TARGETS[@]}"; do
+for target in ${TARGETS[@]+"${TARGETS[@]}"}; do
   if [ -e "$target" ] || [ -L "$target" ]; then
     found=1
     echo "[legacy-purge] found: $target"
@@ -86,7 +86,7 @@ if dpkg-query -W -f='${db:Status-Abbrev}' eli 2>/dev/null | grep -q '^[irchpu]';
   apt-get purge -y eli || true
 fi
 
-for target in "${TARGETS[@]}"; do
+for target in ${TARGETS[@]+"${TARGETS[@]}"}; do
   if [ -e "$target" ] || [ -L "$target" ]; then
     rm -rf -- "$target"
     echo "[legacy-purge] removed: $target"

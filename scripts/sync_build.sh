@@ -29,7 +29,7 @@ fi
 
 SYNC_DIRS=( "eli" "api" "config" )
 
-for d in "${SYNC_DIRS[@]}"; do
+for d in ${SYNC_DIRS[@]+"${SYNC_DIRS[@]}"}; do
     SRC="$PROJECT_ROOT/$d"
     DST="$BUILD_TARGET/$d"
     if [[ ! -d "$SRC" ]]; then continue; fi
@@ -40,7 +40,7 @@ for d in "${SYNC_DIRS[@]}"; do
     else
         echo "[sync_build] $SRC → $DST"
     fi
-    rsync "${RSYNC_ARGS[@]}" "$SRC/" "$DST/"
+    rsync ${RSYNC_ARGS[@]+"${RSYNC_ARGS[@]}"} "$SRC/" "$DST/"
 done
 
 for f in pyproject.toml requirements.txt; do

@@ -62,13 +62,13 @@ make_split_tar() {
   local prefix="$OUT_DIR/${name}.tar.gz.part-"
 
   local existing=0
-  for p in "${paths[@]}"; do
+  for p in ${paths[@]+"${paths[@]}"}; do
     if [ -e "$ROOT/$p" ]; then
       existing=1
     fi
   done
   if [ "$existing" -eq 0 ]; then
-    echo "[asset] Skip $name: none of ${paths[*]} exists"
+    echo "[asset] Skip $name: none of ${paths[*]-} exists"
     return 0
   fi
 
@@ -76,7 +76,7 @@ make_split_tar() {
   rm -f "$prefix"*
   (
     cd "$ROOT"
-    tar -czf - "${paths[@]}" 2>/tmp/eli_asset_tar_${name}.log | split -b "$CHUNK_SIZE" - "$prefix"
+    tar -czf - ${paths[@]+"${paths[@]}"} 2>/tmp/eli_asset_tar_${name}.log | split -b "$CHUNK_SIZE" - "$prefix"
   )
   ls -lh "$prefix"*
 }

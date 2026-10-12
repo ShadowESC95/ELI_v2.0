@@ -43,7 +43,7 @@ for md in "$BP"/*.md; do
   pandoc "$md" -o "$BP/$stem.pdf" \
     --pdf-engine=xelatex \
     --lua-filter="$ROOT/scripts/pandoc_pdf_glyphs.lua" \
-    "${FONT_ARGS[@]}" \
+    ${FONT_ARGS[@]+"${FONT_ARGS[@]}"} \
     -V geometry:margin=0.9in -V fontsize=10pt -V documentclass=article \
     -V colorlinks=true -V linkcolor=blue -V urlcolor=blue \
     --toc --toc-depth=2 \
