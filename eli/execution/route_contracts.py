@@ -121,3 +121,17 @@ __all__ = [
     "personal_memory_deep_route",
     "classify_precedence_route",
 ]
+
+
+def is_command(intent: Any) -> bool:
+    """Whether the router's answer for a message is an action to carry out: a rule matched
+    (not the chat fallback) and what it names is neither conversation nor nothing."""
+    if not isinstance(intent, dict):
+        return False
+    action = str(intent.get("action") or "").upper()
+    matched = str((intent.get("meta") or {}).get("matched_by") or "")
+    try:
+        confident = float(intent.get("confidence") or 0) > 0.5
+    except (TypeError, ValueError):
+        confident = False
+    return confident and action not in ("", "CHAT", "NOOP") and matched != "fallback.chat"

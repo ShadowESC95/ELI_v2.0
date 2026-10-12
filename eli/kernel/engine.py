@@ -12188,7 +12188,8 @@ Answer:"""
         try:
             from eli.onboarding.interview import onboarding_intercept as _ob_intercept
             _ob_db = getattr(getattr(self, "memory", None), "db_path", None)
-            _ob_msg = _ob_intercept(user_input, user_id=getattr(self, "user_id", None), db_path=_ob_db)
+            _ob_msg = _ob_intercept(user_input, user_id=getattr(self, "user_id", None), db_path=_ob_db,
+                                    route=_route_once)
             if _ob_msg is not None:
                 return {"ok": True, "action": "CHAT", "content": _ob_msg, "response": _ob_msg}
         except Exception:

@@ -95,3 +95,79 @@ def test_addressing_eli_is_not_the_users_name(reply):
 def test_real_names_still_captured_through_greetings(reply, expected):
     from eli.onboarding.interview import _extract_name
     assert _extract_name(reply) == expected
+
+
+# ── a command typed at a question is a command ──────────────────────────────
+@pytest.fixture()
+def interview(tmp_path, monkeypatch):
+    """The interview with its state in this test's folder and no real name store."""
+    monkeypatch.setattr(I, "_state_file", lambda: tmp_path / "onboarding_state.json")
+    stored = {}
+    monkeypatch.setattr("eli.kernel.state.set_user_name",
+                        lambda n: stored.__setitem__("name", n), raising=False)
+    return stored
+
+
+@pytest.mark.parametrize("typed", ["resume", "pause", "louder", "vol up", "mute", "next",
+                                   "resume browser", "help"])
+def test_a_command_typed_at_the_name_question_is_carried_out_not_stored_as_the_name(typed, interview):
+    """"resume" answered "what should I call you?" and ELI then said "Your name is resume." The
+    words are not listed anywhere here: the router is asked, as it is for every message."""
+    from eli.execution.router_enhanced import route
+
+    I._set_onboarding_state("name", {})
+    assert I.onboarding_intercept(typed, route=route) is None, "it goes on to be carried out"
+    assert "name" not in interview and not I.is_onboarding_active()
+
+
+@pytest.mark.parametrize("typed,name", [
+    ("jason", "jason"), ("Mark", "Mark"), ("Will", "Will"), ("June", "June"), ("Rose", "Rose"),
+    ("call me Pause", "Pause"),             # introduced as a name: a name, whatever the word
+    ("hi, my name is Stop", "Stop"),
+])
+def test_a_name_is_still_a_name_with_the_router_asked(typed, name, interview):
+    from eli.execution.router_enhanced import route
+
+    I._set_onboarding_state("name", {})
+    reply = I.onboarding_intercept(typed, route=route)
+    assert reply is not None and interview.get("name") == name
+    assert I.get_onboarding_state()["step"] == "role"
+
+
+def test_a_command_from_a_new_user_is_carried_out_not_met_with_a_question(interview, monkeypatch):
+    from eli.execution.router_enhanced import route
+
+    monkeypatch.setattr(I, "_profile_missing", lambda db_path=None: True)
+    assert I.onboarding_intercept("resume", route=route) is None
+    assert not I.is_onboarding_active()
+    assert "call you" in (I.onboarding_intercept("hi", route=route) or "").lower()
+
+
+def test_picking_an_offered_choice_is_an_answer_whatever_the_router_makes_of_it(interview):
+    key = next(iter(I._ROLE_OPTIONS))
+    I._set_onboarding_state("role", {"name": "Keith"})
+    reply = I.onboarding_intercept(key, route=lambda text: {
+        "action": "PLAY_MEDIA", "confidence": 0.9, "meta": {"matched_by": "some.rule"}})
+    assert reply is not None and I.get_onboarding_state()["step"] == "style"
+
+
+@pytest.mark.parametrize("intent,expected", [
+    ({"action": "PLAY_MEDIA", "confidence": 0.88, "meta": {"matched_by": "media.bare_command"}}, True),
+    ({"action": "NOOP", "confidence": 0.999, "meta": {"matched_by": "eli.tiny_chat_fragment_guard"}}, False),
+    ({"action": "CHAT", "confidence": 0.9, "meta": {"matched_by": "chat.greeting"}}, False),
+    ({"action": "OPEN_APP", "confidence": 0.9, "meta": {"matched_by": "fallback.chat"}}, False),
+    ({"action": "OPEN_APP", "confidence": 0.3, "meta": {"matched_by": "apps.open"}}, False),
+    (None, False),
+])
+def test_what_the_router_calls_a_command(intent, expected):
+    from eli.execution.route_contracts import is_command
+
+    assert is_command(intent) is expected
+
+
+def test_the_engine_gives_the_interview_the_router_s_answer():
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "eli/kernel/engine.py").read_text(encoding="utf-8")
+    call = source[source.index("_ob_intercept(user_input"):][:240]
+    assert "route=_route_once" in call, "asked once per turn: routing a message is not free of effects"

@@ -168,6 +168,10 @@ def _is_not_an_answer(text: str) -> bool:
     if t.endswith("?"):
         return True
     first = t.split()[0]
+    # An auxiliary on its own asks nothing, and one of them is a first name: "Will" answered the
+    # name question and ended the interview.
+    if " " not in t and first in ("do", "does", "can", "are", "will", "could", "would", "is"):
+        return False
     _q = ("what", "why", "how", "when", "where", "who", "which", "do", "does", "can",
           "are", "will", "could", "would", "is", "tell", "give", "show", "list")
     _cmd = ("fix", "open", "run", "write", "search", "play", "create", "explain",
@@ -485,16 +489,14 @@ _NON_NAMES = frozenset({
 _TRAILING_ADDRESS = ("to you", "to ya", "there", "friend", "mate", "everyone", "all")
 
 
-def _extract_name(text: str) -> str:
-    """Pull a usable name out of a name-step reply, tolerant of greetings and
-    self-introductions: 'Hi, I'm Keith' -> 'Keith', 'call me Sam' -> 'Sam'. A bare
-    greeting with no actual name ('Hello and Good Morning') -> '' so the caller
-    re-asks rather than storing the greeting AS the name — the reported skip where
-    a longer greeting got captured as the user's name."""
+# How a name is introduced. A reply that opens with one is an answer whatever its words are.
+_NAME_LEADS = ("my name is ", "i'm ", "i am ", "call me ", "it's ", "name's ", "the name's ", "this is ")
+
+
+def _without_greeting(text: str) -> str:
+    """The reply with any number of leading greeting tokens and joiners peeled off
+    ("hello and good morning, I'm Keith" -> "I'm Keith")."""
     s = (text or "").strip()
-    if not s:
-        return ""
-    # Peel any number of leading greeting tokens + joiners ("hello and good morning").
     changed = True
     while changed and s:
         changed = False
@@ -507,10 +509,44 @@ def _extract_name(text: str) -> str:
                         s = s[len(j):].lstrip()
                 changed = True
                 break
+    return s
+
+
+def _is_a_command(step: Optional[str], text: str, route) -> bool:
+    """Whether this message is a command and not an interview turn, by the router's own rules.
+
+    No words are listed here. "resume" typed at "what should I call you?" was stored as the
+    user's name, because it was not among a dozen verbs this file knew; the router has a rule for
+    it, as it has for "louder" and for whatever it learns next, and none for "Mark" or "June".
+    A reply that introduces a name ("call me Pause") or picks one of the offered choices is an
+    answer whatever the router makes of its words."""
+    if route is None:
+        return False
+    if step == "name" and _without_greeting(text).lower().startswith(_NAME_LEADS):
+        return False
+    options = {"role": _ROLE_OPTIONS, "style": _STYLE_OPTIONS, "focus": _FOCUS_OPTIONS}.get(step or "")
+    if options and _picked_keys((text or "").strip().lower(), options):
+        return False
+    try:
+        from eli.execution.route_contracts import is_command
+        return is_command(route(text))
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+        return False
+
+
+def _extract_name(text: str) -> str:
+    """Pull a usable name out of a name-step reply, tolerant of greetings and
+    self-introductions: 'Hi, I'm Keith' -> 'Keith', 'call me Sam' -> 'Sam'. A bare
+    greeting with no actual name ('Hello and Good Morning') -> '' so the caller
+    re-asks rather than storing the greeting AS the name — the reported skip where
+    a longer greeting got captured as the user's name."""
+    s = _without_greeting(text)
+    if not s:
+        return ""
     # Strip an explicit self-introduction lead.
     low = s.lower()
-    for lead in ("my name is ", "i'm ", "i am ", "call me ", "it's ", "name's ",
-                 "the name's ", "this is "):
+    for lead in _NAME_LEADS:
         if low.startswith(lead):
             s = s[len(lead):]
             break
@@ -646,9 +682,12 @@ def _begin_or_resume(db_path=None) -> str:
 # --------------------------------------------------------------------------- #
 # The engine intercept                                                        #
 # --------------------------------------------------------------------------- #
-def onboarding_intercept(user_input: str, user_id: Optional[str] = None, db_path=None) -> Optional[str]:
+def onboarding_intercept(user_input: str, user_id: Optional[str] = None, db_path=None,
+                         route=None) -> Optional[str]:
     """Return ELI's onboarding message if this turn is part of onboarding, else None
-    (normal processing continues). Safe to call every turn — cheap and self-gating."""
+    (normal processing continues). Safe to call every turn — cheap and self-gating.
+    `route` is the router's answer for a message (the engine's, asked once per turn): a message
+    it turns into an action is carried out, not taken as an answer or met with a question."""
     text = (user_input or "").strip()
 
     if is_onboarding_active():
@@ -663,7 +702,7 @@ def onboarding_intercept(user_input: str, user_id: Optional[str] = None, db_path
                 "Yes — we're doing that now. "
                 + _question(step, answers)
             )
-        if _is_not_an_answer(text):
+        if _is_not_an_answer(text) or _is_a_command(step, text, route):
             clear_onboarding_state()
             return None
         canonical = _apply_answer(step, text, db_path=db_path)
@@ -695,7 +734,8 @@ def onboarding_intercept(user_input: str, user_id: Optional[str] = None, db_path
     if _profile_missing(db_path=db_path) and _is_onboarding_meta_question(text):
         return _begin_or_resume(db_path=db_path)
 
-    if _is_blank_slate(db_path=db_path) and not _looks_substantive(text):
+    if (_is_blank_slate(db_path=db_path) and not _looks_substantive(text)
+            and not _is_a_command(None, text, route)):
         _set_onboarding_state("name", {})
         return _question("name", {})
     return None
