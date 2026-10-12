@@ -50,13 +50,55 @@ system's, which every desktop has.
 
 ## `undefined symbol: g_variant_builder_init_static` / `Failed to load module: ...libgvfsdbus.so`
 
-**Symptom:** two warnings in the terminal at every start of the AppImage on a distribution newer
-than Ubuntu 24.04 (Ubuntu 26.04, Fedora, Arch).
-**Cause:** the AppImage carries its own GLib, and GLib loads the system's GIO modules, which are
-built for the system's newer one. Two of them (network places in file dialogs) do not load.
-**Fix:** none needed; ELI works. Making the AppImage use the system's GLib was tried and
-withdrawn: GTK then failed to load on those same systems, because other libraries the AppImage
-carries are older than the system's GLib expects.
+**Symptom:** warnings in the terminal at every start of the AppImage on a distribution newer
+than the one it was built on (Ubuntu 26.04, Fedora, Arch); file dialogs without network places.
+**Cause:** the AppImage carried GTK and GLib's I/O library from its build machine, brought in by
+Qt's GTK theme plug-in. Those load their own plug-ins from the system (gvfs, dconf, input
+methods), which are built for the system's newer GLib and do not load into the older one.
+**Fix (this version):** the Linux bundle carries neither (`packaging/linux/trim_bundle.py`
+removes the two Qt plug-ins that bring them in and every library only they needed, and the
+release checks it). ELI draws its own widgets; a file dialog is the desktop's own, asked for
+through its portal, or Qt's where there is no portal. Making the AppImage use the system's GLib
+was tried earlier and withdrawn: GTK then failed to load on those same systems.
+
+---
+
+## The first-run questions took a command as my answer ("Your name is resume")
+
+**Symptom:** a new profile is asked what to call you; you type a command instead (`resume`,
+`louder`, `next`) and ELI stores it as your name.
+**Cause:** the interview decided what was a command from a short list of verbs of its own.
+**Fix (this version):** it asks the router, as every message is asked. A message the router
+turns into an action is carried out and is never an answer; a name introduced as one
+("call me Pause") is a name whatever the word. To correct a stored name: `my name is ...`.
+
+---
+
+## macOS: `install.sh: line ...: _PIP_LINKS[@]: unbound variable`
+
+**Symptom:** `bash install.sh` stops at "Installing PyTorch" on a Mac; `scripts/eli_startup.sh`
+stops with `APP_ARGS[@]: unbound variable` when started with no arguments.
+**Cause:** macOS ships bash 3.2, which reads the expansion of an empty array as an unset
+variable under `set -u`. Every Linux has a newer bash, so it was never seen there.
+**Fix (this version):** every shell script expands arrays in the form bash 3.2 accepts, and
+uses nothing newer than it; the tests hold that. The installers themselves now run in CI on
+Linux, macOS and Windows (`installer-smoke.yml`).
+
+---
+
+## Windows: the installer stops at "Upgrading pip", or ends with `UnicodeEncodeError: 'charmap'`
+
+**Symptoms:** `ERROR: To modify pip, please run the following command: ... python.exe -m pip
+install --upgrade pip`, then `pip failed`; or the installation completes and the last step
+prints `UnicodeEncodeError: 'charmap' codec can't encode character '\u2192'`.
+**Cause:** `pip.exe` cannot replace itself while it runs, and the installer called it that way.
+And any output that is piped or captured on Windows uses the legacy code page, which has no
+arrow or emoji: the first one printed raised.
+**Fix (this version):** pip is always run as `python -m pip`; importing ELI makes its output
+streams write `?` for what they cannot show (the packaged apps already did); the installer
+reports its own result, not its last optional step's. It also installs within the locked
+versions from the start, so no newer Qt add-on packages are left beside the locked Qt, and it
+falls back to version ranges, then to one requirement at a time, as `install.sh` does.
 
 ---
 

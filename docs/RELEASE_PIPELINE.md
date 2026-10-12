@@ -152,3 +152,18 @@ Unsigned builds work but trip OS trust prompts:
   Developer ID Application certificate + `codesign --options runtime`, then
   `xcrun notarytool submit … --wait` and `xcrun stapler staple` on the dmg.
 * **Linux**: no signing required; verify via `SHA256SUMS.txt`.
+
+## The installers are run, not only the packages
+
+`installer-smoke.yml` runs `install.sh --cpu-only --yes --no-model` on Ubuntu 22.04, Ubuntu 24.04
+and macOS, and `install.ps1 -CpuOnly -Yes -NoModel` on Windows, on a clean runner, whenever an
+installer, a requirement file or the environment script changes, and once a week (a new Python or
+a new wheel upstream can break an installer with no commit here). It then checks the environment
+holds ELI and what it cannot run without (`scripts/eli_env.py verify --strict`: also no package
+left behind that was built for another version of one installed), starts the window toolkit and
+starts the server. Not covered there: a GPU build, a model load, and the packaged apps, which
+`release.yml` builds and starts.
+
+On Linux the release removes GTK and GLib's I/O library from the bundle before it is started
+and packed (`packaging/linux/trim_bundle.py`), and fails if either plug-in that brings them in
+is still there.
