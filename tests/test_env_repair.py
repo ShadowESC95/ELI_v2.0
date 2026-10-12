@@ -61,6 +61,17 @@ def test_a_new_install_takes_the_python_most_packages_come_ready_made_for_and_ne
     assert eli_env.prefer(on_offer, gaps) == chosen
 
 
+def test_an_unfinished_python_is_taken_only_when_there_is_no_finished_one():
+    """With PyPI unreachable nothing is measured and the newest wins: an alpha of the next
+    Python, installed beside a finished one, was the newest."""
+    preview = {(3, 15)}
+    assert eli_env.prefer([(3, 14), (3, 15)], None, preview) == (3, 14)
+    assert eli_env.prefer([(3, 14), (3, 15)], {(3, 14): ["numpy"], (3, 15): []}, preview) == (3, 14)
+    assert eli_env.prefer([(3, 15)], None, preview) == (3, 15)             # the only one there is
+    assert eli_env._is_final(sys.executable) == (sys.version_info.releaselevel == "final")
+    assert eli_env._is_final("/no/such/python") is False
+
+
 def test_the_floor_is_the_one_pyproject_declares():
     assert eli_env.declared_minimum(str(ROOT)) == eli_env.MINIMUM
 

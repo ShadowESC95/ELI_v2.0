@@ -82,6 +82,17 @@ def _version_of(python: str) -> Optional[Tuple[int, int]]:
     return int(parts[0]), int(parts[1])
 
 
+def _is_final(python: str) -> bool:
+    """Whether an interpreter is a finished release, by asking it. An alpha, beta or release
+    candidate of the next Python has few ready-made packages and can still change under them."""
+    try:
+        out = subprocess.run([python, "-c", "import sys; print(sys.version_info[3])"],
+                             capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return out.returncode == 0 and (out.stdout or "").strip() == "final"
+
+
 def _real_executable(python: str) -> Optional[str]:
     """Where an interpreter really lives. "python3.12" on PATH is often a shortcut (a link, or
     a version manager's shim script); an environment has to point at the interpreter itself."""
@@ -159,13 +170,16 @@ def _candidates(minor: Optional[Tuple[int, int]] = None) -> List[str]:
 
 
 def prefer(versions: Iterable[Tuple[int, int]],
-           gaps: Optional[Dict[Tuple[int, int], List[str]]] = None) -> Optional[Tuple[int, int]]:
+           gaps: Optional[Dict[Tuple[int, int], List[str]]] = None,
+           unfinished: Iterable[Tuple[int, int]] = ()) -> Optional[Tuple[int, int]]:
     """Of the versions on offer, the one with the fewest `gaps` (wheel_gaps), newest first on a tie.
-    None when none will do."""
+    A version only installed as an `unfinished` release (alpha, beta, candidate) is taken when
+    there is no finished one. None when none will do."""
     on_offer = {v for v in versions if v and v >= MINIMUM}
     if not on_offer:
         return None
-    return min(on_offer, key=lambda v: (len((gaps or {}).get(v, [])), -v[0], -v[1]))
+    not_yet = set(unfinished)
+    return min(on_offer, key=lambda v: (v in not_yet, len((gaps or {}).get(v, [])), -v[0], -v[1]))
 
 
 # ── which Pythons the locked packages come ready-made for ─────────────────────
@@ -325,13 +339,18 @@ def wheel_gaps(versions: Iterable[Tuple[int, int]], root: str = ROOT) -> Optiona
 def pick_python(root: str = ROOT) -> Optional[str]:
     """The installed interpreter the most locked packages come ready-made for, newest on a tie."""
     by_version: Dict[Tuple[int, int], str] = {}
+    unfinished = set()
     for path in _candidates():
         version = _version_of(path)
-        if version and version not in by_version:
+        if not version or (version in by_version and version not in unfinished):
+            continue
+        final = _is_final(path)
+        if version not in by_version or final:      # a finished install of a version replaces a preview of it
             by_version[version] = path
+            (unfinished.discard if final else unfinished.add)(version)
     usable = sorted(v for v in by_version if v >= MINIMUM)
     gaps = wheel_gaps(usable, root) if len(usable) > 1 else None
-    best = prefer(by_version, gaps)
+    best = prefer(by_version, gaps, unfinished)
     if gaps and best:
         for v in sorted(gaps, reverse=True):
             missing = gaps[v]
