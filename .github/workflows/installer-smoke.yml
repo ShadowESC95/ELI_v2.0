@@ -1,0 +1,104 @@
+name: installer-smoke
+
+# Runs the installers themselves, the way a new user does, on a clean machine of each system,
+# then starts what they installed. cross-platform-smoke installs the package with pip and never
+# executes install.sh or install.ps1; before this workflow nothing did, so an installer could
+# break on one system and only a user would find out.
+#
+# CPU build and no model: a runner has no graphics card, and a model is gigabytes. What is
+# checked is that the installer finishes, that the environment it made holds ELI and everything
+# it cannot run without, and that the server and the window toolkit start from that environment.
+# Not checked here: a GPU build, a model load, the packaged apps (release.yml builds and starts
+# those).
+
+on:
+  workflow_dispatch:
+  schedule:
+    # weekly: a new Python or a new wheel upstream can break an installer with no commit here
+    - cron: '17 4 * * 1'
+  pull_request:
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'install.bat'
+      - 'scripts/eli_env.py'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+      - '.github/workflows/installer-smoke.yml'
+  push:
+    branches: [main, 'ci/**']
+    paths:
+      - 'install.sh'
+      - 'install.ps1'
+      - 'install.bat'
+      - 'scripts/eli_env.py'
+      - 'requirements*.txt'
+      - 'pyproject.toml'
+      - '.github/workflows/installer-smoke.yml'
+
+concurrency:
+  group: installer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # the oldest and the current Ubuntu a runner offers, Apple silicon, and Windows
+        os: [ubuntu-22.04, ubuntu-24.04, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      # No setup-python: the installer chooses the interpreter itself, as it does for a user.
+      - name: Run the installer (Linux, macOS)
+        if: runner.os != 'Windows'
+        run: bash install.sh --cpu-only --yes --no-model
+
+      - name: Run the installer (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./install.ps1 -CpuOnly -Yes -NoModel
+
+      - name: The environment holds ELI and what it cannot run without
+        shell: bash
+        run: |
+          if [ -f .venv/Scripts/python.exe ]; then PY="$PWD/.venv/Scripts/python.exe"; else PY="$PWD/.venv/bin/python"; fi
+          test -f "$PY" || { echo "::error::the installer made no environment"; exit 1; }
+          echo "PY=$PY" >> "$GITHUB_ENV"
+          "$PY" scripts/eli_env.py verify "$PWD"
+          # From outside the source folder: in it, `import eli` works with nothing installed.
+          cd "$RUNNER_TEMP"
+          "$PY" -c "import sys, eli, llama_cpp; print('python', sys.version.split()[0], '| llama-cpp-python', llama_cpp.__version__)"
+          "$PY" -c "from eli.execution.executor_enhanced import open_browser; import eli.perception.os_controller; print('executor and os controller load')"
+
+      - name: The window toolkit starts
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          cd "$RUNNER_TEMP"
+          "$PY" -c "from PySide6.QtWidgets import QApplication, QLabel; app = QApplication([]); QLabel('ELI').show(); app.processEvents(); print('window toolkit starts')"
+
+      - name: The server starts and answers
+        shell: bash
+        run: |
+          "$PY" -m uvicorn api.server:app --host 127.0.0.1 --port 8765 > server.log 2>&1 &
+          SERVER=$!
+          "$PY" - <<'PY' || { echo "::error::the server did not answer"; cat server.log; kill $SERVER 2>/dev/null; exit 1; }
+          import time, urllib.request
+          for _ in range(90):
+              try:
+                  with urllib.request.urlopen("http://127.0.0.1:8765/health", timeout=3) as r:
+                      assert r.status == 200, r.status
+                      print("server answers /health")
+                      break
+              except OSError:
+                  time.sleep(2)
+          else:
+              raise SystemExit("no answer from /health in three minutes")
+          PY
+          kill $SERVER 2>/dev/null || true
