@@ -24,6 +24,11 @@ from eli.integrations.media import cross_platform as cp
     ("anything", "", "", False),
     ("juicy notorious big", "The Notorious B.I.G.", "Juicy", True),    # dotted initials
     ("dont stop me now queen", "Queen", "Don't Stop Me Now", True),
+    # live: the right track started and was refused, "songs" and "and" not being in its name
+    ("songs diabolic and ill bill", "Diabolic", "Order & Chaos (feat. Ill Bill)", True),
+    ("songs by eminem", "Eminem", "Mockingbird", True),         # only the artist was asked for
+    ("some music by queen", "Queen", "Under Pressure", True),
+    ("songs by eminem", "Immortal Technique", "Point Of No Return", False),
 ])
 def test_the_playing_song_must_be_the_one_asked_for(query, artist, title, ok):
     assert cp.query_matches_track(query, artist, title) is ok

@@ -549,7 +549,13 @@ def spotify_wait_running(timeout: float = 8.0) -> bool:
     return False
 
 
-_TRACK_MATCH_STOPWORDS = {"the", "a", "an", "by", "of", "feat", "ft", "on", "spotify"}
+# Words of a request that are not part of a name: articles and joining words, and the words that
+# say what kind of thing is wanted. "songs by diabolic and ill bill" started the right track
+# ("Diabolic — Order & Chaos (feat. Ill Bill)") and it was refused, "songs" and "and" not being in it.
+_TRACK_MATCH_STOPWORDS = {
+    "the", "a", "an", "by", "of", "feat", "ft", "featuring", "on", "spotify", "and", "with", "from", "some", "any",
+    "song", "songs", "track", "tracks", "tune", "tunes", "music", "stuff", "something", "anything",
+}
 
 
 def track_query_matches_now_playing(query: str, player: str = "spotify") -> bool:
@@ -575,7 +581,8 @@ def _match_tokens(text: str) -> set[str]:
 
 
 def query_matches_track(query: str, artist: str, title: str) -> bool:
-    """Most of the words asked for are in the playing track, and some are in its title.
+    """Most of the words asked for are in the playing track, and some are in its title, unless
+    only the artist was asked for.
 
     One shared word was enough before, so "trouble eminem" accepted any Eminem track that
     happened to be loaded.
@@ -586,7 +593,10 @@ def query_matches_track(query: str, artist: str, title: str) -> bool:
     if not wanted:
         return True
     in_title = _match_tokens(title)
-    found = wanted & (_match_tokens(artist) | in_title)
+    by = _match_tokens(artist)
+    if wanted <= by:
+        return True  # an artist was asked for and nothing else: any track of theirs is it
+    found = wanted & (by | in_title)
     return len(found) * 4 >= len(wanted) * 3 and bool(wanted & in_title)
 
 

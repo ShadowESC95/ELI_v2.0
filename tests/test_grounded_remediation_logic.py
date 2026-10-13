@@ -106,6 +106,27 @@ def test_build_repair_plan():
     assert plan is None or isinstance(plan, dict)
 
 
+def test_nothing_is_offered_for_install_when_no_package_source_has_it(monkeypatch):
+    """Live: "open nasa" ended "Would you like me to download/install it?". No source had a
+    package of that name, and a yes ran the same lookups again to find that out."""
+    monkeypatch.setattr(gr, "set_pending_for_test", lambda *a, **k: pytest.fail("no repair is pending"))
+    missing = gr._mk_result(False, "application", "nasa", "open", "NOT_INSTALLED",
+                            evidence=["command -v nasa -> not found"], repairable=True, repair_options=[])
+    assert gr.build_repair_plan(missing) is None
+    said = gr.offer_for_result(missing)
+    assert "download/install" not in said
+    assert "No package source here has an application by that name either." in said
+    assert said.rstrip().endswith("Do you want me to open the nasa website instead?")
+
+
+def test_a_package_that_exists_is_still_offered(monkeypatch):
+    monkeypatch.setattr(gr, "set_pending_for_test", lambda *a, **k: None)
+    found = gr._mk_result(False, "application", "gimp", "open", "NOT_INSTALLED", evidence=[], repairable=True,
+                          repair_options=[{"source": "apt", "command": "sudo apt-get install -y gimp", "label": "Install gimp"}])
+    assert gr.build_repair_plan(found)["commands"] == ["sudo apt-get install -y gimp"]
+    assert gr.offer_for_result(found).rstrip().endswith("Would you like me to download/install it?")
+
+
 def test_renderers_return_strings():
     assert isinstance(gr.render_failure_message(dict(_RESULT)), str)
     assert isinstance(gr.offer_for_result(dict(_RESULT)), str)

@@ -73,6 +73,124 @@ def test_bare_domain_still_opens_a_url():
     assert out["action"] == "OPEN_URL"
 
 
+# ── a site known by its name, or pointed at ─────────────────────────────────
+#
+# Live: "open nasa website" answered "nasa website is not installed on this machine ... Would
+# you like me to download/install it?", and "could you open that website in the browser please",
+# said after a reply that listed https://www.nasa.gov/, opened a search for "that website".
+
+@pytest.mark.parametrize("phrase,name", [
+    ("open nasa website", "nasa"),
+    ("open the nasa website instead", "nasa"),
+    ("open nasa site", "nasa"),                 # was https://nasa.site
+    ("open bbc's home page", "bbc"),
+    ("open the new york times website please", "new york times"),
+])
+def test_a_site_named_is_a_site_and_its_address_is_not_made_up(phrase, name):
+    out = _route(phrase)
+    assert out["action"] == "OPEN_URL" and out["args"] == {"site": name}
+
+
+@pytest.mark.parametrize("phrase,which", [
+    ("could you open that website in the browser please", 1),
+    ("open that website", 1),
+    ("open the second link", 2),
+    ("open it in the browser", 1),
+])
+def test_a_page_pointed_at_is_looked_for_in_the_conversation(phrase, which):
+    out = _route(phrase)
+    assert out["action"] == "OPEN_URL" and out["args"]["which"] == which and out["args"]["refers_to"]
+
+
+def test_a_site_in_the_table_keeps_its_address_however_it_is_asked_for():
+    assert _route("open youtube")["args"] == {"url": "https://youtube.com"}
+    assert _route("open youtube website")["args"] == {"url": "https://youtube.com"}
+
+
+@pytest.mark.parametrize("phrase", ["open apple tv", "open notes app", "open my site", "open it"])
+def test_an_ordinary_word_after_a_name_is_not_a_web_ending(phrase):
+    """"tv", "app" and "site" are endings too. Without a dot they describe the thing."""
+    assert _route(phrase)["action"] != "OPEN_URL"
+
+
+@pytest.mark.parametrize("phrase,url", [("open github com", "https://github.com"),
+                                        ("open github dot com", "https://github.com"),
+                                        ("open otter.ai", "https://otter.ai")])
+def test_an_address_said_aloud_is_still_an_address(phrase, url):
+    assert _route(phrase)["args"] == {"url": url}
+
+
+# ── the window a command names ──────────────────────────────────────────────
+#
+# Live: "maximise browser" had no rule, the model resolved it to MAXIMISE_WINDOW with no name and
+# ELI maximised its own window; "switch to futurama tab in browser" was resolved to OPEN_URL
+# 'futurama'. "go to the youtube tab" opened https://the youtube tab.
+
+@pytest.mark.parametrize("phrase,action,name", [
+    ("maximise browser", "MAXIMISE_WINDOW", "browser"),
+    ("maximize the browser", "MAXIMISE_WINDOW", "browser"),
+    ("maximise prime video", "MAXIMISE_WINDOW", "prime video"),
+    ("fullscreen the browser", "MAXIMISE_WINDOW", "browser"),
+    ("make the browser full screen", "MAXIMISE_WINDOW", "browser"),
+    ("minimize the browser window", "MINIMIZE_APP", "browser"),
+    ("minimise spotify", "MINIMIZE_APP", "spotify"),
+    ("switch to firefox", "FOCUS_APP", "firefox"),
+])
+def test_a_window_command_keeps_the_window_it_names(phrase, action, name):
+    out = _route(phrase)
+    assert out["action"] == action and out["args"]["name"] == name
+
+
+@pytest.mark.parametrize("phrase", ["maximise this window", "maximise the window", "fullscreen"])
+def test_the_window_in_front_is_meant_only_when_none_is_named(phrase):
+    out = _route(phrase)
+    assert out["action"] == "MAXIMISE_WINDOW" and not out["args"].get("name")
+
+
+@pytest.mark.parametrize("phrase,name", [
+    ("switch to futurama tab in browser", "futurama"),
+    ("switch to the futurama tab", "futurama"),
+    ("go to the youtube tab", "youtube"),
+])
+def test_a_tab_asked_for_by_name_is_looked_for_as_a_window_title(phrase, name):
+    out = _route(phrase)
+    assert out["action"] == "FOCUS_APP" and out["args"] == {"name": name, "tab": True}
+
+
+def test_a_tab_that_is_not_in_front_is_said_to_be_out_of_reach(monkeypatch):
+    from eli.execution import executor_enhanced as ex
+    from eli.system import portable_app_control as pac
+
+    monkeypatch.setattr(pac, "focus_app", lambda name: {"ok": False, "action": "FOCUS_APP", "content": f"Could not focus {name}."})
+    out = ex.execute("FOCUS_APP", {"name": "futurama", "tab": True})
+    assert out["ok"] is False and "No window is showing a tab called futurama" in out["content"]
+
+
+@pytest.mark.parametrize("phrase,args", [
+    ("go to github.com", {"url": "https://github.com"}),
+    ("browse to bbc.co.uk/news", {"url": "https://bbc.co.uk/news"}),
+    ("go to youtube", {"url": "https://youtube.com"}),
+    ("visit nasa", {"site": "nasa"}),
+])
+def test_going_to_a_site_uses_its_address_and_never_builds_one_from_words(phrase, args):
+    out = _route(phrase)
+    assert out["action"] == "OPEN_URL" and {k: v for k, v in out["args"].items() if v} == args
+
+
+@pytest.mark.parametrize("phrase", ["go to sleep", "go to the next song", "go to the youtube tab"])
+def test_go_to_is_not_always_an_address(phrase):
+    assert _route(phrase)["action"] != "OPEN_URL"
+
+
+def test_one_table_of_site_names():
+    from eli.execution import app_aliases, portable_intent_contract
+    assert router.WEBSITE_ALIASES is app_aliases.WEBSITE_ALIASES is portable_intent_contract.WEBSITE_ALIASES
+    import inspect
+    from eli.execution import executor_enhanced
+    assert "_site_map" not in inspect.getsource(executor_enhanced)
+    assert inspect.getsource(router).count('": "https://') == 0, "the router keeps no table of its own"
+
+
 # ── compound targets: both, or it is a silent data loss bug ─────────────────
 def test_two_folders_open_both():
     out = _route("open home directory and the downloads directory")

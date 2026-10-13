@@ -4,7 +4,10 @@ from __future__ import annotations
 from eli.kernel.engine import CognitiveEngine, _load_persona_text
 
 
-def test_phatic_minimal_system_is_small():
+def test_phatic_minimal_system_is_small(monkeypatch):
+    # The prompt carries the stored name. A name left behind by an earlier test took it past the
+    # limit in a full run, so the name is fixed here: this measures the prompt, not that state.
+    monkeypatch.setattr("eli.kernel.state.get_user_name", lambda *a, **k: "Jess")
     ce = CognitiveEngine.__new__(CognitiveEngine)
     full_persona_len = len(_load_persona_text())
     sys_prompt = ce._build_phatic_minimal_system(

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+import re
+from typing import Any, Dict, Iterable, Optional
 
 
 def _low(text: Any) -> str:
@@ -135,3 +136,89 @@ def is_command(intent: Any) -> bool:
     except (TypeError, ValueError):
         confident = False
     return confident and action not in ("", "CHAT", "NOOP") and matched != "fallback.chat"
+
+
+# ── what kind of thing an action is, by its name ─────────────────────────────
+#
+# An action either changes something (plays, opens, closes, writes, runs) or reads something and
+# reports it. The name says which: a reading action starts with a verb of reading or ends with
+# what it reports. Kept by convention, so a new action is classed by how it is named; the few
+# names the convention cannot tell are listed. (Five hand-kept sets across the engine each held
+# part of this and had drifted from one another.)
+_READS_START = ("GET_", "LIST_", "CHECK_", "EXPLAIN_", "SHOW_", "READ_", "ANALYZE_", "ANALYSE_", "SUMMARIZE_",
+                "SUMMARISE_", "SEARCH_", "EXAMINE_", "RESOLVE_", "DIAGNOSE_", "OCR_", "TRANSCRIBE")
+_READS_END = ("_STATUS", "_STATS", "_USAGE", "_AUDIT", "_REPORT", "_SUMMARY", "_LOG", "_DIAGNOSTICS", "_DIAG",
+              "_EXPLAIN", "_LIST", "_TOOLS", "_DOCTOR", "_SEARCH", "_QUERY", "_GRAPH", "_PROFILE", "_FETCH",
+              "_RECALL", "_LOCATE", "_PLAYING", "_CHANGES", "_PROPOSALS", "_JOBS", "_PLAYBOOK", "_READ_ANALYZE")
+_READS_NAMED = frozenset(("", "CHAT", "ANSWER", "NOOP", "UNKNOWN", "HELP", "TIME", "DATE", "CAPABILITY",
+                          "DIRECT_RESPONSE", "ASK_CLARIFY", "SELF_ANALYZE", "SELF_TEST", "MESSAGE_TIME_QUERY"))
+
+
+def changes_something(action: Any) -> bool:
+    """Whether carrying this action out changes anything: the machine, an app, a file, what is
+    playing, what ELI is set to. Reading and reporting does not."""
+    name = str(action or "").strip().upper()
+    return not (name in _READS_NAMED or name.startswith(_READS_START) or name.endswith(_READS_END))
+
+
+# Words that carry grammar and not content: what is left of a sentence without them and without
+# the command's own words is what else the sentence is about.
+_GRAMMAR = frozenset("""a an the this that these those my your his her its our their me you u i it he she we they them us
+to of in on at by for with from into onto over under about as and or but if then so because while when where which who
+whom whose what why how not no nor do does did done doing is are was were be been being am have has had having will
+would shall should can could may might must just only also very really quite too more most much many some any each
+every all both either neither own same such than now here there again ever never always still yet already please pls
+thanks thank ok okay hey hi hello eli up down out off bit little moment second sec minute quick quickly""".split())
+_WORD = re.compile(r"[a-z0-9']+")
+
+
+def _words(value: Any) -> Iterable[str]:
+    if isinstance(value, dict):
+        for inner in value.values():
+            yield from _words(inner)
+    elif isinstance(value, (list, tuple, set)):
+        for inner in value:
+            yield from _words(inner)
+    elif value is not None and not isinstance(value, bool):
+        yield from _WORD.findall(str(value).lower())
+
+
+def _same_word(a: str, b: str) -> bool:
+    """One word in two forms: play/playing, stop/stopped, minimise/minimize."""
+    a, b = a.replace("z", "s"), b.replace("z", "s")
+    short, long_ = (a, b) if len(a) <= len(b) else (b, a)
+    return len(short) >= 3 and long_.startswith(short[:max(3, len(short) - 1)]) and len(long_) - len(short) <= 4
+
+
+def fits(text: Any, intent: Any) -> bool:
+    """Whether a message is telling ELI to do what the router matched in it.
+
+    Asked of actions that change something, which are carried out at once. A rule that fires on a
+    word matched them inside sentences that were about something else: a complaint stopped a film,
+    and a sentence of ELI's own explanation was run as a command. Two tests of form:
+
+      * a sentence of the message is an instruction (command_splitter.instruction), not a
+        statement or a question about what happened;
+      * beyond the command's own words (its verb, its action, what it captured) the message says
+        little: an instruction is about its action. Long text an action captured as its argument
+        (a search, a title, a note) is the command's own words. (A rule that passes the whole
+        message along as an argument is therefore held to the first test only.)
+
+    Reading actions always fit: a report given by mistake changes nothing."""
+    if not isinstance(intent, dict) or not changes_something(intent.get("action")):
+        return True
+    from eli.runtime.command_splitter import instruction, sentences, starts_with_command
+    own = set(_words(intent.get("args"))) | set(_words((intent.get("meta") or {}).get("entities")))
+    own |= set(str(intent.get("action") or "").lower().split("_"))
+    said, told_something = [], False
+    for sentence in sentences(str(text or "")):
+        told = instruction(sentence)
+        words = [w for w in _WORD.findall((told or sentence).lower()) if w not in _GRAMMAR]
+        if told and (words or starts_with_command(told)):   # "well done." tells nothing; "do it" does
+            told_something = True
+            own.update(words[:1])                  # the verb the instruction starts with
+        said += words
+    if not told_something:
+        return False
+    spare = [w for w in said if w not in own and not any(_same_word(w, o) for o in own)]
+    return len(spare) < 6 or len(spare) <= len(said) - len(spare)

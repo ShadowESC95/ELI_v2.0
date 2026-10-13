@@ -285,6 +285,50 @@ def test_the_model_is_told_what_the_message_is_a_reply_to():
         rc.turn_facts_var.reset(facts)
 
 
+# ── a message of commands and talk goes the same way ─────────────────────────
+
+def test_the_commands_in_a_message_run_and_the_rest_of_it_is_answered(monkeypatch):
+    """Live: "see, you can do it! open spotify" was answered by the model alone ("Spotify is opening
+    now."), and a complaint ending "open nasa website" stopped the film and opened nothing."""
+    from eli.execution.router_enhanced import route
+    carry, me, seen = _engine(monkeypatch, reply="Told you it would come back.")
+    plan = route("see, you can do it! open spotify")
+    assert plan["meta"]["matched_by"] == "message.instructions_and_talk"
+    out = carry(me, "see, you can do it! open spotify", plan["args"]["agreed"])
+    assert seen.ran == [("MULTI_COMMAND", ["open spotify"], True)]
+    assert seen.messages == ["see, you can do it!"] and seen.agreed[0]["rest_of_message"] is True
+    assert out["response"] == "On your calendar today:\n- nothing\n\nTold you it would come back."
+
+
+def test_the_model_is_told_the_commands_ran_and_to_claim_nothing_else():
+    from eli.kernel.engine import _follow_up_line
+    facts = rc.turn_facts_var.set({"user_input": "see, you can do it!"})
+    agreed = rc.agreed_task_var.set({"said": "see, you can do it! open spotify", "message": "see, you can do it!",
+                                     "done": "Opened app: Spotify", "rest_of_message": True})
+    try:
+        line = _follow_up_line()
+        assert "THE USER'S MESSAGE ALSO HELD COMMANDS" in line and "Opened app: Spotify" in line
+        assert "Nothing else was carried out this turn" in line and "AGREED" not in line
+    finally:
+        rc.agreed_task_var.reset(agreed)
+        rc.turn_facts_var.reset(facts)
+
+
+def test_what_the_model_resolves_is_held_to_what_the_sentence_tells_eli_to_do(monkeypatch):
+    """The model's guess at an action runs only when the sentence tells ELI to do it."""
+    from eli.kernel import engine as E
+    monkeypatch.setattr(E, "route_intent", lambda text: {"action": "CHAT", "args": {"message": text}, "confidence": 0.3,
+                                                         "meta": {"matched_by": "fallback.chat"}})
+    monkeypatch.setattr("eli.cognition.llm_intent.parse_cached",
+                        lambda text: {"action": "STOP_MEDIA", "args": {}, "confidence": 0.95,
+                                      "meta": {"matched_by": "llm_intent.resolver"}})
+    me = SimpleNamespace(memory=SimpleNamespace(get_recent_conversation=lambda **k: []))
+    talk = E.CognitiveEngine._parse_intent(me, "why does it stop whenever i open the other one?", [])
+    assert talk["action"] == "CHAT"
+    told = E.CognitiveEngine._parse_intent(me, "halt the tunes please", [])
+    assert told["action"] == "STOP_MEDIA"
+
+
 def test_every_reply_replaces_what_the_last_one_left_open(proposals):
     from eli.kernel.engine import CognitiveEngine
     me = SimpleNamespace(memory=SimpleNamespace(add_conversation_turn=lambda *a, **k: None), session_id="s", user_id="u",

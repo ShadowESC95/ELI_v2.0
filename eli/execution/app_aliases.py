@@ -31,6 +31,35 @@ from __future__ import annotations
 
 from typing import Dict
 
+# Sites opened by name. One table: the router, the portable contract and the executor each had
+# their own (the router two: 22, 12, 14 and 10 names) and gave different addresses for the same site.
+WEBSITE_ALIASES: Dict[str, str] = {
+    "youtube": "https://youtube.com",
+    "google": "https://google.com",
+    "facebook": "https://facebook.com",
+    "twitter": "https://twitter.com",
+    "x": "https://x.com",
+    "instagram": "https://instagram.com",
+    "linkedin": "https://linkedin.com",
+    "reddit": "https://reddit.com",
+    "github": "https://github.com",
+    "stackoverflow": "https://stackoverflow.com",
+    "wikipedia": "https://wikipedia.org",
+    "amazon": "https://amazon.com",
+    "ebay": "https://ebay.com",
+    "netflix": "https://netflix.com",
+    "hulu": "https://hulu.com",
+    "twitch": "https://twitch.tv",
+    "gmail": "https://mail.google.com",
+    "outlook": "https://outlook.live.com",
+    "yahoo": "https://mail.yahoo.com",
+    "maps": "https://maps.google.com",
+    "news": "https://news.google.com",
+    "weather": "https://weather.com",
+    "prime": "https://www.primevideo.com",
+    "disney": "https://www.disneyplus.com",
+}
+
 # Spoken/misheard form → the role or canonical name platform_compat understands.
 # Keys must be lowercase and whitespace-normalised; normalize_app() normalises
 # its input before lookup.

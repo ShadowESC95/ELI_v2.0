@@ -121,3 +121,23 @@ def test_quick_path_content_is_not_mutated(self_report_payload):
     before = self_report_payload["content"]
     _enrich(self_report_payload)
     assert self_report_payload["content"] == before
+
+
+def _self_report(monkeypatch, layers):
+    from eli.execution import executor_enhanced as ex
+    monkeypatch.setattr(ex, "_runtime_status_report", lambda: {
+        "model_path": "/models/m.gguf",
+        "runtime": {"model_path": "/models/m.gguf", "n_ctx": 16128, "n_gpu_layers": layers, "n_batch": 256, "n_threads": 10},
+        "settings": {"n_ctx": 16128, "n_gpu_layers": layers, "hw_profile_n_ctx": 14336, "hw_profile_n_gpu_layers": 40},
+    })
+    return ex.execute("SELF_REPORT", {})
+
+
+def test_a_larger_context_is_a_concern_only_when_layers_were_lost_to_it(monkeypatch):
+    """Live: with 41 layers offloaded against 40 recommended, ELI told the user its "oversized KV
+    cache crowds GPU layers out of VRAM"."""
+    import json
+    fine = json.dumps(_self_report(monkeypatch, 41), default=str)
+    assert "crowds" not in fine and "is above the hardware profile" not in fine
+    short = json.dumps(_self_report(monkeypatch, 30), default=str)
+    assert "context 16128 is above the hardware profile's 14336 and 30 of the 40 layers" in short

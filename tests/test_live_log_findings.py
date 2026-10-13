@@ -162,6 +162,38 @@ def test_plain_conversation_never_reaches_the_intent_model():
         assert not is_plain_statement(q)
 
 
+@pytest.mark.parametrize("remark", ["doing well, good redemption bud", "haha nice one, well done!", "thanks bud",
+                                    "that was class", "the film was great", "wow"])
+def test_a_short_remark_with_nothing_eli_can_do_in_it_is_not_resolved(remark):
+    """Live: each of these waited 22 to 24 s on a 35B model for the intent model to answer CHAT.
+    A short message used to be resolved whatever it said."""
+    from eli.cognition.llm_intent import is_plain_statement
+    assert is_plain_statement(remark)
+
+
+@pytest.mark.parametrize("message", ["fire up spotify", "timer ten minutes", "weather tomorrow", "sort my downloads",
+                                     "could you sort the downloads folder by date", "Sorry, been busy. open spotify",
+                                     "what just happened?", "delete it", "this is great, play it again"])
+def test_what_could_be_asking_for_something_eli_does_still_is(message):
+    from eli.cognition.llm_intent import is_plain_statement
+    assert not is_plain_statement(message)
+
+
+@pytest.mark.parametrize("statement", ["i need to study for the exam tonight", "I want to tell you about my day at the allotment",
+                                       "i would like to hear more about that one"])
+def test_what_the_user_wants_for_themselves_is_not_a_request_to_eli(statement):
+    from eli.cognition.llm_intent import is_plain_statement
+    assert is_plain_statement(statement)
+
+
+def test_one_list_of_the_verbs_a_command_starts_with():
+    from eli.cognition import llm_intent
+    from eli.runtime import command_splitter as cs
+    assert not hasattr(llm_intent, "_IMPERATIVE")
+    assert {"open", "delete", "save", "tell", "maximise"} <= set(cs.COMMAND_VERBS)
+    assert cs.starts_with_command("delete it") and not cs._IMP_START.match("delete it"), "starts a command, does not split one"
+
+
 def test_the_self_model_says_not_to_invent_fixes():
     from eli.runtime.awareness_boot import AwarenessState
     text = AwarenessState()._live_self_model()

@@ -66,6 +66,25 @@ def test_control_actions_stay_exempt(action):
     assert _is_soft_informational_action(action) is False
 
 
+def _catalogue_controls():
+    from eli.tools.registry.capabilities_doc import _C
+    return sorted(a for a, entry in _C.items() if entry[0] in ("App & window control", "Input control", "Media"))
+
+
+@pytest.mark.parametrize("action", _catalogue_controls())
+def test_every_control_in_the_catalogue_goes_straight_to_the_executor(action):
+    """Live: "maximise browser" ran, was then reclassed as chat for low grounding, and the user
+    was shown nothing. MINIMISE_APP was on the direct list; MAXIMISE_WINDOW, FOCUS_APP and
+    SWITCH_WORKSPACE had been left off it. The list is now read from the catalogue's grouping."""
+    from eli.kernel.engine import _PHASE45_DIRECT_FAST_ACTIONS
+    assert action in _PHASE45_DIRECT_FAST_ACTIONS
+    assert _is_soft_informational_action(action) is False
+
+
+def test_the_controls_left_off_the_old_list_are_among_them():
+    assert {"MAXIMISE_WINDOW", "FOCUS_APP", "SWITCH_WORKSPACE", "MINIMISE_ALL", "NEXT_WINDOW"} <= set(_catalogue_controls())
+
+
 # ── 2. YouTube playback must be verified before it is claimed ───────────────
 # `play_specific` does `import subprocess as _sp` inside the function, so the
 # alias is the real module object — patching subprocess.Popen is what it sees.

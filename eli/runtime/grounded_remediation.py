@@ -1003,61 +1003,10 @@ def build_repair_plan(result: dict) -> dict | None:
                 "label": chosen.get("label", "Install " + str(result["subject"])),
             }
 
-        app = str(result["subject"]).strip()
-        search_install_cmd = (
-            "bash -lc "
-            + _q(
-                f"""set -e
-APP={_q(app)}
-
-if command -v snap >/dev/null 2>&1 && snap info "$APP" >/dev/null 2>&1; then
-  sudo snap install "$APP"
-  exit 0
-fi
-
-if command -v apt-cache >/dev/null 2>&1; then
-  PKG="$(apt-cache search --names-only "^$APP$" | awk 'NR==1{{print $1}}')"
-  if [ -z "$PKG" ]; then
-    PKG="$(apt-cache search --names-only "^$APP(-|$)" | awk 'NR==1{{print $1}}')"
-  fi
-  if [ -n "$PKG" ]; then
-    sudo DEBIAN_FRONTEND=noninteractive apt-get update
-    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y "$PKG"
-    exit 0
-  fi
-fi
-
-if command -v flatpak >/dev/null 2>&1; then
-  APPID="$(flatpak search "$APP" 2>/dev/null | awk 'tolower($1)==tolower(app){{print $1; exit}}' app="$APP")"
-  if [ -n "$APPID" ]; then
-    flatpak install -y flathub "$APPID"
-    exit 0
-  fi
-fi
-
-echo "No grounded install candidate found for $APP" >&2
-exit 20"""
-            )
-        )
-
-        return {
-            "id": f"install_{result['subject']}",
-            "title": f"Find and install {result['subject']}",
-            "domain": "application",
-            "subject": result["subject"],
-            "operation": "install",
-            "risk": "medium",
-            "steps": [
-                f"Search grounded package sources for an exact or prefix candidate matching {result['subject']}",
-                "Install only an exact or prefix-matched candidate via snap, apt, or flatpak",
-                "Use noninteractive apt defaults if apt is selected",
-                "Verify that the application becomes locally discoverable after install",
-            ],
-            "commands": [search_install_cmd],
-            "verification_steps": [f"check install state for {result['subject']}"],
-            "source": "auto-search",
-            "label": f"Find and install {result['subject']}",
-        }
+        # No package source here has it (build_install_candidates asked each one). There is
+        # nothing to install, so nothing is offered: the offer used to stand anyway and, on
+        # "yes", ran the same lookups again in a terminal to arrive at "no candidate found".
+        return None
 
     if result.get("reason_code") == "PACKAGE_MANAGER_LOCKED":
         md = result.get("metadata") or {}
@@ -1229,6 +1178,8 @@ def render_failure_message(result: dict) -> str:
     elif rc == "NOT_INSTALLED":
         lead = f"Could not open {result['subject']}."
         reason = f"Verified reason: {result['subject']} is not installed on this machine."
+        if result.get("domain") == "application" and not result.get("repair_options"):
+            reason += " No package source here has an application by that name either."
     elif rc == "PACKAGE_MANAGER_LOCKED":
         lead = f"Repair blocked for {result['subject']}."
         reason = "Verified reason: another apt/dpkg process currently holds the package manager lock."
@@ -1297,6 +1248,11 @@ def offer_for_result(result: dict) -> str:
     if plan:
         set_pending_for_test(plan, result, stage="offered")
         return msg + "\n\nWould you like me to download/install it?"
+    # A name that is no application and no package may be a site ("open nasa").
+    subject = str(result.get("subject") or "").strip()
+    if (result.get("domain") == "application" and result.get("reason_code") == "NOT_INSTALLED"
+            and 0 < len(subject.split()) <= 3):
+        return msg + f"\n\nDo you want me to open the {subject} website instead?"
     return msg
 
 def _render_exec_outcome(plan: dict, runs: list[dict], verify: dict) -> str:

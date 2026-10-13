@@ -141,6 +141,25 @@ _PHASE45_DIRECT_FAST_ACTIONS = {
     'VOLUME'
 }
 
+# Every control of the desktop, an input device or a media player is one of these, whether or
+# not it was written into the list above: the catalogue's own grouping says which they are. The
+# list had MINIMISE_APP and not MAXIMISE_WINDOW, FOCUS_APP or SWITCH_WORKSPACE, so those went
+# through the agent bus and a model pass, and a "maximise browser" that had already run was then
+# reclassed as chat for low grounding and answered with nothing.
+_CONTROL_CATEGORIES = ("App & window control", "Input control", "Media")
+
+
+def _catalogue_controls() -> set:
+    try:
+        from eli.tools.registry.capabilities_doc import _C
+        return {str(name).upper() for name, entry in _C.items() if entry[0] in _CONTROL_CATEGORIES}
+    except Exception:
+        logging.getLogger(__name__).debug("catalogue controls not read", exc_info=True)
+        return set()
+
+
+_PHASE45_DIRECT_FAST_ACTIONS |= _catalogue_controls()
+
 # NOOP = fragment rejected or truly empty input; return silence, store nothing
 _PHASE45_SILENT_FAST_ACTIONS = {'NOOP'}
 
@@ -1137,6 +1156,12 @@ def _follow_up_line() -> str:
     try:
         agreed = _request_context.agreed_task_var.get()
         facts = _request_context.turn_facts_var.get() or {}
+        if isinstance(agreed, dict) and agreed.get("message") == facts.get("user_input") and agreed.get("rest_of_message"):
+            done = str(agreed.get("done") or "").strip()
+            return ("\nTHE USER'S MESSAGE ALSO HELD COMMANDS. THEY HAVE BEEN CARRIED OUT, AND THE USER HAS BEEN SHOWN "
+                    f"THIS RESULT: {done[:600] or '(nothing came back)'}\nWhat is below is the rest of what they "
+                    "said. Reply to that. Do not repeat the result. Nothing else was carried out this turn: do not "
+                    "say you did, are doing or will do anything else.")
         if isinstance(agreed, dict) and agreed.get("message") == facts.get("user_input"):
             said = str(agreed.get("said") or "yes").strip()[:80]
             line = (f'\nAGREED: You offered this in your last message and the user answered "{said}". Their message '
@@ -13033,7 +13058,8 @@ Answer:"""
         log.debug(f"[PIPELINE] Stage 1: Intent → {_pipe_action_s1} (conf={_pipe_conf_s1:.2f} via={_pipe_matched_s1})")
         _request_context.note_turn_fact("via", _pipe_matched_s1)
 
-        _agreed = (intent.get("args") or {}).get("agreed") if _pipe_matched_s1 == "pending_proposal.confirm" else None
+        _agreed = ((intent.get("args") or {}).get("agreed")
+                   if _pipe_matched_s1 in ("pending_proposal.confirm", "message.instructions_and_talk") else None)
         if _pipe_action_s1 == "CHAT" and isinstance(_agreed, dict):
             return self._carry_out_agreed(user_input, _agreed, source=source, stream=stream,
                                           reasoning_mode=reasoning_mode, **kwargs)
@@ -15322,6 +15348,15 @@ Answer:"""
                     }
             except Exception:
                 log.debug("[COGNITIVE] persona self-knowledge veto skipped", exc_info=True)
+            # What the model resolves is held to the same test as what a rule matches: an action
+            # that changes something is carried out only when the sentence tells ELI to do it.
+            try:
+                from eli.execution.route_contracts import fits as _fits
+                if li and not _fits(text, li):
+                    log.debug(f"[COGNITIVE] {li.get('action')} not carried out: the message does not tell ELI to do it")
+                    li = {"action": "CHAT", "args": {"message": text}, "confidence": 0.6}
+            except Exception:
+                log.debug("[COGNITIVE] fit check on the resolved intent skipped", exc_info=True)
             if (li and li.get("action") and li.get("action") != "CHAT"
                     and li.get("confidence", 0) >= 0.6):
                 log.debug(f"[COGNITIVE] LLM intent resolved: {li.get('action')} "
@@ -15471,10 +15506,13 @@ Answer:"""
         from eli.runtime import pending_proposal as _pp
         shown: List[str] = []
         commands = [c for c in (agreed.get("commands") or []) if str(c or "").strip()]
+        # The commands in a message of commands and talk were typed by the user: each is shown
+        # with its result when there are several. One command, or steps ELI offered, show the result.
+        _typed = bool(agreed.get("rest_of_message"))
         if commands:
             try:
                 ran = execute_action("MULTI_COMMAND", {"commands": commands, "raw": " and ".join(commands),
-                                                       "results_only": True})
+                                                       "results_only": not (_typed and len(commands) > 1)})
                 text = str((ran or {}).get("response") or (ran or {}).get("content") or "").strip()
                 if text:
                     shown.append(text)
@@ -15497,7 +15535,8 @@ Answer:"""
 
         message = _pp.task_message(tasks)
         token = _request_context.agreed_task_var.set(
-            {"said": said, "offer": str(agreed.get("offer") or ""), "message": message, "done": done})
+            {"said": said, "offer": str(agreed.get("offer") or ""), "message": message, "done": done,
+             "rest_of_message": _typed})
         try:
             inner = self.process(message, source=source, stream=stream, reasoning_mode=reasoning_mode, **kwargs)
         finally:

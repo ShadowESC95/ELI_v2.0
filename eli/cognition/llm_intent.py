@@ -12,6 +12,7 @@ toolset.
 import hashlib
 import json
 import re
+from functools import lru_cache
 import threading
 from typing import Dict, Any, List
 
@@ -176,11 +177,6 @@ def normalize_args(args: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-_IMPERATIVE = frozenset("""open play pause resume stop set turn show tell make create write run check search find send call remind add remove
-delete take start launch close read list get give do look describe explain generate fetch download install update mute unmute
-skip next previous volume save store remember forget schedule cancel switch enable disable analyze analyse examine fix improve""".split())
-
-
 _SOCIAL_OPENER = re.compile(
     r"^\s*(?:good\s+)?(?:morning|afternoon|evening|night|hi|hey|hello|hiya|yo|howdy|sup)\b"
     r"|\b(?:(?:are\s+)?you\s+(?:back|there|awake|alive|up|ok|okay|alright|good|well)"
@@ -201,15 +197,44 @@ def is_social_checkin(text: str) -> bool:
             and not _ACTION_WORD.search(t))
 
 
+@lru_cache(maxsize=1)
+def _catalogue_words() -> frozenset:
+    """Every word in what ELI can do: the action names, what each does, how it is asked for."""
+    try:
+        from eli.execution.route_contracts import _GRAMMAR
+        from eli.tools.registry.capabilities_doc import _C
+    except Exception:
+        return frozenset()
+    words = set()
+    for name, (_cat, desc, phrases) in _C.items():
+        words.update(re.findall(r"[a-z]{3,}", " ".join([name.replace("_", " "), desc or "", *(phrases or [])]).lower()))
+    return frozenset(words - _GRAMMAR - _SAID_OF_ANYTHING)
+
+
+# In the catalogue's own example phrases ("good morning", "well done") and in any remark.
+_SAID_OF_ANYTHING = frozenset("good well nice great fine one two get got see thing things way back right".split())
+
+
+def shares_with_catalogue(text: str) -> bool:
+    """Whether the message has a word in common with anything ELI can do."""
+    known = _catalogue_words()
+    return any(w in known or (w.endswith("s") and w[:-1] in known) for w in re.findall(r"[a-z]{3,}", str(text or "").lower()))
+
+
 def is_plain_statement(text: str) -> bool:
-    """Conversation, not a command: no question, no leading action verb. Nothing for an intent model to resolve.
+    """Conversation, not a command: no question, and no sentence that tells ELI to do something
+    (it starts with a command's verb, or is framed as a request). Nothing for an intent model to resolve.
 
     A message can lead with chat ("Sorry, been busy — here's my file [File: x.docx]")
     and still carry an attachment worth resolving; the first-word check alone missed
     this and skipped the resolver entirely, so the model never learned a file existed.
+
+    A short message used to be resolved whatever it said: "doing well, good redemption bud"
+    waited 24 s on a 35B model for the answer CHAT. It is resolved now only when it has a word in
+    common with something ELI can do ("fire up spotify").
     """
     t = " ".join(str(text or "").split())
-    if len(t.split()) < 6 or "?" in t:
+    if not t or "?" in t:
         return False
     if any(tag in t for tag in ("[Image:", "[File:", "[PDF:")):
         return False
@@ -219,9 +244,11 @@ def is_plain_statement(text: str) -> bool:
             return False
     except Exception:
         pass
-    first = re.sub(r"^(?:please|hey|eli|ok|okay|so|well|and|but)[,\s]+", "", t.lower())
-    words = re.findall(r"[a-z']+", first)
-    return bool(words) and words[0] not in _IMPERATIVE and not re.search(r"\bplease\b", t, re.I)
+    from eli.runtime.command_splitter import is_request, sentences, starts_with_command
+    if re.search(r"\bplease\b", t, re.I) or any(
+            is_request(part) or starts_with_command(part, after_lead=True) for part in sentences(t)):
+        return False
+    return len(t.split()) >= 6 or not shares_with_catalogue(t)
 
 
 def parse_with_llm(text: str) -> Dict[str, Any]:

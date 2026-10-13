@@ -6862,22 +6862,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception:
             url = None
             query = None
+        if not url and isinstance(args, dict) and (args.get("site") or args.get("refers_to")):
+            return _eli_open_named_site(args)
         return _eli_open_url_action(url, query=query)
 
     if a == "OPEN_BROWSER":
         import re as _re2
-        _site_map = {
-            "wikipedia": "https://www.wikipedia.org",
-            "google": "https://www.google.com",
-            "youtube": "https://www.youtube.com",
-            "github": "https://www.github.com",
-            "reddit": "https://www.reddit.com",
-            "netflix": "https://www.netflix.com",
-            "gmail": "https://mail.google.com",
-            "stackoverflow": "https://stackoverflow.com",
-            "twitter": "https://www.twitter.com",
-            "x.com": "https://www.x.com",
-        }
         raw_q = (args.get("query") or args.get("url") or args.get("link") or "").lower()
 
         # YouTube with a search query → open YouTube search/watch URL in browser
@@ -6892,8 +6882,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
 
-        found_urls = [v for k, v in _site_map.items() if k in raw_q]
-        if len(found_urls) > 1:
+        # Several sites asked for by name ("youtube and github"): each is opened.
+        from eli.execution.app_aliases import WEBSITE_ALIASES as _sites
+        _asked = [w.strip() for w in _re2.split(r"\s*(?:,|&|\band\b)\s*", raw_q) if w.strip()]
+        found_urls = [_sites[w] for w in _asked if w in _sites] if len(_asked) > 1 else []
+        if len(found_urls) > 1 and len(found_urls) == len(_asked):
             return open_browser(found_urls[0], urls=found_urls)
         url = str(args.get("url") or args.get("link") or "")
         if not url or not url.startswith("http"):
@@ -10917,6 +10910,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         from eli.system.portable_app_control import focus_app
         out = focus_app(name)
         out.setdefault("action", a)
+        if args.get("tab") and not out.get("ok"):
+            # A window is found by its title, which is the tab in front. The others are the browser's own.
+            _why = (f"No window is showing a tab called {name}. A tab that is not in front in its window "
+                    "cannot be reached from outside the browser; “next tab” and “previous tab” step through them.")
+            out["content"] = out["response"] = out["error"] = _why
         return out
 
     # ---- SCREEN_LOCATE — find/click visible UI text via OCR ─────────────
@@ -12612,6 +12610,31 @@ def _action_post_dispatch(
     return result
 
 
+def _eli_open_named_site(args):
+    """OPEN_URL for a site known by name ("nasa website") or pointed at ("that website"): the
+    address comes from the conversation or a web search, and the reply says which."""
+    from eli.runtime import site_address
+
+    def _say(msg):
+        return {"ok": False, "action": "OPEN_URL", "error": msg, "content": msg, "response": msg}
+
+    if args.get("refers_to"):
+        url = site_address.referred_to(int(args.get("which") or 1))
+        if not url:
+            return _say(f"No web address has come up in this conversation for “{args['refers_to']}” to point at. "
+                        "Give me the address, or the name of the site.")
+        return _eli_open_url_action(url)
+    name = str(args.get("site") or "").strip()
+    found = site_address.named(name)
+    if not found.get("url"):
+        return _say(f"I have no address for the {name} website: {found.get('why')}. Give me the address, "
+                    f"or say “search for {name}” and I will open a search for it.")
+    opened = _eli_open_url_action(found["url"])
+    if opened.get("ok"):
+        opened["content"] = opened["response"] = f"{opened['content']} (the {name} site, from {found['from']})"
+    return opened
+
+
 def _eli_open_url_action(raw_url=None, *, query=None):
     """
     Safe URL opener for OPEN_URL.
@@ -12846,10 +12869,14 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
             _rec_ctx = int(settings_req.get('hw_profile_n_ctx') or 0)
             _rec_layers = int(settings_req.get('hw_profile_n_gpu_layers') or 0)
             _concerns = []
-            if _rec_ctx and _eff_ctx > _rec_ctx:
+            # A larger context costs GPU layers only when fewer are on the card than the profile
+            # found room for. It was stated whenever the context was larger, layers lost or not:
+            # live, with 41 layers offloaded against 40 recommended, ELI reported that its
+            # "oversized KV cache crowds GPU layers out of VRAM".
+            if _rec_ctx and _eff_ctx > _rec_ctx and _rec_layers and _eff_layers < _rec_layers:
                 _concerns.append(
-                    f"context {_eff_ctx} exceeds the hardware-recommended {_rec_ctx}; "
-                    f"the oversized KV cache crowds GPU layers out of VRAM"
+                    f"context {_eff_ctx} is above the hardware profile's {_rec_ctx} and {_eff_layers} of the "
+                    f"{_rec_layers} layers it found room for are on the GPU"
                 )
             if _eff_layers <= 1:
                 _concerns.append(

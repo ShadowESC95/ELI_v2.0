@@ -1,6 +1,8 @@
 """MEMORY_RECALL must never dispatch with an empty query."""
 from __future__ import annotations
 
+import pytest
+
 from eli.cognition import llm_intent
 from eli.execution.router_enhanced import route_intent
 
@@ -89,3 +91,24 @@ def test_every_recalled_memory_says_when_it_is_from(monkeypatch):
     out = execute("MEMORY_RECALL", {"query": "lisbon"})["content"]
     assert "[Mon 28 Sep 21:15" in out and "i am collecting a friend in lisbon" in out
     assert "[Lisbon] (place)" in out and "[] [Lisbon]" not in out
+
+
+@pytest.mark.parametrize("text", [
+    "give me a timestamp and summary of our conversations over the past 5 days",
+    "check all the logs mentioned above please bud, judt double check- in fact, timestamp and summary of our "
+    "conversations/sessions over the past 5 days please",
+    "Eli, tell me what we have been discussing the past week please, with timestamps",
+    "what have we discussed this week",
+    "give me a summary of our chats over the past 3 days with timestamps",
+])
+def test_a_request_about_the_conversation_over_a_period_it_names_reads_that_period(text):
+    """Live: the first of these had no rule, and the model's guess at an action was a status
+    report ("I cannot provide a summary ... I am running Qwen3.6-35B ... 41 layers")."""
+    got = route_intent(text)
+    assert got["action"] == "CHAT" and got["meta"]["matched_by"] == "memory.temporal_recall_as_chat"
+
+
+@pytest.mark.parametrize("text", ["can we talk about last week's match", "our session today was good",
+                                  "let us discuss the plan for tomorrow"])
+def test_talk_that_names_a_day_is_not_a_request_to_recall(text):
+    assert route_intent(text)["meta"]["matched_by"] != "memory.temporal_recall_as_chat"

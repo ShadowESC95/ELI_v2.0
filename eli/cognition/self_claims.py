@@ -26,6 +26,13 @@ log = get_logger(__name__)
 
 # ── is the user asking about ELI's own behaviour? ────────────────────────────
 
+# Asking what just happened: "what the fuck just happened?", "what happened there?". The last
+# turn's row in the ledger is the answer. Live, the first went to the model's guess at an action
+# and came back as a dump of confidence figures.
+WHAT_JUST_HAPPENED = (r"\bwhat\s+(?:the\s+\w+\s+|on\s+earth\s+)?(?:has\s+)?just\s+happened\b"
+                      r"|\bwhat\s+(?:the\s+\w+|on\s+earth)\s+happened\b"
+                      r"|\bwhat\s+happened\s+(?:there|just\s+now|then|just\s+then)\b")
+
 _OWN_BEHAVIOUR_RE = re.compile(
     r"\bwhy\b[^.?!]{0,40}\b(?:did|do|are|were|would|have|keep|can'?t|could ?n'?t|is|does)\b[^.?!]{0,12}\byou(?:r)?\b"
     r"|\bwhat(?:'?s| is| was| has been| went)?\s+(?:going on|wrong|happening|happened)\b[^.?!]{0,30}\b(?:with\s+)?you(?:r)?\b"
@@ -36,10 +43,18 @@ _OWN_BEHAVIOUR_RE = re.compile(
     r"|\bwhy\b[^.?!]{0,30}\b(?:search(?:ed|ing)? the web|web search|wrong|lying|lie[ds]?|making (?:shit|stuff|things) up|ignor\w+)\b"
     r"|\b(?:how|why)\s+(?:come|is it that)\s+you\b"
     r"|\bwhat did you (?:just )?do\b|\bwhat have you (?:been doing|done)\b"
-    r"|\b(?:do|are) you (?:log|logging|record|recording|keep(?:ing)? (?:a )?(?:log|record|track))\b"
+    r"|" + WHAT_JUST_HAPPENED + r"|\b(?:do|are) you (?:log|logging|record|recording|keep(?:ing)? (?:a )?(?:log|record|track))\b"
     r"|\byour\s+(?:logs?|logging|audit|records?)\b|\blog(?:ging|s)?\s+(?:for|of)\s+every",
     re.I)
 
+
+# Saying what ELI just did: "then you just stopped spotify", "you just maximised your GUI, not the
+# browser". Live, the first was answered with "a background housekeeping routine misfired ... I have
+# isolated the media player handler", none of which was checked: no pattern took it for a complaint.
+_YOU_JUST_DID = (r"\byou\s+(?:(?:just|then|only|also|somehow|suddenly|actually|even|literally|fucking|bloody|damn)\s+)+"
+                 # a past form, not a present one that happens to end the same way
+                 r"(?!(?:need|want|feed|speed|proceed|exceed|could|should|would|point|count|print)\b)\w+(?:ed|pt|ld|nt)\b"
+                 r"|\bthen\s+you\s+(?!(?:can|could|should|will|would|may|might|need|want|have|just)\b)\w+")
 
 # A complaint aimed at ELI. The worst invented diagnosis on record ("the embedding model decayed
 # the context window's relevance") answered one of these, not a question.
@@ -54,7 +69,8 @@ _COMPLAINT_RE = re.compile(
     r"|\bi\s+asked\s+you\b|\bwhy\s+the\s+(?:fuck|hell)\b"
     r"|\b(?:are|were)\s+you\s+(?:just\s+)?making\s+(?:that|this|it|stuff|things|shit)\s+up\b"
     r"|\byou\s+(?:did\s+not|didn'?t|have\s+not|haven'?t)\s+(?:actually\s+|even\s+)?\w+"
-    r"|\byou\s+never\s+(?!know\b)\w+",
+    r"|\byou\s+never\s+(?!know\b)\w+"
+    r"|" + _YOU_JUST_DID,
     re.I)
 
 
@@ -173,6 +189,96 @@ _ENABLED_CLAIM = re.compile(
     r"|\bdo you want me to\s+(?:enable|activate|switch on|turn on)\b",
     re.I)
 
+# Saying it has done, or is doing, something on the machine. Checked on a turn in which nothing
+# was carried out: asked to open Spotify inside a longer sentence, the model alone answered "Spotify
+# is opening now." and then "Done. Playing ...", and given folders to read it wrote "Scanning ...
+# (Waiting for system execution output...)" with nothing running. The verbs are the ones a command
+# starts with (runtime.command_splitter), in the forms a report uses, without the ones below.
+
+# Work a reply does in its own words: "I've summarised it below" and "Listing the options:" are the
+# reply doing what it says. ("Checking ..." and "searching ..." with nothing run are
+# runtime.action_commitment's: it carries the check out.)
+_DONE_IN_WORDS = frozenset("""add analyse analyze build call cancel check clear confirm convert copy create decline
+decrease describe design diagnose dictate do examine explain find fix forget generate get give help import improve
+increase list listen look lower make move next paste prepare previous raise read remember remove repeat resolve
+review say select set show speak summarise summarize take tell test train transcribe turn type update volume
+write""".split())
+
+
+def _doing_forms() -> str:
+    from eli.runtime.command_splitter import COMMAND_VERBS
+    verbs = (set(COMMAND_VERBS) - _DONE_IN_WORDS) | {
+        "scan", "load", "wait", "queue", "index", "ingest", "restart", "trigger", "initiate", "initialise", "initialize"}
+    stems = sorted({v[:-1] if v.endswith("e") else v for v in verbs if len(v) > 2} | {"sent", "ran"},
+                   key=len, reverse=True)
+    return "(?:" + "|".join(stems) + r")\w{0,2}(?:ed|ing|d)?"
+
+
+_DOING = _doing_forms()
+_REPORTS_ACTING = re.compile(
+    # "I've opened ...", "I'm scanning ...", "I just ran ...". Not "I opened ..." or "I successfully
+    # sent ...": the plain past tells of an earlier turn, and that account is held to the record.
+    r"\bi(?:'ve|’ve| have|'m|’m| am| just)\s+(?:(?:now|just|already|successfully|currently)\s+)*"
+    + _DOING + r"\b"
+    # "Spotify is opening now", "the scan is running"
+    r"|\b[\w`'\"&.-]+(?:\s+[\w`'\"&.-]+){0,3}\s+is\s+(?:now\s+|currently\s+)?"
+    r"(?:open|launch|start|play|load|run|download|install|scan|execut|search|fetch)\w{0,2}ing\b",
+    re.I)
+# "Done." on its own. It is a report when what follows it is one ("Done. Playing ...") or when
+# nothing follows; before something the reply made in words ("Done. Here is the email:") it is not.
+_DONE_LEAD = re.compile(r"^[\s*_>(\[-]*(?:done|all done|sorted|there you go)\s*[.!]*[\s*_)\]]*$", re.I)
+# "Scanning `/home/...` and `/home/...`.", "Playing "X" by Y, since ...", "Executing directory
+# scans...", "(Waiting for system execution output...)": the act named with no one doing it. What
+# tells it from a sentence about the act ("Enabling `x` adds nothing", "Playing music helps") is
+# that no verb follows: the thing it points at is followed by the end, a comma or a joining word,
+# or the sentence is short and trails off.
+_ACTING_NOW = re.compile(r"^[\s*_>(\[-]*(?:" + _DOING + r")\b", re.I)
+_POINTED_AT = re.compile(
+    r"^(?:\s+[\w'’-]+){0,4}?\s+(?:`[^`]+`|\"[^\"]+\"|“[^”]+”|[~.]?/[\w./-]+)"
+    r"\s*(?:$|[.,;:!…)*_]|(?:and|by|on|in|from|for|with|to|at|via|now|since|as|through|using)\b)", re.I)
+_TRAILS_OFF = re.compile(r"(?:\.\.\.|…|\bnow\b\s*[.!]?)[\s)*_\]]*$", re.I)
+_HAS_A_VERB = re.compile(
+    r"\b(?:is|are|was|were|be|would|could|can|should|might|may|will|does|do|did|has|have|had|helps?|takes?|means?|"
+    r"needs?|requires?|adds?|makes?|gives?)\b|n[’']t\b", re.I)
+
+
+# "Project `Physics_DeepDive` initialized.", "Reminder set.", "File saved.": the thing, then what
+# was done to it, and nothing more. "Well played." is not one: the thing has to be something ELI
+# acts on (a word of its own catalogue) or be pointed at.
+_DONE_TO_IT = re.compile(
+    r"^[\s*_>(\[-]*((?:[\w`'\"“”./~-]+\s+){1,4})(?:" + _DOING.replace(r"(?:ed|ing|d)?", "(?:ed|d)")
+    + r"|set)\s*[.!]*[\s*_)\]]*$", re.I)
+
+
+def _reports_a_thing_done(sentence: str) -> bool:
+    done = _DONE_TO_IT.match(sentence)
+    if not done:
+        return False
+    thing = done.group(1)
+    if re.search(r"[`\"“]|[~.]?/[\w.-]+/", thing):
+        return True
+    try:
+        from eli.cognition.llm_intent import _catalogue_words
+        known = _catalogue_words()
+    except Exception:
+        return False
+    return any(w in known or (w.endswith("s") and w[:-1] in known) for w in re.findall(r"[a-z]{3,}", thing.lower()))
+
+
+def _says_it_acted(sentence: str) -> bool:
+    return bool(_REPORTS_ACTING.search(sentence)) or _names_an_act_under_way(sentence) or _reports_a_thing_done(sentence)
+
+
+def _names_an_act_under_way(sentence: str) -> bool:
+    start = _ACTING_NOW.match(sentence)
+    if not start or not start.group(0).rstrip().lower().endswith("ing"):
+        return False
+    rest = sentence[start.end():]
+    if _POINTED_AT.match(rest):
+        return True
+    return bool(_TRAILS_OFF.search(rest)) and len(sentence.split()) <= 14 and not _HAS_A_VERB.search(rest)
+
+
 # A fix ELI has no action for: "a hard reset on the media process manager", "re-indexing the
 # last 48 hours with stricter temporal weighting", "enable verbose logging in the config".
 _INVENTED_FIX = re.compile(
@@ -187,9 +293,10 @@ _INVENTED_FIX = re.compile(
 # its code on every turn; "no web search for future questions" is not something a reply can make true.
 _STANDING_PROMISE = re.compile(
     r"\b(?:for (?:all |any )?future (?:questions|requests|turns|queries|messages)|from now on|going forward|"
-    r"from here on|never again|not (?:happen|do (?:that|it)|search\w*) again|any ?more|in future|"
+    r"from here on|never again|(?:not|\w+n['’]t) (?:happen|do (?:that|it)|search\w*) again|any ?more|in future|"
     r"unless you (?:explicitly |specifically )?(?:ask|say|tell|request)|until you (?:say|tell|ask)|"
     r"for the rest of (?:this|the|our) (?:session|conversation|chat))\b", re.I)
+_SAYS_IT_DID = re.compile(r"\bi(?:'ve|’ve| have)\s+(?:(?:now|just|already|since)\s+)*\w+(?:ed|en|pt|lt)\b", re.I)
 _COMMITS = re.compile(
     r"\bi(?:'ll|’ll| will| won't| won’t| will not| am going to|'m going to|’m going to)\b|^\W*no (?:more )?\w+", re.I)
 
@@ -208,7 +315,8 @@ _FAULT_RE = re.compile(
     r"|\bwhat(?:'?s| is| are)\s+with\s+(?:all\s+)?(?:the|these|those|this|your)\s+(?:issues?|problems?|errors?|bugs?|mistakes?|failures?)\b"
     r"|\bwhat\s+(?:has|have)\s+been\s+going\s+on\b|\bgoing on\b[^.?!]{0,30}\b(?:issues?|problems?|errors?)\b"
     r"|\bwhy\b[^.?!]{0,40}\b(?:wrong|lying|lie[ds]?|making (?:shit|stuff|things) up|ignor\w+|slow|so long|broken|fail\w*)\b"
-    r"|\bexplain\b[^.?!]{0,30}\b(?:yourself|your (?:mistake|error)|what happened|why you)\b",
+    r"|\bexplain\b[^.?!]{0,30}\b(?:yourself|your (?:mistake|error)|what happened|why you)\b"
+    r"|" + _YOU_JUST_DID + r"|" + WHAT_JUST_HAPPENED,
     re.I)
 
 # What an invented diagnosis reaches for. On a fault question each has to be in the record.
@@ -377,7 +485,7 @@ class _Check:
         self._facts = facts
         asked = str(facts.get("user_input") or "")
         self.about_self = asks_about_own_behaviour(asked)
-        self._ran_at_start = bool(facts.get("executed_actions"))
+        self._ran_at_start = bool(facts.get("executed_actions")) or _carried_out_before()
         # What the pipeline recorded, plus the user's own words. Not ELI's.
         self._record = str(facts.get("_record") or "").lower()
         self._fault = bool(self._record) and asks_about_fault(asked)
@@ -395,6 +503,8 @@ class _Check:
         self._line_open = False  # served text since the last newline
         self.dropped: List[str] = []
         self.kept_words = 0
+        self.claimed_acting = False
+        self._lead: Optional[str] = None
 
     def why(self, unit: str) -> str:
         s = str(unit or "")
@@ -411,6 +521,11 @@ class _Check:
         ran = self._ran_at_start or bool(self._facts.get("executed_actions"))
         if not ran and _ENABLED_CLAIM.search(s):
             return "reports a change nothing made"
+        if not ran and _says_it_acted(s):
+            self.claimed_acting = True
+            return "says it did or is doing something, and nothing was carried out this turn"
+        if not ran and _STANDING_PROMISE.search(s) and _SAYS_IT_DID.search(s):
+            return "says it changed something so that it will not happen again, and nothing was changed"
         if not self.about_self:
             return ""
         if not ran and _STANDING_PROMISE.search(s) and _COMMITS.search(s):
@@ -453,7 +568,22 @@ class _Check:
         if not unit:
             return []
         if not unit.strip():
-            return [unit] if self._heading is None else []
+            return [unit] if (self._heading is None and self._lead is None) else []
+        if self._lead is not None:
+            # a "Done." held back: what follows says whether it was a report
+            lead, self._lead = self._lead, None
+            if _says_it_acted(unit):
+                self.dropped.append(lead)
+                self.claimed_acting = True
+                return self._unit(unit)
+            self.kept_words += len(lead.split())
+            return [lead] + self._unit(unit)
+        if _DONE_LEAD.match(unit) and not (self._ran_at_start or self._facts.get("executed_actions")):
+            self._lead = unit
+            return []
+        return self._unit(unit)
+
+    def _unit(self, unit: str) -> List[str]:
         if _HEADING.match(unit):
             out = [] if (self._heading is None or self._dropped_under_heading) else [self._heading]
             # a heading can carry the invention too ("The Temporal Drift"); its section stands without it,
@@ -482,6 +612,13 @@ class _Check:
     def close(self) -> List[str]:
         out = [] if (self._heading is None or self._dropped_under_heading) else [self._heading]
         self._heading = None
+        if self._lead is not None:
+            lead, self._lead = self._lead, None
+            if self.kept_words:
+                out.append(lead)       # it closes something the reply did say
+            else:
+                self.dropped.append(lead)
+                self.claimed_acting = True
         return out
 
     def afterword(self) -> str:
@@ -489,8 +626,15 @@ class _Check:
         left, a line saying causes were left out when several were, otherwise nothing."""
         if not self.dropped:
             return ""
+        if self.claimed_acting:
+            # said plainly, whatever else was kept: the user was told something had happened
+            return ("\n\n" if self.kept_words else "") + "Nothing was carried out in this turn."
         if self.unrecorded_days:
-            days = [time.strftime("%A %d %B", time.strptime(d, "%Y-%m-%d")).replace(" 0", " ") for d in self.unrecorded_days]
+            today = time.strftime("%Y-%m-%d")
+            days = ["earlier today" if d == today else
+                    time.strftime("%A %d %B", time.strptime(d, "%Y-%m-%d")).replace(" 0", " ") for d in self.unrecorded_days]
+            if days == ["earlier today"]:
+                return "\n\nNothing is recorded earlier today."
             return "\n\nNothing is recorded on " + ", ".join(days[:-1]) + (" or " if len(days) > 1 else "") + days[-1] + "."
         lines = self._facts.get("_record_lines") or []
         if self.kept_words < 4:
@@ -528,6 +672,17 @@ def _is_day_label(unit: str, window: Any) -> bool:
     """A short unit that only names a day ("**Wednesday, 7 October 2026**"), not a sentence about it."""
     words = re.findall(r"[A-Za-z0-9]+", str(unit or ""))
     return 1 <= len(words) <= 6 and bool(days_named(unit, window))
+
+
+def _carried_out_before() -> bool:
+    """A turn nested in one that has already carried the user's commands out (the rest of a
+    message of commands and talk, or the written part of an agreed offer)."""
+    try:
+        from eli.kernel.request_context import agreed_task_var
+        agreed = agreed_task_var.get()
+        return isinstance(agreed, dict) and bool(str(agreed.get("done") or "").strip())
+    except Exception:
+        return False
 
 
 def _turn_context() -> Dict[str, Any]:

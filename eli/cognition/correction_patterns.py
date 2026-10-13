@@ -226,7 +226,11 @@ _CORRECTION_BYPASS_ACTIONS = frozenset({
 
 
 def explicit_web_search_request(text: str) -> bool:
-    return bool(WEB_SEARCH_REQUEST_RE.search(str(text or "")))
+    """The user tells ELI to search the web. The same words said about a search are not a
+    request: live, 'you about a website with a search for "that website" and then killed the app'
+    was web-searched and answered with advice on malicious websites."""
+    from eli.runtime.command_splitter import read_message
+    return any(part["tells"] and WEB_SEARCH_REQUEST_RE.search(part["tells"]) for part in read_message(text))
 
 
 def is_meta_conversation(text: str) -> bool:

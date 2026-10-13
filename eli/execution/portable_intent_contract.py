@@ -62,6 +62,25 @@ def _clean_target(text: str) -> str:
     return re.sub(r"\s+", " ", s).strip(" .,:;")
 
 
+_WINDOW_WORDS_RE = re.compile(r"^(?:the|my|that|this)\s+|\s+(?:window|app|application|program)$", re.I)
+_A_TAB_RE = re.compile(r"\s+tab(?:\s+(?:in|on|of)\s+(?:the\s+|my\s+)?[\w\s-]{1,30})?$", re.I)
+
+
+def window_target(text: str) -> dict:
+    """The window a command names, without the words around it: "the browser window" ->
+    {"name": "browser"}; "the futurama tab in browser" -> {"name": "futurama", "tab": True}.
+    The name is "" for "this window", "it", "the window": the one in front."""
+    from eli.system.portable_app_control import BARE_WINDOW_TARGETS
+    s = _clean_target(text)
+    tab = bool(_A_TAB_RE.search(s))
+    if s.lower() not in BARE_WINDOW_TARGETS:
+        s = _A_TAB_RE.sub("", s)
+        for _ in range(2):
+            s = _WINDOW_WORDS_RE.sub("", s).strip()
+    name = "" if s.lower() in BARE_WINDOW_TARGETS else s
+    return {"name": name, "tab": True} if (tab and name) else {"name": name}
+
+
 _MEDIA_SERVICE_ALIASES = {
     "spotify": "spotify",
     "youtube": "youtube",
@@ -206,23 +225,13 @@ _URL_TLDS = frozenset({
     "app", "ai", "me", "info", "xyz", "tv", "fm", "cloud", "online", "site",
 })
 
+# The endings that are also ordinary words. Said without a dot after a name they describe the
+# thing ("nasa site", "apple tv", "notes app", "google cloud"), so they make an address only
+# when written or spoken with the dot: "open nasa site" used to open https://nasa.site.
+_SPOKEN_TLDS = _URL_TLDS - {"site", "app", "tv", "me", "info", "cloud", "online", "dev", "ai", "fm", "co"}
+
 # Named sites users say without a TLD — open in the browser, not as an installed app.
-_WEB_SITE_OPEN_ALIASES = {
-    "youtube": "https://www.youtube.com",
-    "google": "https://www.google.com",
-    "gmail": "https://mail.google.com",
-    "facebook": "https://www.facebook.com",
-    "twitter": "https://www.twitter.com",
-    "x": "https://x.com",
-    "instagram": "https://www.instagram.com",
-    "reddit": "https://www.reddit.com",
-    "github": "https://www.github.com",
-    "wikipedia": "https://www.wikipedia.org",
-    "netflix": "https://www.netflix.com",
-    "amazon": "https://www.amazon.com",
-    "twitch": "https://www.twitch.tv",
-    "hulu": "https://www.hulu.com",
-}
+from eli.execution.app_aliases import WEBSITE_ALIASES
 
 
 # Dotted names that are files, not websites: "open notes.txt" is a file.
@@ -241,6 +250,22 @@ _IN_WEB_SUFFIX_RE = re.compile(
     r"internet|chrome|chromium|firefox|brave)\s*$", re.I)
 
 
+_ORDINALS = {"first": 1, "1st": 1, "top": 1, "second": 2, "2nd": 2, "third": 3, "3rd": 3, "fourth": 4, "4th": 4,
+             "fifth": 5, "5th": 5}
+_A_PAGE = r"(?:web\s?sites?|sites?|web\s?pages?|home\s?pages?|pages?|links?|urls?|address(?:es)?|results?|articles?)"
+_AGAIN = r"(?:\s+(?:again|you (?:just )?(?:found|mentioned|listed|gave me|showed me|linked)|from (?:before|earlier|above)))?"
+# "that website", "the second link". A bare "it" or "that" points at a page only when the
+# command says where to open it ("open it in the browser").
+_POINTS_AT_A_PAGE_RE = re.compile(
+    r"(?:that|this|the|the same|those|these)(?:\s+(?P<which>" + "|".join(_ORDINALS) + r"))?\s+" + _A_PAGE + _AGAIN, re.I)
+_POINTS_BACK_RE = re.compile(r"(?:it|that|this|them|those|these|(?:that|the) (?:same )?one)" + _AGAIN, re.I)
+_AFTERTHOUGHT_RE = re.compile(r"(?:\s+(?:instead|then|please|now|for me|too|as well))+\s*$", re.I)
+_NOT_A_NAME = frozenset(("my", "the", "a", "an", "this", "that", "our", "your", "some", "any", "web", "new", "which", "what"))
+_NAMED_SITE_RE = re.compile(
+    r"(?:the\s+|my\s+)?(?P<name>[\w&.'’+-]+(?:\s+[\w&.'’+-]+){0,4}?)(?:'s|’s)?\s+(?:official\s+)?"
+    r"(?:web\s?site|site|web\s?page|home\s?page)", re.I)
+
+
 def _looks_like_url_target(target: str) -> bool:
     """True when an OPEN target is a web address rather than an app name."""
     s = _IN_WEB_SUFFIX_RE.sub("", str(target or "").strip().lower())
@@ -251,7 +276,7 @@ def _looks_like_url_target(target: str) -> bool:
     collapsed = re.sub(r"\s+dot\s+", ".", s)
     # Spoken "<name> com" (dot dropped by STT): two tokens, trailing TLD word.
     toks = collapsed.split()
-    if len(toks) == 2 and toks[1] in _URL_TLDS and re.fullmatch(r"[a-z0-9\-]+", toks[0]):
+    if len(toks) == 2 and toks[1] in _SPOKEN_TLDS and re.fullmatch(r"[a-z0-9\-]+", toks[0]):
         return True
     # A single dotted name with any real TLD: "github.com", "docs.python.org",
     # "cinejoy.pk". The fixed TLD list made "open cinejoy.pk" an app to install.
@@ -273,8 +298,22 @@ def web_open_target(target: str):
     raw = str(target or "").strip()
     if _looks_like_url_target(raw):
         return "OPEN_URL", {"url": _build_url(raw)}
+    rest = _IN_WEB_SUFFIX_RE.sub("", _AFTERTHOUGHT_RE.sub("", raw)).strip(" .,")
+    rest = _AFTERTHOUGHT_RE.sub("", rest).strip(" .,")
+    # "that website", "the second link": an address named earlier in the conversation.
+    points = _POINTS_AT_A_PAGE_RE.fullmatch(rest)
+    if points:
+        return "OPEN_URL", {"refers_to": rest, "which": _ORDINALS.get((points.group("which") or "").lower(), 1)}
+    if _IN_WEB_SUFFIX_RE.search(raw) and _POINTS_BACK_RE.fullmatch(rest):
+        return "OPEN_URL", {"refers_to": rest, "which": 1}
+    # "nasa website", "the bbc's home page": a site known by its name. Its address is found
+    # when the command runs (eli.runtime.site_address), never made up from the name.
+    site = _NAMED_SITE_RE.fullmatch(rest)
+    if site and site.group("name").strip().lower() not in _NOT_A_NAME:
+        name = re.sub(r"['’]s$", "", site.group("name").strip())
+        known = WEBSITE_ALIASES.get(name.lower())
+        return "OPEN_URL", ({"url": known} if known else {"site": name})
     if _IN_WEB_SUFFIX_RE.search(raw):
-        rest = _IN_WEB_SUFFIX_RE.sub("", raw).strip(" .,")
         return "OPEN_BROWSER", ({"query": rest} if rest else {})
     return None
 
@@ -286,7 +325,7 @@ def _build_url(target: str) -> str:
         return s
     s = re.sub(r"\s+dot\s+", ".", s)
     toks = s.split()
-    if len(toks) == 2 and toks[1] in _URL_TLDS:
+    if len(toks) == 2 and toks[1] in _SPOKEN_TLDS:
         s = toks[0] + "." + toks[1]
     s = re.sub(r"\s+", "", s)
     return "https://" + s
@@ -466,14 +505,14 @@ def try_route(text: str) -> Optional[dict]:
                 "confidence": 0.97,
                 "meta": {"matched_by": "portable_intent_contract.open_url"},
             }
-        elif target.lower().strip() in _WEB_SITE_OPEN_ALIASES:
+        elif target.lower().strip() in WEBSITE_ALIASES:
             return {
                 "action": "OPEN_URL",
-                "args": {"url": _WEB_SITE_OPEN_ALIASES[target.lower().strip()]},
+                "args": {"url": WEBSITE_ALIASES[target.lower().strip()]},
                 "confidence": 0.97,
                 "meta": {"matched_by": "portable_intent_contract.open_named_site"},
             }
-        elif _IN_WEB_SUFFIX_RE.search(target):
+        elif web_open_target(target) is not None:
             _web = web_open_target(target)
             return {
                 "action": _web[0],
@@ -529,13 +568,27 @@ def try_route(text: str) -> Optional[dict]:
 
     m = re.fullmatch(r"(?:minimize|minimise|hide)\s+(.+)", norm)
     if m:
-        target = _clean_target(m.group(1))
+        target = window_target(m.group(1))["name"]
         if _looks_like_app_target(target):
             return {
                 "action": "MINIMIZE_APP",
                 "args": {"name": target, "target": target},
                 "confidence": 0.995,
                 "meta": {"matched_by": "portable_intent_contract.minimize_app"},
+            }
+
+    # The same for making a named window big. There was no rule for it: "maximise browser" went
+    # to the model, which answered MAXIMISE_WINDOW with no name, and ELI maximised its own window.
+    m = (re.fullmatch(r"(?:maximize|maximise|full\s?screen)\s+(.+)", norm)
+         or re.fullmatch(r"make\s+(.+?)\s+(?:full\s?screen|maximi[sz]ed|as big as (?:possible|it goes))", norm))
+    if m:
+        target = window_target(m.group(1))["name"]
+        if _looks_like_app_target(target):
+            return {
+                "action": "MAXIMISE_WINDOW",
+                "args": {"name": target, "target": target},
+                "confidence": 0.995,
+                "meta": {"matched_by": "portable_intent_contract.maximise_app"},
             }
 
     m = re.fullmatch(r"(?:set\s+)?volume\s+(?:to\s+)?(\d{1,3})\s*%?", norm)

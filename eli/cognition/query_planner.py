@@ -133,6 +133,19 @@ def days_named(text: str, window: Window) -> list:
                     if day.weekday() == i and day <= last:
                         add(day)
                         break
+    # Words that place something earlier on the day the window ends, or the day before it: live,
+    # asked about the past week, ELI put what was recorded four days earlier down to "this
+    # morning", in the first conversation of that day. Only words for a time already gone by:
+    # "today" and "tonight" can be about now.
+    gone_by = r"earlier\s+today|earlier\s+on\b"
+    if last.hour >= 12:
+        gone_by += r"|this\s+morning"
+    if last.hour >= 18:
+        gone_by += r"|this\s+afternoon"
+    if re.search(rf"\b(?:{gone_by})", low):
+        add(last)
+    if re.search(r"\b(?:yesterday|last\s+night)\b", low):
+        add(last - timedelta(days=1))
     return found
 
 

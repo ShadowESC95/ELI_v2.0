@@ -79,7 +79,7 @@ _add("App & window control", "OPEN_NETWORK_BROWSER", "Open network settings", "�
 _add("App & window control", "OPEN_COMMUNICATION_HUB", "Open the comms hub (mail/chat apps)", "“open communication hub”")
 _add("App & window control", "OPEN_MEDIA_HUB", "Open the media hub", "“open media hub”")
 _add("App & window control", "TILE_WINDOWS", "Tile windows in a grid", "“tile windows”", "“2x2 grid”", "“4x2”")
-_add("App & window control", "MAXIMISE_WINDOW", "Maximise the focused window", "“maximise the window”")
+_add("App & window control", "MAXIMISE_WINDOW", "Maximise a named app's window (args: name), or the focused one when none is named", "“maximise firefox”", "“maximise the window”")
 _add("App & window control", "MINIMISE_ALL", "Minimise all / show desktop", "“minimise everything”", "“show desktop”")
 _add("App & window control", "MINIMISE_WINDOW", "Minimise the focused window", "“minimise the window”", "“minimise this”")
 _add("App & window control", "MINIMIZE_WINDOW", "Minimise the focused window (US spelling)", "“minimize this window”")

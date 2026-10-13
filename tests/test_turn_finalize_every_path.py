@@ -178,13 +178,15 @@ def test_a_turn_finalize_turn_already_handled_is_left_alone(eng):
 
     def impl(self, user_input, *a, **k):
         self._store_user_turn(user_input)
-        finalize_turn(self, user_input=user_input, response="Done.",
+        finalize_turn(self, user_input=user_input, response="Sure thing.",
                       intent={"action": "CHAT"}, result={"ok": True}, trace={})
-        return {"ok": True, "action": "CHAT", "content": "Done."}
+        return {"ok": True, "action": "CHAT", "content": "Sure thing."}
 
+    # (the reply is not "Done.": on a chat turn in which nothing ran, that is a report of an
+    # act and the claim check replaces it)
     with patch.object(CognitiveEngine, "_learn_from_result", lambda *a, **k: None):
         _run(eng, impl, "do the thing")
-    assert _roles(eng) == [("user", "do the thing"), ("assistant", "Done.")]
+    assert _roles(eng) == [("user", "do the thing"), ("assistant", "Sure thing.")]
     assert eng._episodic == []
 
 
