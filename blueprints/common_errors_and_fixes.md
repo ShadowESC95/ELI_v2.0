@@ -814,3 +814,83 @@ This stops a listing you do not control from pointing ELI at your own machine or
 If it is your own registry on your own network, add it as a source: `add_registry`
 detects a local address, records the exception explicitly, and warns you. A public
 registry that then redirects somewhere private is still refused.
+
+---
+
+## ELI did something I did not ask for, in the middle of a sentence about something else
+
+**Symptom:** a long message that mentions an app or a command ("...you did not open spotify or
+play any song just now, you need to stop lying to me...") stops what is playing, pauses a
+player or opens a settings panel. Or a "yes" to ELI's question runs steps taken from its own
+explanation.
+
+**Cause:** the last routing stages match on words wherever they stand, and the reader of ELI's
+own offers took a sentence of narrative ("Spotify received that stop signal, paused the
+track, ...") for a step.
+
+**Fix (v2.5.11):** a command that changes something is carried out only from a sentence that
+tells ELI to do it. A message is read sentence by sentence: the commands in it are carried out,
+and the rest is answered. `eli/runtime/command_splitter.py`, `route_contracts.fits`.
+
+---
+
+## ELI said it had done something and it had not
+
+**Symptom:** "Spotify is opening now.", "Done. Playing ...", "Scanning `/home/...`
+(Waiting for system execution output...)", "Project `X` initialized." with nothing happening.
+
+**Cause:** the message was answered by the model alone, and a model asked to do something
+writes that it did.
+
+**Fix (v2.5.11):** on a turn in which nothing was carried out, a sentence that reports an act
+on the machine is removed and the reply ends "Nothing was carried out in this turn." If you
+see that line, the request did not reach a command: say it as an instruction on its own
+("open spotify"), or tell ELI which app, file or site you mean.
+
+---
+
+## "open nasa website" answered "not installed, install it?"; "open that website" searched for the words
+
+**Cause:** the target was taken for an application, and a made-up name was offered for install
+although no package source had it. "that website" was passed to a search as it stood.
+
+**Fix (v2.5.11):** a site is opened by its address. An address you give is used as it is; a
+name ("nasa website", "the bbc's home page") is looked for in the conversation and then on
+the web; "that website", "the second link", "open it in the browser" point at addresses
+already in the conversation. When no address is found ELI says so and opens nothing. An
+install is offered only when a package source on your machine has the application.
+
+---
+
+## "maximise browser" changed ELI's own window, or nothing came back
+
+**Cause:** there was no rule for maximising a named window, the intent model resolved it
+without the name, and the command then ran on the window in front, which is ELI's when you
+type into it.
+
+**Fix (v2.5.11):** "maximise firefox", "fullscreen the browser", "minimise the browser window",
+"switch to firefox" keep the window they name. "switch to the futurama tab" raises the window
+showing that tab; a tab that is not in front in its window cannot be reached from outside the
+browser, and the reply says so. On a Wayland session without `kdotool` or `wlrctl`, other
+programs' windows cannot be moved at all: the reply says that as well.
+
+---
+
+## I gave ELI a folder and it asked me to run `ls` and paste the output
+
+**Fix (v2.5.11):** a file or folder written as a path in your message is looked at before the
+model answers: the reply has in front of it how many files there are, of what kinds, where,
+and the newest by name, and the documents in the folder (PDF, DOCX, ODT, EPUB, text) are read
+into the document index, newest first. A large folder is read behind the conversation; ask
+again after a minute for passages from files that were still queued. Scripts and data files
+are listed, not read: ask for one by path ("read /path/to/run.py").
+
+---
+
+## A short remark took half a minute before the reply started
+
+**Cause:** a message under six words was always sent to the intent model first, which needs
+its whole action catalogue in the prompt (about 2,400 tokens).
+
+**Fix (v2.5.11):** a short remark with no question, no command verb, no request and no word in
+common with anything ELI can do ("doing well, good one") goes straight to conversation.

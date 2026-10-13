@@ -133,6 +133,40 @@ RESPONSE_DELIVERY, S12 LEARNING_STATE_UPDATE. Enable tracing with `ELI_PIPELINE_
 - **`portable_intent_contract.py`, `media_runtime.py`, `operator_actions.py`**: media and
   OS intent wiring. Plugin actions are handled directly in `executor_enhanced.py`.
 
+**A command is carried out from a sentence that gives it.** The last stages of the pipeline
+match on words wherever they stand, and used to carry commands out from inside sentences that
+were not telling ELI to do anything: a complaint that named Spotify stopped the film that was
+playing. Three pieces of form now decide, none of them a list of phrases:
+
+- `runtime/command_splitter.py` reads a message as sentences and says, for each, what it tells
+  ELI to do, or nothing: a sentence that starts with who or what it is about ("you did not open
+  spotify", "it stopped again") or with a question word is about something; one framed as a
+  request ("could you ...", "i'd like you to ...") or starting with what to do is an
+  instruction. A sentence that turns into one ("this is great, play it again"; in speech, with
+  no punctuation, "that was great can you play some jazz") is read as its two parts. It also
+  holds the one list of verbs a command starts with (`COMMAND_VERBS`).
+- `route_contracts.changes_something(action)` says, from the action's name, whether carrying it
+  out changes anything. `route_contracts.fits(text, intent)` is asked of those that do: the
+  sentence has to be an instruction, and beyond the command's own words it has to say little.
+  The router asks it of the word-matching stages; the engine asks it of whatever the intent
+  model resolves. A candidate that does not fit is passed over and recorded
+  (`router.not_an_instruction`), and that turn is not sent to the intent model.
+- A message of commands and talk ("see, you can do it! open spotify") is routed as
+  `message.instructions_and_talk`: the engine carries the commands out through the executor
+  and answers the rest through the full pipeline, with the result in front of the model and
+  told that nothing else ran (`_carry_out_agreed`, the path a "yes" to an offer takes).
+
+**What a command names is what it acts on.** `portable_intent_contract.web_open_target` and
+`window_target` are the one place each for an "open ..." target that is a website and for the
+window a command names. A site is opened by an address that was given, is in the one table of
+site names (`app_aliases.WEBSITE_ALIASES`), or is found when the command runs
+(`runtime/site_address.py`: the conversation first, then a web search whose result carries the
+name); "that website" and "the second link" are looked for in the conversation. An address is
+never built from the words ("go to the youtube tab" used to open `https://the youtube tab`).
+Maximise, minimise, focus and tab commands keep the window they name; a bare one acts on the
+window in front. Every control in the catalogue's "App & window control", "Input control" and
+"Media" groups goes straight to the executor, read from the catalogue and not from a list.
+
 Routes that were once bugs are pinned by tests and by `tools/eval/cases.yaml`: media
 controls need whole-word, command-shaped input; a bare "do a search" needs a subject;
 meta-questions stay in CHAT; realtime facts go to WEB_SEARCH; code words such as "repo"

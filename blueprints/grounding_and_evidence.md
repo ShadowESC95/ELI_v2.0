@@ -122,7 +122,10 @@ browser/IDE absent), it: `diagnose_app/path/browser/ide` → `build_repair_plan`
 → `offer_for_result` ("want me to install X?") → `handle_confirmation` (consumes
 yes/no) → `execute_pending_plan`. Stateful pending-repair tracking +
 `explain_last_failure`. This is what makes failures conversational and
-recoverable instead of dead ends.
+recoverable instead of dead ends. An install is offered only when a package source on the
+machine has the thing (`build_install_candidates` asks each one). When none has it the reply
+says so and, for a short name, asks whether to open its website instead: "open nasa" used to
+end "Would you like me to download/install it?", and a yes ran the same lookups again.
 
 ## Evidence-completeness gating (`contracts/grounded_control.py`)
 
@@ -188,7 +191,7 @@ bug (asserts `evidence_complete_for_action` now returns `False` on it).
 
 ---
 
-## ELI's account of its own behaviour (`cognition/self_claims.py`, 564 lines)
+## ELI's account of its own behaviour (`cognition/self_claims.py`, 751 lines)
 
 Routing, retrieval and escalation run before the model is called and never reach it, so asked
 "why did you search the web?" a model can only invent. Live, a 35B model blamed "vector search
@@ -223,6 +226,24 @@ exist, and said "the audit trail is now active" for logging that was always on.
   goes with it, and a heading left with nothing under it is removed. ELI's own earlier
   replies are never counted as evidence. When sentences were dropped the reply says so and
   gives the recorded rows instead; code blocks are never touched.
+- **A reply cannot say it did something when nothing ran.** On a turn in which no action was
+  carried out, a sentence is dropped when it reports an act on the machine: "I've opened ...",
+  "Spotify is opening now", "Scanning `/path` ...", "(Waiting for system execution
+  output...)", "Project `X` initialized." The verbs are the ones a command starts with, less
+  the work a reply does in its own words ("I've summarised it below" is the reply doing what
+  it says). A lone "Done." is judged by what follows it: before another such report, or with
+  nothing after it, it goes; before something the reply wrote, it stays. The reply then ends
+  "Nothing was carried out in this turn." When the user's own commands did run in the turn
+  (a message of commands and talk), their results are in front of the model and it may refer
+  to them. A fix said to have been made "so it won't happen again" is dropped on any turn.
+- **Saying what ELI just did is a question about it.** "then you just stopped spotify", "you
+  just maximised your GUI, not the browser", "what just happened?" are held to the record
+  like "why did you ...": the last is answered from the ledger with no model call.
+- **A day in a reply has to be a day with records.** For a question about a period, a sentence
+  that puts something on a day with nothing recorded is dropped. "this morning", "earlier
+  today", "yesterday" and "last night" are days too, and the message being answered does not
+  count as a record of its own day: asked about the past week, ELI had put Thursday's songs
+  down to "this morning" in the day's first conversation.
 - **The self-model says so too.** The live self-model line states that logging is always on
   (every action in the evidence ledger, every turn in the audit chain) and is not something a
   reply can change.

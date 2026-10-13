@@ -294,6 +294,15 @@ to be answered from.
   documents (`strict`), a passage is offered only at cosine >= 0.70, or >= 0.64 with at least
   half the question's content words in it (thresholds measured on the nomic embedder, where
   unrelated text scores up to 0.66).
+- **A file or folder named by its path is handed over too.** A path typed into a message, or
+  into one of the user's last messages when this one speaks of "the paths", "those folders"
+  or "the project" (`named_paths`, `with_what_it_refers_to`), is looked at on the disk before
+  the model is asked. The turn's context gets what is there (`describe_named`: how many files,
+  of what kinds, in which sub-folders, the newest by name; sized by `cog.named_paths_chars`,
+  and what did not fit is counted). The documents in a named folder are stored the way a
+  dropped file is, newest first, for as long as the memory agent is allowed for its own work;
+  the rest are queued and read behind the reply. Given two folders to study, ELI had answered
+  "that is a string literal to me" and asked the user to run `ls` and paste the output.
 - **Scope.** Documents carry the user id of the turn that read them; another API user never
   sees them. Indexing and removal are written to the evidence ledger.
 - **Forgetting.** "forget the X document" lists matching documents and, on

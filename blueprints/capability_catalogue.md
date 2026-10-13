@@ -493,7 +493,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `ble_light.py` | 247 | BLE light control — the GATT writes ELI never had. |
 | `bt_platform.py` | 1335 | Cross-platform Bluetooth radio detection, recovery, and classic discovery. |
 | `codebase_graph.py` | 306 | Codebase self-graph — ELI's live, grounded model of how its OWN code connects. |
-| `command_splitter.py` | 84 | Split one utterance that chains MULTIPLE imperative commands into its parts. |
+| `command_splitter.py` | 208 | Split one utterance that chains several commands into its parts; read a message as sentences and tell an instruction from a statement or a question. Holds the one list of verbs a command starts with. |
 | `conversation_thread.py` | 284 | Conversation thread awareness — topic carryover, proactive grounding, web queries. |
 | `desktop_launchers.py` | 718 | Redistribution-safe desktop / Start Menu launchers. |
 | `deterministic_failure_patches.py` | 108 | Rule-based code patches for recurring executor failures without LLM guessing. |
@@ -529,6 +529,7 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `server_util.py` | 240 | Helpers for detecting an existing ELI web server and firewall guidance. |
 | `session_continuity.py` | 100 | Session continuity — live thread memory injected into every CHAT turn. |
 | `shell_followup.py` | 68 | Resolve deictic shell follow-ups ("run that command") from prior assistant output. |
+| `site_address.py` | 119 | The address behind a site's name or a reference to one ("nasa website", "that website"): from the conversation, then a web search. Never built from the words. |
 | `state_providers.py` | 80 | State providers — the hook that lets components expose save/restore state to a |
 | `test_generator.py` | 283 | ELI-assisted behavioural test generation (Phase 4). |
 | `test_review.py` | 234 | Full test/project run → review workflow. |
@@ -573,9 +574,9 @@ Every remaining module under `eli/`, with its line count and a one-line role (th
 | `media_runtime.py` | 709 | Media runtime control for ELI. |
 | `operator_actions.py` | 105 | Valid states and helpers for operator (proposal) actions: pending, approved, rejected, blocked, pending_confirmation. |
 | `operator_policy.py` | 65 | The valid operator policy modes: `proposal_only`, `operator_supervised`, `goal_driven`, `observe_only`. Only `observe_only` (silences the autonomy loop) and `goal_driven` (elevated + self-upgrade scheduling) have distinct behavior — `proposal_only`/`operator_supervised` are currently identical code paths. |
-| `portable_intent_contract.py` | 643 | Portable intent rules; hard-blocks document, code and analysis prompts from `PLAY_MEDIA`. |
-| `route_contracts.py` | 123 | Small predicates that classify a request (for example `wants_memory_internals`) for the router. |
-| `router_enhanced.py` | 8389 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
+| `portable_intent_contract.py` | 750 | Portable intent rules; hard-blocks document, code and analysis prompts from `PLAY_MEDIA`. The one reading of an "open ..." target that is a website (`web_open_target`) and of the window a command names (`window_target`). |
+| `route_contracts.py` | 219 | Small predicates that classify a request for the router; whether an action changes anything (`changes_something`) and whether a sentence tells ELI to do what was matched in it (`fits`). |
+| `router_enhanced.py` | 8855 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
 | `shell_gate.py` | 110 | Centralised shell-command safety gate. |
 
 ## `core/`
