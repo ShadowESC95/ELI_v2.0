@@ -128,6 +128,19 @@ def _gap_rag_limit() -> int:
         return 24
 
 
+def _handed_over_allowance() -> float:
+    """Seconds a turn may spend reading documents handed over with it: what the memory agent is
+    allowed for its own work (set for the hardware by runtime_policy), for the active mode."""
+    try:
+        from eli.cognition.agent_bus import BusMemoryAgent
+        from eli.cognition.reasoning_modes import mode_budget_multiplier
+        from eli.kernel.request_context import reasoning_mode_var
+        return float(BusMemoryAgent.timeout_s) * float(mode_budget_multiplier(reasoning_mode_var.get()))
+    except Exception:
+        log.debug("allowance for handed-over documents not read", exc_info=True)
+        return 0.0
+
+
 class PlannerAgent:
     def __init__(self, engine):
         self.engine = engine
@@ -169,7 +182,9 @@ class PlannerAgent:
         try:
             from eli.memory.document_index import asks_about_documents, attached_paths
             _index = getattr(self.engine, "document_rag", None)
-            _attached = bool(_index and attached_paths(user_input))
+            from eli.memory.document_index import recent_user_messages, with_what_it_refers_to
+            _attached = bool(_index and attached_paths(with_what_it_refers_to(user_input, recent_user_messages(
+                getattr(self.engine, "memory", None), str(getattr(self.engine, "user_id", "") or "")))))
             docs_indexed = _attached or bool(_index and _index.stats()["passages"])
             doc_query = _attached or (docs_indexed and (asks_about_documents(low) or _index.mentions(
                 low, str(getattr(self.engine, "user_id", "") or ""))))
@@ -581,9 +596,17 @@ class OrchestratorMemoryAgent:
                 uid = str(getattr(self.engine, "user_id", "") or "")
                 # A file handed over with the message is stored now, so this turn can read it, and
                 # the search stays inside it. Its vectors follow in the background.
-                from eli.memory.document_index import attached_paths
+                # The same goes for a file or folder named by its path, in this message or one just
+                # before it. A folder can hold more than a turn has time to read: what is not read
+                # within the memory agent's own allowance is queued, and read in the background.
+                from eli.memory.document_index import attached_paths, recent_user_messages, with_what_it_refers_to
                 handed = []
-                for path in attached_paths(query):
+                said = with_what_it_refers_to(query, recent_user_messages(getattr(self.engine, "memory", None), uid))
+                until = time.monotonic() + _handed_over_allowance()
+                for path in attached_paths(said):
+                    if handed and time.monotonic() > until:
+                        index.note(path, user_id=uid, source="attachment")
+                        continue
                     added = index.add(path, user_id=uid, source="attachment", embed=False)
                     if added.get("ok"):
                         handed.append(added["doc_id"])
@@ -1259,6 +1282,12 @@ class AgentOrchestrator:
                     import time as _t_pd
                     from datetime import datetime as _dt_pd, timedelta as _td_pd
                     _since, _until = float(_stats["since"]), float(_stats["until"])
+                    # Up to where this turn began: the message being answered is not a record of
+                    # its own day ("this morning", said in the day's first conversation).
+                    from eli.kernel.request_context import turn_facts_var as _tf_pd
+                    _t0 = (_tf_pd.get() or {}).get("t0")
+                    if _t0:
+                        _until = min(_until, _t_pd.time() - (_t_pd.perf_counter() - float(_t0)) - 1.0)
                     _days = set()
                     _day = _dt_pd.fromtimestamp(_since).replace(hour=0, minute=0, second=0, microsecond=0)
                     while _day.timestamp() <= _until:
@@ -1268,7 +1297,7 @@ class AgentOrchestrator:
                             _days.add(_day.strftime("%Y-%m-%d"))
                         _day = _next
                     for _a in getattr(self.memory_agent._last_turn_retrieval, "actions", None) or []:
-                        if _a.get("ts"):
+                        if _a.get("ts") and float(_a["ts"]) <= _until:
                             _days.add(_t_pd.strftime("%Y-%m-%d", _t_pd.localtime(float(_a["ts"]))))
                     from eli.kernel.request_context import note_turn_fact as _note_period
                     _note_period("_period_days", sorted(_days))

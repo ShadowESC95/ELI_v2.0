@@ -56,6 +56,7 @@ class TurnDossier:
     session_opener: str = ""
     emotion_trend: str = ""
     machine_block: str = ""
+    named_block: str = ""
     working_memory_block: str = ""
     provenance: List[str] = field(default_factory=list)
 
@@ -68,6 +69,8 @@ class TurnDossier:
             out.append(self.identity_block)
         if self.machine_block:
             out.append(self.machine_block)
+        if self.named_block:
+            out.append(self.named_block)
         if self.user_brief:
             out.append(self.user_brief)
         if self.working_memory_block:
@@ -263,8 +266,25 @@ def assemble_turn_dossier(
         dossier.machine_block = machine
         dossier.provenance.append("machine_runtime")
 
-    # Shared retrieval (light for phatic, full otherwise)
+    # Files and folders the user names by path are looked at on the disk before the model is
+    # asked, so it answers from what is there instead of asking the user to run `ls`.
     mem = getattr(engine, "memory", None)
+    if dossier.query and not phatic:
+        try:
+            from eli.core.cognition_tunables import snapshot as _cog_snapshot
+            from eli.memory.document_index import describe_named, recent_user_messages, with_what_it_refers_to
+            who = user_id or getattr(engine, "user_id", "") or ""
+            said = with_what_it_refers_to(dossier.query, recent_user_messages(mem, who) if mem is not None else ())
+            listing = describe_named(said, int(_cog_snapshot().get("cog.named_paths_chars", 0)))
+            if listing:
+                dossier.named_block = ("[FILES AND FOLDERS THE USER NAMED — read from the disk just now]\n" + listing
+                                       + "\nThis is what is there. The documents among them are being read into "
+                                         "the document index; passages from them appear below when they match.")
+                dossier.provenance.append("named_paths")
+        except Exception:
+            log.debug("named paths not looked at", exc_info=True)
+
+    # Shared retrieval (light for phatic, full otherwise)
     if mem is not None and dossier.query:
         try:
             from eli.memory.retrieval import retrieve_for_turn

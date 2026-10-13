@@ -6,6 +6,7 @@ into a document did not exist for ELI.
 """
 from __future__ import annotations
 
+import pathlib
 import sqlite3
 import sys
 import types
@@ -336,3 +337,90 @@ def test_one_word_of_a_file_name_in_passing_does_not_pull_the_document_in(index,
     plan = planner.plan_retrieval("I thought i had a presentation at 10am for HARBOUR, but it is not until 7.30pm haha",
                                   {"action": "CHAT"}, "", None, reasoning_mode="quick")
     assert not plan["need_rag"]
+
+
+# ── a file or folder named by its path ───────────────────────────────────────
+#
+# Live: given two folders to study, ELI answered "that is a string literal to me", asked the
+# user to run `ls -lR` and paste the output, and on the next turn wrote "Scanning ... (Waiting
+# for system execution output...)" with nothing running.
+
+@pytest.fixture()
+def study(tmp_path):
+    theory = tmp_path / "Theory Work" / "clean up"
+    sims = tmp_path / "sims"
+    (theory / "1. Single line").mkdir(parents=True)
+    (sims / "engine").mkdir(parents=True)
+    (theory / "1. Single line" / "stueckelberg_notes.md").write_text("# Notes\n\n" + FILLER + "\n\n" + FACT)
+    (theory / "overview.txt").write_text("An overview of the canonical line and what follows from it.")
+    (sims / "engine" / "run.py").write_text("print('sim')\n")
+    (sims / "engine" / "field.h5").write_bytes(b"\x00" * 2048)
+    (sims / ".hidden").write_text("x")
+    return theory, sims
+
+
+def test_paths_written_in_a_message_are_found_on_the_disk(study, tmp_path):
+    theory, sims = study
+    message = f"{theory} AND {sims} , also you can write scripts. see https://nasa.gov/a/b, 12/10/2026, and/or /no/such/place."
+    assert di.named_paths(message) == [theory.resolve(), sims.resolve()]
+    assert di.named_paths("how are you today?") == []
+    assert di.named_paths(f"look at {tmp_path / '.ssh' / 'id_rsa'}") == []
+
+
+def test_a_named_folder_is_described_from_the_disk(study):
+    theory, sims = study
+    said = di.describe_named(f"study {theory} and {sims} please", 1200)
+    assert f"{theory.resolve()}: 2 files" in said and "2 .md" not in said and "1 .md" in said and "1 .txt" in said
+    assert "1. Single line/ 1" in said and "stueckelberg_notes.md" in said
+    assert f"{sims.resolve()}: 2 files" in said and "1 .py" in said and "1 .h5" in said and ".hidden" not in said
+
+
+def test_a_listing_keeps_to_its_room_and_counts_what_it_left_out(tmp_path):
+    for i in range(40):
+        (tmp_path / f"paper_{i:02d}.pdf").write_bytes(b"%PDF-1.4")
+    said = di.describe_folder(tmp_path, 400)
+    assert len(said) <= 400 and "40 files" in said and "more, older than these" in said
+
+
+def test_the_documents_in_a_named_folder_are_handed_over_like_a_dropped_file(index, study):
+    theory, sims = study
+    _, planner, agent, _ = _orchestrator(index)
+    message = f"what do these say the third high-risk category is? {theory} AND {sims}"
+    assert sorted(pathlib.Path(p).name for p in di.attached_paths(message)) == ["overview.txt", "stueckelberg_notes.md"]
+    plan = planner.plan_retrieval(message, {"action": "CHAT"}, "", None, reasoning_mode="quick")
+    assert plan["need_rag"] and not plan["rag_strict"]
+    hits = agent.document_rag_search(message, 4)
+    assert index.wait(20)
+    assert any(FACT in h["text"] for h in hits)
+    assert {d["title"] for d in index.documents()} == {"overview.txt", "stueckelberg_notes.md"}
+
+
+def test_what_a_turn_has_no_time_to_read_is_queued_not_dropped(index, study, monkeypatch):
+    import eli.cognition.orchestrator as orch
+    theory, _ = study
+    monkeypatch.setattr(orch, "_handed_over_allowance", lambda: -1.0)
+    _, _, agent, _ = _orchestrator(index)
+    agent.document_rag_search(f"read {theory}", 4)
+    assert index.wait(20)
+    assert {d["title"] for d in index.documents()} == {"overview.txt", "stueckelberg_notes.md"}
+
+
+def test_a_message_that_speaks_of_the_paths_just_given_gets_them(study):
+    theory, _ = study
+    earlier = [f"{theory} is where the theory work is", "open spotify"]
+    assert str(theory) in di.with_what_it_refers_to("why can you not analyse the paths i just gave you", earlier)
+    assert "spotify" not in di.with_what_it_refers_to("why can you not analyse the paths i just gave you", earlier)
+    assert di.with_what_it_refers_to("how are you today?", earlier) == "how are you today?"
+
+
+def test_the_turn_is_given_the_listing_before_the_model_is_asked(study, monkeypatch):
+    from eli.cognition.turn_dossier import assemble_turn_dossier
+    theory, _ = study
+    said = [f"{theory} is where the theory work is"]
+    memory = SimpleNamespace(get_recent_conversation=lambda **kw: [{"role": "user", "content": m} for m in said])
+    engine = SimpleNamespace(memory=memory, user_id="")
+    named = assemble_turn_dossier(engine, f"have a look at {theory}").named_block
+    assert named.startswith("[FILES AND FOLDERS THE USER NAMED") and "stueckelberg_notes.md" in named
+    later = assemble_turn_dossier(engine, "what can you tell me so far about our current project?")
+    assert "stueckelberg_notes.md" in later.named_block and later.named_block in later.awareness_blocks()
+    assert assemble_turn_dossier(engine, "what is the capital of France?").named_block == ""

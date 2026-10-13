@@ -111,6 +111,12 @@ TUNABLES: List[Tunable] = [
             "and chains followed per entity in the multi-hop pass.",
             8, 1, 40, 1, "Knowledge graph"),
 
+    # ── Files and folders named in a message ───────────────────────────────
+    Tunable("cog.named_paths_chars", "Named folders · listing (characters)",
+            "Characters of folder listing placed into the prompt when a message names "
+            "a file or folder by its path. 0 leaves the listing out.",
+            1800, 0, 12000, 100, "Knowledge gathering"),
+
     # ── Retrieval pipeline (full 12-stage, standard mode) ───────────────────
     Tunable("cog.orch_keyword_limit", "Pipeline · keyword search limit",
             "FTS5 keyword hits retrieved in the full pipeline (standard mode; "
@@ -227,7 +233,7 @@ _GATHER_COUNT_KEYS = (
     "cog.mem_recent_turns", "cog.mem_summaries_recall",
     "cog.mem_summaries_shown", "cog.mem_hop2_recall", "cog.mem_merge_cap",
     "cog.mem_exact_token_recall", "cog.mem_archive_recall", "cog.mem_observations",
-    "cog.kg_max_chars", "cog.kg_entities", "cog.kg_relations",
+    "cog.kg_max_chars", "cog.kg_entities", "cog.kg_relations", "cog.named_paths_chars",
     "cog.orch_keyword_limit", "cog.orch_semantic_limit",
     "cog.orch_rag_limit", "cog.rerank_top_k", "cog.personal_facts_max",
 )

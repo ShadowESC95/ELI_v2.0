@@ -16,6 +16,7 @@ import re
 import sqlite3
 import threading
 import time
+from functools import lru_cache
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence
 
@@ -62,9 +63,163 @@ _THAT_ONE = re.compile(
 _ATTACHED = re.compile(r"\[(?:File|PDF):\s*(.+?)\]")
 
 
+# A path typed into the message: absolute, from the home folder, or a Windows drive.
+_TYPED = re.compile(r"(?<![\w.:/\\])(~?/[^\s,;*?\"'`<>|()\[\]]+|[A-Za-z]:[\\/][^\s,;*?\"'`<>|()\[\]]+)")
+_NOT_HANDED_OVER = (".ssh", ".gnupg", ".aws", ".kube")
+# How many files of a folder are looked at, for the listing and for reading.
+_FOLDER_FILES = 2000
+
+
+def named_paths(text: Any) -> List[Path]:
+    """Files and folders on this machine that the message names by path, in the order named.
+
+    Live: given two folders to study, ELI answered "that is a string literal to me" and asked the
+    user to run `ls` and paste the output. A name with spaces in it is found by trying the words
+    that follow it ("/data/My Notes/plan.txt")."""
+    s = str(text or "")
+    found: List[Path] = []
+    for hit in _TYPED.finditer(s):
+        words = s[hit.start(1):].split(" ")
+        best = None
+        for n in range(1, min(len(words), 6) + 1):
+            name = " ".join(words[:n]).rstrip(".,;:!?)]}'\"`")
+            try:
+                at = Path(name).expanduser()
+                if len(at.parts) > 1 and at.exists():
+                    best = at
+            except (OSError, ValueError):
+                break
+        if best is None or any(part in _NOT_HANDED_OVER for part in best.parts):
+            continue
+        best = best.resolve()
+        if best not in found:
+            found.append(best)
+    return found
+
+
+@lru_cache(maxsize=16)
+def _folder_entries(folder: str, _stamp: int) -> tuple:
+    """(changed, size, path) for the files under a folder, newest first, hidden ones left out.
+    The walk stops once `_FOLDER_FILES` are passed. Kept for two minutes (`_stamp`): a turn asks
+    for the same folder several times, and so do the turns that follow it."""
+    out: List[tuple] = []
+    for here, dirs, names in os.walk(folder):
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in ("__pycache__", "node_modules"))
+        for name in names:
+            if name.startswith("."):
+                continue
+            at = Path(here) / name
+            try:
+                st = at.stat()
+            except OSError:
+                continue
+            out.append((st.st_mtime, st.st_size, at))
+        if len(out) > _FOLDER_FILES:
+            break
+    return tuple(sorted(out, key=lambda x: x[0], reverse=True))
+
+
+def folder_files(folder: Any) -> List[Path]:
+    """The files under a folder, newest first. `describe_folder` says when there are more than
+    the `_FOLDER_FILES` looked at."""
+    return [at for _, _, at in _folder_entries(str(folder), int(time.time() // 120))]
+
+
+def _size(n: float) -> str:
+    for unit in ("B", "KB", "MB", "GB"):
+        if n < 1024 or unit == "GB":
+            return f"{n:.0f} {unit}" if unit in ("B", "KB") else f"{n:.1f} {unit}"
+        n /= 1024
+    return ""
+
+
+def describe_folder(folder: Any, max_chars: int) -> str:
+    """What is in a folder, read from the disk now: how much, of what kinds, where, and the
+    newest files by name. Fitted to `max_chars`; what did not fit is counted, not dropped silently."""
+    root = Path(str(folder))
+    entries = _folder_entries(str(root), int(time.time() // 120))
+    more = len(entries) > _FOLDER_FILES
+    entries = entries[:_FOLDER_FILES]
+    if not entries:
+        return f"{root}: an empty folder"
+    kinds: Dict[str, int] = {}
+    places: Dict[str, int] = {}
+    for _, _, at in entries:
+        kind = at.suffix.lower() or "(no ending)"
+        kinds[kind] = kinds.get(kind, 0) + 1
+        rel = at.relative_to(root)
+        place = "." if len(rel.parts) == 1 else rel.parts[0] + "/"
+        places[place] = places.get(place, 0) + 1
+    lines = [f"{root}: {'more than ' if more else ''}{len(entries)} files, {_size(sum(e[1] for e in entries))}",
+             "  kinds: " + ", ".join(f"{n} {k}" for k, n in sorted(kinds.items(), key=lambda x: -x[1])),
+             "  where: " + ", ".join(f"{k} {n}" for k, n in sorted(places.items(), key=lambda x: -x[1]))]
+    lines = [line if len(line) <= max_chars // 3 else line[:max_chars // 3].rsplit(",", 1)[0] + ", ..." for line in lines]
+    shown = 0
+    for changed, size, at in entries:
+        line = f"  {at.relative_to(root)} ({_size(size)}, {time.strftime('%Y-%m-%d', time.localtime(changed))})"
+        if sum(len(x) + 1 for x in lines) + len(line) + 60 > max_chars:
+            break
+        lines.append(line)
+        shown += 1
+    if shown < len(entries):
+        lines.append(f"  ... and {len(entries) - shown} more, older than these")
+    return "\n".join(lines)
+
+
+_SPEAKS_OF_FILES = re.compile(
+    r"\b(?:folders?|director(?:y|ies)|paths?|file\s?systems?|projects?|them|those|these)\b", re.I)
+
+
+def with_what_it_refers_to(text: Any, earlier: Sequence[Any] = ()) -> str:
+    """The message, followed by the user's own recent messages when it names no path itself and
+    speaks of files, folders or a project: "why can you not analyse the paths i just gave you"."""
+    said = str(text or "")
+    if named_paths(said) or not (asks_about_documents(said) or _SPEAKS_OF_FILES.search(said)):
+        return said
+    return "\n".join([said] + [str(e) for e in earlier if _TYPED.search(str(e))])
+
+
+def recent_user_messages(memory: Any, user_id: str = "", within_s: float = 1800.0) -> List[str]:
+    """What the user said in the last half hour, newest first: where a path named a turn or two
+    ago is looked for."""
+    try:
+        turns = memory.get_recent_conversation(limit=12, user_id=user_id or None, since=time.time() - within_s,
+                                               role="user") or []
+    except Exception:
+        log.debug("recent user messages unavailable", exc_info=True)
+        return []
+    return [str((t or {}).get("content") or "") for t in reversed(turns)]
+
+
+def describe_named(text: Any, max_chars: int) -> str:
+    """The files and folders a message names, as they are on the disk now. "" when it names none."""
+    paths = named_paths(text)
+    if not paths or max_chars <= 0:
+        return ""
+    each = max(200, max_chars // len(paths))
+    parts = []
+    for at in paths:
+        try:
+            if at.is_dir():
+                parts.append(describe_folder(at, each))
+            else:
+                parts.append(f"{at}: a file, {_size(at.stat().st_size)}, changed "
+                             f"{time.strftime('%Y-%m-%d %H:%M', time.localtime(at.stat().st_mtime))}")
+        except OSError as e:
+            parts.append(f"{at}: could not be read ({e.strerror or e})")
+    return "\n".join(parts)[:max_chars]
+
+
 def attached_paths(text: Any) -> List[str]:
-    """Files handed over with the message (the GUI writes a dropped file as "[File: path]")."""
-    return [m.strip() for m in _ATTACHED.findall(str(text or "")) if m.strip()]
+    """Files handed over with the message: dropped on it (the GUI writes "[File: path]"), named
+    in it by path, or lying in a folder it names (the newest first)."""
+    handed = [m.strip() for m in _ATTACHED.findall(str(text or "")) if m.strip()]
+    body = _ATTACHED.sub(" ", str(text or ""))
+    for at in named_paths(body):
+        for doc in ([at] if at.is_file() else folder_files(at)[:_FOLDER_FILES]):
+            if str(doc) not in handed and indexable(doc):
+                handed.append(str(doc))
+    return handed
 
 
 def _terms(text: str) -> List[str]:
@@ -114,7 +269,7 @@ def indexable(path: Any) -> bool:
         p = Path(str(path)).expanduser()
         if p.suffix.lower() not in SUFFIXES or _PRIVATE_NAME.search(p.name):
             return False
-        if any(part in (".ssh", ".gnupg", ".aws", ".kube") for part in p.parts):
+        if any(part in _NOT_HANDED_OVER for part in p.parts):
             return False
         return p.is_file() and 0 < p.stat().st_size <= _MAX_BYTES
     except Exception:
@@ -610,7 +765,7 @@ class DocumentIndex:
                 continue
         for folder in folders:
             try:
-                found = sorted(Path(str(folder)).rglob("*"))[:2000]
+                found = sorted(Path(str(folder)).rglob("*"))[:_FOLDER_FILES]
             except OSError:
                 continue
             for p in found:
