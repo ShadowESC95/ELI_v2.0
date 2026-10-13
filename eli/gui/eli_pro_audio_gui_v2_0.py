@@ -279,24 +279,26 @@ except Exception:
     APP_DIR = PROJECT_ROOT / "config"
 SETTINGS_FILE = APP_DIR / "settings.json"
 
+# No model filename is hardcoded — scan models/ for any .gguf at startup.
+# Returns "" when nothing is found so the heal loop doesn't fire on a stale
+# baked-in default and the GUI/startup-picker can prompt the user instead.
+def _eli_pick_any_bundled_model() -> str:
+    try:
+        root = PROJECT_ROOT / "models"
+        if root.exists():
+            for p in sorted(root.rglob("*.gguf")):
+                if p.is_file():
+                    return str(p)
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
+    return ""
+
+
 if CENTRAL_IMPORTS_AVAILABLE and get_paths:
     _paths = get_paths()
     MEMORY_DB = _eli_path_get(_paths, "memory_db")
     CONVERSATIONS_DIR = _paths.conversations_dir
     ARTIFACTS_DIR = _paths.artifacts_dir
-    # No model filename is hardcoded — scan models/ for any .gguf at startup.
-    # Returns "" when nothing is found so the heal loop doesn't fire on a stale
-    # baked-in default and the GUI/startup-picker can prompt the user instead.
-    def _eli_pick_any_bundled_model() -> str:
-        try:
-            root = PROJECT_ROOT / "models"
-            if root.exists():
-                for p in sorted(root.rglob("*.gguf")):
-                    if p.is_file():
-                        return str(p)
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-        return ""
     DEFAULT_MODEL_PATH = str(_paths.model) if _paths.model and _paths.model.exists() else _eli_pick_any_bundled_model()
     BUNDLED_MODEL_DIR = PROJECT_ROOT / "models"
     CUSTOM_MODELS_DIR = APP_DIR / "models"
@@ -304,16 +306,6 @@ else:
     MEMORY_DB = PROJECT_ROOT / "artifacts" / "db" / "user.sqlite3"
     CONVERSATIONS_DIR = PROJECT_ROOT / "artifacts" / "conversations"
     ARTIFACTS_DIR = PROJECT_ROOT / "artifacts"
-    def _eli_pick_any_bundled_model() -> str:
-        try:
-            root = PROJECT_ROOT / "models"
-            if root.exists():
-                for p in sorted(root.rglob("*.gguf")):
-                    if p.is_file():
-                        return str(p)
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-        return ""
     DEFAULT_MODEL_PATH = _eli_pick_any_bundled_model()
     BUNDLED_MODEL_DIR = PROJECT_ROOT / "models"
     CUSTOM_MODELS_DIR = APP_DIR / "models"

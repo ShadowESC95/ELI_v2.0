@@ -1920,39 +1920,7 @@ def _eli_v9_identity_label() -> tuple[str, str]:
     return "", "no_identity"
 
 
-def _eli_v9_bucket_for_fact(fact: str) -> str:
-    low = fact.lower()
-
-    if low.startswith("name:") or low.startswith("preferred name:") or "preferred name" in low:
-        return "identity"
-
-    if any(k in low for k in (
-        "prefers", "values", "dislikes", "direct", "truth", "honest",
-        "step-by-step", "diagnostic", "audit", "thorough", "meticulous",
-        "vague", "commands", "bash", "terminal"
-    )):
-        return "tone and working style"
-
-    if any(k in low for k in (
-        "eli", "eli_v2_0", "assistant", "gguf", "router", "executor",
-        "orchestrator", "cognition", "memory", "recall", "sqlite",
-        "persona", "runtime"
-    )):
-        return "ELI / local assistant engineering"
-
-    if any(k in low for k in (
-        "physics", "simulation", "field", "latex", "paper", "theory",
-        
-    )):
-        return "research / theory / writing"
-
-    if any(k in low for k in (
-        "linux", "ubuntu", "fedora", "gpu", "nvidia", "vram",
-        "wine", "steam", "ollama"
-    )):
-        return "runtime / hardware / OS"
-
-    return "other stable memory"
+_eli_v9_bucket_for_fact = _eli_v8_bucket_for_fact  # the same function, written out again in a later layer
 
 
 def _eli_personal_memory_answer_v2(mode_label: str = "") -> str:  # type: ignore[override]
@@ -3215,15 +3183,7 @@ def _eli_v14_is_quick(mode_label: str) -> bool:
         }
 
 
-def _eli_v14_runtime_question(text: object) -> bool:
-    low = str(text or "").lower()
-    return bool(
-        "actually running" in low
-        or "model, context size" in low
-        or "gpu layers" in low
-        or ("runtime" in low and ("model" in low or "ctx" in low or "context" in low or "gpu" in low))
-        or ("context size" in low and "gpu" in low)
-    )
+_eli_v14_runtime_question = _eli_v13_is_runtime_question  # the same function, written out again in a later layer
 
 
 def _eli_v14_identity_question(text: object) -> bool:

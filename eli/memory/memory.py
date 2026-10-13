@@ -1009,7 +1009,7 @@ def _contract_table_columns(conn, table):
     except (ValueError, Exception):
         return []
 
-def _jsonify_contract_value(v):
+def _jsonify_value(v):
     if v is None:
         return ""
     if isinstance(v, str):
@@ -1018,6 +1018,10 @@ def _jsonify_contract_value(v):
         return json.dumps(v, ensure_ascii=False, sort_keys=True)
     except Exception:
         return str(v)
+
+
+# The same thing was written three times under three names (contract, profile, plain).
+_jsonify_contract_value = _jsonify_profile_value = _jsonify_value
 
 
 # Observation retention. The daemon appends one observation per tick forever and they're
@@ -1592,16 +1596,6 @@ def _insert_payload(conn, table, payload):
     cur = conn.execute(sql, vals)
     return int(cur.lastrowid)
 
-def _jsonify_value(v):
-    if v is None:
-        return ""
-    if isinstance(v, str):
-        return v
-    try:
-        return json.dumps(v, ensure_ascii=False, sort_keys=True)
-    except Exception:
-        return str(v)
-
 def _norm_text(v):
     if v is None:
         return ""
@@ -1706,16 +1700,6 @@ def _ensure_profile_schema(conn):
             ("ts", "REAL"),
         ]:
             _add_memory_column(conn, "observations", n, d)
-
-def _jsonify_profile_value(v):
-    if v is None:
-        return ""
-    if isinstance(v, str):
-        return v
-    try:
-        return json.dumps(v, ensure_ascii=False, sort_keys=True)
-    except Exception:
-        return str(v)
 
 def _profile_now_ts():
     return float(time.time())
