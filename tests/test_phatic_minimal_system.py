@@ -18,7 +18,9 @@ def test_phatic_minimal_system_is_small(monkeypatch):
     assert len(sys_prompt) < full_persona_len // 2
 
 
-def test_build_enhanced_system_routes_phatic_to_minimal():
+def test_build_enhanced_system_routes_phatic_to_minimal(monkeypatch):
+    # the stored name goes into the prompt; one left behind by an earlier test is not what this measures
+    monkeypatch.setattr("eli.kernel.state.get_user_name", lambda *a, **k: "Jess")
     ce = CognitiveEngine.__new__(CognitiveEngine)
     enhanced = ce._build_enhanced_system(
         memory_context="X" * 5000,
