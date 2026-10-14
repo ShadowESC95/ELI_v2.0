@@ -48,14 +48,15 @@ def test_thin_keyword_result_pulls_in_already_computed_semantic_hits():
     plan = {"need_keyword": True, "need_semantic": False, "need_rag": False,
             "need_kg": False, "prefer_identity": False}
 
+    related = [{"text": f"the query again, note {i}"} for i in range(5)]
     with patch("eli.memory.unified_retrieval.orchestrator_retrieve",
-              return_value=(_hits(1, "kw"), _hits(5, "sem"), MagicMock(elapsed_ms=10))) as mock_retrieve:
+              return_value=(_hits(1, "kw"), related, MagicMock(elapsed_ms=10))) as mock_retrieve:
         agent.semantic_search = MagicMock(return_value=_hits(99, "wasted"))
         keyword_hits, semantic_hits, rag_hits, kg_hits = agent.sequential_retrieve(
             "query", "hyde", plan, _ltm())
 
     assert len(keyword_hits) == 1
-    assert semantic_hits == _hits(5, "sem")  # reused, not re-fetched
+    assert semantic_hits == related  # reused, not re-fetched
     agent.semantic_search.assert_not_called()
     # The fetch plan sent to orchestrator_retrieve requested semantic even
     # though the mode plan said no — that's what makes the hits available.
@@ -160,3 +161,21 @@ def test_falling_back_to_keyword_and_semantic_search_on_unified_failure_is_unaff
 
     assert keyword_hits == _hits(2, "kw")
     assert semantic_hits == _hits(2, "sem")
+
+
+def test_the_fallback_keeps_only_hits_that_share_a_word_with_the_message():
+    """Live (2.5.11): "opwk apoiTIFY", a typo for "open spotify", matched nothing, and the fallback
+    still handed a quick-mode model the 20 nearest memories: a 6.7k-token prompt for two words.
+    Vector scores are relative to the best hit for the query, so they cannot say "nothing matched"."""
+    agent = _agent()
+    plan = {"need_keyword": True, "need_semantic": False, "need_rag": False,
+            "need_kg": False, "prefer_identity": False}
+    nearest = [{"text": "User played Eminem on Spotify yesterday"}, {"text": "The physics project is set up"},
+               {"text": "opwk is not a word anyone said"}]
+    with patch("eli.memory.unified_retrieval.orchestrator_retrieve",
+              return_value=([], nearest, MagicMock(elapsed_ms=10))):
+        agent.document_rag_search = MagicMock(return_value=[])
+        agent.kg_search = MagicMock(return_value=[])
+        _, semantic_hits, _, _ = agent.sequential_retrieve("opwk apoiTIFY", "hyde", plan, _ltm())
+    assert semantic_hits == [nearest[2]]
+

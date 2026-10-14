@@ -404,9 +404,15 @@ class OrchestratorMemoryAgent:
         _total_hits = len(keyword_hits) + len(semantic_hits) + len(rag_hits) + len(kg_hits)
         if _total_hits < _thin_evidence:
             if not retrieval_plan.get("need_semantic") and _computed_semantic_hits:
-                semantic_hits = _computed_semantic_hits
-                log.debug("[ORCHESTRATOR] evidence gap (%d hits) — using already-computed semantic hits",
-                         _total_hits)
+                # Only hits that share a word with the message. Vector scores are relative (the
+                # weakest are trimmed against the best for this query), so a message that matches
+                # nothing still had its 20 nearest neighbours: "opwk apoiTIFY" (a typo for "open
+                # spotify") went to a quick-mode model as a 6.7k-token prompt of unrelated memories.
+                from eli.cognition.scoring import term_overlap as _overlap
+                semantic_hits = [h for h in _computed_semantic_hits
+                                 if _overlap(user_input, str(h.get("text") or "")) > 0]
+                log.debug("[ORCHESTRATOR] evidence gap (%d hits) — %d of %d already-computed semantic hits share "
+                          "a word with the message", _total_hits, len(semantic_hits), len(_computed_semantic_hits))
             if not retrieval_plan.get("need_rag") and ltm.rag_ready:
                 rag_hits = self.document_rag_search(
                     user_input, retrieval_plan.get("rag_limit") or _gap_rag_limit(), strict=True)
