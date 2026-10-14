@@ -53,8 +53,9 @@ env:
   # transcription in the packaged app failed (2.5.11). The lock is read through
   # packaging/lock_constraints.py, which leaves out a pin the build's own tools do not allow
   # (setuptools); each job that runs pip writes it first. Space-separated: pip reads both.
-  # Relative on purpose: every pip install runs from the repo root (cd dist comes later).
-  PIP_CONSTRAINT: packaging/llama_cpp_constraints.txt .build-constraints/lock.txt
+  # Absolute: a wheel is built from a clean export of the committed tree in another folder, where
+  # the generated file (not committed) is not, and a relative path found nothing.
+  PIP_CONSTRAINT: ${{github.workspace}}/packaging/llama_cpp_constraints.txt ${{github.workspace}}/.build-constraints/lock.txt
   PYTHONHASHSEED: "0"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PIP_NO_CACHE_DIR: "1"

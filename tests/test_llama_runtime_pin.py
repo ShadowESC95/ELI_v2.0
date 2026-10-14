@@ -35,14 +35,16 @@ def _pinned() -> str:
 
 def test_release_builds_install_the_pinned_runtime():
     wf = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
-    assert "packaging/llama_cpp_constraints.txt" in wf["env"]["PIP_CONSTRAINT"].split()
+    assert any(f.endswith("/packaging/llama_cpp_constraints.txt") for f in wf["env"]["PIP_CONSTRAINT"].split())
 
 
 def test_release_builds_keep_to_the_lock_and_every_job_writes_it_before_pip():
     """2.5.11's bundle took the newest PyAV, which refuses an argument faster-whisper 1.2.1 passes:
     every transcription in the packaged app failed. The build now installs under the lock."""
     wf = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
-    assert ".build-constraints/lock.txt" in wf["env"]["PIP_CONSTRAINT"].split()
+    files = wf["env"]["PIP_CONSTRAINT"].split()
+    # absolute: one step builds from a clean export of the committed tree, where this file is not
+    assert "${{github.workspace}}/.build-constraints/lock.txt" in files
     for name, job in wf["jobs"].items():
         runs = [str(step.get("run") or "") for step in job.get("steps", [])]
         uses_pip = [i for i, r in enumerate(runs) if "pip " in r or "build_packages.sh" in r]
