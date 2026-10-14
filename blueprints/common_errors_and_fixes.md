@@ -894,3 +894,19 @@ its whole action catalogue in the prompt (about 2,400 tokens).
 
 **Fix (v2.5.11):** a short remark with no question, no command verb, no request and no word in
 common with anything ELI can do ("doing well, good one") goes straight to conversation.
+
+---
+
+## Normal mode takes two or three minutes to answer even a short remark
+
+**Cause:** Normal mode makes two passes, a private scratchpad and then the answer, and each one
+read the whole prompt (persona, rules, retrieved evidence: about 7.5k tokens). On a hybrid model
+such as Qwen3.6-35B-A3B llama.cpp cannot reuse a shared start of a prompt, so the second pass
+paid the full read again (about 65 s on an RTX 2060 SUPER with the experts in RAM). The two
+passes were also given slightly different system prompts.
+
+**Fix (v2.5.12):** both passes get one system prompt, and the model's state at its end is kept
+between them, so the second pass reads only its own message: 3.2 s instead of 63.8 s, with the
+same answer. The intent resolver keeps the state of its action list the same way (2.5 s instead
+of 22-27 s after the first call of a session). The first pass still reads the whole prompt once.
+`ELI_PROMPT_STATE_REUSE=0` turns this off.

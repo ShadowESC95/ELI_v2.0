@@ -188,8 +188,12 @@ the first line now says when and by how much MoE will raise it. The bigger cost 
 architectural, not this: chain-of-thought runs two full model calls (a private scratchpad, then the
 final answer) against 6,000–7,700-token prompts each, and MoE's prompt-processing gain (~1.75x) is
 smaller than its generation gain (~2x) — doubling generation speed does not halve a turn dominated
-by two large, mostly-prompt-bound calls. Shrinking that prompt and the two-pass shape is separate,
-unaddressed work.
+by two large, mostly-prompt-bound calls. The second call no longer reads its prompt again: every
+pass of a turn is given the same system prompt (the engine builds it once per turn and keeps a
+quarter of the room for each pass's message), and the model's state at its end is kept between
+the passes (`gguf_inference._resume_from_saved_state`, see `inference_and_hardware.md`). Measured
+on this model: the second pass 63.8 s before, 3.2 s after. The first pass still reads the whole
+prompt (about 65 s for 7.5k tokens on this card); shrinking that prompt is separate work.
 
 The footnote explaining the bump wasn't enough — the "HW Profile (recommended)" number itself, in
 `hardware_profile.recommend()`, still showed the pre-offload layer count, and that number is also

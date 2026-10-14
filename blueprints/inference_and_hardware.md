@@ -28,6 +28,20 @@ is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
 - **Serialization**: all calls hold `_LLM_CALL_LOCK` (a native RLock from
   `runtime/native_locks`) — llama_cpp is not safe under concurrent calls; this is
   also what vision hot-swap and the ambient daemon coordinate on.
+- **The model's state is kept at the end of a prompt's fixed part**: `_format_prompt` notes where
+  the part that does not depend on the message ends (the system prompt, or the intent
+  resolver's action list and examples). Before a call, `_resume_from_saved_state` gives back the
+  state saved there by an earlier call that started the same way, or reads that part alone and
+  saves the state (llama.cpp's per-sequence state calls: the model's memory only, no logits).
+  The model then reads only what follows. A hybrid model (`qwen35moe`: most layers carry a
+  running state, not an attention cache) cannot be rolled back to a shared prefix, so without
+  this every call read its whole prompt: measured on Qwen3.6-35B-A3B, an RTX 2060 SUPER and
+  experts in RAM, Normal mode's second pass took 63.8 s and took 3.2 s with the state given
+  back (the same 60-token answer both ways); the intent resolver went from 26.6 s to 2.5 s
+  after its first call. A 7k-token state is 135 MiB, saved in 0.08 s and restored in 0.02 s.
+  The states are kept within an eighth of free memory and two contexts' worth of state, the
+  oldest giving way; background work uses them but never adds one; they go when the model is
+  unloaded. `ELI_PROMPT_STATE_REUSE=0` turns it off.
 - **Prefill abort**: shutdown and cancel register `llama_set_abort_callback` so a
   long prompt prefill stops immediately — `StoppingCriteria` alone only runs
   between output tokens.
