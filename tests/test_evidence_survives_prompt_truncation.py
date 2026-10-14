@@ -107,6 +107,10 @@ def test_both_get_chat_response_truncation_sites_use_the_evidence_preserving_hel
     from eli.kernel.engine import CognitiveEngine
 
     src = inspect.getsource(CognitiveEngine._get_chat_response)
-    assert src.count("_truncate_system_prompt_preserving_evidence(") == 2, (
+    # the broker path, the no-broker direct-GGUF path, and the room a multi-pass turn keeps for
+    # its later passes' messages
+    assert src.count("_truncate_system_prompt_preserving_evidence(") >= 2, (
         "both the broker path and the no-broker direct-GGUF path must use the fix"
     )
+    import re
+    assert not re.search(r"enhanced_system\s*=\s*enhanced_system\s*\[", src), "no system prompt is cut any other way"

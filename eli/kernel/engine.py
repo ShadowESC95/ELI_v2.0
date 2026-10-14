@@ -1149,6 +1149,21 @@ def _shown_as_is(action: Any, reasoning_mode: Any = None) -> bool:
         return not reasoning_mode or str(reasoning_mode).lower() == "quick"
 
 
+def _users_own_words(text: str) -> str:
+    """What the user said this turn. A reasoning pass is given ELI's own instructions to itself
+    ("Think through the following request step by step...", then its scratchpad); read as the
+    user's words they set the tone of the reply and were logged on the emotion timeline as what
+    the user had said, once per pass."""
+    try:
+        said = str((_request_context.turn_facts_var.get() or {}).get("user_input") or "").strip()
+        if said:
+            return said
+        from eli.cognition.evidence_format import latest_user_message
+        return latest_user_message(text or "")
+    except Exception:
+        return str(text or "")
+
+
 def _follow_up_line() -> str:
     """What this message is a reply to, said outright. A small model shown "yes please" under
     its own offer went on describing what it could do; shown "B" under its own either/or, it
@@ -6751,8 +6766,7 @@ Answer:"""
         try:
             from eli.cognition import tone_adaptor as _ta
             if _ta.enabled():
-                from eli.cognition.evidence_format import latest_user_message as _lum
-                _ta.note_user_text(_lum(user_input or ""))
+                _ta.note_user_text(_users_own_words(user_input))
                 _dir = _ta.text_directive()
                 _cur = _ta.current_tone()
                 if _dir and _cur.get("tone") != "neutral":
@@ -6782,7 +6796,7 @@ Answer:"""
                         expressed=_cur.get("tone") or "",
                         confidence=float(_cur.get("confidence") or 0.0),
                         source=str(_cur.get("source") or ""),
-                        user_text=user_input or "",
+                        user_text=_users_own_words(user_input),
                         user_id=self._get_user_id(),
                         session_id=getattr(self, "session_id", "") or "",
                         arousal=_arousal,
@@ -7341,6 +7355,23 @@ Answer:"""
                 if gguf_inference is None:
                     raise RuntimeError("GGUF module not available")
 
+                # One system prompt for every pass of a turn. The passes of a reasoning mode (Normal's
+                # scratchpad and answer, a tree's branches) carry the same evidence and differ only in
+                # their own message; built per call, the system prompt came out different each time
+                # (the persona was cut to fit each pass's message), so the model read all of it again:
+                # 62 s per pass for 7k tokens on a 35B model. Shared, its state is kept between the
+                # passes (gguf_inference) and each later pass reads only its own message.
+                _turn_key = (str(reasoning_mode or ""), hash(memory_context or ""), hash(situation_brief or ""))
+                _turn_facts_sys = _request_context.turn_facts_var.get()
+                _turn_systems = (_turn_facts_sys.setdefault("_systems", {})
+                                 if isinstance(_turn_facts_sys, dict) else None)
+                _reused_system = bool(_turn_systems) and _turn_key in _turn_systems
+                try:
+                    from eli.cognition.reasoning_modes import canonical_mode as _cm_pass
+                    _multi_pass = _cm_pass(reasoning_mode) != "quick"
+                except Exception:
+                    _multi_pass = False
+
                 # Context size guard. For short queries on small windows, trim memory to prevent prompt bloat
                 # and multi-minute first-token latency: persona (~2k chars) + user_input + max_tokens must fit in
                 # n_ctx with room to spare, and memory gets what's left.
@@ -7353,7 +7384,7 @@ Answer:"""
                     _n_ctx_guard, _persona_chars + _query_chars, _max_tok_guard,
                     wanted_chars=len(_trimmed_mem),
                     protect_memory=_ctx_budget.is_recall_question(prompt))
-                if len(_trimmed_mem) > _mem_char_budget:
+                if not _reused_system and len(_trimmed_mem) > _mem_char_budget:
                     log.debug(
                         f"[COGNITIVE] Trimming memory context "
                         f"{len(_trimmed_mem)}→{_mem_char_budget} chars "
@@ -7364,14 +7395,17 @@ Answer:"""
                     self._note_memory_trim(_before, len(_trimmed_mem))
                 # ─────────────────────────────────────────────────────────────
 
-                enhanced_system = self._build_enhanced_system(
-                    _trimmed_mem,
-                    compact=self._use_compact_system(
-                        prompt, _trimmed_mem, reasoning_mode=reasoning_mode),
-                    user_input=prompt,
-                    reasoning_mode=reasoning_mode,
-                    situation_brief=situation_brief,
-                )
+                if _reused_system:
+                    enhanced_system = _turn_systems[_turn_key]
+                else:
+                    enhanced_system = self._build_enhanced_system(
+                        _trimmed_mem,
+                        compact=self._use_compact_system(
+                            prompt, _trimmed_mem, reasoning_mode=reasoning_mode),
+                        user_input=prompt,
+                        reasoning_mode=reasoning_mode,
+                        situation_brief=situation_brief,
+                    )
                 log.debug("[COGNITIVE] Generating response with GGUF...")
                 broker = _get_inference_broker() if _get_inference_broker else None
                 if broker and broker.gguf_ready:
@@ -7444,7 +7478,17 @@ Answer:"""
                         _qcap = 20000
                     if _qcap > 0:
                         _max_prompt_chars = min(_max_prompt_chars, _qcap)
-                    if len(enhanced_system) + len(prompt) > _max_prompt_chars:
+                    # A mode of several passes keeps a quarter for each pass's message from the start, so
+                    # a later, longer message (the scratchpad) never makes the system prompt shrink again.
+                    if not _reused_system and _multi_pass:
+                        _sys_room = _max_prompt_chars - _max_prompt_chars // 4
+                        if len(enhanced_system) > _sys_room:
+                            enhanced_system = _truncate_system_prompt_preserving_evidence(
+                                enhanced_system, _sys_room)
+                    if _reused_system and len(enhanced_system) + len(prompt) > _max_prompt_chars:
+                        prompt = prompt[-max(200, _max_prompt_chars - len(enhanced_system)):]
+                        log.debug(f"[COGNITIVE] Prompt capped to {_max_prompt_chars}chars (the turn's system prompt kept)")
+                    elif len(enhanced_system) + len(prompt) > _max_prompt_chars:
                         # Give the user prompt at least 25% of the budget so the
                         # actual question is never fully clipped.
                         _prompt_budget = max(200, min(len(prompt), _max_prompt_chars // 4))
@@ -7459,6 +7503,8 @@ Answer:"""
                         log.debug(
     f"[COGNITIVE] Prompt capped to {_max_prompt_chars}chars "
     f"(evidence-preserving; n_ctx={_n_ctx_pf1}, qcap={_qcap})")
+                    if _turn_systems is not None and not _reused_system:
+                        _turn_systems[_turn_key] = enhanced_system
 
                     # Re-fit the answer budget to the prompt actually being sent. The earlier estimate floored at
                     # 128 and ran before truncation, so a big prompt got cut and the answer stayed capped at 128.

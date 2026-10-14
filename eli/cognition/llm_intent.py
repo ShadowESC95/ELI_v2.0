@@ -291,13 +291,15 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
             "'good morning', 'hey'), or does not clearly map to an action, answer "
             "CHAT. Use ONLY action names from the list. Output ONE JSON object: "
             '{"action": <NAME or CHAT>, "args": {...}, "confidence": <0..1>}.'
-        )
-        prompt = (
-            "ACTIONS (choose exactly one, or CHAT):\n"
+            # The list and the examples are the same on every call, so they belong to the part of
+            # the prompt whose model state is kept between calls (gguf_inference); only the
+            # message is read anew. In the user turn they were read again each time (22-24 s on
+            # a 35B model).
+            + "\n\nACTIONS (choose exactly one, or CHAT):\n"
             + _catalogue_prompt_lines(catalogue)
             + "\n\nEXAMPLES (format only):\n" + _FEW_SHOT
-            + f'\nUSER: "{text}"\nJSON:'
         )
+        prompt = f'USER: "{text}"\nJSON:'
         # Constrain the decoder to the live catalogue when the backend supports it, so the model
         # can't invent a capability or emit unparseable JSON. Without grammar support, fall through
         # to the free-text path below.

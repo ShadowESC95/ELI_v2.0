@@ -74,7 +74,9 @@ import time
 import logging as _swlog_logging
 _SWLOG = _swlog_logging.getLogger(__name__)
 
+from collections import OrderedDict
 from contextlib import contextmanager
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Optional, Dict, Any, Generator, Union
 
@@ -1295,7 +1297,25 @@ def _format_prompt(system: Optional[str], user: str) -> str:
 
     Family resolution is model-agnostic: embedded ``tokenizer.chat_template``
     → ``general.architecture`` → filename last resort.
+
+    Also notes where the part that does not depend on the message ends (_stable_prefix_var):
+    the model state there is kept and reused by the next prompt that starts the same way.
     """
+    text = _format_chat(system, user)
+    fixed = ""
+    if str(system or "").strip():
+        try:
+            a, b = _format_chat(system, "A"), _format_chat(system, "B")
+            fixed = os.path.commonprefix([a, b])
+            fixed = fixed if text.startswith(fixed) else ""
+        except Exception:
+            _SWLOG.debug("fixed prompt part not found", exc_info=True)
+    _stable_prefix_var.set(fixed)
+    return text
+
+
+def _format_chat(system: Optional[str], user: str) -> str:
+    """The chat template for the loaded model's family, filled in."""
     system = (system or "").strip()
     user = (user or "").strip()
     model_path = get_model_path()
@@ -1412,6 +1432,134 @@ def _fit_generation_budget(llm, full_prompt: str, max_tokens):
     return full_prompt, fitted
 
 
+# ── The model's state at the end of a prompt's fixed part ─────────────────────
+#
+# Most of what ELI sends the model is the same from one call to the next: the system prompt
+# (persona, rules, the turn's evidence) for each pass of a turn, the action list for the intent
+# resolver. llama.cpp re-reads only what follows the first difference from what it last read, but
+# a hybrid model (qwen35moe: most of its layers carry a running state, not an attention cache)
+# cannot roll that state back, so every call read everything again: 62 s for a 7k-token prompt on
+# a 35B model, for each pass of a Normal-mode turn. The state at the end of the fixed part is
+# saved and given back to the next prompt that starts the same way (measured 2026-10-14 on that
+# model: 135 MiB for 7k tokens, saved in 0.08 s, restored in 0.02 s; the second pass then took 2 s
+# and gave the same next token as reading the whole prompt). Attention-only models gain too:
+# the resolver's call in between used to push the turn's prompt out of their cache.
+_stable_prefix_var: "ContextVar[str]" = ContextVar("eli_stable_prompt_prefix", default="")
+_SAVED_STATES: "OrderedDict[tuple, Dict[str, Any]]" = OrderedDict()
+# The saved states together take no more than this share of the memory free when one is added,
+# and no more than two full contexts' worth of state.
+_SAVED_STATES_SHARE = 0.125
+
+
+def forget_saved_states() -> None:
+    """Drop every saved model state (a model was unloaded or replaced)."""
+    _SAVED_STATES.clear()
+
+
+def _saved_states_room() -> int:
+    try:
+        import psutil
+        return int(psutil.virtual_memory().available * _SAVED_STATES_SHARE)
+    except Exception:
+        return 0
+
+
+def _save_seq_state(llm) -> Optional[Any]:
+    """The model's memory for its one sequence, as bytes llama.cpp can take back."""
+    import ctypes
+    from llama_cpp import llama_cpp as _lc
+    size = int(_lc.llama_state_seq_get_size(llm._ctx.ctx, 0))
+    if size <= 0:
+        return None
+    buf = (ctypes.c_uint8 * size)()
+    got = int(_lc.llama_state_seq_get_data(llm._ctx.ctx, buf, size, 0))
+    return (buf, got) if 0 < got <= size else None
+
+
+def _load_seq_state(llm, saved, tokens) -> bool:
+    """Put a saved memory back and tell llama-cpp-python which tokens it holds."""
+    from llama_cpp import llama_cpp as _lc
+    buf, got = saved
+    llm._ctx.kv_cache_clear()
+    if int(_lc.llama_state_seq_set_data(llm._ctx.ctx, buf, got, 0)) != got:
+        llm.reset()
+        llm._ctx.kv_cache_clear()
+        return False
+    llm.n_tokens = len(tokens)
+    llm._input_ids[: len(tokens)] = tokens
+    return True
+
+
+def _resume_from_saved_state(llm, full_prompt: str, *, create: bool) -> str:
+    """Before a call: put back the saved state for this prompt's fixed part, or read that part
+    alone and save the state there. What follows is then all the model reads. Returns what was
+    done ("restored", "saved", "") for the timing log. Any failure leaves an ordinary full read."""
+    if os.environ.get("ELI_PROMPT_STATE_REUSE", "1").strip().lower() in ("0", "false", "no", "off"):
+        return ""
+    fixed = _stable_prefix_var.get()
+    if not fixed or not full_prompt.startswith(fixed) or len(fixed) >= len(full_prompt):
+        return ""
+    try:
+        prefix = llm.tokenize(fixed.encode("utf-8"), add_bos=True, special=True)
+        whole = llm.tokenize(full_prompt.encode("utf-8"), add_bos=True, special=True)
+        n = 0
+        for a, b in zip(prefix, whole):
+            if a != b:
+                break
+            n += 1
+        # Worth it only past one batch: below that the fixed part is read in one step anyway.
+        if n < max(1, int(getattr(llm, "n_batch", 0) or 0)) or n >= len(whole):
+            return ""
+        prefix = whole[:n]
+        key = (id(llm), n, hash(tuple(prefix)))
+        entry = _SAVED_STATES.get(key)
+        if entry is not None and entry["llm"]() is llm and entry["tokens"] == prefix:
+            if _load_seq_state(llm, entry["state"], prefix):
+                _SAVED_STATES.move_to_end(key)
+                return "restored"
+            _SAVED_STATES.pop(key, None)
+            return ""
+        if not create:
+            return ""
+        # Read the fixed part alone. An attention cache that already holds it is cut back to it
+        # instead; a running state cannot be cut back and is read again.
+        held = list(llm._input_ids[: llm.n_tokens]) if llm.n_tokens else []
+        if held[:n] == prefix and llm._ctx.kv_cache_seq_rm(-1, n, -1):
+            llm.n_tokens = n
+        else:
+            llm.reset()
+            llm._ctx.kv_cache_clear()
+            llm.eval(prefix)
+        state = _save_seq_state(llm)
+        if state is None:
+            return ""
+        size = int(state[1])
+        # No more than two contexts' worth of state either: "available" memory counts the file cache
+        # a model's weights are mapped from, and a 35B's experts can be most of it.
+        try:
+            n_ctx = int(llm.n_ctx())
+        except Exception:
+            n_ctx = 0
+        room = _saved_states_room()
+        if n_ctx > 0:
+            room = min(room, int(2 * n_ctx * size / max(1, n)))
+        if size > room:
+            return ""
+        while _SAVED_STATES and sum(int(e["state"][1]) for e in _SAVED_STATES.values()) + size > room:
+            _SAVED_STATES.popitem(last=False)
+        import weakref
+        _SAVED_STATES[key] = {"llm": weakref.ref(llm), "tokens": prefix, "state": state}
+        return "saved"
+    except Exception:
+        _SWLOG.debug("saved model state not used", exc_info=True)
+        try:
+            llm.reset()
+            llm._ctx.kv_cache_clear()
+        except Exception:
+            _SWLOG.debug("suppressed exception", exc_info=True)
+        return ""
+
+
 def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, top_k, repeat_penalty, stop, stream, grammar):
     """
     Invoke llama.cpp safely:
@@ -1478,11 +1626,17 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
         except RuntimeError:
             _SWLOG.debug("suppressed exception", exc_info=True)
 
+    def _resume():
+        _how = _resume_from_saved_state(llm, full_prompt, create=not bg)
+        if _how:
+            log.debug(f"[GGUF][STATE] {_how} the model state for the prompt's fixed part")
+
     for _ in range(4):
         try:
             if stream:
                 _acquire_lock_fg_priority()
                 try:
+                    _resume()
                     response = llm(
                         full_prompt,
                         temperature=temperature,
@@ -1510,6 +1664,7 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
 
             _acquire_lock_fg_priority()
             try:
+                _resume()
                 return llm(
                     full_prompt,
                     temperature=temperature,
@@ -2126,6 +2281,7 @@ def unload_model() -> None:
     """Cleanly unload the GGUF model to avoid Llama.__del__ crash on exit."""
     global _llm, _load_failed, _last_error
     with _LLM_CALL_LOCK:
+        forget_saved_states()
         if _llm is not None:
             try:
                 _llm.close()
