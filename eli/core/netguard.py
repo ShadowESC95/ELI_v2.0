@@ -119,6 +119,25 @@ def offline_response(action: str, what: str = "do that") -> Dict[str, Any]:
     }
 
 
+# Hosts that exist only to collect telemetry, analytics or crash reports. They are refused by name
+# whatever the network setting: nothing ELI does needs them, and turning the network on for a web
+# search must not let a library report to its maker. (Their switches are also turned off in
+# eli/__init__.py; this catches any library that ignores its switch.)
+REPORTING_HOSTS = (
+    "events.data.microsoft.com", "vortex.data.microsoft.com", "pipe.aria.microsoft.com",
+    "api.gradio.app", "posthog.com", "sentry.io", "api.segment.io", "segment.com", "mixpanel.com",
+    "amplitude.com", "google-analytics.com", "analytics.google.com", "googletagmanager.com",
+    "plausible.io", "scarf.sh", "datadoghq.com", "datadoghq.eu", "bugsnag.com", "rollbar.com",
+    "telemetry.crewai.com", "logfire-api.pydantic.dev", "logfire.pydantic.dev", "api.wandb.ai",
+    "app.honeycomb.io", "api.honeycomb.io", "statsig.com", "statsigapi.net",
+)
+
+
+def is_reporting_host(host: Optional[str]) -> bool:
+    h = _norm_host(host).rstrip(".")
+    return bool(h) and any(h == d or h.endswith("." + d) for d in REPORTING_HOSTS)
+
+
 # Loopback / local addresses are always permitted even when offline — these are
 # local IPC, not internet access (e.g. a local inference server).
 _LOCAL_HOST_PREFIXES = ("127.", "0.0.0.0", "::1", "localhost", "::ffff:127.")
@@ -460,6 +479,7 @@ _REAL_CONNECT = None
 _REAL_CONNECT_EX = None
 _REAL_CREATE_CONNECTION = None
 _REAL_PROACTOR_CONNECT = None
+_REAL_GETADDRINFO = None
 
 
 def install_socket_guard() -> bool:
@@ -484,7 +504,7 @@ def install_socket_guard() -> bool:
     forgot to call network_allowed() — is gated: it fails closed at the socket
     boundary rather than leaking.
     """
-    global _GUARD_INSTALLED, _REAL_CONNECT, _REAL_CONNECT_EX, _REAL_CREATE_CONNECTION
+    global _GUARD_INSTALLED, _REAL_CONNECT, _REAL_CONNECT_EX, _REAL_CREATE_CONNECTION, _REAL_GETADDRINFO
     if _GUARD_INSTALLED:
         return False
 
@@ -498,6 +518,13 @@ def install_socket_guard() -> bool:
     _REAL_CONNECT = socket.socket.connect
     _REAL_CONNECT_EX = socket.socket.connect_ex
     _REAL_CREATE_CONNECTION = socket.create_connection
+    _REAL_GETADDRINFO = socket.getaddrinfo
+
+    def _guarded_getaddrinfo(host, *args, **kwargs):
+        # Telemetry/analytics hosts never resolve, online or not (see REPORTING_HOSTS)
+        if isinstance(host, (str, bytes)) and is_reporting_host(host.decode() if isinstance(host, bytes) else host):
+            raise socket.gaierror(socket.EAI_NONAME, f"blocked: {host} only collects telemetry")
+        return _REAL_GETADDRINFO(host, *args, **kwargs)
 
     def _addr_host(address) -> Optional[str]:
         if isinstance(address, tuple) and address:
@@ -547,9 +574,11 @@ def install_socket_guard() -> bool:
     _guarded_connect._eli_netguard = True
     _guarded_connect_ex._eli_netguard = True
     _guarded_create_connection._eli_netguard = True
+    _guarded_getaddrinfo._eli_netguard = True
     socket.socket.connect = _guarded_connect
     socket.socket.connect_ex = _guarded_connect_ex
     socket.create_connection = _guarded_create_connection
+    socket.getaddrinfo = _guarded_getaddrinfo
     _install_proactor_guard()
     _GUARD_INSTALLED = True
     return True

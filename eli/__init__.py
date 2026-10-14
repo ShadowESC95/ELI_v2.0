@@ -21,3 +21,20 @@ def _streams_take_any_text() -> None:
 
 
 _streams_take_any_text()
+
+
+def _no_outside_reporting() -> None:
+    """Libraries ELI carries must not report to their makers. onnxruntime (the speech model's voice
+    detection) sends usage telemetry to Microsoft's collector from native code, which the network
+    guard cannot see; Hugging Face Hub, Gradio, OpenTelemetry, Chroma and Scarf-instrumented packages
+    have their own switches. Set here, before any of them can load. Hosts that only collect telemetry
+    are also refused by name in eli.core.netguard, whatever the network setting."""
+    import os
+    for name, value in (("ORT_DISABLE_TELEMETRY", "1"), ("HF_HUB_DISABLE_TELEMETRY", "1"),
+                        ("GRADIO_ANALYTICS_ENABLED", "False"), ("DO_NOT_TRACK", "1"),
+                        ("OTEL_SDK_DISABLED", "true"), ("ANONYMIZED_TELEMETRY", "False"),
+                        ("SCARF_NO_ANALYTICS", "true")):
+        os.environ[name] = value
+
+
+_no_outside_reporting()
