@@ -184,12 +184,9 @@ def _play_wav_blocking(wav_path, *, post_play_tail: float | None = None) -> bool
     try:
         import numpy as _np
         import sounddevice as _sd
-        import soundfile as _sf
+        from eli.perception.audio_samples import read_mono as _read_mono
 
-        data, sr = _sf.read(str(path), dtype="float32")
-        if getattr(data, "ndim", 1) > 1:
-            data = data.mean(axis=1)
-        data = _np.asarray(data, dtype="float32").reshape(-1)
+        data, sr = _read_mono(path)
         if data.size == 0:
             raise ValueError("empty wav")
 
@@ -215,7 +212,19 @@ def _play_wav_blocking(wav_path, *, post_play_tail: float | None = None) -> bool
                 rms = float(_np.sqrt(_np.mean(chunk ** 2)))
                 _es.set_amplitude(min(1.0, rms * 4.0))
 
-        with _sd.OutputStream(samplerate=int(sr), channels=1, callback=_callback):
+        try:
+            _stream = _sd.OutputStream(samplerate=int(sr), channels=1, callback=_callback)
+        except _sd.PortAudioError:
+            # A device that takes only its own rate (a USB headset's ALSA device refused 22,050 Hz,
+            # "Invalid sample rate"): play the voice resampled to that rate.
+            from eli.perception.audio_samples import resample as _resample
+            _dev_sr = int(_sd.query_devices(kind="output")["default_samplerate"])
+            if _dev_sr <= 0 or _dev_sr == int(sr):
+                raise
+            data = _resample(data, int(sr), _dev_sr)
+            sr = _dev_sr
+            _stream = _sd.OutputStream(samplerate=sr, channels=1, callback=_callback)
+        with _stream:
             _sd.sleep(int((data.size / float(sr)) * 1000) + 80)
         if _es is not None:
             _es.set_amplitude(0.0)

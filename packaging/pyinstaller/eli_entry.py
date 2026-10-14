@@ -106,6 +106,23 @@ def _assert_paths_outside_bundle() -> None:
     probe.parent.mkdir(parents=True, exist_ok=True)
     probe.write_text("ok", encoding="utf-8")
     probe.unlink()
+    # Speech input: a recording is read here into the 16 kHz samples faster-whisper is given, so it
+    # never opens the file itself (PyAV 18 refused the argument faster-whisper 1.2.1 passes, and
+    # every transcription in 2.5.11 failed with nothing at build time to say so).
+    import tempfile
+    import wave
+    from eli.perception.local_whisper_stt import _audio_for_whisper
+    with tempfile.TemporaryDirectory() as _tmp:
+        _wav = Path(_tmp) / "speech.wav"
+        with wave.open(str(_wav), "wb") as _w:
+            _w.setnchannels(2)
+            _w.setsampwidth(2)
+            _w.setframerate(44100)
+            _w.writeframes(b"\x00\x00" * 2 * 44100)
+        _samples = _audio_for_whisper(_wav)
+        if isinstance(_samples, str) or not (15900 <= len(_samples) <= 16100):
+            raise RuntimeError("selftest: a recording cannot be read into 16 kHz samples for speech input")
+    print("selftest: speech input reads a recording into 16 kHz samples")
     if os.environ.get("ELI_REQUIRE_VOICES") == "1":
         if not list((bundle / "tts_piper" / "piper").glob("*.onnx")):
             raise RuntimeError("selftest: no Piper voices bundled (tts_piper/piper/*.onnx)")

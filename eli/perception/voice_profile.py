@@ -90,14 +90,7 @@ def _to_float(audio_int16: np.ndarray) -> np.ndarray:
     return np.asarray(audio_int16).ravel().astype(np.float32) / 32768.0
 
 
-def _resample(x: np.ndarray, sr_in: int, sr_out: int = SR) -> np.ndarray:
-    if sr_in == sr_out or len(x) == 0:
-        return x.astype(np.float32)
-    n_out = int(round(len(x) * sr_out / sr_in))
-    if n_out <= 1:
-        return np.zeros(0, dtype=np.float32)
-    return np.interp(np.linspace(0, len(x), n_out, endpoint=False),
-                     np.arange(len(x), dtype=np.float32), x.astype(np.float32)).astype(np.float32)
+from eli.perception.audio_samples import resample as _resample  # noqa: E402  (one resampler for ELI)
 
 
 # ── prosody (autocorrelation F0 + energy) ────────────────────────────────────

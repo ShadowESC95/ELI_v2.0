@@ -330,9 +330,22 @@ def preload_model() -> bool:
         return False
 
 
+def _audio_for_whisper(path):
+    """The recording as 16 kHz mono samples, which faster-whisper takes without opening the file
+    itself. It opens files with PyAV, and PyAV 18 refused the argument faster-whisper 1.2.1 passes:
+    every transcription in the packaged app failed ("open() got an unexpected keyword argument
+    'metadata_errors'"). The path itself when the file cannot be read here."""
+    try:
+        from eli.perception.audio_samples import SPEECH_RATE, read_mono
+        return read_mono(path, SPEECH_RATE)[0]
+    except Exception:
+        log.debug("[LOCAL_STT] could not read %s as samples; faster-whisper opens it", path, exc_info=True)
+        return str(path)
+
+
 def _do_transcribe(model, wav_path: str, language: str | None) -> str:
     segments, _info = model.transcribe(
-        wav_path,
+        _audio_for_whisper(wav_path),
         language=language,
         # beam_size=5 (faster-whisper's default) restores sentence punctuation
         # (. , ? !) that greedy beam_size=1 suppresses, and improves accuracy.

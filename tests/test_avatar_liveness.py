@@ -92,3 +92,47 @@ def test_face_shows_thinking_and_lipsync():
     for _ in range(12):
         f._tick()
     assert f._mouth_lipsync < 0.05, "mouth should close when speech ends"
+
+
+def test_a_device_that_refuses_the_voices_rate_gets_it_resampled(tmp_path, monkeypatch):
+    """A USB headset's ALSA device took only its own rate: opening it at the voice's 22,050 Hz
+    failed with "Invalid sample rate" and lip-synced playback fell back to the system player."""
+    import sys
+    import types
+    import wave
+    import numpy as np
+    from eli.perception import tts_router
+
+    path = tmp_path / "voice.wav"
+    with wave.open(str(path), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(22050)
+        f.writeframes(np.zeros(22050, dtype="<i2").tobytes())
+    opened = []
+
+    class PortAudioError(Exception):
+        pass
+
+    class _Stream:
+        def __init__(self, samplerate, channels, callback):
+            opened.append(samplerate)
+            if samplerate != 48000:
+                raise PortAudioError("Invalid sample rate")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    fake = types.SimpleNamespace(OutputStream=_Stream, PortAudioError=PortAudioError, CallbackStop=Exception,
+                                 query_devices=lambda kind=None: {"default_samplerate": 48000.0},
+                                 sleep=lambda ms: None)
+    monkeypatch.setitem(sys.modules, "sounddevice", fake)
+
+    def _no_fallback(*a, **k):
+        raise AssertionError("fell back to the system player")
+    monkeypatch.setattr(tts_router, "_platform_play_wav_blocking", _no_fallback)
+    assert tts_router._play_wav_blocking(str(path), post_play_tail=0) is True
+    assert opened == [22050, 48000]

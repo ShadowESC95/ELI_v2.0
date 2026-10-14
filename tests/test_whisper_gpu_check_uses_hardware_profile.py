@@ -69,3 +69,36 @@ def test_result_is_cached(monkeypatch):
     assert stt._gpu_total_mb() == 16384
     assert stt._gpu_total_mb() == 16384
     assert calls["n"] == 1
+
+
+# ── what faster-whisper is given ─────────────────────────────────────────────
+
+def test_a_recording_reaches_faster_whisper_as_16_khz_samples_not_a_file(tmp_path):
+    """faster-whisper opens a file with PyAV, and PyAV 18 refused the argument faster-whisper
+    1.2.1 passes: every transcription in the 2.5.11 packaged app failed. Handed samples, it
+    opens nothing."""
+    import wave
+    import numpy as np
+    path = tmp_path / "said.wav"
+    with wave.open(str(path), "wb") as f:
+        f.setnchannels(2)
+        f.setsampwidth(2)
+        f.setframerate(44100)
+        f.writeframes(np.full(2 * 44100, 1000, dtype="<i2").tobytes())
+    seen = {}
+
+    class _Model:
+        def transcribe(self, audio, **kw):
+            seen["audio"] = audio
+            return iter([type("S", (), {"text": " Open Spotify."})()]), None
+
+    assert stt._do_transcribe(_Model(), str(path), "en") == "open spotify."
+    audio = seen["audio"]
+    assert isinstance(audio, np.ndarray) and audio.dtype == np.float32 and abs(len(audio) - 16000) <= 2
+    assert abs(float(audio.mean()) - 1000 / 32768) < 1e-3, "the two channels are averaged, not run end to end"
+
+
+def test_a_file_that_cannot_be_read_here_is_left_to_faster_whisper(tmp_path):
+    odd = tmp_path / "talk.m4a"
+    odd.write_bytes(b"not a wav")
+    assert stt._audio_for_whisper(odd) == str(odd)
