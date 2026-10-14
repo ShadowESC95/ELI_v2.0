@@ -401,7 +401,8 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 |---|---|---|
 | `audio_stt.py` | 2472 | faster-whisper STT + VoiceGate (wake-word, debounce, incomplete-command wait), self-echo suppression, output ducking, per-user voice profile bias. |
 | `vision.py` | 698 | Local GGUF VL (Moondream fast / primary), hot-swap with text model, CPU-pinned CLIP, OCR. |
-| `tts_router.py` | 1219 | Piper/espeak TTS, voice selection, unspeakable-fragment guard. |
+| `tts_router.py` | 1296 | Piper/espeak TTS, voice selection, unspeakable-fragment guard; plays at the device's own rate when it refuses the voice's. |
+| `audio_samples.py` | 74 | A sound file as one channel of float32 samples at the rate a consumer needs (speech input, playback, the wake word, the voice profile): PCM WAV read with the standard library, other formats with soundfile. |
 | `os_controller.py` | 572 | Screenshot/volume/keys/mouse/clipboard + `gaze_click`. |
 | `screen_locator.py` | 497 | OCR (tesseract) → locate a named UI element on screen. |
 | `gaze_engine.py` | 358 | MediaPipe face-gaze + calibration mapper + One-Euro smoothing → `latest_gaze.json` @10Hz. |

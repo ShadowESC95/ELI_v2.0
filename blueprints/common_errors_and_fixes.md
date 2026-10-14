@@ -910,3 +910,40 @@ between them, so the second pass reads only its own message: 3.2 s instead of 63
 same answer. The intent resolver keeps the state of its action list the same way (2.5 s instead
 of 22-27 s after the first call of a session). The first pass still reads the whole prompt once.
 `ELI_PROMPT_STATE_REUSE=0` turns this off.
+
+---
+
+## Voice input never works: `transcription failed: TypeError: open() got an unexpected keyword argument 'metadata_errors'`
+
+**Cause:** the packaged app's build installed the newest of each package instead of the locked
+versions, and took PyAV 18. faster-whisper 1.2.1 opens a recording with PyAV and passes an
+argument PyAV 18 no longer takes, so every transcription failed. Source installs were not
+affected: the installers keep to `requirements.lock.txt`.
+
+**Fix (v2.5.13):** ELI reads the recording itself and hands faster-whisper 16 kHz samples, so
+faster-whisper never opens a file. The release build now installs under the lock as well
+(`packaging/lock_constraints.py`), and the packaged app's `--selftest` checks that a recording
+can be read for speech input.
+
+---
+
+## The first message after start-up takes minutes and the model loads a second time
+
+**Cause:** the settings named one model (for example a 7B) and the model picked in the start-up
+dialog was another. Before the first reply ELI compared the two, called the difference a broken
+"persona lock", and loaded the model again.
+
+**Fix (v2.5.13):** the model in memory is the one ELI answers with; a different file in the
+settings is not a fault, and the model is loaded again only when none is loaded.
+
+---
+
+## ELI's voice: `PortAudioError: Error opening OutputStream: Invalid sample rate`
+
+**Cause:** some sound devices (a USB headset's ALSA device, for one) take only their own sample
+rate, and the voice is made at 22,050 Hz. Playback fell back to the system player, without the
+avatar's lip movement.
+
+**Fix (v2.5.13):** when the device refuses the voice's rate, the voice is resampled to the
+device's own rate and played there.
+
