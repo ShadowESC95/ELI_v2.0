@@ -48,8 +48,13 @@ env:
   # Every pip install in every job is held to the llama-cpp-python the GPU packs are
   # built at. Unpinned, pip took the newest upstream (0.3.36 on 2026-10-01) and v2.5.0
   # crashed on launch wherever a 0.3.35 pack was installed. See the file itself.
+  # And to the lock the installers use: without it the bundle took the newest of everything,
+  # PyAV 18 among them, which refuses an argument faster-whisper 1.2.1 passes, and every
+  # transcription in the packaged app failed (2.5.11). The lock is read through
+  # packaging/lock_constraints.py, which leaves out a pin the build's own tools do not allow
+  # (setuptools); each job that runs pip writes it first. Space-separated: pip reads both.
   # Relative on purpose: every pip install runs from the repo root (cd dist comes later).
-  PIP_CONSTRAINT: packaging/llama_cpp_constraints.txt
+  PIP_CONSTRAINT: packaging/llama_cpp_constraints.txt .build-constraints/lock.txt
   PYTHONHASHSEED: "0"
   PIP_DISABLE_PIP_VERSION_CHECK: "1"
   PIP_NO_CACHE_DIR: "1"
@@ -111,6 +116,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Constraints from the lock (pip reads them through PIP_CONSTRAINT)
+        shell: bash
+        run: python packaging/lock_constraints.py .build-constraints/lock.txt
 
       - name: Set SOURCE_DATE_EPOCH (reproducible timestamps)
         shell: bash
@@ -270,6 +279,10 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
 
+      - name: Constraints from the lock (pip reads them through PIP_CONSTRAINT)
+        shell: bash
+        run: python packaging/lock_constraints.py .build-constraints/lock.txt
+
       - name: Set SOURCE_DATE_EPOCH (reproducible timestamps)
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
 
@@ -392,6 +405,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Constraints from the lock (pip reads them through PIP_CONSTRAINT)
+        shell: bash
+        run: python packaging/lock_constraints.py .build-constraints/lock.txt
 
       - name: Set SOURCE_DATE_EPOCH (reproducible timestamps)
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"
@@ -622,6 +639,10 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Constraints from the lock (pip reads them through PIP_CONSTRAINT)
+        shell: bash
+        run: python packaging/lock_constraints.py .build-constraints/lock.txt
 
       - name: Set SOURCE_DATE_EPOCH (reproducible timestamps)
         run: echo "SOURCE_DATE_EPOCH=$(git log -1 --format=%ct)" >> "$GITHUB_ENV"

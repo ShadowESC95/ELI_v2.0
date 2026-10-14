@@ -226,3 +226,6 @@ config/voices/
 /runtime/
 /test_reports/
 models/_download.log
+
+# written by the release build (packaging/lock_constraints.py)
+/.build-constraints/

@@ -35,7 +35,35 @@ def _pinned() -> str:
 
 def test_release_builds_install_the_pinned_runtime():
     wf = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
-    assert wf["env"]["PIP_CONSTRAINT"] == "packaging/llama_cpp_constraints.txt"
+    assert "packaging/llama_cpp_constraints.txt" in wf["env"]["PIP_CONSTRAINT"].split()
+
+
+def test_release_builds_keep_to_the_lock_and_every_job_writes_it_before_pip():
+    """2.5.11's bundle took the newest PyAV, which refuses an argument faster-whisper 1.2.1 passes:
+    every transcription in the packaged app failed. The build now installs under the lock."""
+    wf = yaml.safe_load((ROOT / ".github/workflows/release.yml").read_text())
+    assert ".build-constraints/lock.txt" in wf["env"]["PIP_CONSTRAINT"].split()
+    for name, job in wf["jobs"].items():
+        runs = [str(step.get("run") or "") for step in job.get("steps", [])]
+        uses_pip = [i for i, r in enumerate(runs) if "pip " in r or "build_packages.sh" in r]
+        if not uses_pip:
+            continue
+        writes = [i for i, r in enumerate(runs) if "lock_constraints.py .build-constraints/lock.txt" in r]
+        assert writes and writes[0] < uses_pip[0], f"{name} runs pip before the lock constraints are written"
+
+
+def test_the_lock_constraints_leave_out_only_what_the_build_tools_do_not_allow(tmp_path):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("lock_constraints", ROOT / "packaging" / "lock_constraints.py")
+    lc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(lc)
+    lock = tmp_path / "lock.txt"
+    lock.write_text('av==17.0.1\nsetuptools==81.0.0\nPillow==11.0.0\ncomtypes==1.4.17 ; sys_platform == "win32"\n')
+    build = tmp_path / "build.txt"
+    build.write_text("# tools\npyinstaller>=6.13,<7\nsetuptools>=70,<81\nPillow>=10.0\n")
+    assert lc.constraints(lock, build) == ["av==17.0.1", "Pillow==11.0.0", 'comtypes==1.4.17 ; sys_platform == "win32"']
+    real = lc.constraints(ROOT / "requirements.lock.txt", ROOT / "requirements-build.txt")
+    assert any(x.startswith("av==") for x in real) and not any(x.startswith("setuptools==") for x in real)
 
 
 def test_gpu_packs_are_built_at_the_pinned_version():
