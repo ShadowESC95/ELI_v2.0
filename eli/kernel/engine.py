@@ -10406,8 +10406,22 @@ Answer:"""
                 log.debug(f"[COGNITIVE] verify_persona_lock: sync check failed ({_sync_err})")
             if not self._gguf_available:
                 return False
-        # Verify the loaded model path still matches the configured one so a
-        # model swap or accidental unload is caught before inference runs.
+        # The model in memory is the one that answers. When the settings name another file (the
+        # startup dialog loads the model picked there), the engine's record follows the loaded
+        # model: calling that a broken lock reloaded the model before the first reply (live: the
+        # settings named a 7B, the 35B in memory was loaded again, 20 GB).
+        try:
+            if gguf_inference is not None and getattr(gguf_inference, "is_loaded", lambda: False)():
+                loaded = str(getattr(gguf_inference, "_loaded_model_path_str", lambda: "")() or "")
+                if loaded and loaded != self._model_path:
+                    log.debug(f"[COGNITIVE] verify_persona_lock: the loaded model is {loaded} (was recorded as "
+                              f"{self._model_path})")
+                    self._model_path = loaded
+                return True
+        except Exception as _vpl_loaded_err:
+            log.debug(f"[COGNITIVE] verify_persona_lock: loaded-model check failed ({_vpl_loaded_err})")
+        # Nothing in memory: the configured model is the one expected, and a mismatch is a model
+        # swap or an unload to repair before inference runs.
         try:
             if gguf_inference is not None and hasattr(gguf_inference, "get_model_path"):
                 expected = gguf_inference.get_model_path()
