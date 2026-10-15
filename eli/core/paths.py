@@ -6,7 +6,7 @@ Never construct data/config/cache paths elsewhere.
 
 Supports three modes:
   1. Development: ELI_DATA_DIR env var or running from source tree
-  2. Installed package: platformdirs for platform-standard directories  
+  2. Installed package: the same per-user ELI_v2 root as the frozen app
   3. Frozen app: sys._MEIPASS for PyInstaller bundles
 
 Usage:
@@ -153,7 +153,7 @@ def _is_dev_mode() -> bool:
         return False
     # Release installers also ship pyproject.toml and the eli package. Treat
     # auto-detected source layout as dev mode only for real checkouts; packaged
-    # installs should use platformdirs unless a launcher set ELI_PROJECT_ROOT.
+    # installs use the per-user ELI_v2 root unless a launcher set ELI_PROJECT_ROOT.
     if not (root / ".git").exists():
         # Portable redistributables (tarball/AppImage extract) ship without git
         # metadata but are self-contained — keep artifacts/models beside the tree.
@@ -168,6 +168,20 @@ def _is_dev_mode() -> bool:
     if (root / "brain").is_dir() and (root / "gui").is_dir():
         return True
     return False
+
+
+def temp_path(name: str) -> Path:
+    """`name` in the system temp folder, under this version's own name (ELI_v2-tts_speaking.lock).
+    A lock, socket, log or report one ELI version leaves there must never be read by another one
+    running beside it: with shared names, v2 speaking muted v3's microphone and either version
+    could drive the other's video player."""
+    import tempfile
+    return Path(tempfile.gettempdir()) / f"{_APP_NAME}-{name}"
+
+
+def pipe_path(name: str) -> str:
+    """A Windows named pipe that is this version's alone (see temp_path)."""
+    return "\\\\.\\pipe\\" + f"{_APP_NAME}-{name}"
 
 
 def adopt_legacy_file(own: Path, legacy: str) -> Path:
@@ -333,7 +347,7 @@ def user_db_path() -> Path:
     """Primary user database (conversations, memories).
 
     Honor both ELI_USER_DB (documented form) and ELI_MEMORY_DB (legacy launcher
-    form). Either takes precedence over the platformdirs/dev-mode fallback.
+    form). Either takes precedence over the dev-mode / per-user root fallback.
     """
     override = os.environ.get("ELI_USER_DB") or os.environ.get("ELI_MEMORY_DB")
     if override:
@@ -391,7 +405,7 @@ def memory_db_path() -> Path:
 
     Currently consolidated into user.sqlite3 (single canonical DB).
 
-    Honors ELI_MEMORY_DB then ELI_USER_DB then dev-mode/platformdirs fallback.
+    Honors ELI_MEMORY_DB then ELI_USER_DB then the dev-mode / per-user root fallback.
     """
     override = os.environ.get("ELI_MEMORY_DB") or os.environ.get("ELI_USER_DB")
     if override:

@@ -235,7 +235,8 @@ def attempt_youtube_mpv(
     err_target: Any = subprocess.DEVNULL
     try:
         err_log = tempfile.NamedTemporaryFile(
-            prefix="eli_mpv_", suffix=".log", delete=False, mode="w+",
+            prefix=__import__("eli.core.paths", fromlist=["temp_path"]).temp_path("mpv_").name,
+            suffix=".log", delete=False, mode="w+",
         )
         err_target = err_log
     except Exception:

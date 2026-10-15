@@ -664,7 +664,10 @@ def _pref(out: list, raw: str, low: str, pattern: str, ptype: str, label: str) -
 
 
 def extract_patterns_from_text(text: Any) -> list[tuple[str, str]]:
-    raw = _clean(text, 1600)
+    # the user's own words only: what they paste is someone else's (ChatGPT's scorecard was quoted
+    # back as something the user "Said")
+    from eli.cognition.correction_patterns import split_pasted
+    raw = _clean(split_pasted(str(text or ""))[0], 1600)
     low = raw.lower()
     out: list[tuple[str, str]] = []
 

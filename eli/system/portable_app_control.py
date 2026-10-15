@@ -382,7 +382,69 @@ def open_app(name: str) -> dict:
     return _result(False, "OPEN_APP", f"Could not open app: {name}", resolved=target.__dict__)
 
 
+def app_program(target: AppCandidate) -> str:
+    """The program an installed app's launcher runs, as its processes are named: gnome-control-center
+    for Settings, spotify for the Spotify flatpak (its --command=), firefox for /snap/bin/firefox,
+    SystemSettings-style package names for a Windows store app. "" when ELI does not know the app."""
+    cmd = [str(c) for c in (target.command or []) if str(c).strip()]
+    while cmd and (os.path.basename(cmd[0]) == "env" or "=" in cmd[0]):
+        cmd = cmd[1:]  # env VAR=x program ...
+    if cmd:
+        exe = os.path.basename(cmd[0])
+        if exe == "flatpak":
+            for arg in cmd:
+                if arg.startswith("--command="):
+                    return os.path.basename(arg.split("=", 1)[1])
+            ids = [a for a in cmd[1:] if not a.startswith("-") and a.count(".") >= 2]
+            return ids[0].rsplit(".", 1)[-1].lower() if ids else ""
+        if exe in ("open", "gtk-launch", "xdg-open", "sh", "bash"):
+            return ""
+        return exe
+    app_id = str(target.app_id or "")
+    if app_id.lower().endswith(".exe"):
+        return re.split(r"[\\/]", app_id)[-1]
+    if "!" in app_id:  # a store app: Package.Name_publisher!App -> its install folder's name
+        return app_id.split("!", 1)[0].split("_", 1)[0]
+    return ""
+
+
+def _posix_program_pattern(program: str) -> str:
+    """pgrep -f pattern for a process whose program is `program` (path or not), and nothing that merely
+    mentions it: "settings" matched gsd-xsettings, and its own launcher matched "playerctl -p spotify".
+    POSIX classes, so GNU and BSD pgrep read it the same."""
+    esc = re.sub(r"([.^$*+?()\[\]{}|\\])", r"\\\1", program)
+    return rf"^([^[:space:]]*/)?{esc}([[:space:]]|$)"
+
+
+def _close_by_program(target: AppCandidate) -> Optional[dict]:
+    """Close the app by the program its launcher runs, verified by the process guard. None when the
+    program is unknown or nothing of it is running."""
+    program = app_program(target)
+    if not program:
+        return None
+    from eli.system.process_guard import safe_pkill
+    sysname = _system()
+    if sysname == "windows":
+        if program.lower().endswith(".exe"):
+            res = safe_pkill(program, full_cmdline=False)
+        else:  # a store app's package name is in its install path
+            res = safe_pkill(program, full_cmdline=True)
+    elif sysname in ("linux", "darwin"):
+        res = safe_pkill(_posix_program_pattern(program), full_cmdline=True)
+    else:
+        return None
+    if res.get("ok"):
+        return _result(True, "CLOSE_APP", f"Closed {target.name} ({res.get('killed')} process(es) of {program}).",
+                       resolved=target.__dict__, kill_plan=res.get("plan"))
+    if "no ordinary application matches" in str(res.get("reason") or "") or not (res.get("plan") or {}).get("pids"):
+        return None
+    return _result(False, "CLOSE_APP", f"Could not close {target.name}: {res.get('reason')}",
+                   resolved=target.__dict__, kill_plan=res.get("plan"))
+
+
 def close_app(name: str, force: bool = False) -> dict:
+    """Close an app, its windows first, then the program ELI resolved for it (the one OPEN_APP
+    launches), on every OS. The word the user said is the last resort, in the executor."""
     target = resolve_app(name)
     sysname = _system()
     if not target.name:
@@ -419,8 +481,11 @@ def close_app(name: str, force: bool = False) -> dict:
     if sysname == "darwin":
         osascript = shutil.which("osascript")
         if osascript:
-            cp = _run([osascript, "-e", f'tell application "{_osa_quote(target.name)}" to quit'])
-            if cp.returncode == 0:
+            # "is running" first: telling an app that is not running anything starts it
+            app = _osa_quote(target.name)
+            cp = _run([osascript, "-e", f'if application "{app}" is running then tell application "{app}" to quit',
+                       "-e", f'return application "{app}" is running'])
+            if cp.returncode == 0 and cp.stdout.strip().lower() == "false":
                 return _result(True, "CLOSE_APP", f"Closed app: {target.name}", resolved=target.__dict__)
 
     if sysname == "windows":
@@ -439,6 +504,9 @@ def close_app(name: str, force: bool = False) -> dict:
             if cp.returncode == 0:
                 return _result(True, "CLOSE_APP", f"Closed app: {target.name}", resolved=target.__dict__)
 
+    by_program = _close_by_program(target)
+    if by_program is not None:
+        return by_program
     return _result(False, "CLOSE_APP", f"Could not close app/window: {name}", resolved=target.__dict__)
 
 
@@ -650,6 +718,14 @@ def _xdotool_key(keys: str) -> bool:
     xdotool = shutil.which("xdotool")
     return bool(xdotool and _run([xdotool, "key", keys]).returncode == 0)
 
+def _windows_shell(method: str) -> bool:
+    """One of Windows' own window commands on the shell (Shell.Application): MinimizeAll,
+    UndoMinimizeALL, TileVertically, TileHorizontally, CascadeWindows."""
+    ps = shutil.which("powershell") or shutil.which("pwsh")
+    return bool(ps and _run([ps, "-NoProfile", "-Command",
+                             f"(New-Object -ComObject Shell.Application).{method}()"]).returncode == 0)
+
+
 def _windows_send_keys(keys: str) -> bool:
     ps = shutil.which("powershell") or shutil.which("pwsh")
     if not ps:
@@ -666,18 +742,51 @@ def _macos_keystroke(keys: str) -> bool:
     osascript = shutil.which("osascript")
     if not osascript:
         return False
+    # macOS's own keys: ⌘Tab switches apps, ⌃←/⌃→ switch Spaces. Until 2.5.17 this sent ⌥Tab for the
+    # next window, ⌘↑ to maximise (Finder: up a folder) and ⌘D to show the desktop (Finder: duplicate
+    # the selected files); those two are now done without keys (_macos_script).
     mapping = {
-        "%{TAB}": 'tell application "System Events" to keystroke tab using {option down}',
-        "%+{TAB}": 'tell application "System Events" to keystroke tab using {option down, shift down}',
+        "%{TAB}": 'tell application "System Events" to keystroke tab using {command down}',
+        "%+{TAB}": 'tell application "System Events" to keystroke tab using {command down, shift down}',
         "^{Left}": 'tell application "System Events" to key code 123 using {control down}',
         "^{Right}": 'tell application "System Events" to key code 124 using {control down}',
-        "super+Up": 'tell application "System Events" to key code 126 using {command down}',
-        "super+d": 'tell application "System Events" to keystroke "d" using {command down}',
     }
     script = mapping.get(keys)
     if not script:
         return False
     return _run([osascript, "-e", script]).returncode == 0
+
+
+# Window commands macOS has no key for, done through System Events (Accessibility permission)
+_MACOS_SCRIPTS = {
+    # show the desktop: hide every app
+    "minimise_all": 'tell application "System Events" to set visible of (every process whose visible is true '
+                    'and background only is false) to false',
+    "restore": ('tell application "System Events"\n'
+                ' set visible of (every process whose background only is false) to true\n'
+                ' repeat with p in (every process whose background only is false)\n'
+                '  try\n   set value of attribute "AXMinimized" of every window of p to false\n  end try\n'
+                ' end repeat\nend tell'),
+    "maximise_front": ('tell application "System Events" to tell (first process whose frontmost is true) to '
+                       'click (first button whose subrole is "AXZoomButton") of window 1'),
+    "tile": ('tell application "Finder" to set b to bounds of window of desktop\n'
+             'set sw to item 3 of b\nset sh to (item 4 of b) - 25\n'
+             'tell application "System Events"\n set wins to {}\n'
+             ' repeat with p in (every process whose visible is true and background only is false)\n'
+             '  try\n   if (count of windows of p) > 0 then set end of wins to window 1 of p\n  end try\n'
+             ' end repeat\n set n to count of wins\n if n = 0 then return 0\n'
+             ' set cols to 2\n if n > 4 then set cols to 3\n if n = 1 then set cols to 1\n'
+             ' set rows to (n + cols - 1) div cols\n set cw to sw div cols\n set rh to sh div rows\n'
+             ' repeat with i from 1 to n\n  set w to item i of wins\n'
+             '  set r to (i - 1) div cols\n  set c to (i - 1) mod cols\n'
+             '  try\n   set position of w to {c * cw, 25 + r * rh}\n   set size of w to {cw, rh}\n  end try\n'
+             ' end repeat\n return n\nend tell'),
+}
+
+
+def _macos_script(name: str) -> subprocess.CompletedProcess | None:
+    osascript = shutil.which("osascript")
+    return _run([osascript, "-e", _MACOS_SCRIPTS[name]]) if osascript else None
 
 
 def focus_app(name: str) -> dict:
@@ -828,8 +937,24 @@ def window_exists(name: str) -> bool:
 
 
 def tile_windows() -> dict:
-    if _system() != "linux":
+    sysname = _system()
+    if sysname == "windows":
+        if _windows_shell("TileVertically"):
+            return _result(True, "TILE_WINDOWS", "Tiled the open windows side by side.")
+        return _result(False, "TILE_WINDOWS", "Windows did not tile the open windows.")
+    if sysname == "darwin":
+        cp = _macos_script("tile")
+        if cp is not None and cp.returncode == 0:
+            n = int(cp.stdout.strip() or 0) if cp.stdout.strip().isdigit() else 0
+            if n:
+                return _result(True, "TILE_WINDOWS", f"Tiled {n} window{'s' if n != 1 else ''}.", count=n)
+            return _result(False, "TILE_WINDOWS", "No visible windows to tile.")
+        return _result(False, "TILE_WINDOWS", "macOS did not let ELI move the windows: allow ELI under "
+                       "System Settings → Privacy & Security → Accessibility.")
+    if sysname != "linux":
         return _linux_only("TILE_WINDOWS", "Window tiling")
+    if display_server() == "wayland" and not shutil.which("wmctrl"):
+        return _result(False, "TILE_WINDOWS", _wayland_window_advice("tile the windows"), display_server="wayland")
     wmctrl = shutil.which("wmctrl")
     if not wmctrl:
         return _result(False, "TILE_WINDOWS", "wmctrl not installed; cannot tile windows.")
@@ -868,10 +993,12 @@ def minimise_all() -> dict:
         if _xdotool_key("super+d"):
             return _result(True, "MINIMISE_ALL", "Triggered show-desktop shortcut.")
         return _result(False, "MINIMISE_ALL", "wmctrl or xdotool required to minimise all windows.")
-    if sysname == "windows" and _windows_send_keys("#d"):
+    if sysname == "windows" and _windows_shell("MinimizeAll"):
         return _result(True, "MINIMISE_ALL", "Showed desktop.")
-    if sysname == "darwin" and _macos_keystroke("super+d"):
-        return _result(True, "MINIMISE_ALL", "Showed desktop.")
+    if sysname == "darwin":
+        cp = _macos_script("minimise_all")
+        if cp is not None and cp.returncode == 0:
+            return _result(True, "MINIMISE_ALL", "Showed desktop.")
     return _linux_only("MINIMISE_ALL", "Show desktop / minimise all")
 
 
@@ -882,6 +1009,12 @@ def restore_windows() -> dict:
         if wmctrl and _run([wmctrl, "-k", "off"]).returncode == 0:
             return _result(True, "RESTORE_WINDOWS", "Restored windows.")
         return _result(False, "RESTORE_WINDOWS", "wmctrl required to restore windows.")
+    if sysname == "windows" and _windows_shell("UndoMinimizeALL"):
+        return _result(True, "RESTORE_WINDOWS", "Restored windows.")
+    if sysname == "darwin":
+        cp = _macos_script("restore")
+        if cp is not None and cp.returncode == 0:
+            return _result(True, "RESTORE_WINDOWS", "Restored windows.")
     return _linux_only("RESTORE_WINDOWS", "Restore minimised windows")
 
 
@@ -906,8 +1039,10 @@ def maximise_active_window() -> dict:
             )
             if _run([ps, "-NoProfile", "-Command", cmd]).returncode == 0:
                 return _result(True, "MAXIMISE_WINDOW", "Maximised current window.")
-    if sysname == "darwin" and _macos_keystroke("super+Up"):
-        return _result(True, "MAXIMISE_WINDOW", "Maximised current window.")
+    if sysname == "darwin":
+        cp = _macos_script("maximise_front")
+        if cp is not None and cp.returncode == 0:
+            return _result(True, "MAXIMISE_WINDOW", "Maximised current window.")
     return _linux_only("MAXIMISE_WINDOW", "Maximise the active window")
 
 
@@ -941,8 +1076,9 @@ def switch_workspace(direction: str = "right") -> dict:
             return _result(True, "SWITCH_WORKSPACE", f"Switched workspace {direction}.")
         return _result(False, "SWITCH_WORKSPACE", "xdotool required to switch workspaces.")
     if sysname == "windows":
-        arrow = "^{Right}" if str(direction).lower() == "right" else "^{Left}"
-        if _windows_send_keys(arrow):
+        # Ctrl+Win+→ / ←; SendKeys has no Windows key, and Ctrl+→ alone moved the text cursor a word
+        from eli.utils.platform_compat import windows_press_keys
+        if windows_press_keys(0x11, 0x5B, 0x27 if str(direction).lower() == "right" else 0x25):
             return _result(True, "SWITCH_WORKSPACE", f"Switched virtual desktop {direction}.")
     if sysname == "darwin":
         arrow = "^{Right}" if str(direction).lower() == "right" else "^{Left}"

@@ -30,21 +30,21 @@ def _run_installer(tmp_path, rc_content=None):
 
 
 def test_warns_when_an_rc_alias_points_elsewhere(tmp_path):
-    cp = _run_installer(tmp_path, rc_content="alias eli='/some/old/stale/path/eli.sh'\n")
-    assert "defines an 'alias eli=' NOT pointing at" in cp.stderr
+    cp = _run_installer(tmp_path, rc_content="alias eli-v2='/some/old/stale/path/eli.sh'\n")
+    assert "defines an 'alias eli-v2=' NOT pointing at" in cp.stderr
     assert "/some/old/stale/path/eli.sh" in cp.stderr
 
 
 def test_no_warning_when_rc_has_no_alias(tmp_path):
     cp = _run_installer(tmp_path, rc_content="# nothing relevant here\n")
-    assert "alias eli=" not in cp.stderr
+    assert "alias eli-v2=" not in cp.stderr
 
 
 def test_no_warning_when_alias_already_points_at_the_fresh_install(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
-    target = home / ".local" / "bin" / "eli"
-    (home / ".bashrc").write_text(f"alias eli='{target}'\n", encoding="utf-8")
+    target = home / ".local" / "bin" / "eli-v2"  # v2's own command name
+    (home / ".bashrc").write_text(f"alias eli-v2='{target}'\n", encoding="utf-8")
     env = dict(os.environ)
     env["HOME"] = str(home)
     env["ELI_BIN_DIR"] = str(home / ".local" / "bin")
@@ -52,4 +52,4 @@ def test_no_warning_when_alias_already_points_at_the_fresh_install(tmp_path):
         ["bash", str(SCRIPT), "--force"],
         cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=30,
     )
-    assert "alias eli=" not in cp.stderr
+    assert "alias eli-v2=" not in cp.stderr

@@ -166,6 +166,7 @@ jobs:
           tests/test_media_capabilities.py
           tests/test_open_url_linux.py
           tests/test_volume_linux.py
+          tests/test_every_capability_on_every_os.py
 
       - name: Claims structural smoke (manifest ↔ executor)
         run: >

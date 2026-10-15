@@ -837,7 +837,7 @@ def _speak_piper_cli(text, voice_name=None):
     cfg = _find_piper_config(model)
     lock_path = _Path(
         _os.environ.get("ELI_TTS_SPEAKING_LOCK")
-        or (_Path(_tempfile.gettempdir()) / "eli_tts_speaking.lock")
+        or __import__("eli.core.paths", fromlist=["temp_path"]).temp_path("tts_speaking.lock")
     )
 
     with _tempfile.NamedTemporaryFile(prefix="eli_piper_final_", suffix=".wav", delete=False) as tmp:

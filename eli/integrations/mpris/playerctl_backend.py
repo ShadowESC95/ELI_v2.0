@@ -291,46 +291,32 @@ def _is_pause_only(player: str) -> bool:
 
 
 def _portable_media_key(cmd: str) -> Dict[str, Any]:
-    """Best-effort media control when MPRIS/playerctl is unavailable."""
-    if platform.WINDOWS:
-        return _windows_media_vk(cmd)
-    if platform.MACOS:
-        return _macos_media(cmd)
+    """Media control where there is no MPRIS (Windows, macOS): the player the OS knows about first
+    (eli.integrations.media.system_session), then the system media keys."""
+    if platform.WINDOWS or platform.MACOS:
+        from eli.integrations.media import system_session
+        player = system_session.command(cmd)
+        if player:
+            label = {"play": "▶ Playing", "pause": "⏸ Paused", "stop": "⏹ Stopped", "next": "⏭ Next track",
+                     "previous": "⏮ Previous track", "play-pause": "⏯ Toggled"}.get(cmd, cmd)
+            msg = f"{label} — {player}"
+            return {"ok": True, "cmd": cmd, "player": player, "method": "system_session", "content": msg, "response": msg}
+        return _windows_media_vk(cmd) if platform.WINDOWS else _macos_media(cmd)
     return _err("No media player is currently running")
 
 
 def _windows_media_vk(cmd: str) -> Dict[str, Any]:
-    ps = shutil.which("powershell") or shutil.which("pwsh")
-    if not ps:
-        return _err("PowerShell required for Windows media control")
-    vk = {
-        "play": 0xB3,
-        "pause": 0xB3,
-        "play-pause": 0xB3,
-        "stop": 0xB2,
-        "next": 0xB0,
-        "previous": 0xB1,
+    key = {
+        "play": "media_play_pause",
+        "pause": "media_play_pause",
+        "play-pause": "media_play_pause",
+        "stop": "media_stop",
+        "next": "media_next",
+        "previous": "media_previous",
     }.get(cmd)
-    if vk is None:
+    if key is None:
         return _err(f"Unsupported media command: {cmd}")
-    script = (
-        "Add-Type @'\n"
-        "using System;\n"
-        "using System.Runtime.InteropServices;\n"
-        "public class MediaKey {\n"
-        "  [DllImport(\"user32.dll\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);\n"
-        "  public const uint KEYEVENTF_EXTENDEDKEY = 0x1;\n"
-        "  public const uint KEYEVENTF_KEYUP = 0x2;\n"
-        "  public static void Send(byte vk) {\n"
-        "    keybd_event(vk, 0, KEYEVENTF_EXTENDEDKEY, UIntPtr.Zero);\n"
-        "    keybd_event(vk, 0, KEYEVENTF_EXTENDEDKEY | KEYEVENTF_KEYUP, UIntPtr.Zero);\n"
-        "  }\n"
-        "}\n"
-        "'@; "
-        f"[MediaKey]::Send({vk})"
-    )
-    ok, _, err = _run([ps, "-NoProfile", "-Command", script])
-    if ok:
+    if platform.windows_press_keys(platform.VK[key]):
         labels = {
             "play": "▶ Play (system media key)",
             "pause": "⏸ Pause (system media key)",
@@ -341,37 +327,19 @@ def _windows_media_vk(cmd: str) -> Dict[str, Any]:
         }
         msg = labels.get(cmd, cmd)
         return {"ok": True, "cmd": cmd, "method": "windows_media_key", "content": msg, "response": msg}
-    return _err(f"Windows media key failed: {err or 'unknown error'}")
+    return _err("Windows media key failed (PowerShell is needed to press it)")
 
 
 def _macos_media(cmd: str) -> Dict[str, Any]:
-    osascript = shutil.which("osascript")
-    if not osascript:
-        return _err("osascript required for macOS media control")
-    spotify_cmds = {
-        "play": 'tell application "Spotify" to play',
-        "pause": 'tell application "Spotify" to pause',
-        "stop": 'tell application "Spotify" to pause',
-        "next": 'tell application "Spotify" to next track',
-        "previous": 'tell application "Spotify" to previous track',
-        "play-pause": 'tell application "Spotify" to playpause',
-    }
-    if cmd in spotify_cmds:
-        ok, _, err = _run([osascript, "-e", spotify_cmds[cmd]])
-        if ok:
-            msg = f"{cmd} — Spotify"
-            return {"ok": True, "cmd": cmd, "method": "spotify_applescript", "content": msg, "response": msg}
-    key_codes = {
-        "play-pause": 16,
-        "next": 17,
-        "previous": 18,
-    }
-    code = key_codes.get(cmd)
-    if code is not None:
-        ok, _, err = _run([osascript, "-e", f'tell application "System Events" to key code {code}'])
-        if ok:
-            return {"ok": True, "cmd": cmd, "method": "macos_media_key", "content": cmd, "response": cmd}
-    return _err(f"macOS media control unavailable for {cmd}")
+    """The system media key, for a player that is not Spotify or Music (system_session drives those)."""
+    from eli.integrations.media import system_session
+    if system_session.macos_media_key(cmd):
+        labels = {"play": "⏯ Play/pause key", "pause": "⏯ Play/pause key", "play-pause": "⏯ Play/pause key",
+                  "stop": "⏯ Play/pause key", "next": "⏭ Next key", "previous": "⏮ Previous key"}
+        msg = f"{labels.get(cmd, cmd)} (system media key)"
+        return {"ok": True, "cmd": cmd, "method": "macos_media_key", "content": msg, "response": msg}
+    return _err("macOS media control unavailable: allow ELI under System Settings → Privacy & Security → "
+                "Accessibility, or start Spotify or Music")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -383,28 +351,24 @@ def get_player_status(player: Optional[str] = None) -> Dict[str, Any]:
     Return current playback status and track info.
     """
     if not _has("playerctl"):
-        if platform.MACOS and (not player or "spotify" in str(player).lower()):
-            try:
-                from eli.integrations.media.cross_platform import spotify_live_meta
-                head, artist, title = spotify_live_meta("spotify")
-                if title:
-                    status = "playing" if "Playing" in head else (
-                        "paused" if "Paused" in head else "unknown"
-                    )
-                    return {
-                        "ok": True,
-                        "player": "spotify",
-                        "status": status,
-                        "title": title,
-                        "artist": artist,
-                        "album": "",
-                        "content": f"{artist} — {title}" if artist else title,
-                        "response": f"{artist} — {title}" if artist else title,
-                    }
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
+        if platform.MACOS or platform.WINDOWS:
+            from eli.integrations.media import system_session
+            now = system_session.info()
+            if now:
+                artist, title = now["artist"], now["title"]
+                return {
+                    "ok": True,
+                    "player": now["player"],
+                    "status": now["status"] or "unknown",
+                    "title": title,
+                    "artist": artist,
+                    "album": "",
+                    "content": f"{artist} — {title}" if artist else title,
+                    "response": f"{artist} — {title}" if artist else title,
+                }
+            return _err("No media player is currently running")
         if not platform.LINUX:
-            return _err("MPRIS/playerctl media status is Linux-only on this backend")
+            return _err("No media player is currently running")
         return _err("playerctl not installed — run: sudo apt install playerctl")
 
     if player:
@@ -525,6 +489,8 @@ def stop(player: Optional[str] = None) -> Dict[str, Any]:
     """
     p = player or get_active_player()
     if not p:
+        if not platform.LINUX:
+            return _portable_media_key("stop")
         return _err("No media player is currently running")
 
     if _is_pause_only(p):
@@ -771,10 +737,12 @@ def clipboard_set(text: str) -> Dict[str, Any]:
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
-    return _err(
-        "No clipboard backend available. "
-        "Install xclip (sudo apt install xclip) or wl-clipboard (sudo apt install wl-clipboard)."
-    )
+    if platform.LINUX:
+        return _err(
+            "No clipboard backend available. "
+            "Install xclip (sudo apt install xclip) or wl-clipboard (sudo apt install wl-clipboard)."
+        )
+    return _err("The system clipboard refused the text.")
 
 
 def clipboard_get() -> Dict[str, Any]:

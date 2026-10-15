@@ -675,7 +675,11 @@ except Exception:
 # Foreground preemption. Generation serialises on _LLM_CALL_LOCK, so a slow background job
 # (news, insight, morning report) could stall the user's turn for minutes. A foreground call
 # sets _FG_PRIORITY and background calls yield at the next token. ELI_FG_PREEMPT=0 turns it off.
-_FG_PRIORITY = threading.Event()
+# The same event as native_locks.FOREGROUND_WAITING, which the embedder raises for the user's turn too.
+try:
+    from eli.runtime.native_locks import FOREGROUND_WAITING as _FG_PRIORITY
+except Exception:
+    _FG_PRIORITY = threading.Event()
 # Keep the ctypes abort callback alive for the process lifetime.
 _LLAMA_ABORT_CB = None
 # Set at shutdown to abort every in-flight generation at the next token. A native call can't be

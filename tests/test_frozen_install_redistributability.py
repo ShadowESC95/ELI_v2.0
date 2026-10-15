@@ -211,7 +211,8 @@ def test_adopt_legacy_file_copies_once_and_leaves_the_old_one(tmp_path, monkeypa
 def test_no_code_writes_to_generic_or_relative_eli_paths():
     """Every file v2 keeps is under its own folders (eli.core.paths). Generic home locations
     (~/.eli, ~/.eli_*, ~/.config/eli, ~/.cache/eli, ~/.local/share/eli) belong to no single version,
-    and a relative artifacts/... path lands in whatever folder ELI was started from."""
+    a relative artifacts/... path lands in whatever folder ELI was started from, and an eli_... name
+    in the temp folder is shared with every other ELI version running beside it."""
     import re
     root = Path(__file__).resolve().parents[1]
     bad = re.compile(
@@ -219,7 +220,8 @@ def test_no_code_writes_to_generic_or_relative_eli_paths():
         r"Path\.home\(\)\s*/\s*[\"']\.(?:config|cache)[\"']\s*/\s*[\"']eli[\"']|"
         r"[\"']\.(?:config|cache)/eli\b|share/eli[\"'/]|share[\"']\s*/\s*[\"']eli[\"']|"
         r"user_(?:data|config|cache)_dir\(\s*[\"']eli[\"']|"
-        r"Path\(\s*[\"']artifacts(?:[\"'/])")
+        r"Path\(\s*[\"']artifacts(?:[\"'/])|"
+        r"gettempdir\(\).*[\"']eli[_-]")  # a temp file is named with eli.core.paths.temp_path
     import ast
     found = []
     for base in ("eli", "api"):

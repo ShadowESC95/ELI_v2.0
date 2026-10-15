@@ -80,8 +80,20 @@ _COMPLAINT_RE = re.compile(
     re.I)
 
 
+# "you didn't burn the house down while I was away, did you?" is banter ending on a tag question; on
+# its own the generic "you didn't <verb>" is not a complaint then (it got the audit rows as a footer)
+_GENERIC_DIDNT_RE = re.compile(r"\byou\s+(?:did\s+not|didn'?t|have\s+not|haven'?t)\s+(?:actually\s+|even\s+)?\w+", re.I)
+_TAG_QUESTION_RE = re.compile(r",?\s*\b(?:did|have|were|would|could|do)\s+you\s*\?+\W*$", re.I)
+
+
 def complains_about_eli(text: Any) -> bool:
-    return bool(_COMPLAINT_RE.search(str(text or "")))
+    t = str(text or "")
+    found = [m.group(0) for m in _COMPLAINT_RE.finditer(t)]
+    if not found:
+        return False
+    if _TAG_QUESTION_RE.search(t) and all(_GENERIC_DIDNT_RE.fullmatch(f) for f in found):
+        return False
+    return True
 
 
 # Words that name nothing: a message made only of these ("What the fuck is going on!?", "seriously??",

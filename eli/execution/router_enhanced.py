@@ -701,10 +701,12 @@ _COURTESY_TAIL = re.compile(
 
 # The same before a command: "good. play the third world by immortal technique" searched for
 # "good. play the third world". Only with punctuation after it ("right click" is a command), and never
-# yes/no: those answer a question ELI asked.
+# yes/no: those answer a question ELI asked. A name or "again" may follow the word: "Thanks bud, open
+# youtube please" went to the intent model (32 s) and came back as an app to install.
 _COURTESY_HEAD = re.compile(
     r"^\s*(?:(?:good|great|nice|cool|ok|okay|right|alright|perfect|lovely|grand|brilliant|sweet|cheers|thanks|"
-    r"thank\s+you)\s*[,.!;:]+\s*)+(?=\w)", re.I)
+    r"thank\s+you)(?:\s+(?:mate|pal|bud|buddy|man|dude|eli|again|a\s+lot|so\s+much|very\s+much))*"
+    r"\s*[,.!;:]+\s*)+(?=\w)", re.I)
 
 
 def _without_courtesy(text: str) -> str:
@@ -2966,6 +2968,18 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if _bare_mem:
         return _mk('MEMORY_RECALL', {'query': 'recent conversations'},
                    0.95, matched_by='memory.search_bare')
+    # A recap of this conversation's last few messages is read from the conversation itself, every
+    # reply whole (session_continuity), not searched for: "check the last, say 7-8 messages, summarise
+    # what has been said" went to the intent model (90 s) and came back as a memory dump from August.
+    try:
+        from eli.cognition.correction_patterns import refers_to_earlier_reply as _rter
+        if _rter(text) and re.search(
+                r"\b(?:summar\w*|recap\w*|break\s*down|go\s+over|run\s+through|"
+                r"what\s+(?:has|have|had|was|were)?\s*(?:been\s+)?(?:said|happening|going\s+on|discussed))\b", low):
+            return _mk("CHAT", {"message": text}, 0.95, matched_by="conversation.recap")
+    except Exception:
+        _SWLOG.debug("suppressed exception", exc_info=True)
+
     # Conversation recall — "do you remember what we were talking about last week?"
     if re.search(
         r"\b(?:do you|can you|did you)\s+remember\b",

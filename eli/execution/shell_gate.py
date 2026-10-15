@@ -45,6 +45,23 @@ _BLOCKED_PATTERNS = [
     r"\bchpasswd\b|\bpasswd\b\s+\w",           # password change
     r"\bvisudo\b|\bsudoers\b",                  # sudoers modification
     r"\bcrontab\s+-[re]\b",                     # crontab modification
+    # Windows: the same harm in its own words (until 2.5.17 the gate knew only POSIX commands)
+    r"\b(?:del|erase)\b.*\s/s\b",                # recursive delete
+    r"\b(?:rd|rmdir)\b.*\s/s\b",                 # recursive directory removal
+    r"\bformat(?:\.com)?\s+[a-z]:",              # format a drive
+    r"\bremove-item\b.*-recurse\b",              # PowerShell recursive delete
+    r"\breg(?:\.exe)?\s+delete\b",               # registry deletion
+    r"\bvssadmin\b.*\bdelete\b",                # shadow copies (backups) deleted
+    r"\bwbadmin\b.*\bdelete\b",                 # backups deleted
+    r"\bbcdedit\b",                              # boot configuration
+    r"\bcipher(?:\.exe)?\s+/w\b",                # wipe free space
+    r"\b(?:invoke-expression|iex)\b",            # PowerShell arbitrary exec
+    r"\b(?:cmd|powershell|pwsh)(?:\.exe)?\s+(?:/[ck]\b|-c(?:ommand)?\b|-enc)",  # shell -c arbitrary exec
+    r">\s*[a-z]:\\windows\\",                     # redirect into the Windows folder
+    # macOS
+    r"\bdiskutil\s+(?:erase|zerodisk|secureerase|partitiondisk|reformat)",  # erase a disk
+    r"\bcsrutil\s+disable\b",                    # system integrity protection off
+    r"\bspctl\s+--master-disable\b",             # Gatekeeper off
 ]
 
 # ── Denylisted executable names as argv[0] ──
@@ -56,6 +73,13 @@ _DENIED_EXECUTABLES = {
     "dd", "mkfs", "fdisk", "parted",             # disk tools
     "rm", "shred", "wipe",                       # destructive file ops
     "iptables", "ip6tables", "nftables",         # firewall manipulation
+    # Windows
+    "cmd", "powershell", "pwsh",                 # shell interpreters
+    "cscript", "wscript", "mshta",               # scripting engines
+    "diskpart", "format",                        # disk tools
+    "bcdedit", "vssadmin", "wbadmin",            # boot config, backups
+    # macOS
+    "osascript",                                 # scripting engine
 }
 
 
@@ -99,8 +123,10 @@ def check_command(cmd: Union[str, Sequence[Any]],
         if isinstance(cmd, (list, tuple)):
             argv0 = str(cmd[0]) if cmd else ""
         else:
-            argv0 = (shlex.split(cmd_str) or [""])[0]
-        argv0_base = os.path.basename(argv0).lower()
+            argv0 = (shlex.split(cmd_str, posix=os.name != "nt") or [""])[0].strip('"')
+        # either separator and no Windows suffix: C:\\Windows\\System32\\cmd.exe is cmd
+        argv0_base = re.split(r"[\\\\/]", argv0)[-1].lower()
+        argv0_base = re.sub(r"\.(?:exe|com|bat|cmd)$", "", argv0_base)
     except Exception:
         argv0_base = ""
     if argv0_base in _DENIED_EXECUTABLES:

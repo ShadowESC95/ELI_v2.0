@@ -1149,6 +1149,23 @@ def _shown_as_is(action: Any, reasoning_mode: Any = None) -> bool:
         return not reasoning_mode or str(reasoning_mode).lower() == "quick"
 
 
+# Replies that are a report or a recall list rather than ELI talking: what they quote is not ELI's
+# offer or question (pending_proposal.read_reply is not run on them).
+_REPORT_REPLY_ACTIONS = frozenset({
+    "MEMORY_RECALL", "PERSONAL_MEMORY_DEEP_EXPLAIN", "PERSONAL_MEMORY_SUMMARY", "ROUTING_FAULT_EXPLAIN",
+    "DETERMINISTIC_INTROSPECTION", "USER_INFO_REPORT", "USER_IDENTITY_SUMMARY", "MEMORY_STATS",
+    "LIST_CAPABILITIES", "META_DIAGNOSTIC",
+})
+
+
+def _reply_is_a_report(engine: Any) -> bool:
+    act = str(getattr(engine, "_last_response_action", "") or "").upper()
+    if not act:
+        trace = getattr(engine, "_last_trace", None) or {}
+        act = str(trace.get("action") or (trace.get("intent") or {}).get("action") or "").upper()
+    return act in _REPORT_REPLY_ACTIONS or act.startswith("EXPLAIN_") or act.endswith(("_STATUS", "_AUDIT"))
+
+
 def _users_own_words(text: str) -> str:
     """What the user said this turn. A reasoning pass is given ELI's own instructions to itself
     ("Think through the following request step by step...", then its scratchpad); read as the
@@ -10879,7 +10896,11 @@ Answer:"""
         try:
             from eli.runtime.pending_proposal import read_reply, set_pending_proposal, clear_pending_proposal
             _facts = _request_context.turn_facts_var.get() or {}
-            if not _facts.get("proposal_set_by_action"):
+            if _reply_is_a_report(self):
+                # a report or a recall list quotes other text; a question in it is not ELI asking
+                # (a recalled "what project did I ask you to start LAST NIGHT?" was kept as ELI's)
+                clear_pending_proposal()
+            elif not _facts.get("proposal_set_by_action"):
                 _open = read_reply(_shown, offers_only=bool(_facts.get("executed_actions")))
                 if _open["items"] or _open["question"]:
                     set_pending_proposal("", items=_open["items"], question=_open["question"], from_reply=True)
@@ -12094,6 +12115,12 @@ Answer:"""
             "user_input": user_input,
             "autonomous": CognitiveEngine._is_autonomous_source(source),
         }
+        if not facts["autonomous"]:
+            try:
+                from eli.cognition.inference_broker import stamp_foreground_activity
+                stamp_foreground_activity()
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
         ctx = contextvars.copy_context()
 
         def _enter() -> Any:
@@ -12501,13 +12528,19 @@ Answer:"""
         # answer (fast, raw, no GGUF). Other modes: it's evidence injected into the persona handoff so
         # the LLM answers in ELI's voice, grounded. Everything non-quick goes through the persona.
 
+        # What the deterministic shortcuts below may read: the user's own words, not what they pasted,
+        # and nothing from a long message (correction_patterns.shortcut_text). The whole message is
+        # still what is stored and what the model is given.
+        from eli.cognition.correction_patterns import shortcut_text as _eli_shortcut_text_of
+        _eli_shortcut_text = _eli_shortcut_text_of(user_input)
+
         # Migrated from bottom-of-file _eli_engine_second_process wrapper.
         # Handles reasoning-mode status as a first-class process middleware
         # without reassigning CognitiveEngine.process at import time.
         try:
             _eli_pipe("mw_reasoning_status_check")
             import re as _eli_reasoning_status_re
-            _eli_reasoning_status_low = str(user_input or "").lower()
+            _eli_reasoning_status_low = _eli_shortcut_text.lower()
             _eli_reasoning_status_is_query = (
                 "reasoning mode" in _eli_reasoning_status_low
                 and not _eli_reasoning_status_re.search(
@@ -12539,7 +12572,7 @@ Answer:"""
         # bottom block, so no globals() guard is needed.
         try:
             _eli_pipe("mw_personal_memory_quick_check")
-            _eli_pm_mw_raw = str(user_input or "")
+            _eli_pm_mw_raw = _eli_shortcut_text
             _eli_pm_mw_low = _eli_pm_mw_raw.lower()
             _eli_pm_mw_kwargs = dict(kwargs)
             try:
@@ -12587,7 +12620,7 @@ Answer:"""
                 _mw_rs_kwargs.setdefault("reasoning_mode", reasoning_mode)
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
-            _mw_rs_text = _mw_rs_text_from_args((user_input,), _mw_rs_kwargs) or str(user_input or "")
+            _mw_rs_text = _eli_shortcut_text
             if _mw_rs_is_runtime_status_question(_mw_rs_text):
                 _mw_rs_mode = _mw_rs_mode_from_args((user_input,), _mw_rs_kwargs)
                 _eli_pipe("mw_runtime_status_hit", mode=_mw_rs_mode, quick=_mw_rs_is_quick(_mw_rs_mode))
@@ -12613,7 +12646,7 @@ Answer:"""
                 _mw_mrs_kwargs.setdefault("reasoning_mode", reasoning_mode)
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
-            _mw_mrs_text = _mw_rs_text_from_args((user_input,), _mw_mrs_kwargs) or str(user_input or "")
+            _mw_mrs_text = _eli_shortcut_text
             if _mw_mem_runtime_strict_is_question(_mw_mrs_text):
                 _mw_mrs_mode = _mw_rs_mode_from_args((user_input,), _mw_mrs_kwargs)
                 _eli_pipe("mw_memory_runtime_hit", mode=_mw_mrs_mode, quick=_mw_rs_is_quick(_mw_mrs_mode))
@@ -12635,7 +12668,7 @@ Answer:"""
                 _mw_mct_kwargs.setdefault("reasoning_mode", reasoning_mode)
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
-            _mw_mct_text = _mw_rs_text_from_args((user_input,), _mw_mct_kwargs) or str(user_input or "")
+            _mw_mct_text = _eli_shortcut_text
             if _mw_mc_turns_is_question(_mw_mct_text):
                 _mw_mct_mode = _mw_rs_mode_from_args((user_input,), _mw_mct_kwargs)
                 _eli_pipe("mw_memory_count_turns_hit", mode=_mw_mct_mode)
@@ -12655,7 +12688,7 @@ Answer:"""
         # GGUF. The _eli_mc_* helpers are defined unconditionally in the legacy block, no guard needed.
         try:
             _eli_pipe("mw_memory_count_check")
-            if _eli_mc_is_memory_count_question_v4(user_input):
+            if _eli_mc_is_memory_count_question_v4(_eli_shortcut_text):
                 _eli_mc_mw_kwargs = dict(kwargs)
                 try:
                     _eli_mc_mw_kwargs.setdefault("reasoning_mode", reasoning_mode)
@@ -12674,7 +12707,7 @@ Answer:"""
         # non-quick synthesises from it via local GGUF and returns only the validated surface.
         try:
             _eli_pipe("mw_recent_memory_processing_check")
-            if _eli_recent_mem_v3_is_prompt(user_input):
+            if _eli_recent_mem_v3_is_prompt(_eli_shortcut_text):
                 _eli_rm_kwargs = dict(kwargs)
                 try:
                     _eli_rm_kwargs.setdefault("reasoning_mode", reasoning_mode)
@@ -12719,7 +12752,7 @@ Answer:"""
             _eli_self_mw_route = None
             try:
                 from eli.execution.router_enhanced import route as _eli_self_mw_route_fn
-                _eli_self_mw_route = _eli_self_mw_route_fn(str(user_input or ""))
+                _eli_self_mw_route = _eli_self_mw_route_fn(_eli_shortcut_text)
             except Exception:
                 _eli_self_mw_route = None
 
@@ -12816,7 +12849,7 @@ Answer:"""
         self._turn_resolved_intent = None
 
         try:
-            _eli_diag_text = str(user_input or "")
+            _eli_diag_text = _eli_shortcut_text
             if _eli_diag_text:
                 from eli.runtime.deterministic_introspection import (
                     detect_action as _eli_diag_detect,
@@ -12863,7 +12896,7 @@ Answer:"""
         # Direct grounded persona answer: quick mode only. Non-quick modes
         # let the full memory/persona pipeline produce the response.
         if _eli_resolved_mode == "quick":
-            _direct_persona_answer = _eli_direct_grounded_answer(user_input)
+            _direct_persona_answer = _eli_direct_grounded_answer(_eli_shortcut_text) if _eli_shortcut_text else None
             if _direct_persona_answer is not None:
                 final_response = govern_output(_direct_persona_answer, is_grounded=True)
                 try:
@@ -13102,7 +13135,9 @@ Answer:"""
             )
             _thread_turns = recent_turns_from_context(context)
             set_route_context(thread_topic=extract_thread_topic(_thread_turns))
-            _proactive_intent = proactive_web_intent(user_input, _thread_turns)
+            # the user's own words: "web search" inside a pasted critique is not a request to search
+            from eli.cognition.correction_patterns import split_pasted as _eli_split_pasted
+            _proactive_intent = proactive_web_intent(_eli_split_pasted(user_input)[0], _thread_turns)
         except Exception as _thread_err:
             log.debug(f"[COGNITIVE] conversation thread context skipped: {_thread_err}")
             _proactive_intent = None
@@ -13305,7 +13340,8 @@ Answer:"""
 
         try:
             from eli.runtime.control_contracts import route_control_text as _route_control_text
-            _forced_control = _route_control_text(user_input, action)
+            # never from pasted words or a long message (correction_patterns.shortcut_text)
+            _forced_control = _route_control_text(_eli_shortcut_text, action) if _eli_shortcut_text else None
             if _forced_control and str(action).upper() != _forced_control:
                 intent = dict(intent or {})
                 intent["action"] = _forced_control
@@ -16502,7 +16538,10 @@ Answer:"""
             source = "user"
 
         if role == "user":
-            user_text = text.lower()
+            # the user's own words: ChatGPT's pasted "I am making it more precise" was stored as an
+            # identity fact about the user
+            from eli.cognition.correction_patterns import split_pasted
+            user_text = split_pasted(text)[0].lower()
             stripped = user_text.strip().rstrip("?!.")
             if stripped.endswith("?") or user_text.strip().endswith("?"):
                 return

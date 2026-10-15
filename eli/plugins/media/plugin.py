@@ -20,8 +20,9 @@ def _b():
 class MediaPlugin(Plugin):
     name = "media"
     version = "1.0.0"
-    description = "Controls media playback and system volume via MPRIS2/playerctl"
-    requires = ["playerctl"]  # runtime dependency hint
+    description = ("Controls media playback and system volume: MPRIS2/playerctl on Linux, the system "
+                   "media session and media keys on Windows and macOS")
+    requires = ["playerctl (Linux only)"]  # runtime dependency hint
 
     def __init__(self):
         # Plugin.execute()/register() rebind each handler via handler.__get__(self, ...),

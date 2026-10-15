@@ -56,11 +56,7 @@ def embedder_footprint_gib() -> float:
         pass
     return 0.0
 
-try:
-    from eli.runtime.native_locks import FAISS_IO_LOCK, LLAMA_CPP_NATIVE_LOCK
-except Exception:
-    FAISS_IO_LOCK = threading.RLock()
-    LLAMA_CPP_NATIVE_LOCK = threading.RLock()
+from eli.runtime.native_locks import FAISS_IO_LOCK, hold_llama_lock
 
 try:
     import numpy as np
@@ -426,8 +422,10 @@ class VectorStore:
         if self._embedder is None:
             return None
         # Serialise embed calls; llama-cpp embedding models are not
-        # thread-safe and concurrent calls can corrupt embedder state.
-        with self._embed_lock, LLAMA_CPP_NATIVE_LOCK:
+        # thread-safe and concurrent calls can corrupt embedder state. During the user's turn the
+        # wait makes a background generation holding the lock yield.
+        from eli.kernel.request_context import in_user_turn
+        with self._embed_lock, hold_llama_lock(foreground=in_user_turn()):
             try:
                 vec = self._embedder.embed(text)
                 arr = np.array(vec, dtype="float32").reshape(1, -1)

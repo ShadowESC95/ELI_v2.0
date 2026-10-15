@@ -3569,7 +3569,7 @@ def _prune_mpv_logs(keep: int = 5) -> None:
     """Keep only the newest `keep` mpv failure logs so /tmp cannot grow without bound."""
     import glob as _glob
     try:
-        logs = sorted(_glob.glob(os.path.join(tempfile.gettempdir(), "eli_mpv_*.log")),
+        logs = sorted(_glob.glob(str(__import__("eli.core.paths", fromlist=["temp_path"]).temp_path("mpv_*.log"))),
                       key=os.path.getmtime, reverse=True)
         for stale in logs[keep:]:
             try:
@@ -3619,6 +3619,18 @@ def now_playing() -> Dict[str, Any]:
         mode = "audio (background)" if _MEDIA_STATE.get("mpv_headless") else "mpv video"
         msg = f"{head}: {title} — YouTube ({mode})."
         return {"ok": True, "action": "NOW_PLAYING", "content": msg, "response": msg}
+
+    # Windows and macOS have no MPRIS: ask the OS what is playing (eli.integrations.media.system_session)
+    from eli.utils import platform_compat as _pc_np
+    if _pc_np.WINDOWS or _pc_np.MACOS:
+        from eli.integrations.mpris import playerctl_backend as _pb_np
+        _st = _pb_np.get_player_status()
+        if _st.get("ok") and _st.get("title"):
+            head = {"playing": "▶ Playing", "paused": "⏸ Paused", "stopped": "⏹ Stopped"}.get(
+                str(_st.get("status")), "▶ Playing")
+            meta = f"{_st['artist']} — {_st['title']}" if _st.get("artist") else _st["title"]
+            msg = f"{head}: {meta} — {_st.get('player')}."
+            return {"ok": True, "action": "NOW_PLAYING", "content": msg, "response": msg}
 
     # Live playerctl metadata beats the cached _MEDIA_STATE title — the cache
     # stores what we *asked* Spotify to play ("liked songs (playlist)"), not
@@ -4435,14 +4447,24 @@ def chat_stream(message: str, *, model: Optional[str] = None):
         if text:
             yield text
 
-def open_audio_settings() -> Dict[str, Any]:
-    for cmd in (["pavucontrol"], ["gnome-control-center", "sound"]):
-        r = _run(cmd, timeout=5)
-        if r.get("ok"):
-            msg = "Audio settings opened."
-            return {"ok": True, "action": "OPEN_AUDIO_SETTINGS", "cmd": cmd, "content": msg, "response": msg}
-    msg = "No audio settings app found (pavucontrol / gnome-control-center)."
-    return {"ok": False, "action": "OPEN_AUDIO_SETTINGS", "error": msg, "content": msg, "response": msg}
+# Commands of cmd.exe itself, not programs: RUN_CMD runs them inside cmd on Windows
+_WINDOWS_CMD_BUILTINS = frozenset({
+    "dir", "echo", "type", "copy", "move", "ren", "rename", "md", "mkdir", "rd", "rmdir", "del", "erase",
+    "cls", "set", "ver", "vol", "date", "time", "path", "pushd", "popd", "start", "assoc", "ftype",
+    "mklink", "title", "color", "cd", "chdir",
+})
+
+
+def open_settings_panel(action: str, role: str, what: str) -> Dict[str, Any]:
+    """Open a settings panel ("settings", "sound settings", "power settings", ...) the way this OS
+    does: ms-settings: on Windows, System Settings panes on macOS, the desktop's own panel on Linux."""
+    from eli.utils.platform_compat import open_role
+    opened = open_role(role)
+    if opened:
+        msg = f"Opened {what}."
+        return {"ok": True, "action": action, "opened": opened, "content": msg, "response": msg}
+    msg = f"No {what} app was found on this system."
+    return {"ok": False, "action": action, "error": msg, "content": msg, "response": msg}
 
 
 def open_file_system(path: str = "~") -> Dict[str, Any]:
@@ -4647,18 +4669,6 @@ MEDIA_PLAYER = (os.environ.get("ELI_MEDIA_PLAYER", "spotify") or "spotify").stri
 _DUCKED_MEDIA = False
 _DUCK_TIMER = None
 _DUCK_LOCK = threading.Lock()
-
-def _playerctl_run(argv):
-    try:
-        r = subprocess.run(argv, capture_output=True, text=True, timeout=30)
-        return r.returncode, (r.stdout or "").strip(), (r.stderr or "").strip()
-    except Exception as e:
-        return 1, "", str(e)
-
-def _playerctl_p(*args):
-    if MEDIA_PLAYER:
-        return _playerctl_run(["playerctl", "-p", MEDIA_PLAYER, *args])
-    return _playerctl_run(["playerctl", *args])
 
 def _duck_media_pause():
     # Canonical implementation lives in audio_stt (shared with wake-word ducking).
@@ -6081,33 +6091,6 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             "response": msg,
         }
 
-    # ---- OPEN_IDE REDIRECT GUARD ----
-    if a == "OPEN_IDE":
-        target = str((args or {}).get("name") or (args or {}).get("app") or (args or {}).get("target") or "").strip().lower()
-
-        generic = {
-            "", "ide", "the ide", "editor", "the editor",
-            "built in ide", "built-in ide", "gui ide", "eli ide",
-            "internal ide", "ide tab", "the ide tab"
-        }
-
-        alias_map = {
-            "vscode": "code",
-            "visual studio code": "code",
-            "virtual studio code": "code",
-            "vs code": "code",
-            "code": "code",
-            "gedit": "gedit",
-            "codium": "codium",
-            "kate": "kate",
-            "sublime": "subl",
-            "sublime text": "subl",
-        }
-
-        if target not in generic:
-            mapped = alias_map.get(target, target)
-            return _execute_impl("OPEN_APP", {"name": mapped})
-
     # ---- OPEN_FILE_SYSTEM VALIDATION GUARD ----
     if a == "OPEN_FILE_SYSTEM":
         try:
@@ -6120,8 +6103,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
             low_target = raw_target.lower()
 
-            if low_target in {"trash", "/trash"}:
-                probe = _open_app_with_timeout(["xdg-open", "trash:///"])
+            if low_target in {"trash", "/trash", "recycle bin", "bin"}:
+                # each OS's own: the trash:// location on Linux, ~/.Trash on macOS, the Recycle Bin on Windows
+                from eli.utils import platform_compat as _pc_trash
+                if _pc_trash.WINDOWS:
+                    probe = _open_app_with_timeout(["explorer.exe", "shell:RecycleBinFolder"])
+                elif _pc_trash.MACOS:
+                    probe = _open_app_with_timeout(["open", os.path.expanduser("~/.Trash")])
+                else:
+                    probe = _open_app_with_timeout(["xdg-open", "trash:///"])
                 if probe.get("ok") or probe.get("spawned"):
                     msg = "Opened folder: trash:///"
                     return {"ok": True, "action": a, "content": msg, "response": msg, "probe": probe}
@@ -6428,7 +6418,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 if not cmd_str:
                     return {"ok": False, "action": a, "error": "empty_cmd", "content": "", "response": ""}
                 import shlex
-                argv = shlex.split(cmd_str)
+                from eli.utils import platform_compat as _pc_rc
+                if shell:
+                    # SHELL_EXEC: the OS's own shell, after the gate above has read the whole line
+                    argv = (["cmd.exe", "/d", "/s", "/c", cmd_str] if _pc_rc.WINDOWS
+                            else ["/bin/sh", "-c", cmd_str])
+                else:
+                    # Windows paths keep their backslashes (POSIX splitting ate them), and cmd's
+                    # built-ins (dir, type, echo...) are no programs, so they run inside cmd.
+                    argv = [t.strip('"') for t in shlex.split(cmd_str, posix=not _pc_rc.WINDOWS)]
+                    if (_pc_rc.WINDOWS and argv and not shutil.which(argv[0])
+                            and argv[0].lower() in _WINDOWS_CMD_BUILTINS):
+                        argv = ["cmd.exe", "/d", "/s", "/c", subprocess.list2cmdline(argv)]
                 if not argv:
                     return {"ok": False, "action": a, "error": "empty_cmd", "content": "", "response": ""}
                 p = subprocess.run(
@@ -6771,26 +6772,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         return open_file_system(path)
     
     if a == "OPEN_COMMUNICATION_HUB":
-        try:
-            # Prefer local mail clients; fall back to Gmail in browser.
-            candidates = [
-                ["thunderbird"],
-                ["evolution"],
-                ["geary"],
-            ]
-            for cmd in candidates:
-                try:
-                    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    msg = f"Opened Communication Hub: {' '.join(cmd)}"
-                    return {"ok": True, "action": a, "content": msg, "response": msg}
-                except FileNotFoundError:
-                    continue
-            url = "https://mail.google.com"
-            open_browser(url)
-            msg = f"Opened Communication Hub: {url}"
+        # The mail app installed on this OS (Thunderbird/Evolution, Mail/Outlook, Outlook/Mail), else
+        # whatever the OS opens mailto: links with. Until 2.5.17: three Linux apps, then Gmail.
+        from eli.utils.platform_compat import open_app_uri, open_role
+        opened = open_role("mail") or ("your mail app" if open_app_uri("mailto:") else "")
+        if opened:
+            msg = f"Opened Communication Hub: {opened}"
             return {"ok": True, "action": a, "content": msg, "response": msg}
-        except Exception as e:
-            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+        msg = "No mail app is installed, and nothing on this system opens mail links."
+        return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
     
     if a == "DATA_FABRICATOR":
         try:
@@ -6798,44 +6788,25 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             topic = str((args or {}).get("topic") or (args or {}).get("query") or (args or {}).get("text") or (args or {}).get("message") or "").strip()
             if topic:
                 r = _execute_impl(action="CREATE_DOCUMENT", args={"topic": topic, "format": (args or {}).get("format") or "md"})
-                # If generation succeeded, also open in an editor if available
+                # If generation succeeded, also open it in this OS's editor
                 if r.get("ok") and r.get("path"):
-                    path = r.get("path")
-                    editors = [
-                        ["code", path],
-                        ["codium", path],
-                        ["gedit", path],
-                        ["kate", path],
-                        ["nano", path],
-                    ]
-                    for cmd in editors:
-                        try:
-                            subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            break
-                        except FileNotFoundError:
-                            continue
+                    from eli.utils.platform_compat import open_role
+                    open_role("editor", str(r.get("path"))) or open_file(str(r.get("path")))
                 return r
 
-            # Otherwise just open an editor for a new blank file.
-            out_dir = Path(str(Path.home() / "Documents" / "ELI" / "artifacts")).resolve()
+            # Otherwise a new blank file in ELI's own documents folder (not a generic ~/Documents/ELI),
+            # opened in this OS's editor.
+            from eli.core.paths import documents_dir
+            from eli.utils.platform_compat import open_role
+            out_dir = Path(documents_dir())
             out_dir.mkdir(parents=True, exist_ok=True)
             out_path = out_dir / f"data_construct_{int(time.time())}.md"
             if not out_path.exists():
                 out_path.write_text("# Data Construct\n\n", encoding="utf-8")
-
-            editors = [
-                ["code", str(out_path)],
-                ["codium", str(out_path)],
-                ["gedit", str(out_path)],
-                ["libreoffice", "--writer", str(out_path)],
-            ]
-            for cmd in editors:
-                try:
-                    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    msg = f"Opened editor: {' '.join(cmd)}"
-                    return {"ok": True, "action": a, "path": str(out_path), "content": msg, "response": msg}
-                except FileNotFoundError:
-                    continue
+            editor = open_role("editor", str(out_path))
+            if editor:
+                msg = f"Opened editor: {editor}"
+                return {"ok": True, "action": a, "path": str(out_path), "content": msg, "response": msg}
 
             # Fallback: open with default system handler
             open_file(str(out_path))
@@ -6845,28 +6816,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
     if a == "OPEN_AUDIO_SETTINGS":
-        try:
-            # Try common Linux audio mixers/settings panels.
-            candidates = [
-                ["pavucontrol"],
-                ["gnome-control-center", "sound"],
-                ["gnome-control-center"],
-                ["systemsettings5", "kcm_pulseaudio"],
-                ["systemsettings5"],
-                ["kcmshell5", "kcm_pulseaudio"],
-                ["mate-volume-control"],
-                ["xfce4-mixer"],
-            ]
-            for cmd in candidates:
-                try:
-                    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    msg = f"Opened audio settings: {' '.join(cmd)}"
-                    return {"ok": True, "action": a, "content": msg, "response": msg}
-                except FileNotFoundError:
-                    continue
-            raise FileNotFoundError("No audio settings app found (pavucontrol / gnome-control-center / systemsettings5 / etc).")
-        except Exception as e:
-            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+        return open_settings_panel(a, "sound settings", "sound settings")
 
     if a == "OPEN_URL":
         url = None
@@ -6929,10 +6879,24 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         return open_browser(url)
 
     if a == "SKIP_YOUTUBE_AD":
-        msg = (
-            "YouTube ad skip is not available in this build — use the browser "
-            "skip button, or say 'play on youtube.com' to open YouTube in your browser."
-        )
+        # YouTube's own skip button, found on the screen and clicked (screen_locator: OCR or the local
+        # vision model, then a click; every OS). ELI's own YouTube player (mpv) plays no ads.
+        if _MEDIA_STATE.get("source") == "mpv" and _mpv_alive():
+            msg = "ELI's YouTube player has no ads to skip."
+            return {"ok": True, "action": a, "content": msg, "response": msg}
+        try:
+            from eli.perception.screen_locator import locate_on_screen
+            last = {}
+            for label in ("Skip Ads", "Skip Ad", "Skip"):
+                last = locate_on_screen(query=label, click=True) or {}
+                if last.get("clicked"):
+                    msg = "Skipped the ad."
+                    return {"ok": True, "action": a, "content": msg, "response": msg}
+            why = str(last.get("error") or "").strip()
+            msg = ("No skip button is on the screen yet; YouTube shows it a few seconds into an ad."
+                   + (f" ({why})" if why else ""))
+        except Exception as e:
+            msg = f"Could not look for the skip button: {e}"
         return {"ok": False, "action": a, "content": msg, "response": msg}
 
     if a == "OPEN_NETWORK_BROWSER":
@@ -6955,31 +6919,24 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
 
-            candidates = [
-                ["spotify"],
-                ["flatpak", "run", "com.spotify.Client"],
-            ]
-            for cmd in candidates:
-                try:
-                    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    opened = True
-                    msg = f"Opened media: {' '.join(cmd)}"
+            # Spotify when installed (found as an app on every OS), else this OS's music player, else the
+            # Music folder. Until 2.5.17 a bare `spotify` (absent from PATH on Windows and macOS) and
+            # then YouTube Music in the browser.
+            from eli.system.portable_app_control import open_app as _open_app, resolve_app
+            from eli.utils.platform_compat import known_user_dir, open_role
+            if resolve_app("spotify").source != "unknown":
+                r = _open_app("spotify")
+                if r.get("ok"):
+                    msg = "Opened media: Spotify"
                     return {"ok": True, "action": a, "content": msg, "response": msg}
-                except FileNotFoundError:
-                    continue
-
-            # Browser fallbacks
-            try:
-                url = "https://music.youtube.com"
-                open_browser(url)
-                msg = f"Opened media: {url}"
+            player = open_role("music")
+            if player:
+                msg = f"Opened media: {player}"
                 return {"ok": True, "action": a, "content": msg, "response": msg}
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
 
             # Local folder fallback
             try:
-                music_dir = os.path.expanduser("~/Music")
+                music_dir = known_user_dir("music") or os.path.expanduser("~/Music")
                 open_file_system(music_dir)
                 msg = f"Opened media folder: {music_dir}"
                 return {"ok": True, "action": a, "content": msg, "response": msg}
@@ -7675,13 +7632,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             if mapped == "REPEAT_MEDIA":
                 return repeat_media(target=target)
             return _execute_impl(mapped, forwarded)
-        # Fallback: playerctl generic
-        try:
-            subprocess.run(["playerctl", cmd], timeout=5, capture_output=True)
-            msg = f"Media: {cmd}"
-            return {"ok": True, "action": a, "content": msg, "response": msg}
-        except Exception as e:
-            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+        # Anything else ("toggle"): the media backend, which is MPRIS on Linux and the OS's media
+        # session or media keys on Windows and macOS (a bare playerctl existed only on Linux)
+        res = _playerctl({"toggle": "play-pause", "playpause": "play-pause"}.get(cmd, cmd), target)
+        res["action"] = a
+        return res
 
     # ---- VOLUME ----
     if a == "VOLUME":
@@ -9036,43 +8991,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- OPEN_SYSTEM_SETTINGS ----
     if a == "OPEN_SYSTEM_SETTINGS":
-        try:
-            candidates = [
-                ["gnome-control-center"],
-                ["systemsettings5"],
-                ["xfce4-settings-manager"],
-                ["mate-control-center"],
-                ["cinnamon-settings"],
-            ]
-            for cmd in candidates:
-                try:
-                    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    msg = f"Opened system settings: {' '.join(cmd)}"
-                    return {"ok": True, "action": a, "content": msg, "response": msg}
-                except FileNotFoundError:
-                    continue
-            raise FileNotFoundError("No settings app found")
-        except Exception as e:
-            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+        return open_settings_panel(a, "settings", "system settings")
 
     # ---- OPEN_POWER_SETTINGS ----
     if a == "OPEN_POWER_SETTINGS":
-        try:
-            candidates = [
-                ["gnome-control-center", "power"],
-                ["systemsettings5", "kcm_energyinfo"],
-                ["xfce4-power-manager-settings"],
-            ]
-            for cmd in candidates:
-                try:
-                    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                    msg = f"Opened power settings: {' '.join(cmd)}"
-                    return {"ok": True, "action": a, "content": msg, "response": msg}
-                except FileNotFoundError:
-                    continue
-            raise FileNotFoundError("No power settings app found")
-        except Exception as e:
-            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+        return open_settings_panel(a, "power settings", "power settings")
 
     # ---- SET_ALARM / SET_TIMER ----
     if a == "SET_ALARM" and str(args.get("text") or "").strip():
@@ -9730,7 +9653,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             path = str(args.get("path") or "").strip()
             if not path:
                 return {"ok": False, "action": a, "error": "Missing path", "content": "Missing path", "response": "Missing path"}
-            out_md = _csv_os.path.join(_csv_tf.gettempdir(), "eli_csv_report.md")
+            out_md = str(__import__("eli.core.paths", fromlist=["temp_path"]).temp_path("csv_report.md"))
             result = analyze_csv_file(path, out_md)
             if isinstance(result, dict):
                 result.setdefault("action", a)
@@ -9880,8 +9803,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 from eli.gui.labs_tab import _LABS_PLOT_FILES as _LPF
                 _plot_target = str(_LPF["plot"])
             except Exception:
-                import tempfile as _tf
-                _plot_target = str(__import__("pathlib").Path(_tf.gettempdir()) / "eli_labs_plot.png")
+                from eli.core.paths import temp_path as _temp_path
+                _plot_target = str(_temp_path("labs_plot.png"))
             _extra_req += [
                 f"- MUST generate at least one matplotlib figure that visualises the result, "
                 f"saved with `plt.savefig({_plot_target!r}, dpi=120)` AND shown with `plt.show()`",
@@ -10773,56 +10696,29 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             "internal ide", "ide tab", "the ide tab"
         }
 
-        alias_map = {
-            "vscode": "code",
-            "visual studio code": "code",
-            "virtual studio code": "code",
-            "vs code": "code",
-            "code": "code",
-            "gedit": "gedit",
-            "text editor": "gedit",
-            "codium": "codium",
-            "kate": "kate",
-            "sublime": "subl",
-            "sublime text": "subl",
-            "idle": "idle"
-        }
-
-        if target not in generic:
-            mapped = alias_map.get(target, target)
-            return _execute_impl("OPEN_APP", {"name": mapped})
-
-        for editor in ["code", "codium", "subl", "gedit", "kate"]:
-            try:
-                subprocess.Popen(
-                    [editor],
-                    stdout=subprocess.DEVNULL,
-                    stderr=subprocess.DEVNULL,
-                    start_new_session=True
-                )
-                msg = f"Opened IDE: {editor}"
-                return {"ok": True, "action": a, "content": msg, "response": msg}
-            except FileNotFoundError:
-                continue
-
-        return {
-            "ok": False,
-            "action": a,
-            "error": "No IDE found",
-            "content": "No IDE found",
-            "response": "No IDE found"
-        }
+        # A named one opens as an app (resolve_app finds it on every OS); a text editor or a bare "IDE"
+        # is the first installed for that role on this OS (platform_compat tables: VS Code, Sublime,
+        # Xcode, Notepad++, ...). Bare `code`/`gedit` failed on Windows (code.cmd) and macOS.
+        if target in ("text editor", "editor", "the text editor"):
+            role = "editor"
+        elif target in generic:
+            role = "ide"
+        else:
+            return _execute_impl("OPEN_APP", {"name": target})
+        from eli.utils.platform_compat import open_role
+        opened = open_role(role)
+        if opened:
+            msg = f"Opened IDE: {opened}" if role == "ide" else f"Opened {opened}."
+            return {"ok": True, "action": a, "content": msg, "response": msg}
+        return {"ok": False, "action": a, "error": "No IDE found", "content": "No IDE found", "response": "No IDE found"}
 
     if a == "OPEN_IN_IDE":
         path = str(args.get("path") or "").strip()
-        for editor in ["code", "codium", "subl", "gedit", "kate"]:
-            try:
-                cmd = [editor] + ([path] if path else [])
-                subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                msg = f"Opened {path or 'IDE'} in {editor}"
-                return {"ok": True, "action": a, "content": msg, "response": msg}
-            except FileNotFoundError:
-                continue
+        from eli.utils.platform_compat import open_role
+        opened = open_role("ide", *([os.path.expanduser(path)] if path else []))
+        if opened:
+            msg = f"Opened {path or 'IDE'} in {opened}"
+            return {"ok": True, "action": a, "content": msg, "response": msg}
         return {"ok": False, "action": a, "error": "No IDE found", "content": "No IDE found", "response": "No IDE found"}
 
     if a == "SHOW_DIFF":
@@ -11674,11 +11570,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": True, "action": a, "percent": pct, "cores": count,
                     "temperature_c": _cpu_temp, "content": msg, "response": msg}
         except ImportError:
+            # without psutil: the load average (Linux, macOS) or Windows' own processor load
             import subprocess as _sp
+            from eli.utils import platform_compat as _pc_cpu
             try:
-                out = _sp.check_output(["top", "-bn1"], text=True, timeout=5)
-                cpu_line = next((l for l in out.splitlines() if "Cpu(s)" in l or "%Cpu" in l), "")
-                msg = f"CPU: {cpu_line.strip()}" if cpu_line else "CPU info unavailable (install psutil)"
+                if _pc_cpu.WINDOWS:
+                    out = _sp.check_output(["powershell", "-NoProfile", "-Command",
+                                            "(Get-CimInstance Win32_Processor | Measure-Object -Property "
+                                            "LoadPercentage -Average).Average"], text=True, timeout=15).strip()
+                    msg = f"CPU usage: {out}%" if out else "CPU info unavailable (install psutil)"
+                else:
+                    one, five, _ = os.getloadavg()
+                    msg = f"CPU load average: {one:.2f} (1 min), {five:.2f} (5 min) over {os.cpu_count()} cores"
             except Exception:
                 msg = "CPU info unavailable (install psutil: pip install psutil)"
             return {"ok": True, "action": a, "content": msg, "response": msg}
@@ -13648,70 +13551,7 @@ except NameError:
         return ""
 
     def _eli_voice_contract_open_settings():
-        import os
-        import platform
-        import shutil
-        import subprocess
-
-        system = platform.system().lower()
-
-        if system == "linux":
-            candidates = (
-                "gnome-control-center",
-                "systemsettings",
-                "xfce4-settings-manager",
-                "mate-control-center",
-                "cinnamon-settings",
-            )
-            for cmd in candidates:
-                resolved = shutil.which(cmd)
-                if resolved:
-                    subprocess.Popen(
-                        [resolved],
-                        stdout=subprocess.DEVNULL,
-                        stderr=subprocess.DEVNULL,
-                        start_new_session=True,
-                    )
-                    return {
-                        "ok": True,
-                        "action": "OPEN_SYSTEM_SETTINGS",
-                        "content": f"Opened system settings: {cmd}",
-                        "response": f"Opened system settings: {cmd}",
-                    }
-
-        if system == "darwin":
-            subprocess.Popen(
-                ["open", "-b", "com.apple.systempreferences"],
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-                start_new_session=True,
-            )
-            return {
-                "ok": True,
-                "action": "OPEN_SYSTEM_SETTINGS",
-                "content": "Opened system settings.",
-                "response": "Opened system settings.",
-            }
-
-        if system == "windows":
-            try:
-                os.startfile("ms-settings:")
-                return {
-                    "ok": True,
-                    "action": "OPEN_SYSTEM_SETTINGS",
-                    "content": "Opened system settings.",
-                    "response": "Opened system settings.",
-                }
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
-
-        return {
-            "ok": False,
-            "action": "OPEN_SYSTEM_SETTINGS",
-            "error": "No supported system settings launcher was found on PATH.",
-            "content": "No supported system settings launcher was found on PATH.",
-            "response": "No supported system settings launcher was found on PATH.",
-        }
+        return open_settings_panel("OPEN_SYSTEM_SETTINGS", "settings", "system settings")
 
     def _eli_voice_contract_set_volume(percent):
         from eli.utils import platform_compat as _pc

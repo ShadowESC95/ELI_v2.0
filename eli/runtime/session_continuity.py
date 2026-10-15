@@ -167,6 +167,13 @@ def build_inline_exchange_block(
             continue
         if role == "user":
             label, cap = "You", max_chars_per * 2
+            # Pasted text is someone else's (correction_patterns.split_pasted): shown as the user's,
+            # ELI argued with ChatGPT's critique as if the user had written it, and then sent it back
+            # as its own reply.
+            from eli.cognition.correction_patterns import split_pasted
+            own, pasted = split_pasted(content)
+            if pasted:
+                content = f'{own} [then pasted text written by someone else, not the user: "{pasted}"]'
         else:
             replies_seen += 1
             label = f"ELI (result of {actions[i]}, not recalled)" if i in actions else "ELI"

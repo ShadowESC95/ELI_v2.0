@@ -56,8 +56,34 @@ def _capture_with_imagegrab(path: str) -> Dict[str, Any] | None:
     except Exception:
         return None
 
+def _capture_windows_area(path: str, wait: float = 60.0) -> Dict[str, Any] | None:
+    """Windows: the user picks the area with Windows' own snip overlay (ms-screenclip:), which puts
+    the picture on the clipboard; it is saved from there. None when no new picture arrives."""
+    try:
+        import time
+        from PIL import ImageGrab  # type: ignore
+
+        def _clip_bytes():
+            img = ImageGrab.grabclipboard()
+            return img.tobytes() if hasattr(img, "tobytes") else None
+
+        before = _clip_bytes()
+        os.startfile("ms-screenclip:")  # type: ignore[attr-defined]
+        deadline = time.monotonic() + wait
+        while time.monotonic() < deadline:
+            time.sleep(0.5)
+            img = ImageGrab.grabclipboard()
+            if hasattr(img, "save") and img.tobytes() != before:
+                img.save(path)
+                return {"ok": True, "path": path, "content": f"Screenshot saved: {path}",
+                        "response": f"Screenshot saved: {path}"}
+    except Exception:
+        log.debug("Windows area capture failed", exc_info=True)
+    return None
+
+
 # ----------------------------------------------------------------------
-# Screenshot – GNOME Screenshot first, then grim, then scrot
+# Screenshot – GNOME Screenshot first, then Spectacle (KDE), grim, scrot
 # ----------------------------------------------------------------------
 def take_screenshot(region: str = "full") -> Dict[str, Any]:
     """
@@ -70,11 +96,14 @@ def take_screenshot(region: str = "full") -> Dict[str, Any]:
     # Windows and macOS can usually capture the full screen through Pillow.
     if WINDOWS:
         if region != "full":
+            result = _capture_windows_area(_screenshot_path("Screenshot_area"))
+            if result:
+                return result
             return {
                 "ok": False,
-                "error": "Area screenshots require a user-selected capture tool on Windows.",
-                "content": "Area screenshots are not available on this Windows install.",
-                "response": "Area screenshots are not available on this Windows install.",
+                "error": "No area was snipped (Windows' snip overlay closed without a picture).",
+                "content": "Screenshot cancelled",
+                "response": "Screenshot cancelled",
             }
         path = _screenshot_path()
         result = _capture_with_imagegrab(path)
@@ -132,6 +161,17 @@ def take_screenshot(region: str = "full") -> Dict[str, Any]:
                 cmd = ["gnome-screenshot", "-a", "-f", path]
             result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
             if result.returncode == 0:
+                return {"ok": True, "path": path, "content": f"Screenshot saved: {path}", "response": f"Screenshot saved: {path}"}
+        except Exception:
+            log.debug("suppressed exception", exc_info=True)
+
+    # KDE's own tool, which works on Wayland and X11
+    if _check_tool("spectacle"):
+        path = _screenshot_path("Screenshot_area" if region != "full" else "Screenshot")
+        cmd = ["spectacle", "-b", "-n", "-f" if region == "full" else "-r", "-o", path]
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
+            if result.returncode == 0 and os.path.exists(path):
                 return {"ok": True, "path": path, "content": f"Screenshot saved: {path}", "response": f"Screenshot saved: {path}"}
         except Exception:
             log.debug("suppressed exception", exc_info=True)

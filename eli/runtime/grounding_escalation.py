@@ -341,6 +341,17 @@ def _turn_excluded_from_factual(raw: str, *, include_local: bool = False) -> boo
     return False
 
 
+def _world_fact_question(low: str) -> bool:
+    """A who/what/when... question about the world. One whose subject is ELI ("who you really are",
+    "what you think", "what your problem is") is about ELI, never a web lookup: "I want to see who
+    you really are... bring the pain" was web-searched and answered "I searched the web but couldn't
+    find anything"."""
+    for m in _FACT_Q_RE.finditer(low):
+        if not re.search(r"\b(?:you|your|yours|yourself|eli)\b", m.group(0)):
+            return True
+    return False
+
+
 def classify_factual(text: str) -> Tuple[bool, str]:
     """Return (is_checkable_fact, domain) where domain ∈ {"external","local","none"}."""
     raw = (text or "").strip()
@@ -352,7 +363,7 @@ def classify_factual(text: str) -> Tuple[bool, str]:
     low_clean = _clean_turn_text(raw)[1]
 
     is_fact = bool(
-        _FACT_Q_RE.search(low_clean) or _FACT_KW_RE.search(low_clean)
+        _world_fact_question(low_clean) or _FACT_KW_RE.search(low_clean)
         or _FACT_CLAIM_RE.search(raw)
     )
     if not is_fact:

@@ -14,6 +14,7 @@ Usage:
 """
 
 import os
+import re
 import sys
 import shutil
 import subprocess
@@ -189,6 +190,20 @@ LINUX_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
                    "flameshot", "mate-screenshot"),
     "disks": ("gnome-disks", "partitionmanager", "gparted"),
     "disk usage": ("baobab", "filelight", "qdirstat"),
+    "ide": ("code", "codium", "code-oss", "cursor", "subl", "kate", "gnome-builder", "gnome-text-editor",
+            "gedit"),
+    # Settings panels: a candidate with arguments runs as written (open_role)
+    "sound settings": ("gnome-control-center sound", "systemsettings kcm_pulseaudio",
+                       "systemsettings5 kcm_pulseaudio", "pavucontrol", "mate-volume-control", "xfce4-mixer"),
+    "power settings": ("gnome-control-center power", "systemsettings kcm_powerdevilprofilesconfig",
+                       "systemsettings5 kcm_powerdevilprofilesconfig", "xfce4-power-manager-settings",
+                       "mate-power-preferences"),
+    "network settings": ("gnome-control-center network", "systemsettings kcm_networkmanagement",
+                         "systemsettings5 kcm_networkmanagement", "nm-connection-editor"),
+    "display settings": ("gnome-control-center display", "systemsettings kcm_kscreen",
+                         "systemsettings5 kcm_kscreen", "xfce4-display-settings", "arandr"),
+    "bluetooth settings": ("gnome-control-center bluetooth", "systemsettings kcm_bluetooth",
+                           "systemsettings5 kcm_bluetooth", "blueman-manager"),
 }
 
 # macOS names are .app bundle names, not PATH executables, and they move between releases: "System
@@ -221,6 +236,13 @@ MACOS_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
     "screenshot": ("Screenshot", "Grab"),
     "disks": ("Disk Utility",),
     "disk usage": ("Disk Utility",),
+    "ide": ("Visual Studio Code", "VSCodium", "Cursor", "Sublime Text", "Xcode", "BBEdit", "TextEdit"),
+    # Settings panels by their pane ids, which every macOS from 11 on opens in System Settings/Preferences
+    "sound settings": ("x-apple.systempreferences:com.apple.preference.sound",),
+    "power settings": ("x-apple.systempreferences:com.apple.preference.battery",),
+    "network settings": ("x-apple.systempreferences:com.apple.preference.network",),
+    "display settings": ("x-apple.systempreferences:com.apple.preference.displays",),
+    "bluetooth settings": ("x-apple.systempreferences:com.apple.preferences.Bluetooth",),
 }
 
 # Windows Terminal (wt.exe) ships with Windows 11 but is absent from a stock
@@ -256,6 +278,13 @@ WINDOWS_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
     "screenshot": ("SnippingTool.exe", "ms-screenclip:"),
     "disks": ("diskmgmt.msc",),
     "disk usage": ("cleanmgr.exe",),
+    "ide": ("code.cmd", "codium.cmd", "cursor.cmd", "subl.exe", "sublime_text.exe", "notepad++.exe",
+            "devenv.exe", "notepad.exe"),
+    "sound settings": ("ms-settings:sound",),
+    "power settings": ("ms-settings:powersleep",),
+    "network settings": ("ms-settings:network",),
+    "display settings": ("ms-settings:display",),
+    "bluetooth settings": ("ms-settings:bluetooth",),
 }
 
 ANDROID_APP_CANDIDATES: dict[str, tuple[str, ...]] = {
@@ -342,13 +371,20 @@ def _macos_app_exists(name: str) -> bool:
     return any((Path(d) / f"{name}.app").exists() for d in dirs)
 
 
+def _is_uri(name: str) -> bool:
+    """A URI the OS opens by its handler ("ms-settings:sound", "x-apple.systempreferences:..."), not a
+    program. A Windows path ("C:\\Tools\\x.exe") is not one."""
+    return bool(re.match(r"^[A-Za-z][A-Za-z0-9+.\-]+:", str(name or ""))) and not re.match(r"^[A-Za-z]:[\\/]", str(name))
+
+
 def app_exists(name: str, platform_name: str | None = None) -> bool:
-    """Is ``name`` launchable on this platform? Each OS needs a different test."""
+    """Is ``name`` launchable on this platform? Each OS needs a different test. A candidate that is a
+    URI exists wherever its OS has handlers for it; one with arguments is judged by its program."""
     if not name:
         return False
     platform = normalize_platform(platform_name)
     if platform == "macos":
-        return _macos_app_exists(name)
+        return _is_uri(name) or _macos_app_exists(name)
     if platform == "windows":
         # "ms-settings:" / "shell:..." are protocol handlers, not files on PATH.
         if name.endswith(":") or name.startswith(("ms-", "shell:")):
@@ -358,7 +394,7 @@ def app_exists(name: str, platform_name: str | None = None) -> bool:
     if platform == "android":
         # Package ids can't be probed without a live `pm`; treat as available.
         return True
-    return bool(shutil.which(name))
+    return bool(shutil.which(name.split()[0]))
 
 
 def first_available(*candidates: str, platform_name: str | None = None) -> str | None:
@@ -366,6 +402,33 @@ def first_available(*candidates: str, platform_name: str | None = None) -> str |
     for candidate in candidates:
         if candidate and app_exists(candidate, platform_name):
             return candidate
+    return None
+
+
+def open_role(role: str, *paths: str) -> str | None:
+    """Open the first installed app for `role` on this OS (APP_CANDIDATES_BY_PLATFORM: "mail", "music",
+    "ide", "sound settings", ...), with `paths` when given (a file for an editor). Returns the candidate
+    opened, or None when nothing for the role is installed. A URI candidate goes to the OS's handler;
+    one with arguments ("gnome-control-center sound") runs as written; a macOS app opens with open -a."""
+    table = APP_CANDIDATES_BY_PLATFORM.get(normalize_platform(), {})
+    for cand in table.get(str(role or "").strip().lower(), ()):
+        if not app_exists(cand):
+            continue
+        if _is_uri(cand):
+            if not paths and open_app_uri(cand):
+                return cand
+            continue
+        if MACOS:
+            argv = ["open", "-a", cand, *paths]
+        else:
+            parts = [cand] if WINDOWS else cand.split()
+            argv = [shutil.which(parts[0]) or parts[0], *parts[1:], *paths]
+        try:
+            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                             **({} if WINDOWS else {"start_new_session": True}))
+            return cand
+        except Exception:
+            log.debug("could not open %s for %s", cand, role, exc_info=True)
     return None
 
 
@@ -559,6 +622,10 @@ def _browser_override_argv(url: str) -> list[str] | None:
     return [exe[0], *parts[1:], url]
 
 
+# Every OS opens a link in the user's default browser (ELI_BROWSER overrides it). A fixed list came
+# first until 2.5.17: Safari on every Mac, Chrome before Firefox on Linux, Chrome/Edge on Windows,
+# whatever the user had chosen. The lists are only the fallback when the OS has no handler.
+
 def _macos_open_url(url: str) -> bool:
     override = _browser_override_argv(url)
     if override:
@@ -567,7 +634,14 @@ def _macos_open_url(url: str) -> bool:
             return True
         except Exception:
             log.debug("suppressed browser override exception", exc_info=True)
+    try:
+        if subprocess.run(["open", url], capture_output=True, timeout=10).returncode == 0:
+            return True
+    except Exception:
+        log.debug("open could not hand the URL to the default browser", exc_info=True)
     for app in MACOS_APP_CANDIDATES.get("browser", ()):
+        if not _macos_app_exists(app):
+            continue
         try:
             subprocess.Popen(
                 ["open", "-a", app, url],
@@ -576,12 +650,8 @@ def _macos_open_url(url: str) -> bool:
             return True
         except Exception:
             continue
-    try:
-        subprocess.Popen(["open", url], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        return True
-    except Exception as e:
-        log.warning("Failed to open URL on macOS: %s", e)
-        return False
+    log.warning("Failed to open URL on macOS: no browser")
+    return False
 
 
 def _windows_open_url(url: str) -> bool:
@@ -592,6 +662,11 @@ def _windows_open_url(url: str) -> bool:
             return True
         except Exception:
             log.debug("suppressed browser override exception", exc_info=True)
+    try:
+        os.startfile(url)  # the default browser
+        return True
+    except Exception:
+        log.debug("no default handler for the URL", exc_info=True)
     for browser, flag in (
         ("chrome", "--new-tab"),
         ("msedge", "--new-tab"),
@@ -607,11 +682,7 @@ def _windows_open_url(url: str) -> bool:
                 return True
             except Exception:
                 continue
-    try:
-        os.startfile(url)
-        return True
-    except Exception:
-        return False
+    return False
 
 
 _APP_URI_PREFIXES = (
@@ -731,11 +802,9 @@ def open_url(url: str) -> bool:
 
 
 def _linux_open_url(url: str) -> bool:
-    """Open a URL on Linux without tripping Firefox's 'already running' dialog.
-
-    Prefer ``firefox -new-tab`` (remote to a live instance) over launching a
-    second profile. When Firefox is hung, fall through to Chromium/Brave/etc.
-    """
+    """Open a URL on Linux in the user's default browser (xdg-open / gio), ELI_BROWSER first when set.
+    Browsers are tried by name only when there is no default handler: ``firefox -new-tab`` remotes to
+    a live instance rather than tripping its 'already running' dialog."""
     override = (os.environ.get("ELI_BROWSER") or "").strip()
     if override:
         parts = override.split()
@@ -749,6 +818,11 @@ def _linux_open_url(url: str) -> bool:
                 return True
 
     argv_list: list[list[str]] = []
+    # the default browser first
+    if shutil.which("xdg-open"):
+        argv_list.append(["xdg-open", url])
+    if shutil.which("gio"):
+        argv_list.append(["gio", "open", url])
     for name in (
         "google-chrome", "google-chrome-stable", "chromium", "chromium-browser",
         "brave-browser", "microsoft-edge", "opera", "vivaldi",
@@ -757,10 +831,6 @@ def _linux_open_url(url: str) -> bool:
             argv_list.append([exe, "--new-tab", url])
     for exe in _executable_paths("firefox"):
         argv_list.append([exe, "-new-tab", url])
-    if shutil.which("xdg-open"):
-        argv_list.append(["xdg-open", url])
-    if shutil.which("gio"):
-        argv_list.append(["gio", "open", url])
 
     for argv in argv_list:
         if _linux_try_browser(argv):
@@ -853,27 +923,56 @@ def open_app(app_name: str) -> bool:
     return False
 
 
+def _applescript_text(text: str) -> str:
+    """`text` as an AppleScript string literal's contents."""
+    return str(text or "").replace("\\", "\\\\").replace('"', '\\"')
+
+
+# A Windows toast from PowerShell, shown under PowerShell's own app id (an id Windows has not
+# registered shows nothing on Windows 10). Title and message arrive in the environment, never in
+# the script text.
+WINDOWS_TOAST_SCRIPT = (
+    "$null = [Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime]\n"
+    "$x = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent("
+    "[Windows.UI.Notifications.ToastTemplateType]::ToastText02)\n"
+    "$t = $x.GetElementsByTagName('text')\n"
+    "$null = $t.Item(0).AppendChild($x.CreateTextNode($env:ELI_NOTE_TITLE))\n"
+    "$null = $t.Item(1).AppendChild($x.CreateTextNode($env:ELI_NOTE_TEXT))\n"
+    "$id = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'\n"
+    "[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($id).Show("
+    "[Windows.UI.Notifications.ToastNotification]::new($x))"
+)
+
+
 def notify(title: str, message: str) -> bool:
-    """Show a desktop notification."""
+    """Show a desktop notification, on every OS: notify-send or the D-Bus notification service on
+    Linux, Notification Center on macOS, plyer or a PowerShell toast on Windows."""
     try:
-        if LINUX:
-            if shutil.which("notify-send"):
-                subprocess.run(
-                    ["notify-send", title, message],
-                    timeout=5, capture_output=True
-                )
-                return True
-        elif ANDROID:
+        if ANDROID:
             if shutil.which("termux-notification"):
                 subprocess.run(
                     ["termux-notification", "--title", title, "--content", message],
                     timeout=5, capture_output=True
                 )
                 return True
+        elif LINUX:
+            if shutil.which("notify-send"):
+                subprocess.run(
+                    ["notify-send", title, message],
+                    timeout=5, capture_output=True
+                )
+                return True
+            if shutil.which("gdbus"):
+                return subprocess.run(
+                    ["gdbus", "call", "--session", "--dest", "org.freedesktop.Notifications",
+                     "--object-path", "/org/freedesktop/Notifications",
+                     "--method", "org.freedesktop.Notifications.Notify",
+                     "ELI", "0", "", str(title), str(message), "[]", "{}", "8000"],
+                    timeout=5, capture_output=True).returncode == 0
         elif MACOS:
             subprocess.run(
                 ["osascript", "-e",
-                 'display notification "' + message + '" with title "' + title + '"'],
+                 f'display notification "{_applescript_text(message)}" with title "{_applescript_text(title)}"'],
                 timeout=5, capture_output=True
             )
             return True
@@ -882,8 +981,13 @@ def notify(title: str, message: str) -> bool:
                 from plyer import notification
                 notification.notify(title=title, message=message, timeout=5)
                 return True
-            except ImportError:
-                log.debug("plyer not installed, skipping Windows notification")
+            except Exception:
+                log.debug("plyer could not notify, using a PowerShell toast", exc_info=True)
+            ps = shutil.which("powershell")
+            if ps:
+                env = dict(os.environ, ELI_NOTE_TITLE=str(title), ELI_NOTE_TEXT=str(message))
+                return subprocess.run([ps, "-NoProfile", "-NonInteractive", "-Command", WINDOWS_TOAST_SCRIPT],
+                                      env=env, timeout=15, capture_output=True).returncode == 0
         return False
     except Exception as e:
         log.warning(f"Notification failed: {e}")
@@ -1161,6 +1265,9 @@ def adjust_volume(delta: int) -> bool:
             current = get_volume()
             if current is not None:
                 return set_volume(current + delta)
+            # no audio API (pycaw missing): the keyboard's volume keys, 2% a press
+            key = VK["volume_up"] if delta > 0 else VK["volume_down"]
+            return windows_press_keys(key, times=max(1, abs(int(delta)) // 2))
     except Exception as e:
         log.warning(f"Adjust volume failed: {e}")
     return False
@@ -1197,7 +1304,10 @@ def _windows_get_volume() -> int | None:
 def _windows_set_volume(level: int) -> bool:
     volume = _windows_volume_interface()
     if volume is None:
-        return False
+        # no audio API (pycaw missing): all the way down with the volume keys, then up to the level
+        lvl = max(0, min(100, int(level)))
+        return windows_press_keys(VK["volume_down"], times=50) and (
+            lvl < 2 or windows_press_keys(VK["volume_up"], times=lvl // 2))
     try:
         volume.SetMasterVolumeLevelScalar(max(0, min(100, int(level))) / 100.0, None)
         return True
@@ -1492,6 +1602,44 @@ def _run_native(args: list) -> bool:
                               check=False).returncode == 0
     except Exception:
         log.debug("native input tool failed: %s", args, exc_info=True)
+        return False
+
+
+# Virtual-key codes for windows_press_keys
+VK = {"ctrl": 0x11, "alt": 0x12, "shift": 0x10, "win": 0x5B, "tab": 0x09, "left": 0x25, "up": 0x26,
+      "right": 0x27, "down": 0x28, "volume_mute": 0xAD, "volume_down": 0xAE, "volume_up": 0xAF,
+      "media_next": 0xB0, "media_previous": 0xB1, "media_stop": 0xB2, "media_play_pause": 0xB3}
+
+
+def windows_keys_script(*vks: int, times: int = 1) -> str:
+    """The PowerShell that presses the virtual keys together, `times` times (windows_press_keys)."""
+    codes = ",".join(str(int(v)) for v in vks)
+    return (
+        "Add-Type @'\n"
+        "using System;\nusing System.Runtime.InteropServices;\n"
+        "public class EliKeys {\n"
+        "  [DllImport(\"user32.dll\")] public static extern void keybd_event(byte bVk, byte bScan, uint dwFlags, UIntPtr dwExtraInfo);\n"
+        "  public static void Press(byte[] vks) {\n"
+        "    foreach (byte vk in vks) keybd_event(vk, 0, 1, UIntPtr.Zero);\n"
+        "    for (int i = vks.Length - 1; i >= 0; i--) keybd_event(vks[i], 0, 3, UIntPtr.Zero);\n"
+        "  }\n}\n'@; "
+        f"for ($i = 0; $i -lt {max(1, int(times))}; $i++) {{ [EliKeys]::Press([byte[]]@({codes})) }}"
+    )
+
+
+def windows_press_keys(*vks: int, times: int = 1) -> bool:
+    """Windows: press the virtual keys together (held in order, released in reverse), `times` times,
+    as the keyboard would. For what SendKeys cannot send: the Windows key, media and volume keys."""
+    if not WINDOWS or not vks:
+        return False
+    ps = shutil.which("powershell") or shutil.which("pwsh")
+    if not ps:
+        return False
+    try:
+        return subprocess.run([ps, "-NoProfile", "-Command", windows_keys_script(*vks, times=times)],
+                              capture_output=True, timeout=15).returncode == 0
+    except Exception:
+        log.debug("Windows key press failed", exc_info=True)
         return False
 
 

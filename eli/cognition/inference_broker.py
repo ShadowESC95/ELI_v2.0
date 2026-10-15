@@ -32,8 +32,10 @@ def _is_think_only(response: str) -> bool:
         return False
 
 
-def stamp_foreground_generation_start() -> None:
-    """Mark the shared model as busy with a user-facing generation."""
+def stamp_foreground_activity() -> None:
+    """The user is active: a turn started or a user-facing generation began. Background chores wait
+    (foreground_recently_active). A turn that never uses the model counts too: a 109 s news synthesis
+    started between two typed commands, because only model calls were counted."""
     global _last_foreground_ts
     _last_foreground_ts = _time.monotonic()
 
@@ -50,7 +52,7 @@ def foreground_call_started() -> float:
     global _fg_inflight
     with _fg_inflight_lock:
         _fg_inflight += 1
-    stamp_foreground_generation_start()
+    stamp_foreground_activity()
     return _time.monotonic()
 
 

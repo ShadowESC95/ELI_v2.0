@@ -14,7 +14,8 @@ _WEEKDAYS = ("monday", "tuesday", "wednesday", "thursday", "friday", "saturday",
 _NUM = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
         "eight": 8, "nine": 9, "ten": 10, "couple": 2, "few": 3, "several": 4}
 _UNIT_DAYS = {"day": 1, "week": 7, "fortnight": 14, "month": 30, "year": 365}
-_N = r"(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|couple of|few|several)"
+# "couple" with or without "of": "the past couple days" went unread and a recap became a raw recall dump
+_N = r"(\d+|a|an|one|two|three|four|five|six|seven|eight|nine|ten|couple(?: of)?|few|several)"
 _U = r"(day|week|fortnight|month|year)s?"
 
 
@@ -207,7 +208,7 @@ def _day_cues(low: str, n: datetime, sod: datetime) -> list:
         back = (sod.weekday() - _WEEKDAYS.index(m.group(1))) % 7 or 7
         day = sod - timedelta(days=back)
         out.append((_ts(day), _ts(day + timedelta(days=1))))
-    for m in re.finditer(r"\b(\d+|two|three|four|five|six|seven|couple of|few)\s+days?\s+ago\b", low):
+    for m in re.finditer(r"\b(\d+|two|three|four|five|six|seven|couple(?: of)?|few)\s+days?\s+ago\b", low):
         if _negated(low, m.start()):
             continue
         day = sod - timedelta(days=_n(m.group(1)))

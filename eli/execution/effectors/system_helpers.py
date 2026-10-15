@@ -100,7 +100,8 @@ def _run_ok(argv, timeout=2.0) -> bool:
 
 
 def volume_fallback(direction: str, delta: int = 10, level: int | None = None) -> Dict[str, Any]:
-    """Linux volume fallback when platform_compat is insufficient."""
+    """Volume on every OS: platform_compat first (Windows audio API or volume keys, macOS osascript,
+    Linux), then Linux's own tools."""
     direction = (direction or "").strip().lower()
     try:
         from eli.utils.platform_compat import adjust_volume, get_volume, set_volume, set_muted
@@ -168,5 +169,11 @@ def volume_fallback(direction: str, delta: int = 10, level: int | None = None) -
         return {"ok": False, "action": "VOLUME", "error": str(e),
                 "content": str(e), "response": str(e)}
 
-    msg = "Volume control failed — no wpctl, pactl, or amixer available"
+    from eli.utils import platform_compat as _pc_vol
+    if _pc_vol.WINDOWS:
+        msg = "Volume control failed — Windows' audio API and the volume keys both refused"
+    elif _pc_vol.MACOS:
+        msg = "Volume control failed — macOS did not accept the change (osascript)"
+    else:
+        msg = "Volume control failed — no wpctl, pactl, or amixer available"
     return {"ok": False, "action": "VOLUME", "content": msg, "response": msg}

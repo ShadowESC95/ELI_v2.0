@@ -675,3 +675,11 @@ def test_no_carried_out_footer_when_nothing_was_asked_to_be_done(asked):
     assert "opening now" not in served
     assert "Nothing was carried out" not in served
     assert "Crisp" in served
+
+
+def test_banter_ending_on_a_tag_question_is_not_a_complaint():
+    """It got the audit ledger's rows appended under a chat reply, then ELI told the user they were
+    hallucinating when asked about them."""
+    assert not sc.complains_about_eli("All cleaned, you didn't burn the house down while i was away, did you?")
+    assert sc.complains_about_eli("you didn't open spotify")
+    assert sc.complains_about_eli("YOU DO NOT NEED TO SEARCH THE FUCKING WEB FOR ANY OF THOSE QUESTIONS!!")

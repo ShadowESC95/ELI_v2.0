@@ -124,11 +124,11 @@ def _mpv_socket() -> str:
         from eli.utils import platform_compat as _pc
         if _pc.WINDOWS:
             # mpv on Windows exposes IPC over a named pipe, not a filesystem socket.
-            return r"\\.\pipe\eli_youtube_mpv"
+            return __import__("eli.core.paths", fromlist=["pipe_path"]).pipe_path("youtube_mpv")
     except Exception:
         log.debug("suppressed exception", exc_info=True)
-    import tempfile
-    return os.path.join(tempfile.gettempdir(), "eli_youtube_mpv.sock")
+    from eli.core.paths import temp_path
+    return str(temp_path("youtube_mpv.sock"))
 
 
 def _mpv_ipc(command: str) -> bool:

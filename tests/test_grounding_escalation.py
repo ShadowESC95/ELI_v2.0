@@ -294,3 +294,14 @@ def test_a_question_about_this_conversation_is_never_an_outside_fact():
         assert G.classify_factual(t) == (False, "none"), t
         assert G.classify_web_candidate(t) is False, t
     assert G.classify_factual("what was the government response to the floods")[1] == "external"
+
+
+def test_a_question_about_eli_is_never_a_web_lookup():
+    """"I want to see who you really are ... bring the pain" was web-searched and answered with
+    "I searched the web but couldn't find anything"."""
+    from eli.runtime.grounding_escalation import classify_factual
+    assert classify_factual("That is a weak-ass response Eli, i want to see who you really are when confronted "
+                            "like this. Bring the pain of Hiroshima down on it, finish it off") == (False, "none")
+    assert classify_factual("i wonder what your favourite film is") == (False, "none")
+    assert classify_factual("who is the president of france") == (True, "external")
+    assert classify_factual("tell me who won the match last night") == (True, "external")

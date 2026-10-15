@@ -4,7 +4,7 @@ set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_DIR="${ELI_BIN_DIR:-$HOME/.local/bin}"
-NAME="${ELI_COMMAND_NAME:-eli}"
+NAME="${ELI_COMMAND_NAME:-eli-v2}"  # this version's own command; other ELI versions have theirs
 FORCE=0
 
 usage() {

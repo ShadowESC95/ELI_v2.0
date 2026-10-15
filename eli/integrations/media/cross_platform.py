@@ -422,17 +422,16 @@ def spotify_shuffle(player: str | None = None, mode: str = "Toggle") -> dict[str
         return {"ok": False, "player": p, "error": err or "shuffle failed",
                 "content": f"Couldn't toggle shuffle on {p}.",
                 "response": f"Couldn't toggle shuffle on {p}."}
-    if pc.MACOS:
-        ok, _ = _macos_osascript(
-            'tell application "Spotify"\n'
-            '  if not running then return "off"\n'
-            '  set shuffling to not shuffling\n'
-            '  return shuffling as string\n'
-            'end tell'
-        )
-        if ok:
-            msg = f"🔀 Shuffle toggled — Spotify"
-            return {"ok": True, "player": "spotify", "content": msg, "response": msg}
+    if pc.MACOS or pc.WINDOWS:
+        # the running player the OS knows about: Spotify or Music on macOS, any app in Windows' media session
+        from eli.integrations.media import system_session
+        done = system_session.toggle_shuffle()
+        if done:
+            msg = f"🔀 Shuffle {'on' if done['shuffle'] else 'off'} — {done['player']}"
+            return {"ok": True, "player": done["player"], "content": msg, "response": msg}
+        return {"ok": False, "error": "no player",
+                "content": "Nothing is playing, so there is no shuffle to change.",
+                "response": "Nothing is playing, so there is no shuffle to change."}
     return {"ok": False, "error": "shuffle unavailable",
             "content": "Shuffle control isn't available on this system.",
             "response": "Shuffle control isn't available on this system."}
@@ -441,6 +440,15 @@ def spotify_shuffle(player: str | None = None, mode: str = "Toggle") -> dict[str
 def spotify_set_loop(player: str | None = None, mode: str | None = None) -> dict[str, Any]:
     """Set or cycle repeat/loop mode (None, Track, Playlist)."""
     p = (player or "spotify").strip() or "spotify"
+    if (pc.MACOS or pc.WINDOWS) and mode is None:
+        from eli.integrations.media import system_session
+        done = system_session.cycle_repeat()
+        if done:
+            msg = f"🔁 Repeat {done['repeat']} — {done['player']}"
+            return {"ok": True, "player": done["player"], "content": msg, "response": msg}
+        return {"ok": False, "error": "no player",
+                "content": "Nothing is playing, so there is no repeat to change.",
+                "response": "Nothing is playing, so there is no repeat to change."}
     current = spotify_loop_status()
     if mode is None:
         mode = {"None": "Track", "Track": "Playlist", "Playlist": "None"}.get(current, "Track")
@@ -683,9 +691,9 @@ def mpv_socket_path() -> str:
     if env:
         return env
     if pc.WINDOWS:
-        return r"\\.\pipe\eli_youtube_mpv"
-    import tempfile
-    return os.path.join(tempfile.gettempdir(), "eli_youtube_mpv.sock")
+        return __import__("eli.core.paths", fromlist=["pipe_path"]).pipe_path("youtube_mpv")
+    from eli.core.paths import temp_path
+    return str(temp_path("youtube_mpv.sock"))
 
 
 def _is_windows_pipe(path: str) -> bool:

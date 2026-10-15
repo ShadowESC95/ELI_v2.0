@@ -64,7 +64,12 @@ EARLIER_REPLY_RE = re.compile(
     r"|\b(?:your|my|that|the|this)\s+(?:(?:long|last|previous|earlier|first|whole)\s+)?"
     r"(?:reply|response|answer|message|list)\s+(?:above|earlier|before|from\s+(?:above|earlier|before|you))\b"
     r"|\b(?:your|my)\s+(?:long|last|previous|earlier|first)\s+(?:reply|response|answer|message|list)\b"
-    r"|\b(?:reply|response|answer|message)\s+from\s+you\b",
+    r"|\b(?:reply|response|answer|message)\s+from\s+you\b"
+    # by count: "your message from 2 messages ago", "a few replies back" (live, ELI was shown that reply
+    # cut short, missed what it had said at the end, and told the user they were hallucinating)
+    r"|\b(?:\d+|one|two|three|four|five|a\s+few|a\s+couple(?:\s+of)?)\s+(?:messages?|replies|repl(?:y|ies)|responses?|answers?|turns?)\s+(?:ago|back|up|before)\b"
+    # this conversation's last few: "check the last, say 7-8 messages"
+    r"|\b(?:last|previous|past|recent)\b,?\s*(?:(?:say|about|around|like|the)\b\s*,?\s*)?(?:\d+(?:\s*[-–]\s*\d+)?|few|couple(?:\s+of)?|several)\s+(?:messages?|replies|responses|exchanges|turns)\b",
     re.I,
 )
 
@@ -250,3 +255,43 @@ def correction_shortcut_allowed(text: str, action: str) -> bool:
     if explicit_web_search_request(text):
         return False
     return True
+
+
+# ── what the user said versus what they pasted ───────────────────────────────
+
+# The arrow people put between their own words and something pasted ("here's ChatGPT's reply -->")
+_PASTE_ARROW_RE = re.compile(r"\s*(?:-{2,}>|={1,2}>|→|»)\s*")
+# "here's ChatGPT's reply:", "look at what it said:" — a lead-in ending in a colon or a line break
+_PASTE_LEAD_IN_RE = re.compile(
+    r"^.{0,200}?\b(?:here(?:'s| is| are)|this is|look at|read|check)\b.{0,120}?"
+    r"\b(?:reply|replies|response|message|said|says|wrote|critique|answer|review|feedback)\b[^:\n]{0,60}?[:\n]",
+    re.IGNORECASE | re.DOTALL,
+)
+
+# A report (runtime, memory, personal memory, the last response, an import audit) answers a short
+# request for it. Longer than this, the user is talking, and a keyword in what they wrote is not that
+# request.
+SHORTCUT_MAX_CHARS = 300
+
+
+def split_pasted(text: str) -> tuple[str, str]:
+    """(the user's own words, what they pasted). Pasted text follows an arrow ("-->", "=>", "→") or a
+    lead-in such as "here's ChatGPT's reply:". With neither, the whole message is the user's.
+    The words inside a paste belong to whoever wrote them: read as the user's, a pasted ChatGPT
+    critique that mentioned "runtime", "memory" and "audit ledger" was answered with runtime dumps,
+    and its "I am making it more precise" was stored as a fact about the user."""
+    s = str(text or "")
+    m = _PASTE_ARROW_RE.search(s)
+    if m and m.start() <= 600 and s[m.end():].strip():
+        return s[:m.start()].strip(), s[m.end():].strip()
+    m = _PASTE_LEAD_IN_RE.match(s)
+    if m and len(s) - m.end() >= 200:
+        return s[:m.end()].rstrip(": \n").strip(), s[m.end():].strip()
+    return s.strip(), ""
+
+
+def shortcut_text(text: str) -> str:
+    """The words a deterministic shortcut (a status or memory report, introspection, a control
+    upgrade) may read: the user's own words, never pasted ones, and nothing from a long message."""
+    own, _pasted = split_pasted(text)
+    return own if len(own) <= SHORTCUT_MAX_CHARS else ""

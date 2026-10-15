@@ -3946,7 +3946,9 @@ class Memory(metaclass=_MemoryMeta):
         # (a) entity/relation triples into the knowledge graph, (b) salience-scored durable memory rows
         # for anything ELI judges memorable, so important statements survive without "remember this".
         if str(role or "").lower() == "user":
-            _content_s = str(content or "")
+            # facts come from the user's own words, never from text they pasted (split_pasted)
+            from eli.cognition.correction_patterns import split_pasted
+            _content_s = split_pasted(str(content or ""))[0]
             try:
                 from eli.memory.knowledge_graph import get_knowledge_graph
                 get_knowledge_graph().extract_from_memory(_content_s, source="user")

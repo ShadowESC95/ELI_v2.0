@@ -55,6 +55,13 @@ turn_facts_var: ContextVar[Optional[dict]] = ContextVar("eli_turn_facts", defaul
 input_channel_var: ContextVar[Optional[str]] = ContextVar("eli_input_channel", default=None)
 
 
+def in_user_turn() -> bool:
+    """True while the user's own message is being handled in this context (not an autonomous turn,
+    not a background thread)."""
+    facts = turn_facts_var.get()
+    return facts is not None and not facts.get("autonomous")
+
+
 def note_turn_fact(name: str, value: Any) -> None:
     facts = turn_facts_var.get()
     if facts is not None:

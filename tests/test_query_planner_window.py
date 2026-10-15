@@ -60,3 +60,10 @@ def test_recently_is_two_weeks():
 @pytest.mark.parametrize("text", ["what is my name", "open spotify", "who are you", ""])
 def test_no_period_named(text):
     assert parse_window(text, NOW) is None
+
+
+def test_couple_of_days_with_or_without_of():
+    """"Do you remember our conversations over the past couple days?" went unread and got a raw dump."""
+    from eli.cognition.query_planner import parse_window
+    assert parse_window("Do you remember our conversations over the past couple days?", NOW) == parse_window("the past couple of days", NOW)
+    assert parse_window("the past couple days") is not None

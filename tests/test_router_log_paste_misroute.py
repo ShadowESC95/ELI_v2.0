@@ -60,3 +60,52 @@ def test_faiss_still_matches():
 def test_hyde_still_matches():
     out = route("Explain how HyDE works in your retrieval pipeline start to finish")
     assert out["action"] == "EXPLAIN_MEMORY_RUNTIME", out
+
+
+# ── a pasted message from someone else (2.5.16 log: ChatGPT's critique of ELI) ──
+
+CHATGPT_CRITIQUE = (
+    "Alright, tell ELI the SaaS landlord has received the letter. ELI has evidence about its own memory "
+    "architecture. Your runtime reported, live: Qwen3.6-35B-A3B Q4_K_M, ~16k effective context, eight "
+    "physical SQLite stores, 507 memory entries, FTS5, FAISS and a knowledge graph. Show the receipt. "
+    "You have an audit ledger. Use it. I am making it more precise: you need to enforce provenance. "
+    "Your own trace for a simple greeting assembled a ~9,809-token prompt and took about 267 seconds."
+)
+
+
+def test_the_users_own_words_are_split_from_what_they_pasted():
+    from eli.cognition.correction_patterns import shortcut_text, split_pasted
+    own, pasted = split_pasted("here's ChatGPT's reply, you have to bring out the big guns now Eli ---> " + CHATGPT_CRITIQUE)
+    assert own == "here's ChatGPT's reply, you have to bring out the big guns now Eli"
+    assert pasted.startswith("Alright, tell ELI")
+    own, pasted = split_pasted("here's what it said:\n" + CHATGPT_CRITIQUE)
+    assert own == "here's what it said" and pasted.startswith("Alright")
+    assert split_pasted("a -> b is an arrow in code") == ("a -> b is an arrow in code", "")
+    # a report answers a short request for it; a long message is the user talking
+    assert shortcut_text(CHATGPT_CRITIQUE) == ""
+    assert shortcut_text("what is your runtime status?") == "what is your runtime status?"
+
+
+def test_a_paste_mentioning_elis_runtime_and_memory_is_no_report_request():
+    """Four runtime and personal-memory dumps answered a pasted ChatGPT critique in one evening."""
+    from eli.cognition.correction_patterns import shortcut_text
+    from eli.runtime.control_contracts import route_control_text
+    for message in (CHATGPT_CRITIQUE, "Fuck hiroshima, go full Fallout on this smart-ass, here's its response --> " + CHATGPT_CRITIQUE):
+        said = shortcut_text(message)
+        assert not said or route_control_text(said, "CHAT") in (None, "", "CHAT")
+
+
+def test_a_recap_of_the_last_few_messages_is_read_from_the_conversation():
+    """It went to the intent model (90 s) and came back as a memory dump reaching back to August."""
+    for text in ("can you check the last, say 7-8 messages, summarise what has been said/happening please",
+                 "summarise the last few messages", "what was said in the last couple of messages?"):
+        out = route(text)
+        assert out["action"] == "CHAT" and out["meta"]["matched_by"] == "conversation.recap", text
+    assert route("play the last few songs")["action"] != "CHAT"
+
+
+def test_a_reply_pointed_at_by_count_is_an_earlier_reply():
+    from eli.cognition.correction_patterns import refers_to_earlier_reply
+    assert refers_to_earlier_reply("look at your message from 2 messages ago- you answered fine in the first half")
+    assert refers_to_earlier_reply("a few replies back you said")
+    assert not refers_to_earlier_reply("I have two messages for you")

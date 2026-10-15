@@ -54,8 +54,10 @@ def test_importing_eli_switches_library_telemetry_off():
 
 
 def test_onnxruntime_keeps_no_telemetry_queue(tmp_path):
-    """onnxruntime 1.31+ creates ~/.cache/Microsoft/DeveloperTools/.onnxruntime (a device ID and an
-    upload queue for Microsoft's collector) the first time it runs a model, unless switched off."""
+    """onnxruntime 1.30+ creates ~/.cache/Microsoft/DeveloperTools/.onnxruntime (a device ID and an
+    upload queue for Microsoft's collector) the first time it runs a model, unless switched off. That
+    holds for a program ELI starts as well: Piper, the speech voice, carries its own onnxruntime and
+    queued Microsoft events whenever ELI spoke, so the switch must reach programs ELI starts."""
     import glob
     import subprocess
     import sys
@@ -70,7 +72,11 @@ def test_onnxruntime_keeps_no_telemetry_queue(tmp_path):
         pytest.skip("no onnx model shipped with faster_whisper")
     env = {k: v for k, v in __import__("os").environ.items() if not k.startswith(("ORT_", "HF_HUB_"))}
     env["HOME"] = str(tmp_path)
-    code = ("import eli, onnxruntime as ort; "
-            f"ort.InferenceSession({models[0]!r}, providers=['CPUExecutionProvider'])")
-    subprocess.run([sys.executable, "-c", code], env=env, check=True, timeout=300)
+    run_model = f"import onnxruntime as ort; ort.InferenceSession({models[0]!r}, providers=['CPUExecutionProvider'])"
+    subprocess.run([sys.executable, "-c", "import eli; " + run_model], env=env, check=True, timeout=300)
     assert not (tmp_path / ".cache" / "Microsoft").exists(), "onnxruntime set up its telemetry"
+    # a program ELI starts, which never imports eli, run with the environment ELI gives it
+    starts_a_program = ("import eli, subprocess, sys; from eli.core.host_env import host_env; "
+                        f"subprocess.run([sys.executable, '-c', {run_model!r}], env=host_env(), check=True)")
+    subprocess.run([sys.executable, "-c", starts_a_program], env=env, check=True, timeout=300)
+    assert not (tmp_path / ".cache" / "Microsoft").exists(), "a program ELI started set up onnxruntime's telemetry"

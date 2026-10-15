@@ -335,14 +335,58 @@ def _fresh_start(argv: list[str]) -> int:
     return 0
 
 
+# This product line. Every menu entry, icon and command the AppImage installs is named for it, and it
+# only ever replaces or removes its own: v2, v3, the first version (eli-ai), ELI Legal and ELI VR are
+# separate products. (Until v2.5.17 / v3.0.138 the AppImage deleted every eli*.desktop in the menu,
+# other products' too, and pointed the generic ~/.local/bin/eli at itself; v3 wrote eli-v2 names.)
+_LINE = "v2"
+_STEM = f"eli-{_LINE}"
+
+
 def _desktop_files() -> dict[str, Path]:
     apps = Path.home() / ".local" / "share" / "applications"
     return {
-        "eli": apps / "eli-v2.desktop",
-        "server": apps / "eli-v2-server.desktop",
-        "uninstall": apps / "eli-v2-uninstall.desktop",
-        "icon": Path.home() / ".local" / "share" / "icons" / "hicolor" / "256x256" / "apps" / "eli-v2.png",
+        "eli": apps / f"{_STEM}.desktop",
+        "server": apps / f"{_STEM}-server.desktop",
+        "uninstall": apps / f"{_STEM}-uninstall.desktop",
+        "icon": Path.home() / ".local" / "share" / "icons" / "hicolor" / "256x256" / "apps" / f"{_STEM}.png",
     }
+
+
+def _is_own_desktop_entry(path: Path) -> bool:
+    """A menu entry this product line made: named {_STEM}..., or an older one whose contents name it
+    (X-ELI-Version, its AppImage or its title). Another ELI product's entry is never ours."""
+    name = path.name.lower()
+    if name.startswith((_STEM + ".", _STEM + "-")):
+        return True
+    try:
+        from eli.runtime.desktop_launchers import _entry_product
+        return _entry_product(path.read_text(encoding="utf-8", errors="ignore")) == _LINE
+    except Exception:
+        return False
+
+
+def _remove_own_desktop_entries() -> None:
+    apps = _desktop_files()["eli"].parent
+    for old in list(apps.glob("eli*.desktop")) + list(apps.glob("ELI*.desktop")):
+        if _is_own_desktop_entry(old):
+            old.unlink(missing_ok=True)
+
+
+def _command_shims() -> tuple[Path, Path]:
+    """(this line's own command, e.g. ~/.local/bin/{_STEM}; the generic ~/.local/bin/eli)."""
+    bindir = Path.home() / ".local" / "bin"
+    return bindir / _STEM, bindir / "eli"
+
+
+def _is_own_command_shim(path: Path) -> bool:
+    """The generic ~/.local/bin/eli is ours only when it is a shim this AppImage wrote for itself."""
+    import re
+    try:
+        text = path.read_text(encoding="utf-8", errors="ignore")[:4096]
+    except (OSError, UnicodeDecodeError):
+        return False
+    return bool(re.search(rf"ELI_{_LINE}-[^/\"']*\.AppImage", text))
 
 
 def _resolve_appimage_path() -> str:
@@ -401,7 +445,7 @@ def _desktop_needs_refresh(appimage: str, version: str) -> bool:
     try:
         files = _desktop_files()
         apps = files["eli"].parent
-        desks = list(apps.glob("eli-v2*.desktop")) + list(apps.glob("eli-v3*.desktop"))
+        desks = [d for d in apps.glob("eli*.desktop") if _is_own_desktop_entry(d)]  # another product's are not ours
         if not desks:
             return False
         for desk in desks:
@@ -452,9 +496,8 @@ def _integrate(quiet: bool = False) -> int:
     bundle = Path(getattr(sys, "_MEIPASS", Path(sys.executable).parent))
     version = _bundle_version()
     files = _desktop_files()
-    # replace stale entries from any older install
-    for old in files["eli"].parent.glob("eli*.desktop"):
-        old.unlink(missing_ok=True)
+    # replace this line's stale entries from any older install (never another product's)
+    _remove_own_desktop_entries()
     files["icon"].parent.mkdir(parents=True, exist_ok=True)
     src_icon = bundle / "packaging" / "desktop" / "eli-256.png"
     if src_icon.is_file():
@@ -476,13 +519,15 @@ def _integrate(quiet: bool = False) -> int:
         if version:
             body += f"X-ELI-Version={version}\n"
         files[key].write_text(body, encoding="utf-8")
-    # Keep ``eli`` on PATH pointing at THIS AppImage — otherwise a leftover
+    # Keep this line's own command on PATH pointing at THIS AppImage — otherwise a leftover
     # portable wrapper (e.g. 2.4.24) keeps launching after users install a newer
-    # AppImage and wonder why CUDA packs / loaders still crash.
+    # AppImage and wonder why CUDA packs / loaders still crash. The generic ``eli``
+    # is removed only when it is one this line wrote; another product's is left alone.
     try:
-        bindir = Path.home() / ".local" / "bin"
-        bindir.mkdir(parents=True, exist_ok=True)
-        shim = bindir / "eli"
+        shim, generic = _command_shims()
+        shim.parent.mkdir(parents=True, exist_ok=True)
+        if generic.is_file() and _is_own_command_shim(generic):
+            generic.unlink(missing_ok=True)
         body = (
             "#!/usr/bin/env bash\n"
             f'exec "{appimage}" "$@"\n'
@@ -493,7 +538,7 @@ def _integrate(quiet: bool = False) -> int:
             print(f"[integrate] CLI shim: {shim} → {appimage}")
     except Exception as exc:
         if not quiet:
-            print(f"[integrate] could not write ~/.local/bin/eli ({exc})", file=sys.stderr)
+            print(f"[integrate] could not write ~/.local/bin/{_STEM} ({exc})", file=sys.stderr)
     _mark_desktop_integrated(version)
     # Kill leftover Desktop / menu stubs that still Path= to deleted portables
     # (GNOME fails before Exec — AppImage refresh alone never reaches those icons).
@@ -503,12 +548,13 @@ def _integrate(quiet: bool = False) -> int:
         if removed and not quiet:
             for p in removed:
                 print(f"[integrate] removed stale launcher: {p}")
-        # Mirror fresh menu entries onto ~/Desktop so dragged copies match.
+        # Refresh copies of the menu entries the user dragged onto ~/Desktop so they match;
+        # nothing is put on the desktop that was not there.
         desk = Path.home() / "Desktop"
         if desk.is_dir():
             for key in ("eli", "server", "uninstall"):
                 src = files[key]
-                if src.is_file():
+                if src.is_file() and (desk / src.name).is_file():
                     shutil.copy2(src, desk / src.name)
     except Exception as exc:
         if not quiet:
@@ -524,9 +570,11 @@ def _uninstall() -> int:
     itself is just a file — delete it afterwards if you want it gone."""
     import shutil
     files = _desktop_files()
-    for old in files["eli"].parent.glob("eli*.desktop"):
-        old.unlink(missing_ok=True)
+    _remove_own_desktop_entries()
     files["icon"].unlink(missing_ok=True)
+    for shim in _command_shims():
+        if shim.is_file() and _is_own_command_shim(shim):
+            shim.unlink(missing_ok=True)
     root = _user_root()
     wipe = False
     try:

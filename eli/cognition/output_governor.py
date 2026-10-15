@@ -1050,6 +1050,17 @@ def validate_against_evidence(
     """
     out = str(text or "")
     ev = str(evidence or "")
+    # What the user said this turn is a source too: a figure they gave is theirs, not invented. The
+    # 9,809 tokens and 267 s the user quoted back from ELI's own log were rejected as "fabricated"
+    # because the evidence packet did not carry them; not in the evidence is not false.
+    try:
+        from eli.kernel.request_context import turn_facts_var
+        _said = str((turn_facts_var.get() or {}).get("user_input") or "")
+        if _said:
+            ev = f"{ev}\n{_said}"
+    except Exception:
+        import logging
+        logging.getLogger(__name__).debug("user message not added to the evidence", exc_info=True)
     if not out.strip():
         return {
             "ok": False,

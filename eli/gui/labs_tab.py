@@ -25,10 +25,12 @@ from eli.utils.log import get_logger
 log = get_logger(__name__)
 
 _LABS_PLOT_DIR = Path(os.environ.get("ELI_LABS_PLOT_DIR") or tempfile.gettempdir())
+# this version's own file names (ELI_v2-labs_plot.png), see eli.core.paths.temp_path
+from eli.core.paths import temp_path as _temp_path  # noqa: E402
 _LABS_PLOT_FILES = {
-    "plot": _LABS_PLOT_DIR / "eli_labs_plot.png",
-    "projectile": _LABS_PLOT_DIR / "eli_projectile.png",
-    "waves": _LABS_PLOT_DIR / "eli_waves.png",
+    "plot": _LABS_PLOT_DIR / _temp_path("labs_plot.png").name,
+    "projectile": _LABS_PLOT_DIR / _temp_path("projectile.png").name,
+    "waves": _LABS_PLOT_DIR / _temp_path("waves.png").name,
 }
 
 
