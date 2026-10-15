@@ -216,7 +216,8 @@ def test_every_macos_script_compiles(tmp_path):
     from eli.system import portable_app_control as pac
     from eli.utils import platform_compat as pc
     scripts = [("AppleScript", s) for s in pac._MACOS_SCRIPTS.values()]
-    scripts.append(("AppleScript", f'display notification "{pc._applescript_text("a \"quoted\" note")}" with title "ELI"'))
+    quoted_note = pc._applescript_text('a "quoted" note')
+    scripts.append(("AppleScript", f'display notification "{quoted_note}" with title "ELI"'))
     scripts += [("JavaScript", system_session.macos_media_key_script(k)) for k in ("play-pause", "next", "previous")]
     for i, (lang, script) in enumerate(scripts):
         cp = subprocess.run(["osacompile", "-l", lang, "-o", str(tmp_path / f"s{i}.scpt"), "-e", script],
