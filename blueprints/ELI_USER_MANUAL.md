@@ -780,6 +780,9 @@ handy when you've curated models there, or want ELI to share one Ollama install.
 3. In ELI: **Settings → Model → Backend = Ollama**, then **Refresh Ollama Models** and pick one.
    It's also in the startup model picker and the toolbar dropdown.
 
+ELI uses Ollama only when you choose it this way. With a GGUF model chosen it never starts the
+Ollama server and never falls back to it, even if Ollama happens to be running.
+
 **Host and port.** Leave *Host* blank/default for a normal local install. Set it if Ollama runs
 elsewhere — a different port (`localhost:9999`), another machine (`192.168.1.20`), or a container.
 You can type it any way that makes sense (`localhost:11434`, `127.0.0.1:11434`, a bare IP) — ELI

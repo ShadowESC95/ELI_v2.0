@@ -526,8 +526,10 @@ unreachable (`[Errno 111] Connection refused`) while Ollama is installed.
 
 **Fix (v2.1.30): ELI now starts Ollama for you.** The #1 cause is simply that the local
 Ollama server isn't running. If the `ollama` program is installed but stopped, ELI now runs
-`ollama serve` automatically when you pick/refresh Ollama, waits for it, and loads your models
-— no terminal needed. If it still can't start (Ollama not installed, or a remote host), you get
+`ollama serve` when you choose Ollama (as the backend, or an Ollama model in the toolbar or the
+start-up dialog), waits for it, and loads your models — no terminal needed. Since 2.5.15
+refreshing the list alone never starts it, and with a GGUF model chosen ELI never starts or
+uses Ollama. If it still can't start (Ollama not installed, or a remote host), you get
 per-OS guidance. Disable the auto-start with `ELI_OLLAMA_AUTOSTART=0`. Full walkthrough for
 non-technical users: `blueprints/ollama_startup_guide.md`.
 
@@ -946,4 +948,117 @@ avatar's lip movement.
 
 **Fix (v2.5.13):** when the device refuses the voice's rate, the voice is resampled to the
 device's own rate and played there.
+
+---
+
+## ELI started `ollama serve` at start-up while a GGUF model was in use
+
+**Cause:** filling in the list of Ollama models (the start-up dialog, the model menu) started the
+server first; the executor's chat also fell back to any running Ollama when no GGUF model was
+loaded, and with no GGUF model found the hardware tuner recommended Ollama.
+
+**Fix (v2.5.15):** Ollama is used, and started, only when it is the backend you chose (in the
+start-up dialog, Settings or the toolbar's Ollama menu). Listing models never starts it, nothing
+falls back to it, and ELI never picks it for you.
+
+---
+
+## A library reported usage to its maker
+
+**Cause:** onnxruntime 1.31, which runs the voice detection of the speech model, sends usage
+telemetry to Microsoft from its native code, which the network guard cannot see. On first use it
+writes a device ID and an upload queue to `~/.cache/Microsoft/DeveloperTools`. Hugging Face Hub,
+Gradio and OpenTelemetry have their own reporting switches.
+
+**Fix (v2.5.14):** every one of those switches is turned off when ELI starts
+(`ORT_DISABLE_TELEMETRY`, `HF_HUB_DISABLE_TELEMETRY`, `GRADIO_ANALYTICS_ENABLED`, `DO_NOT_TRACK`,
+`OTEL_SDK_DISABLED`), and hosts that only collect telemetry are refused by name in `netguard`
+even with the Net switch on.
+
+---
+
+## Asked why a reply was slow, ELI gave RAM figures
+
+**Cause:** "that took over a minute??" missed the last-turn rule and reached an older one that
+answered with the inference-RAM report. Said again as a correction ("I did not ask about RAM"),
+the same report came back, word for word.
+
+**Fix (v2.5.15, v2.5.16):** a remark that the last reply was slow goes to the same answer as
+"why did that take so long": the audit rows of the recent turns, the last one first, with the
+seconds each took and how much of that was the model, then where the model runs. It is built
+from the record, not by the model. RAM questions still get the RAM report and "how can we
+reduce latency" gets the runtime settings. A correction or complaint about the last reply never
+runs the action that produced it a second time.
+
+---
+
+## "go deeper" on a story from the news briefing got "that story doesn't exist"
+
+**Cause:** the router's general "go deeper" rule outranked the rule that re-fetches a story after
+a briefing, so the follow-up went to chat. There, ELI's previous reply had been cut to 280
+characters and the story was past the cut; an oversized prompt was also cut from the front. The
+model had never seen the story, denied it, then called it its own invention.
+
+**Fix (v2.5.15):** after a briefing, "go deeper on X" fetches X again. The recent exchange is
+built newest first within its share of the context window: ELI's last reply is whole, a fetched
+result (a briefing, a search) stays whole for three replies and is labelled as fetched, and when
+a prompt is too long the oldest lines go, never the message or the newest turns.
+
+---
+
+## "Nothing was carried out in this turn." under a reply to a greeting
+
+**Cause:** the claim check adds that line whenever it drops a sentence saying ELI did something;
+it did so even when nobody had asked ELI to do anything.
+
+**Fix (v2.5.15):** the line is added only when the message asked ELI to do something (or nothing
+else of the reply is left). Otherwise the sentence just goes.
+
+---
+
+## A question about ELI got an invented explanation
+
+**Cause:** "What the fuck is going on!?" matched none of the patterns for a question about ELI,
+went to the intent model (45 s), and the model invented a "RAG phase" and a "reflection agent".
+Where the turn record was given, a long prompt could still cut it out.
+
+**Fix (v2.5.15):** a short reaction with no subject of its own, an insult aimed at ELI and a
+correction ("I did not ask about X", "I asked why ...") are questions about ELI's last reply:
+they skip the intent model and get the turn record, which now sits beside the recent exchange
+where the overflow trim cannot cut it. An insult is no longer recorded as a stance.
+
+---
+
+## The next message waited behind background work
+
+**Cause:** the proactive daemon judged the model free 45 s after a reply started. A reply
+streamed for 78 s, so an insight summary and a news synthesis started during it, and the next
+message waited behind them.
+
+**Fix (v2.5.15):** a reply in progress counts as busy however long it takes; background work
+starts only after it ends, and waits about as long as the last reply took.
+
+---
+
+## The runtime report said the context window was "reduced" to a larger number
+
+**Cause:** llama.cpp rounds the window up to a whole number of its blocks (14,000 asked became
+14,080) and the report called any difference "reduced to fit VRAM".
+
+**Fix (v2.5.15):** the report says "rounded up" when the window grew and "reduced to fit memory"
+only when it shrank.
+
+---
+
+## v2 used folders and files other ELI versions use too
+
+**Cause:** an installed v2 kept its data in `~/.local/share/eli`, `~/.config/eli` and
+`~/.cache/eli`, a few files had generic fallbacks (`~/.eli/`, `~/.eli_user_id`) or relative
+`artifacts/` paths, and the launcher script and menu entries had generic names (`eli-run`,
+`eli-setup.desktop`). v2's setup also removed any ELI menu entry it judged stale, another
+version's included.
+
+**Fix (v2.5.15):** everything of v2's is under `ELI_v2`, its launchers are `eli-v2-run` and
+`eli-v2*.desktop`, and setup and uninstall touch only v2's own entries. Older generic folders
+are left as they are.
 

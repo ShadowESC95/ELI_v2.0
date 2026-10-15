@@ -271,13 +271,32 @@ grounding it would have drawn from was empty.
   rendering settings to the user should check this rather than presenting
   defaults as if they were read from disk.
 
-## Paths (`core/paths.py`, 601 LOC)
+## Paths (`core/paths.py`, 808 LOC)
 
 Dev-vs-packaged path resolution: `is_frozen` / `_is_dev_mode`,
 `_find_project_root`, then `data_dir`/`config_dir`/`cache_dir`/`models_dir`/
-`db_dir`/`artifacts_dir`/`user_db_path`/`agent_db_path`/`memory_db_path`. Source
-checkouts use project-local `artifacts/`+`config/`; packaged installs use
-platformdirs. One import surface (`get_paths`) so nothing hardcodes locations.
+`db_dir`/`artifacts_dir`/`user_db_path`/`agent_db_path`/`memory_db_path`. A source
+checkout uses project-local `artifacts/` + `config/`. The packaged app and an
+installed one both use v2's own root: `~/.local/share/ELI_v2` (`artifacts/`,
+`config/`, `cache/`), `%LOCALAPPDATA%\ELI_v2` on Windows,
+`~/Library/Application Support/ELI_v2` on macOS. One import surface (`get_paths`) so
+nothing hardcodes locations.
+
+Nothing of v2's goes in a generic place: `~/.local/share/eli`, `~/.config/eli`,
+`~/.cache/eli`, `~/.eli/` and `~/.eli_*` belong to no single ELI version, and v3, the
+first version (`eli-ai`), ELI Legal and ELI VR keep their own folders. Until 2.5.15 an
+installed v2 used the generic `eli` folders and the packaged app kept its cache in
+`~/.cache/eli`; some files had a generic or relative fallback (`artifacts/...` lands in
+whatever folder ELI was started from). Every writer now goes through `get_paths`. A file v2
+once kept in a generic place (the labs notebook and workspaces in `~/.eli/`,
+`~/.eli_user_id`) is copied into its own folders once by `adopt_legacy_file` (copied, not
+moved: another version may still use the old place). `tests/test_frozen_install_redistributability.py`
+scans the code for generic and relative paths.
+
+Launchers are v2's too: `~/.local/bin/eli-v2-run`, `eli-v2*.desktop` menu entries and the
+`eli-v2` icon. Setup and the uninstaller replace or remove only v2's own entries (named
+`eli-v2…`, or an older entry whose contents name v2); another version's launchers are never
+touched.
 
 ## STT VRAM awareness
 

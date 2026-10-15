@@ -127,7 +127,7 @@ families are grouped below so the real surface is visible.
 | `FRONTIER_STATUS`, `ELI_IDENTITY_AUDIT` | Full cross-system matrix / identity-classification audit. |
 | `COGNITION_STATUS`, `EXPLAIN_COGNITION_RUNTIME`, `EXPLAIN_MEMORY_RUNTIME` | Cognition + memory runtime explainers (verbatim, deterministic). |
 | `EXPLAIN_ALL_REASONING_MODES`, `REASONING_MODE_STATUS` | Describe the 5 reasoning modes / current mode. |
-| `EXPLAIN_LAST_RESPONSE`, `EXPLAIN_LAST_FAILURE`, `NAME_SOURCE_AUDIT`, `ROUTING_FAULT_EXPLAIN` | Explain the last answer/failure, the source of your name, or a routing fault. |
+| `EXPLAIN_LAST_RESPONSE`, `EXPLAIN_LAST_FAILURE`, `NAME_SOURCE_AUDIT`, `ROUTING_FAULT_EXPLAIN` | Explain the last answer/failure, the source of your name, a routing fault, or how long the last turns took. |
 | `HARDWARE_PROFILE`, `GPU_STATUS`, `GET_STATUS`, `AWARENESS_STATUS` | Hardware/GPU/general/awareness status. |
 | `HELP`, `LIST_CAPABILITIES` | Help / list the capability surface. |
 

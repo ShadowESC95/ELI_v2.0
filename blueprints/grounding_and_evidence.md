@@ -191,7 +191,7 @@ bug (asserts `evidence_complete_for_action` now returns `False` on it).
 
 ---
 
-## ELI's account of its own behaviour (`cognition/self_claims.py`, 751 lines)
+## ELI's account of its own behaviour (`cognition/self_claims.py`, 792 lines)
 
 Routing, retrieval and escalation run before the model is called and never reach it, so asked
 "why did you search the web?" a model can only invent. Live, a 35B model blamed "vector search
@@ -200,21 +200,38 @@ exist, and said "the audit trail is now active" for logging that was always on.
 
 - **The turn record.** Each turn notes what the pipeline did (`request_context.note_turn_fact`):
   the rule that routed it, a downgrade to chat, what retrieval found, whether it escalated to
-  the web and why, every action that ran, how often the model ran and on how many prompt
-  characters. `describe_turn` writes that into the turn's signed audit row
+  the web and why, every action that ran, how often the model ran, on how many prompt
+  characters and for how many seconds. `describe_turn` writes that into the turn's signed audit row
   (`orchestrator_audit_ledger`), so the row answers "why did you do that" later.
 - **Asked about itself, ELI is handed the record.** For a question or complaint about its own
-  behaviour (`asks_about_own_behaviour`), the orchestrator puts the recent audit rows, each
-  paired with what the user asked, at the top of the context. Direct questions about the last
-  turn ("why did that take so long", "what did you just do", "why did you search the web") are
-  answered from those rows with no model call (`ROUTING_FAULT_EXPLAIN`). None of these turns
-  is ever escalated to a web search.
+  behaviour (`asks_about_own_behaviour`), the recent audit rows, each paired with what the user
+  asked, go beside the recent exchange just before the message, where the overflow trim cannot
+  cut them (in the middle of the system prompt they were cut). The same holds for an insult aimed
+  at ELI, a correction ("I did not ask about X", "I asked why ..."), and a bare reaction with no
+  subject of its own ("What the fuck is going on!?", "seriously??", `reacts_to_last_reply`); none
+  of these goes to the intent model. Direct questions about the last turn ("why did that take so
+  long", "what did you just do", "why did you search the web"), and a remark that it was slow
+  ("that took over a minute??"), are answered from those rows with no model call
+  (`ROUTING_FAULT_EXPLAIN`); asked about time, the last turn comes first with where the model
+  runs. The correction shortcut never replaces such an answer, or any other action that answers
+  or acts directly. None of these turns is ever escalated to a web search.
 - **A question about something already said is about the conversation.** "When was that, in
   that conversation?", "your long response above", "the response from you"
   (`correction_patterns.refers_to_earlier_reply`) are never web-searched; the history block
-  then gives ELI's earlier replies whole instead of cut to 280 characters, and a correction
+  then gives every earlier reply of ELI's whole, and a correction
   that asks one (`that is not true, what day is that from?`) leaves the correction shortcut,
   which only sees the last exchange, for the full pipeline.
+- **The recent exchange keeps what a follow-up is about.** It is built newest first within its
+  share of the context window (`session_continuity.exchange_budget_chars`): ELI's last reply is
+  whole, a fetched result (a news briefing, a search) stays whole for three replies and is
+  labelled "result of NEWS_FETCH, not recalled", and older turns are clipped. When a prompt is
+  still too long, the oldest lines go, never the message or the newest turns
+  (`fit_exchange_prompt`). Before 2.5.15 every reply was cut to 280 characters and an oversized
+  prompt was cut from the front: a follow-up on a story past the cut reached a model that had
+  never seen it, and it called a real Guardian story its own invention.
+- **A correction is answered, not re-run.** When a correction or complaint about the last reply
+  routes to the very action that produced it, it goes to chat with the record and that reply
+  whole ("I did not ask about RAM" ran the RAM report again, word for word).
 - **The claim check** (`gate_stream` on streamed replies, `drop_invented_self_claims` in
   `govern_output`). A sentence is dropped when it reports a change nothing made ("logging is
   now active", when no action ran); promises a standing change a reply cannot make ("no web
@@ -232,8 +249,9 @@ exist, and said "the audit trail is now active" for logging that was always on.
   output...)", "Project `X` initialized." The verbs are the ones a command starts with, less
   the work a reply does in its own words ("I've summarised it below" is the reply doing what
   it says). A lone "Done." is judged by what follows it: before another such report, or with
-  nothing after it, it goes; before something the reply wrote, it stays. The reply then ends
-  "Nothing was carried out in this turn." When the user's own commands did run in the turn
+  nothing after it, it goes; before something the reply wrote, it stays. When the user had asked
+  ELI to do something, the reply then ends "Nothing was carried out in this turn."; under a reply
+  to a greeting or a question the sentence just goes. When the user's own commands did run in the turn
   (a message of commands and talk), their results are in front of the model and it may refer
   to them. A fix said to have been made "so it won't happen again" is dropped on any turn.
 - **Saying what ELI just did is a question about it.** "then you just stopped spotify", "you
@@ -247,6 +265,9 @@ exist, and said "the audit trail is now active" for logging that was always on.
 - **The self-model says so too.** The live self-model line states that logging is always on
   (every action in the evidence ledger, every turn in the audit chain) and is not something a
   reply can change.
+- **An insult is not a stance.** A complaint, insult or correction aimed at ELI is never
+  recorded as a position ELI holds ("it is 2026 you fucking idiot" was stored as a stance on
+  "2026 idiot").
 - **ELI's diagnoses are not the user's facts.** A session summary's "current work" is stored as
   the user's project only if the user's own words carry it; text they quote back from ELI
   does not count, and work that is about ELI itself is not stored.
@@ -333,6 +354,10 @@ story”** must not route to open `CHAT` and let the model invent details. The e
 (`_try_news_topic_deepen_reroute` in `engine.py`) detects `extract_deepen_topic()`
 within a short window of the last news command and **re-routes to `NEWS_FETCH` with
 that topic** — same live fetch path as the original briefing.
+
+The router's general follow-up nudges (`eli.followup.*`, "go deeper", "tell me more") do not
+count as explicit commands here, so they never outrank this rule: "go deeper on the AI and
+Caine prize" after a briefing went to chat until 2.5.15.
 
 If the user complains that ELI guessed (`is_news_fetch_complaint`), the kernel
 recovers the deepen topic from recent conversation (`recover_recent_deepen_topic`)

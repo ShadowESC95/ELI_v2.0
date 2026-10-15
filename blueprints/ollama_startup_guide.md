@@ -96,8 +96,11 @@ llama3.2 model"*.
 
 ## If something doesn't work
 
-ELI tries to start Ollama for you, so most problems fix themselves. If you still see
-**"Ollama unreachable"**:
+ELI starts Ollama only when you choose it: pick **Ollama** as the backend in the start-up
+dialog or in **Settings → Model**, or pick an Ollama model in the toolbar menu. Then, if the
+`ollama` program is installed but stopped, ELI starts it for you. With a GGUF model chosen ELI
+never starts or uses Ollama, and listing Ollama's models never starts it. If you chose Ollama
+and still see **"Ollama unreachable"**:
 
 **1. Is Ollama installed?**
 Open a Terminal / Command Prompt and type `ollama list`. If it says *command not
@@ -120,8 +123,8 @@ firewall. ELI treats a machine you set here as trusted, so the Net toggle can st
 **off**.
 
 **5. Turn off auto-start (if you prefer):**
-ELI starting Ollama for you can be disabled by setting the environment variable
-`ELI_OLLAMA_AUTOSTART=0`.
+Even with Ollama chosen, ELI starting it for you can be disabled by setting the environment
+variable `ELI_OLLAMA_AUTOSTART=0`; you then start Ollama yourself.
 
 ---
 

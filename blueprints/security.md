@@ -233,6 +233,13 @@ commands/files/apps stay fail-closed). The web surface adds:
   connection. Disable the ledger leg (keep the live ring) with `ELI_EGRESS_LEDGER=0`.
 - The toggle changes *policy*; the socket failsafe still governs every actual connection, and
   every connection it allows is now on the record.
+- **No library reports to its maker** (2.5.14). Usage telemetry built into the libraries ELI
+  carries is switched off when the `eli` package loads (`ORT_DISABLE_TELEMETRY`,
+  `HF_HUB_DISABLE_TELEMETRY`, `GRADIO_ANALYTICS_ENABLED`, `DO_NOT_TRACK`, `OTEL_SDK_DISABLED`,
+  `ANONYMIZED_TELEMETRY`, `SCARF_NO_ANALYTICS`). onnxruntime's sends from native code, which the
+  socket guard cannot see, so its switch is the only thing that stops it. Hosts that exist only to
+  collect telemetry or crash reports (`netguard.REPORTING_HOSTS`) never resolve, even with the Net
+  switch on (`tests/test_netguard_socket_guard.py`).
 - Rationale: internet is "the final frontier to make ELI's world bigger" — available, but
   monitored (per-connection) and under the user's control, not a permanent lockout.
 

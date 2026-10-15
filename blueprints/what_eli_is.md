@@ -33,7 +33,8 @@ Most "AI assistants" are a thin app talking to someone else's datacentre. ELI
 inverts every one of those assumptions, and that inversion is the whole point.
 
 1. **It is truly, provably yours.** 100% local. No account, no subscription, no
-   telemetry, no call-home. Your conversations, your memories, your files, your
+   telemetry, no call-home — the libraries' own usage reporting is switched off too, and
+   hosts that only collect telemetry are refused even with the Net switch on. Your conversations, your memories, your files, your
    habits — all sit in SQLite databases on *your* drive. The "offline" claim
    isn't marketing: there is a process-wide network guard (`netguard`) that
    **fail-closes at the socket layer** — when the Net switch is off, outbound
