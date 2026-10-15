@@ -1956,26 +1956,24 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             task_family="grounded_audit",
         )
 
-    _asks_time = re.search(
-        r"\b(took you|took so long|why did you take|response time|slow response|that took ages|"
-        r"you don't believe me|dont believe me|took over|took nearly|took just under|"
-        r"decrease latency|reduce latency|so slow|taking so long|took (?:a|over a|more than a) minute)\b",
-        low)
+    # How long the last reply took is the last-turn rule's (pre-route, ROUTING_FAULT_EXPLAIN, answered
+    # from the audit rows). This rule answered "that took over a minute??" with RAM figures, twice.
+    # What it keeps: RAM questions, and how to make replies faster (the runtime settings).
+    _asks_speed_up = re.search(
+        r"\b(response time|slow response|decrease latency|reduce latency|speed (?:it|you|this|replies) up)\b", low)
     _asks_ram = re.search(
         r"\b(how much ram\b|how much memory\b|ram\b.{0,30}\butili[sz]|memory\b.{0,30}\bfor (?:the )?model)\b",
         low)
-    if not _explain_prior_claim and (_asks_time or _asks_ram) and not re.search(
+    if not _explain_prior_claim and (_asks_speed_up or _asks_ram) and not re.search(
             r"\b(memories|sqlite|database|faiss|embedder|remember me)\b", low):
-        # "Why did that take so long" is answered from how long the turns took; RAM from the RAM
-        # report. One focus for both answered a timing complaint with RAM figures, twice.
         return _mk(
             "EXPLAIN_COGNITION_RUNTIME",
             {
                 "question": raw,
-                "diagnostic_focus": "latency_timing" if _asks_time else "inference_ram",
+                "diagnostic_focus": "inference_ram" if _asks_ram else "inference_runtime",
             },
             0.995,
-            matched_by="router.primary_contract_diagnostics.latency_timing",
+            matched_by="router.primary_contract_diagnostics.runtime_or_ram",
             need_grounding=True,
             allow_chat_without_evidence=False,
             task_family="grounded_audit",
@@ -5862,6 +5860,13 @@ def _eli_pm_pre_route(text):
             r"\bwhy\s+(?:the\s+\w+\s+)?(?:did|does|is|was)\s+(?:(?:it|that|this)\s+tak\w+\s+(?:you\s+)?|you\s+tak\w+\s+)"
             r"(?:so|that)\s+long(?:\s+to\s+(?:answer|reply|respond|do|get|come|load|think|say|work)\b[^?,]*)?\s*(?:\?|$|,|\band\b)", low)
         or _eli_pm_re.search(r"\bwhy\s+(?:are|were|was|is)\s+(?:you|that|it)\s+(?:so\s+|that\s+)?slow\b", low)
+        # a remark that the last reply was slow: "that took over a minute??", "it took you 20 minutes"
+        or _eli_pm_re.search(
+            r"\b(?:that|it|this|you)\s+took\s+(?:you\s+)?(?:(?:over|nearly|almost|more\s+than|about|just\s+under|like)\s+)?"
+            r"(?:(?:a|an|one|\d+)\s*(?:minutes?|mins?|seconds?|secs?|hours?)|so\s+long|too\s+long|way\s+too\s+long|ages|forever)\b", low)
+        or _eli_pm_re.search(
+            r"\b(?:you(?:'re|’re|\s+are|\s+were)|that(?:'s|’s|\s+was|\s+is)|it(?:'s|’s|\s+was|\s+is))\s+"
+            r"(?:(?:so|too|really|very)\s+slow|taking\s+(?:so|too|way\s+too)\s+long)\b", low)
         or _eli_pm_re.search(
             r"\bwhat\s+(?:exactly\s+)?did\s+you\s+(?:just\s+|actually\s+)?do\s*"
             r"(?:\?|$|there\b|to\s+(?:answer|get)\b|just\s+now\b|for\s+that\b|with\s+that\b)", low)

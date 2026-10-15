@@ -13476,6 +13476,11 @@ Answer:"""
                 _corr_ok = correction_shortcut_allowed(user_input, action)
             except Exception:
                 _corr_ok = str(action or "").upper() == "CHAT"
+            # A routed action that answers or acts directly (the audit rows for "that took over a minute??
+            # i didn't ask ...", "no, open firefox") is carried out; a model-written repair replaced the
+            # recorded answer with an ungrounded one.
+            if _corr_ok and str(action or "").upper() in (_DIRECT_FINAL_ACTIONS | _DIRECT_RESULT_ACTIONS):
+                _corr_ok = False
             if _corr_ok:
                 _corr_result = self._correction_repair(user_input, trace)
                 if _corr_result is not None:

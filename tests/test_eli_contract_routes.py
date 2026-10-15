@@ -50,8 +50,8 @@ def test_repeated_gui_audit_proof_route():
 
 
 def test_latency_route():
-    r = assert_route("it took you 20 minutes to generate that answer?", "EXPLAIN_COGNITION_RUNTIME")
-    assert r["args"]["diagnostic_focus"] == "latency_timing"
+    # how long the last reply took is answered from its audit row, not from a RAM report
+    assert_route("it took you 20 minutes to generate that answer?", "ROUTING_FAULT_EXPLAIN")
 
 
 def test_inference_runtime_route():
@@ -95,14 +95,23 @@ def test_gui_runtime_audit_executor_shape():
     assert_standard_result(result, "GUI_RUNTIME_AUDIT")
 
 
-def test_a_slow_reply_is_answered_with_its_timings_and_ram_with_ram(monkeypatch):
-    """'that took over a minute??' got the inference-RAM report, twice. Time words get the turns'
-    recorded timings; RAM words keep the RAM report."""
-    from eli.execution import executor_enhanced as ex
-    r = route("that took over a minute?? i didn't ask if anything was carried out")
-    assert r["action"] == "EXPLAIN_COGNITION_RUNTIME" and r["args"]["diagnostic_focus"] == "latency_timing"
-    monkeypatch.setattr("eli.cognition.self_claims.explain_turn_times",
-                        lambda *a, **k: "How long the recent replies took, from the pipeline's own record")
-    out = ex._format_cognition_runtime({"ok": True}, {"diagnostic_focus": "latency_timing", "question": "why so slow"})
-    assert "How long the recent replies took" in out
-    assert "inference RAM" not in out
+def test_a_slow_reply_is_answered_from_its_record_and_ram_with_ram(monkeypatch):
+    """'that took over a minute??' got the inference-RAM report, twice. A remark that the last reply
+    was slow goes to the last-turn rule (ROUTING_FAULT_EXPLAIN): the audit rows, with model time, and
+    where the model runs. RAM questions keep the RAM report; how to speed up gets the runtime settings."""
+    assert_route("that took over a minute?? i didn't ask if anything was carried out", "ROUTING_FAULT_EXPLAIN")
+    assert route("how much ram are you using?")["args"]["diagnostic_focus"] == "inference_ram"
+    assert route("how can we decrease latency?")["args"]["diagnostic_focus"] == "inference_runtime"
+    for not_about_eli in ("you take a seat", "it took a lot of work to build the shed", "this movie is so slow"):
+        assert route(not_about_eli)["action"] != "ROUTING_FAULT_EXPLAIN", not_about_eli
+
+    from eli.cognition import self_claims
+    from eli.runtime import deterministic_grounding_gate as g
+    from eli.runtime.personal_memory_deep_response import build_routing_fault_explanation
+    monkeypatch.setattr(self_claims, "turn_record_lines", lambda *a, **k: [
+        "[today 20:42] “Hey Eli, how are you doing this evening?” -> CHAT (quick, 71 s): ok; model ran 1 time "
+        "on 5,898 prompt characters, 69 s of model time"])
+    monkeypatch.setattr(g, "_inference_runtime_lines", lambda: "Inference runtime (live, from the loaded model):")
+    out = build_routing_fault_explanation("that took over a minute??")
+    assert "69 s of model time" in out and "Inference runtime" in out
+    assert "inference RAM" not in out and "re-run through the live router" not in out

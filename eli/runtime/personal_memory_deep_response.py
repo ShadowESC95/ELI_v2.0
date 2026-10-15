@@ -367,6 +367,9 @@ def build_routing_fault_explanation(user_input: str = "") -> str:
     question = str(user_input or "").strip()
     low = question.lower()
     lines: List[str] = []
+    # Asked how long something took, the answer is the turns' times (newest first) and where the model
+    # runs; how other phrasings would route is beside the point there.
+    about_time = bool(re.search(r"\b(?:took|take|taking|long|slow|minutes?|seconds?|ages|forever|latency)\b", low))
 
     # Phrases the user quoted are what they're asking about.
     quoted = [q for pair in re.findall(r'"([^"]{2,70})"|\'([^\']{2,70})\'', question)
@@ -397,7 +400,7 @@ def build_routing_fault_explanation(user_input: str = "") -> str:
             if len(probe_lines) >= 3:
                 break
 
-    if probe_lines:
+    if probe_lines and not about_time:
         lines.append("How those inputs route right now (re-run through the live router):")
         lines.extend(probe_lines)
 
@@ -411,8 +414,20 @@ def build_routing_fault_explanation(user_input: str = "") -> str:
     except Exception:
         log.debug("turn record unavailable", exc_info=True)
     if recorded:
-        lines.append("What the last turns did (from the audit ledger):")
-        lines.extend(f"- {r}" for r in recorded)
+        if about_time:
+            lines.append("How long the last turns took (from the audit ledger, the last one first; the seconds "
+                         "are the whole turn, model time the part spent running the model):")
+            lines.extend(f"- {r}" for r in reversed(recorded))
+        else:
+            lines.append("What the last turns did (from the audit ledger):")
+            lines.extend(f"- {r}" for r in recorded)
+        # Asked about time, say where the model runs: that is what decides how long its part takes.
+        if about_time:
+            try:
+                from eli.runtime.deterministic_grounding_gate import _inference_runtime_lines
+                lines.append(_inference_runtime_lines())
+            except Exception:
+                log.debug("runtime lines unavailable", exc_info=True)
     else:
         try:
             from eli.runtime.last_trace import load_last_trace

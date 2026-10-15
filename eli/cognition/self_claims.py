@@ -68,7 +68,7 @@ _COMPLAINT_RE = re.compile(
     r"|\bthat(?:'s|’s| is| was)\s+(?:wrong|incorrect|bullshit|not\s+(?:right|true|what\s+i\s+(?:asked|said)))\b"
     r"|\bi\s+asked\s+you\b|\bwhy\s+the\s+(?:fuck|hell)\b"
     # an insult aimed at ELI is a complaint about its last reply ("you fucking idiot, you are talking shit")
-    r"|\byou(?:'re|’re| are)?\s+(?:\w+\s+){0,2}(?:idiot|moron|stupid|useless|dumb|incompetent|clueless|clown)\b"
+    r"|\byou(?:'re|’re| are)?\s+(?:\w+\s+){0,2}(?:idiot|moron|stupid|useless|dumb|incompetent|clueless|clown|slow)\b"
     r"|\b(?:talking|talk|spouting|chatting)\s+(?:shit|bollocks|nonsense|rubbish|crap|garbage)\b"
     # a correction of what ELI answered: "I did not ask about RAM", "I asked why it took so long"
     r"|\bi\s+(?:did\s+not|didn'?t|never|was\s+not|wasn'?t)\s+ask(?:ed|ing)?\b"
@@ -147,22 +147,6 @@ def describe_turn(facts: Dict[str, Any]) -> str:
                      + (f", {secs:.0f} s of model time" if secs >= 1 else ""))
     return "; ".join(parts)
 
-
-def explain_turn_times(mem: Any = None, *, user_id: str = "", limit: int = 4, now: Optional[float] = None) -> str:
-    """How long recent replies took and what each spent its time on, from the audit record — the
-    answer to "why did that take so long". Nothing here is estimated or recalled by the model."""
-    if mem is None:
-        try:
-            from eli.memory.memory import get_memory
-            mem = get_memory()
-        except Exception:
-            mem = None
-    lines = turn_record_lines(mem, user_id=user_id, limit=limit, now=now)
-    if not lines:
-        return "There is no record of a recent reply's timing yet."
-    return ("How long the recent replies took, from the pipeline's own record (the last reply first; seconds "
-            "are the whole turn, model time is the part spent running the model):\n"
-            + "\n".join(f"- {line}" for line in reversed(lines)))
 
 
 def _user_turns(mem: Any, since: float, user_id: str) -> List[Dict[str, Any]]:

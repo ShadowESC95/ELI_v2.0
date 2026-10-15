@@ -1749,14 +1749,6 @@ def _format_cognition_runtime(report: Dict[str, Any], args: Optional[Dict[str, A
     lines = []
     _args = args if isinstance(args, dict) else {}
     _focus = str(_args.get("diagnostic_focus") or "").strip().lower()
-    if _focus == "latency_timing":
-        # A question about how long a reply took: the turns' own timings, then where the model runs.
-        try:
-            from eli.cognition.self_claims import explain_turn_times
-            from eli.runtime.deterministic_grounding_gate import _inference_runtime_lines
-            return explain_turn_times() + "\n\n" + _inference_runtime_lines()
-        except Exception:
-            log.debug("[EXECUTOR] turn timing report unavailable", exc_info=True)
     if _focus in ("inference_ram", "inference_runtime"):
         try:
             from eli.runtime.inference_footprint import format_inference_footprint_report

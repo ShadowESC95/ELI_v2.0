@@ -564,13 +564,6 @@ def _eli_cognition_pipeline_v2(focus: str = "", question: str = "") -> str:
     except Exception:
         format_inference_footprint_report = None  # type: ignore[assignment,misc]
 
-    if focus_l == "latency_timing":
-        # how long replies took: the turns' own timings (eli.cognition.self_claims), not RAM figures
-        try:
-            from eli.cognition.self_claims import explain_turn_times
-            return explain_turn_times() + "\n\n" + _inference_runtime_lines()
-        except Exception:
-            log.debug("turn timing report unavailable", exc_info=True)
     if focus_l == "inference_ram" and format_inference_footprint_report:
         return format_inference_footprint_report(include_latency_note=False, question=question)
 
