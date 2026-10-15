@@ -9,9 +9,13 @@ directory`` when ``Path=`` points at a deleted folder).
 Instead:
   1. Write the current install root to a stable per-user pointer file under
      ``~/.local/share/ELI_v2`` (or ``ELI_v3``).
-  2. Menu / Desktop entries ``Exec`` only ``~/.local/bin/eli-run <action>``
+  2. Menu / Desktop entries ``Exec`` only ``~/.local/bin/eli-v2-run <action>`` (``eli-v3-run`` for v3)
      — no ``Path=``, no extract-folder absolute path.
-  3. ``eli-run`` reads the pointer and launches scripts from that tree.
+  3. That script reads the pointer and launches scripts from that tree.
+
+Every file this writes is named for its own version (eli-v2*.desktop, eli-v2-run, the eli-v2 icon), and
+clean-up only ever touches entries of its own version: other ELI products (v3, the first version, ELI
+Legal, ELI VR) are separate and their launchers are never replaced or removed from here.
   4. Setup and every non-AppImage GUI start refresh the pointer + rewrite
      stale entries (including copies dragged onto ``~/Desktop``).
 
@@ -154,15 +158,15 @@ def _eli_run_path() -> Path:
         return stable_user_root() / "eli-run.cmd"
     bindir = Path.home() / ".local" / "bin"
     bindir.mkdir(parents=True, exist_ok=True)
-    return bindir / "eli-run"
+    return bindir / f"{_desktop_stem()}-run"
 
 
 def _linux_guard_script() -> str:
     share = _share_dirname()
     return f'''#!/usr/bin/env bash
 # ELI launcher (redistribution-safe). Desktop entries must call:
-#   eli-run <gui|serve|setup|uninstall>
-# Legacy (stale icons): eli-run <install_root> <action> — still accepted.
+#   {_desktop_stem()}-run <gui|serve|setup|uninstall>
+# Legacy (stale icons): <script> <install_root> <action> — still accepted.
 set -euo pipefail
 MARKER="${{XDG_DATA_HOME:-$HOME/.local/share}}/{share}/runtime/install_root"
 _err(){{
@@ -314,7 +318,7 @@ def _desktop_search_dirs() -> list[Path]:
 def _desktop_is_stale(text: str, eli_run: Path, version: str) -> bool:
     if re.search(r"(?m)^Path=", text):
         return True
-    if str(eli_run) not in text and "eli-run" not in text:
+    if str(eli_run) not in text and eli_run.name not in text:
         return True
     if re.search(r"linux-portable|/ELI_v[23]-[\d.]+", text):
         return True
@@ -326,7 +330,7 @@ def _desktop_is_stale(text: str, eli_run: Path, version: str) -> bool:
         if not line.startswith("Exec="):
             continue
         raw = line.split("=", 1)[1].strip()
-        if "eli-run" in raw:
+        if eli_run.name in raw:
             continue
         tok = raw.split(None, 1)[0].strip().strip('"').strip("'")
         if tok.lower().endswith(".appimage") and not os.path.isfile(tok):
@@ -334,6 +338,29 @@ def _desktop_is_stale(text: str, eli_run: Path, version: str) -> bool:
         if ("ELI_v" in tok or "linux-portable" in tok) and not os.path.exists(tok):
             return True
     return False
+
+
+def _entry_product(text: str) -> str:
+    """Which ELI version a launcher belongs to, from what it says: its X-ELI-Version, or the version
+    named in its paths or title. "" when it cannot be told."""
+    m = re.search(r"(?m)^X-ELI-Version=\s*(\d+)\.", text)
+    if m:
+        return f"v{m.group(1)}"
+    for line in ("v3", "v2"):
+        n = line[1]
+        if re.search(rf"ELI_v{n}\b|ELI v{n}(?:\.0)?\b|eli-v{n}\b", text, re.I):
+            return line
+    return ""
+
+
+def _is_own_entry(text: str, path: Path) -> bool:
+    """A launcher this version installed (and may replace or remove). Named with its own stem, or
+    one of its older entries whose contents name it. Never another product's."""
+    stem = _desktop_stem()
+    name = path.name.lower()
+    if name.startswith(stem + ".") or name.startswith(stem + "-"):
+        return True
+    return _entry_product(text) == product_line()
 
 
 def _looks_like_eli_desktop(text: str, path: Path) -> bool:
@@ -396,6 +423,8 @@ def scrub_stale_eli_desktops(*, dry_run: bool = False) -> list[Path]:
             text = path.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
+        if not _is_own_entry(text, path):
+            continue  # another ELI version's launcher: not ours to judge
         kill = False
         # Any Path= to a missing directory → GNOME hard-fail
         for line in text.splitlines():
@@ -455,7 +484,7 @@ def _publish_desktop_copies(apps: Path, entries: dict[str, tuple]) -> list[Path]
                 txt = old.read_text(encoding="utf-8", errors="ignore")
             except Exception:
                 continue
-            if _looks_like_eli_desktop(txt, old) and (
+            if _is_own_entry(txt, old) and (
                 re.search(r"(?m)^Path=", txt)
                 or "linux-portable" in txt
                 or re.search(r"/ELI_v[23]-[\d.]+", txt)
@@ -485,19 +514,19 @@ def _write_linux_desktop(root: Path, *, force: bool = False) -> list[Path]:
             "Local, private AI assistant (desktop GUI)",
             False,
         ),
-        "eli-server.desktop": (
+        f"{stem}-server.desktop": (
             f"ELI Server (phone & web){ver_suffix}",
             f'"{eli_run}" serve',
             "ELI phone/web server with console output",
             True,
         ),
-        "eli-setup.desktop": (
+        f"{stem}-setup.desktop": (
             f"ELI Setup{ver_suffix}",
             f'"{eli_run}" setup',
             "One-click install — models, database, shortcuts, then launch",
             False,
         ),
-        "eli-uninstall.desktop": (
+        f"{stem}-uninstall.desktop": (
             f"Uninstall {name}{ver_suffix}",
             f'"{eli_run}" uninstall',
             "Remove ELI menu entries; optionally delete this install",
@@ -512,6 +541,8 @@ def _write_linux_desktop(root: Path, *, force: bool = False) -> list[Path]:
             txt = old.read_text(encoding="utf-8", errors="ignore")
         except Exception:
             continue
+        if not _is_own_entry(txt, old):
+            continue  # another ELI version's launcher
         if force or _desktop_is_stale(txt, eli_run, version) or old.name in entries:
             if old.name not in entries and _desktop_is_stale(txt, eli_run, version):
                 old.unlink(missing_ok=True)
@@ -710,7 +741,7 @@ def main(argv: Optional[Iterable[str]] = None) -> int:
     for p in written:
         print(p)
     print(f"[OK] install_root → {read_install_root()}")
-    print(f"[OK] eli-run → {_eli_run_path()}")
+    print(f"[OK] launcher script → {_eli_run_path()}")
     return 0
 
 

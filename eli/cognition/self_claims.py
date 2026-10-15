@@ -67,6 +67,12 @@ _COMPLAINT_RE = re.compile(
     r"|\byou\s+(?:forgot|ignored|missed|lied|made\s+(?:that|it|this|shit|stuff)\s+up|got\s+(?:that|it|this)\s+wrong|hallucinat\w+)\b"
     r"|\bthat(?:'s|’s| is| was)\s+(?:wrong|incorrect|bullshit|not\s+(?:right|true|what\s+i\s+(?:asked|said)))\b"
     r"|\bi\s+asked\s+you\b|\bwhy\s+the\s+(?:fuck|hell)\b"
+    # an insult aimed at ELI is a complaint about its last reply ("you fucking idiot, you are talking shit")
+    r"|\byou(?:'re|’re| are)?\s+(?:\w+\s+){0,2}(?:idiot|moron|stupid|useless|dumb|incompetent|clueless|clown)\b"
+    r"|\b(?:talking|talk|spouting|chatting)\s+(?:shit|bollocks|nonsense|rubbish|crap|garbage)\b"
+    # a correction of what ELI answered: "I did not ask about RAM", "I asked why it took so long"
+    r"|\bi\s+(?:did\s+not|didn'?t|never|was\s+not|wasn'?t)\s+ask(?:ed|ing)?\b"
+    r"|\bi\s+(?:only\s+|just\s+)?asked\s+(?:you\s+)?(?:why|what|how|about|for|if|whether|when|where)\b"
     r"|\b(?:are|were)\s+you\s+(?:just\s+)?making\s+(?:that|this|it|stuff|things|shit)\s+up\b"
     r"|\byou\s+(?:did\s+not|didn'?t|have\s+not|haven'?t)\s+(?:actually\s+|even\s+)?\w+"
     r"|\byou\s+never\s+(?!know\b)\w+"
@@ -78,10 +84,30 @@ def complains_about_eli(text: Any) -> bool:
     return bool(_COMPLAINT_RE.search(str(text or "")))
 
 
+# Words that name nothing: a message made only of these ("What the fuck is going on!?", "seriously??",
+# "why?!", "huh?") has no subject of its own, so it is about ELI's last reply. Live, "What the fuck is
+# going on" matched none of the patterns and the model invented a "RAG phase" and a "reflection agent".
+_REACTION_WORDS = frozenset("""
+a an the is was it its it's this that what what's whats why huh eh wtf fuck fucking fucked hell heck
+going on happening happened wrong now again really seriously actually even still just so oh god jesus
+christ come ok okay man dude bro mate sake for are you your me i am do does did of up with there here
+""".split())
+
+
+def reacts_to_last_reply(text: Any) -> bool:
+    """A short question or exclamation with no subject of its own: a reaction to what ELI just did."""
+    low = str(text or "").lower()
+    if not re.search(r"[?!]|\b(?:wtf|why|huh|seriously|really)\b", low):
+        return False
+    words = re.findall(r"[a-z']+", low)
+    return 0 < len(words) <= 10 and all(w.strip("'") in _REACTION_WORDS for w in words)
+
+
 def asks_about_own_behaviour(text: Any) -> bool:
-    """A question about what ELI did, why, or what it logs, or a complaint about it: the turns
-    where it invents."""
-    return bool(_OWN_BEHAVIOUR_RE.search(str(text or ""))) or complains_about_eli(text)
+    """A question about what ELI did, why, or what it logs, a complaint about it, or a bare reaction
+    to its last reply: the turns where it invents."""
+    return (bool(_OWN_BEHAVIOUR_RE.search(str(text or ""))) or complains_about_eli(text)
+            or reacts_to_last_reply(text))
 
 
 # ── the turn record ──────────────────────────────────────────────────────────
@@ -115,9 +141,28 @@ def describe_turn(facts: Dict[str, Any]) -> str:
         parts.append(str(facts["escalation"]))
     calls = int(facts.get("model_calls") or 0)
     if calls:
+        secs = float(facts.get("model_seconds") or 0.0)
         parts.append(f"model ran {calls} time{'s' if calls != 1 else ''} on "
-                     f"{int(facts.get('prompt_chars') or 0):,} prompt characters")
+                     f"{int(facts.get('prompt_chars') or 0):,} prompt characters"
+                     + (f", {secs:.0f} s of model time" if secs >= 1 else ""))
     return "; ".join(parts)
+
+
+def explain_turn_times(mem: Any = None, *, user_id: str = "", limit: int = 4, now: Optional[float] = None) -> str:
+    """How long recent replies took and what each spent its time on, from the audit record — the
+    answer to "why did that take so long". Nothing here is estimated or recalled by the model."""
+    if mem is None:
+        try:
+            from eli.memory.memory import get_memory
+            mem = get_memory()
+        except Exception:
+            mem = None
+    lines = turn_record_lines(mem, user_id=user_id, limit=limit, now=now)
+    if not lines:
+        return "There is no record of a recent reply's timing yet."
+    return ("How long the recent replies took, from the pipeline's own record (the last reply first; seconds "
+            "are the whole turn, model time is the part spent running the model):\n"
+            + "\n".join(f"- {line}" for line in reversed(lines)))
 
 
 def _user_turns(mem: Any, since: float, user_id: str) -> List[Dict[str, Any]]:
@@ -485,6 +530,14 @@ class _Check:
         self._facts = facts
         asked = str(facts.get("user_input") or "")
         self.about_self = asks_about_own_behaviour(asked)
+        # Whether the user asked ELI to do something: only then is "nothing was carried out" news.
+        try:
+            from eli.runtime.command_splitter import is_request, read_message, starts_with_command
+            self.asked_to_act = any(
+                is_request(part["said"]) or (part["tells"] and starts_with_command(part["tells"]))
+                for part in read_message(asked))
+        except Exception:
+            self.asked_to_act = True
         self._ran_at_start = bool(facts.get("executed_actions")) or _carried_out_before()
         # What the pipeline recorded, plus the user's own words. Not ELI's.
         self._record = str(facts.get("_record") or "").lower()
@@ -627,8 +680,12 @@ class _Check:
         if not self.dropped:
             return ""
         if self.claimed_acting:
-            # said plainly, whatever else was kept: the user was told something had happened
-            return ("\n\n" if self.kept_words else "") + "Nothing was carried out in this turn."
+            # Said plainly when the user asked ELI to do something and was told it had happened.
+            # Not under a reply to a greeting or a question: "how are you doing this evening?" got
+            # "Nothing was carried out in this turn." — nobody had asked for anything to be done.
+            if self.asked_to_act or not self.kept_words:
+                return ("\n\n" if self.kept_words else "") + "Nothing was carried out in this turn."
+            return ""
         if self.unrecorded_days:
             today = time.strftime("%Y-%m-%d")
             days = ["earlier today" if d == today else

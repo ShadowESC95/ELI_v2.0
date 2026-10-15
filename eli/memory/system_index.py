@@ -2,7 +2,7 @@
 """
 System Inventory – Auto‑discovers applications, executables, and directories.
 Runs at startup and periodically.
-Stores in ~/.config/eli/system_index.db (SQLite).
+Stores in system_index.sqlite3 in v2's database folder (SQLite).
 
 ELI will query this before falling back to gtk‑launch or direct commands.
 """
@@ -12,7 +12,12 @@ import sqlite3
 from pathlib import Path
 from typing import Dict, Optional, Any
 
-DB_PATH = Path(os.environ.get("ELI_SYSTEM_INDEX", str(Path(os.environ.get("ELI_DB_DIR", "artifacts/db")) / "system_index.sqlite3")))
+def _default_db_path() -> Path:
+    from eli.core.paths import db_dir
+    return Path(os.environ.get("ELI_DB_DIR") or db_dir()) / "system_index.sqlite3"
+
+
+DB_PATH = Path(os.environ.get("ELI_SYSTEM_INDEX") or _default_db_path())
 
 class SystemIndex:
     def __init__(self):

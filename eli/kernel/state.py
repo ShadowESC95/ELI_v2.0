@@ -70,15 +70,8 @@ def _safe_user_id(user_id: str | None = None) -> str:
 
     if not raw:
         try:
-            uid_file = Path(get_paths().config_dir) / "user_id"
-            if uid_file.exists():
-                raw = uid_file.read_text(encoding="utf-8", errors="replace").strip()
-        except Exception:
-            raw = ""
-
-    if not raw:
-        try:
-            uid_file = Path.home() / ".eli_user_id"
+            from eli.core.paths import adopt_legacy_file
+            uid_file = adopt_legacy_file(Path(get_paths().config_dir) / "user_id", "~/.eli_user_id")
             if uid_file.exists():
                 raw = uid_file.read_text(encoding="utf-8", errors="replace").strip()
         except Exception:

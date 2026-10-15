@@ -404,10 +404,16 @@ def format_inference_footprint_report(
     except Exception:
         log.debug("psutil unavailable for system RAM line", exc_info=True)
 
-    if include_latency_note or int(live.get("n_gpu_layers") or 0) <= 0:
+    _gl = int(live.get("n_gpu_layers") or 0)
+    if _gl <= 0:
         lines.append(
-            "- latency: CPU-only inference runs tokens on the CPU; "
+            "- latency: no layers are on the graphics card, so the model runs entirely on the processor; "
             "most of the RAM above is model weights plus the allocated context buffer."
+        )
+    elif include_latency_note:
+        lines.append(
+            f"- latency: {_gl} layers are on the graphics card; whatever is not (other layers, or expert "
+            "weights of a mixture-of-experts model) runs on the processor, which is the slower part."
         )
     lines.append(
         "- note: SQLite / FAISS memory stores are separate and much smaller than inference RAM."

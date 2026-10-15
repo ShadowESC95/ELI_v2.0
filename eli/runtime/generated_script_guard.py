@@ -852,8 +852,6 @@ def resolve_db_path(raw: str | None) -> Path:
 
     candidates = [
         Path(os.environ.get("ELI_USER_DB", "")).expanduser() if os.environ.get("ELI_USER_DB") else None,
-        Path("artifacts/db/user.sqlite3").resolve(),
-        Path("artifacts/user.sqlite3").resolve(),
     ]
     candidates = [c for c in candidates if c is not None]
 

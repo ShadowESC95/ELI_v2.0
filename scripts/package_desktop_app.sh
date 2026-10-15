@@ -285,8 +285,8 @@ cat > "$STAGING/packaging/desktop/ELI_v2.desktop.template" <<'DESKTOP_EOF'
 Name=ELI v2.0
 GenericName=Local AI Assistant
 Comment=Local AI cognitive runtime and assistant
-Exec=eli-run gui
-Icon=eli
+Exec=eli-v2-run gui
+Icon=eli-v2
 Type=Application
 Categories=Utility;
 Keywords=ai;assistant;llm;local;eli;eli_v2_0;
@@ -297,7 +297,7 @@ DESKTOP_EOF
 
 cat > "$STAGING/packaging/desktop/install_desktop_launcher.sh" <<'DESKTOP_INSTALL_EOF'
 #!/usr/bin/env bash
-# Prefer the redistribution-safe installer (stable eli-run + install_root pointer).
+# Prefer the redistribution-safe installer (stable eli-v2-run + install_root pointer).
 set -euo pipefail
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 exec bash "$APP_ROOT/scripts/install_desktop_apps.sh"

@@ -38,6 +38,37 @@ def stamp_foreground_generation_start() -> None:
     _last_foreground_ts = _time.monotonic()
 
 
+# User-facing generations in progress. "Busy" used to be "started within the last 45 s (or the last
+# broker turn's length)", and streamed replies never go through the broker: 45 s into a 78 s reply the
+# daemon judged the model free and started an insight call, which the user's next message waited for.
+_fg_inflight = 0
+_fg_inflight_lock = __import__("threading").Lock()
+
+
+def foreground_call_started() -> float:
+    """A user-facing generation begins; returns its start time for foreground_call_finished."""
+    global _fg_inflight
+    with _fg_inflight_lock:
+        _fg_inflight += 1
+    stamp_foreground_generation_start()
+    return _time.monotonic()
+
+
+def foreground_call_finished(started: float) -> None:
+    """It ended: the model is free once no other is in progress; its length sets how long chores wait."""
+    global _fg_inflight, _last_foreground_duration, _last_foreground_ts
+    with _fg_inflight_lock:
+        _fg_inflight = max(0, _fg_inflight - 1)
+    now = _time.monotonic()
+    _last_foreground_ts = now
+    if started:
+        _last_foreground_duration = max(0.0, now - float(started))
+
+
+def foreground_in_progress() -> bool:
+    return _fg_inflight > 0
+
+
 def seconds_since_foreground() -> float:
     """Seconds since a conversation last used the model (a very large number if it has not yet)."""
     return (_time.monotonic() - _last_foreground_ts) if _last_foreground_ts else 1e9
@@ -51,6 +82,8 @@ def foreground_recently_active(window: float = 30.0) -> bool:
     as long as a turn takes (bounded by _MAX_ADAPTIVE_DEFER), so they don't fire in the brief
     gap right after a turn and collide with the user's next message. On fast hardware the
     duration is tiny, so the base `window` dominates and behaviour is unchanged."""
+    if _fg_inflight > 0:
+        return True
     try:
         eff = min(max(float(window), float(_last_foreground_duration)), _MAX_ADAPTIVE_DEFER)
         return (_time.monotonic() - _last_foreground_ts) < eff

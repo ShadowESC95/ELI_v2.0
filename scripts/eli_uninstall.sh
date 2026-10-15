@@ -45,16 +45,20 @@ echo "Checking for a running ELI (server/desktop) from this install…"
 _stop_running
 
 echo
-echo "This removes ELI's app-menu icons, the 'eli' command, and its theme icon."
+echo "This removes ELI v2's app-menu icons, its launcher script and its theme icon (never another ELI version's)."
 if ask "Remove ELI's system integration now?"; then
-  rm -f "$APPS"/eli-setup.desktop "$APPS"/eli-v2.desktop "$APPS"/eli-server.desktop \
-        "$APPS"/eli-uninstall.desktop "$APPS"/eli-pro.desktop "$APPS"/eli-v2-0.desktop 2>/dev/null || true
-  rm -f "$BIN/eli" "$BIN/eli-run" 2>/dev/null || true
-  # Only remove the eli theme icon we installed (never touch other icons).
-  find "$ICONS" -type f -name 'eli.*' -delete 2>/dev/null || true
+  rm -f "$APPS"/eli-v2*.desktop "$BIN/eli-v2-run" 2>/dev/null || true
+  # Older v2 entries and scripts had generic names other ELI versions also use: remove one only
+  # when it is v2's (it names v2 or a v2 version).
+  for f in "$APPS"/eli-setup.desktop "$APPS"/eli-server.desktop "$APPS"/eli-uninstall.desktop \
+           "$APPS"/eli-pro.desktop "$BIN/eli" "$BIN/eli-run"; do
+    if [ -f "$f" ] && grep -q -E 'ELI_v2|ELI v2|X-ELI-Version=2\.' "$f"; then rm -f "$f"; fi
+  done
+  # Only remove the theme icon v2 installed (never another version's).
+  find "$ICONS" -type f -name 'eli-v2.*' -delete 2>/dev/null || true
   command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database "$APPS" 2>/dev/null || true
   command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t "$ICONS" 2>/dev/null || true
-  echo "  ${GRN}OK${R}  Removed launchers, 'eli' command, and theme icon."
+  echo "  ${GRN}OK${R}  Removed ELI v2's launchers, launcher script and theme icon."
 else
   echo "  ${YEL}skipped${R}  system integration left in place."
 fi

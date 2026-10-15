@@ -258,8 +258,11 @@ def derive_budget(model_path: str | Path = "") -> DynamicRuntimeBudget:
     )
 
 
-def write_budget(model_path: str | Path = "", out_path: str | Path = "artifacts/runtime_dynamic_budget.json") -> Dict[str, Any]:
+def write_budget(model_path: str | Path = "", out_path: str | Path | None = None) -> Dict[str, Any]:
     budget = derive_budget(model_path)
+    if out_path is None:
+        from eli.core.paths import get_paths
+        out_path = Path(get_paths().artifacts_dir) / "runtime_dynamic_budget.json"
     out = Path(out_path)
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(budget.to_dict(), indent=2), encoding="utf-8")

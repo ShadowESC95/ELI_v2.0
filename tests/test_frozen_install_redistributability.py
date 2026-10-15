@@ -168,3 +168,77 @@ def test_the_same_build_does_not_copy_again(tmp_path):
 def test_the_build_records_its_source():
     spec = (ROOT / "ELI.spec").read_text(encoding="utf-8")
     assert "build_stamp.txt" in spec and '"rev-parse", "HEAD"' in spec
+
+
+# ---- v2's folders are v2's alone ----------------------------------------------------------------
+
+def test_installed_v2_uses_its_own_folders_not_generic_eli(tmp_path, monkeypatch):
+    """An installed (not packaged, not a git checkout) v2 keeps everything under the same ELI_v2 root
+    as the packaged app. It used to use ~/.local/share/eli, ~/.config/eli and ~/.cache/eli, which
+    other ELI versions use too."""
+    from eli.core import paths
+    monkeypatch.setattr(sys, "frozen", False, raising=False)
+    for k in ("ELI_DATA_DIR", "ELI_CONFIG_DIR", "ELI_CACHE_DIR", "ELI_PROJECT_ROOT"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("XDG_DATA_HOME", str(tmp_path / "share"))
+    monkeypatch.setattr(paths, "_is_dev_mode", lambda: False)
+    for f in (paths.data_dir, paths.config_dir, paths.cache_dir):
+        f.cache_clear()
+    try:
+        root = tmp_path / "share" / "ELI_v2"
+        assert paths.data_dir() == root / "artifacts"
+        assert paths.config_dir() == root / "config"
+        assert paths.cache_dir() == root / "cache"
+    finally:
+        for f in (paths.data_dir, paths.config_dir, paths.cache_dir):
+            f.cache_clear()
+
+
+def test_adopt_legacy_file_copies_once_and_leaves_the_old_one(tmp_path, monkeypatch):
+    from eli.core.paths import adopt_legacy_file
+    monkeypatch.setenv("HOME", str(tmp_path))
+    old = tmp_path / ".eli" / "labs_notebook.json"
+    old.parent.mkdir()
+    old.write_text('{"a": 1}', encoding="utf-8")
+    own = tmp_path / "ELI_v2" / "artifacts" / "labs" / "labs_notebook.json"
+    assert adopt_legacy_file(own, "~/.eli/labs_notebook.json") == own
+    assert own.read_text(encoding="utf-8") == '{"a": 1}' and old.exists()
+    own.write_text('{"a": 2}', encoding="utf-8")
+    adopt_legacy_file(own, "~/.eli/labs_notebook.json")  # never copied over again
+    assert own.read_text(encoding="utf-8") == '{"a": 2}'
+
+
+def test_no_code_writes_to_generic_or_relative_eli_paths():
+    """Every file v2 keeps is under its own folders (eli.core.paths). Generic home locations
+    (~/.eli, ~/.eli_*, ~/.config/eli, ~/.cache/eli, ~/.local/share/eli) belong to no single version,
+    and a relative artifacts/... path lands in whatever folder ELI was started from."""
+    import re
+    root = Path(__file__).resolve().parents[1]
+    bad = re.compile(
+        r"Path\.home\(\)\s*/\s*[\"']\.eli\b|[\"']\.eli_[a-z_]+[\"']|"
+        r"Path\.home\(\)\s*/\s*[\"']\.(?:config|cache)[\"']\s*/\s*[\"']eli[\"']|"
+        r"[\"']\.(?:config|cache)/eli\b|share/eli[\"'/]|share[\"']\s*/\s*[\"']eli[\"']|"
+        r"user_(?:data|config|cache)_dir\(\s*[\"']eli[\"']|"
+        r"Path\(\s*[\"']artifacts(?:[\"'/])")
+    import ast
+    found = []
+    for base in ("eli", "api"):
+        for f in (root / base).rglob("*.py"):
+            if "tests" in f.parts:
+                continue
+            text = f.read_text(encoding="utf-8", errors="ignore")
+            doc_lines = set()  # docstrings may describe an old path; only code counts
+            try:
+                for node in ast.walk(ast.parse(text)):
+                    body = getattr(node, "body", None)
+                    if isinstance(body, list) and body and isinstance(body[0], ast.Expr) \
+                            and isinstance(getattr(body[0], "value", None), ast.Constant) \
+                            and isinstance(body[0].value.value, str):
+                        doc_lines.update(range(body[0].lineno, body[0].end_lineno + 1))
+            except SyntaxError:
+                pass
+            for i, line in enumerate(text.splitlines(), 1):
+                code = line.split("#", 1)[0]
+                if i not in doc_lines and bad.search(code) and "adopt_legacy_file(" not in code:
+                    found.append(f"{f.relative_to(root)}:{i}: {line.strip()[:100]}")
+    assert not found, "generic or relative paths:\n" + "\n".join(found)

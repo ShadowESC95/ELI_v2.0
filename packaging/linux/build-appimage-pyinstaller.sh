@@ -83,20 +83,20 @@ exec "$HERE/usr/app/ELI" "$@"
 EOF
 chmod +x "$APPDIR/AppRun"
 
-cat > "$APPDIR/eli.desktop" <<EOF
+cat > "$APPDIR/eli-v2.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=ELI v2.0
 GenericName=Local AI Assistant
 Comment=Private local AI assistant — runs entirely on your machine
 Exec=AppRun
-Icon=eli
+Icon=eli-v2
 Categories=Utility;
 Terminal=false
 X-AppImage-Version=${VERSION}
 EOF
 
-cp "$ICON" "$APPDIR/eli.png"
+cp "$ICON" "$APPDIR/eli-v2.png"
 cp "$ICON" "$APPDIR/.DirIcon"
 
 # appimagetool: use one on PATH, else download it (current repo first, then

@@ -804,3 +804,19 @@ def test_gguf_stream_keeps_global_llm_lock_during_iteration():
     assert [chunk["choices"][0]["text"] for chunk in stream] == ["ok"]
     assert observed == [True]
     assert owns_lock() is False
+
+
+def test_go_deeper_after_a_briefing_is_not_taken_by_the_generic_follow_up_rule():
+    """'go deeper on the AI and Caine prize' after a briefing went to chat through the router's
+    'go deeper' rule (0.92 confidence) and the model, without the story, called it invented."""
+    import time
+    from eli.kernel.engine import _try_news_topic_deepen_reroute
+
+    user = "go deeper on the AI and Caine prize"
+    action, args, intent = _try_news_topic_deepen_reroute(
+        user, "CHAT", {"message": user},
+        {"action": "CHAT", "confidence": 0.92, "meta": {"matched_by": "eli.followup.identity_depth"}},
+        {"action": "NEWS_FETCH", "ts": time.time()},
+    )
+    assert action == "NEWS_FETCH"
+    assert "Caine prize" in (args.get("topic") or "")

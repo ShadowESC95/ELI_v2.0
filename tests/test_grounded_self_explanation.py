@@ -639,3 +639,39 @@ def test_the_account_given_for_a_stopped_song_is_held_to_the_record():
 def test_a_fix_said_to_be_made_so_it_will_not_happen_again_is_dropped_on_any_turn(chat_turn):
     out = sc.drop_invented_self_claims("Fair point. I have isolated the handler from that loop so it won't happen again.")
     assert "isolated" not in out and "Fair point." in out
+
+
+# ---- 2.5.14 session: reactions, corrections, insults, and the carried-out footer ----------------
+
+@pytest.mark.parametrize("text,about", [
+    ("What the fuck is going on!?!?!?", True),
+    ("seriously??", True),
+    ("why?!", True),
+    ("I did not ask about RAM at all actually!!", True),
+    ("I asked why your response took so long", True),
+    ("it is 2026 you fucking idiot, and you still are talking shit!", True),
+    ("what is going on with the weather today?", False),
+    ("how?", False),
+    ("what time is it?", False),
+    ("my brother is an idiot", False),
+    ("go deeper on the AI and Caine prize", False),
+])
+def test_reactions_corrections_and_insults_are_about_eli(text, about):
+    """A bare reaction has no subject of its own, so it is about ELI's last reply; live, "What the fuck
+    is going on" matched nothing and the model invented a "RAG phase" and a "reflection agent"."""
+    assert sc.asks_about_own_behaviour(text) is about
+
+
+@pytest.mark.parametrize("asked", ["Hey Eli, how are you doing this evening?", "what is the latest news?",
+                                   "why is nothing playing?"])
+def test_no_carried_out_footer_when_nothing_was_asked_to_be_done(asked):
+    """'Nothing was carried out in this turn.' answered a greeting. The claim still goes; the footer is
+    for a user who asked for something to be done."""
+    token = rc.turn_facts_var.set({"user_input": asked, "t0": time.perf_counter()})
+    try:
+        served = sc.drop_invented_self_claims("Crisp, thanks.\n\nSpotify is opening now.")
+    finally:
+        rc.turn_facts_var.reset(token)
+    assert "opening now" not in served
+    assert "Nothing was carried out" not in served
+    assert "Crisp" in served

@@ -65,3 +65,36 @@ def test_a_reply_the_user_points_back_at_is_given_whole():
     assert "line 39" in pointed
     plain = build_inline_exchange_block(turns, user_input="what's the weather like")
     assert "line 39" not in plain
+
+
+def test_the_latest_reply_is_whole_and_a_fetched_one_says_so(monkeypatch):
+    """The Caine Prize story sat past the 280-character cut of a news briefing, so a follow-up about it
+    reached a model that had never seen it."""
+    import eli.runtime.orchestrator_audit_ledger as oal
+    t0 = 1_800_000_000.0
+    briefing = ("Russell Brand has pleaded not guilty [BBC News]. " + "Other story. " * 40
+                + "Zimbabwean author Simbarashe Kundizeza denied his Caine Prize-winning story was artificially "
+                  "generated [The Guardian].")
+    turns = [{"role": "user", "content": "what is the latest news?", "timestamp": t0},
+             {"role": "assistant", "content": briefing, "timestamp": t0 + 60}]
+    monkeypatch.setattr(oal, "recent_turns", lambda limit=50, db_path=None: [
+        {"ts": t0 + 59, "action": "NEWS_FETCH", "parent_request_id": ""}])
+    block = build_inline_exchange_block(turns, user_input="go deeper on the AI and Caine prize", budget_chars=6000)
+    assert "Caine Prize-winning story" in block
+    assert "result of NEWS_FETCH" in block
+
+
+def test_the_exchange_fits_its_budget_keeping_the_newest():
+    turns = [{"role": "user" if i % 2 == 0 else "assistant", "content": f"turn {i} " + "y" * 250} for i in range(12)]
+    block = build_inline_exchange_block(turns, user_input="next", budget_chars=1200)
+    assert "turn 11" in block and "turn 0 " not in block
+    assert len(block) <= 1200 + 200   # the budget plus the one header line
+
+
+def test_a_prompt_over_budget_drops_old_lines_not_the_message():
+    from eli.runtime.session_continuity import fit_exchange_prompt
+    prompt = ("[Recent conversation — x]\n" + "\n".join(f"ELI: old {i} " + "z" * 100 for i in range(20))
+              + "\n\nYou: go deeper on the Caine prize")
+    out = fit_exchange_prompt(prompt, 700)
+    assert out.endswith("You: go deeper on the Caine prize")
+    assert out.startswith("[Recent conversation") and "old 19" in out and "old 0 " not in out

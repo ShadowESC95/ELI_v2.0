@@ -568,17 +568,13 @@ def recommend_model_setup(models, sysinfo, ollama_models=None):
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    if ollama_models:
-        return {
-            "provider": "ollama",
-            "ollama_model": ollama_models[0],
-            "reason": f"No local GGUF detected. Recommended Ollama model: {ollama_models[0]}",
-        }
-
+    # Ollama is never picked for the user: with no GGUF found the default stays GGUF, and the
+    # reason says Ollama can be chosen.
     return {
         "provider": "custom_gguf",
         "path": DEFAULT_MODEL_PATH,
-        "reason": "No automatic recommendation available. Using configured model path.",
+        "reason": ("No local GGUF model found; download one, or choose an Ollama model in the provider list."
+                   if ollama_models else "No automatic recommendation available. Using configured model path."),
     }
 
 
@@ -1756,11 +1752,8 @@ class OllamaModelManager:
             return [self._normalize_host(host or self.host)]
     def list_models(self, host: Optional[str] = None) -> List[str]:
         last = None
-        try:
-            from eli.integrations.ollama.client import ensure_server_running
-            ensure_server_running()   # start a local Ollama that's installed but stopped
-        except Exception:
-            log.debug("[OLLAMA] auto-start probe failed", exc_info=True)
+        # Listing never starts Ollama (it started `ollama serve` at every launch with a GGUF model
+        # in use); the client starts it when a reply is asked of an Ollama model.
         for base in self._candidates(host):
             try:
                 from eli.integrations.ollama.client import _allow_via_netguard
@@ -9096,11 +9089,8 @@ class EliMainWindow(QMainWindow):
         try:
             from pathlib import Path as _P
             import json as _json
-            try:
-                from eli.core.paths import get_paths
-                vp_path = _P(get_paths().artifacts_dir) / "runtime" / "voice_profile.json"
-            except Exception:
-                vp_path = _P.home() / ".eli_voice_profile.json"
+            from eli.core.paths import get_paths
+            vp_path = _P(get_paths().artifacts_dir) / "runtime" / "voice_profile.json"
 
             profile = {}
             if vp_path.exists():

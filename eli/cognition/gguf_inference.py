@@ -1602,11 +1602,14 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
     if _sc is not None:
         extra["stopping_criteria"] = _sc
 
+    _fg_started = [0.0]   # set while this call counts as a user-facing generation in progress
+
     def _acquire_lock_fg_priority():
         if not bg:
             try:
-                from eli.cognition.inference_broker import stamp_foreground_generation_start
-                stamp_foreground_generation_start()
+                from eli.cognition.inference_broker import foreground_call_started
+                if not _fg_started[0]:
+                    _fg_started[0] = foreground_call_started()
             except Exception:
                 _SWLOG.debug("suppressed exception", exc_info=True)
             if _fg_preempt_enabled():
@@ -1625,6 +1628,18 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
             _LLM_CALL_LOCK.release()
         except RuntimeError:
             _SWLOG.debug("suppressed exception", exc_info=True)
+        if _fg_started[0]:
+            try:
+                from eli.cognition.inference_broker import foreground_call_finished
+                foreground_call_finished(_fg_started[0])
+                from eli.kernel.request_context import turn_facts_var as _turn_facts
+                _facts = _turn_facts.get()
+                if _facts is not None:
+                    _facts["model_seconds"] = float(_facts.get("model_seconds") or 0.0) + max(
+                        0.0, time.monotonic() - _fg_started[0])
+            except Exception:
+                _SWLOG.debug("suppressed exception", exc_info=True)
+            _fg_started[0] = 0.0
 
     def _resume():
         _how = _resume_from_saved_state(llm, full_prompt, create=not bg)
@@ -3284,11 +3299,8 @@ try:
                 return int(default)
 
         def _eli_eff_snapshot_path():
-            try:
-                from eli.core.paths import get_paths
-                return _eli_eff_Path(get_paths().artifacts_dir) / "runtime_snapshot.json"
-            except Exception:
-                return _eli_eff_Path("artifacts/runtime_snapshot.json")
+            from eli.core.paths import get_paths
+            return _eli_eff_Path(get_paths().artifacts_dir) / "runtime_snapshot.json"
 
         def _eli_eff_read_json(path):
             try:

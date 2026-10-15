@@ -172,9 +172,8 @@ def _query_ollama_tags(host: str, timeout: int = 5):
     # Normalise through the client so a scheme-less "localhost:11434" typed here
     # behaves exactly as it does everywhere else, and try the same IPv4 fallback.
     try:
-        from eli.integrations.ollama.client import candidate_hosts, ensure_server_running
-        ensure_server_running()   # auto-start a local Ollama that's installed but stopped
-        bases = candidate_hosts(host)
+        from eli.integrations.ollama.client import candidate_hosts
+        bases = candidate_hosts(host)   # listing never starts Ollama; using an Ollama model does
     except Exception:
         bases = [(host or "http://127.0.0.1:11434").strip().rstrip("/")]
     last = None
@@ -1193,6 +1192,13 @@ class StartupModelSelectionDialog(QDialog):
     def _sync_provider_controls(self):
         provider = self.selected_provider()
         is_ollama = provider == "ollama"
+        if is_ollama:
+            # Ollama chosen here: start its local server (off the GUI thread) so its models can be listed
+            try:
+                from eli.gui.widgets.ollama_model_selector import _start_ollama_for_choice
+                _start_ollama_for_choice()
+            except Exception:
+                log.debug("[OLLAMA] start for the user's choice failed", exc_info=True)
         self.gguf_combo.setEnabled(not is_ollama)
         self.model_path_input.setEnabled(provider == "custom_gguf")
         self.ollama_host_input.setEnabled(is_ollama)

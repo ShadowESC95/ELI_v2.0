@@ -1956,18 +1956,23 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             task_family="grounded_audit",
         )
 
-    if not _explain_prior_claim and re.search(
+    _asks_time = re.search(
         r"\b(took you|took so long|why did you take|response time|slow response|that took ages|"
-        r"you don't believe me|dont believe me|took over|took nearly|"
-        r"took just under|how much ram\b|how much memory\b|ram\b.{0,30}\butili[sz]|"
-        r"memory\b.{0,30}\bfor (?:the )?model|decrease latency|reduce latency)\b",
-        low,
-    ) and not re.search(r"\b(memories|sqlite|database|faiss|embedder|remember me)\b", low):
+        r"you don't believe me|dont believe me|took over|took nearly|took just under|"
+        r"decrease latency|reduce latency|so slow|taking so long|took (?:a|over a|more than a) minute)\b",
+        low)
+    _asks_ram = re.search(
+        r"\b(how much ram\b|how much memory\b|ram\b.{0,30}\butili[sz]|memory\b.{0,30}\bfor (?:the )?model)\b",
+        low)
+    if not _explain_prior_claim and (_asks_time or _asks_ram) and not re.search(
+            r"\b(memories|sqlite|database|faiss|embedder|remember me)\b", low):
+        # "Why did that take so long" is answered from how long the turns took; RAM from the RAM
+        # report. One focus for both answered a timing complaint with RAM figures, twice.
         return _mk(
             "EXPLAIN_COGNITION_RUNTIME",
             {
                 "question": raw,
-                "diagnostic_focus": "latency_timing",
+                "diagnostic_focus": "latency_timing" if _asks_time else "inference_ram",
             },
             0.995,
             matched_by="router.primary_contract_diagnostics.latency_timing",
@@ -7213,16 +7218,8 @@ def _eli_phase38_followup_passthrough_contract(raw):
     # continuation — "give me an in depth response about X" was matching here and getting the
     # quick, evidence-free follow-up treatment instead of a real answer. Gate it on brevity, the
     # same signal the literal short_contextual set above already relies on.
-    if (
-        len(low.split()) <= 8
-        and _re.search(
-            r"\b(?:be (?:more )?(?:in depth|detailed|specific)|"
-            r"(?:go |be )?(?:more )?(?:in depth|deeper)|"
-            r"what else(?:\s+can you tell me)?)\b",
-            low,
-        )
-        and not _re.search(r"\b(?:reasoning modes?|all modes|every mode)\b", low)
-    ):
+    from eli.runtime.control_contracts import is_identity_depth_followup
+    if is_identity_depth_followup(low):
         return _mk(
             "CHAT",
             {"message": str(raw or "")},

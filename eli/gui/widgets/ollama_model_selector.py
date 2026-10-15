@@ -249,6 +249,20 @@ def _worker_relay() -> _WorkerRelay:
     return _relay
 
 
+def _start_ollama_for_choice() -> None:
+    """The user chose Ollama here: start its local server if installed and stopped, off the GUI
+    thread. Listing models never starts it (see eli.integrations.ollama.client.ensure_server_running)."""
+    import threading
+
+    def _run():
+        try:
+            from eli.integrations.ollama.client import ensure_server_running
+            ensure_server_running(user_choice=True)
+        except Exception:
+            log.debug("[OLLAMA] start for the user's choice failed", exc_info=True)
+    threading.Thread(target=_run, name="ollama-start", daemon=True).start()
+
+
 def _fetch_models(key: int) -> None:
     try:
         from eli.integrations.ollama.client import is_running, list_models, get_active_model
@@ -384,6 +398,7 @@ class OllamaModelSelector(QWidget):
         try:
             from eli.integrations.ollama.client import get_active_host, set_active_host, set_active_model
             host = get_active_host()
+            _start_ollama_for_choice()   # opening Ollama setup is the user choosing Ollama
         except Exception:
             host = "http://localhost:11434"
 
@@ -407,6 +422,7 @@ class OllamaModelSelector(QWidget):
         try:
             from eli.integrations.ollama.client import set_active_model
             set_active_model(model)
+            _start_ollama_for_choice()   # the user picked an Ollama model
         except Exception:
             log.debug("[OLLAMA] persisting active model failed", exc_info=True)
         self.model_changed.emit(model)

@@ -57,11 +57,8 @@ _runtime: Dict[str, Any] = {
 
 
 def _mesh_dir() -> Path:
-    try:
-        from eli.core.paths import get_paths
-        p = Path(get_paths().artifacts_dir) / "devices"
-    except Exception:
-        p = Path("artifacts") / "devices"
+    from eli.core.paths import get_paths
+    p = Path(get_paths().artifacts_dir) / "devices"
     p.mkdir(parents=True, exist_ok=True)
     return p
 

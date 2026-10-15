@@ -1331,11 +1331,8 @@ def media_control(req: MediaControl):
 _UI_PREFS_LOCK = threading.Lock()
 
 def _ui_prefs_path():
-    try:
-        from eli.core.paths import get_paths
-        base = Path(get_paths().artifacts_dir)
-    except Exception:
-        base = Path("artifacts")
+    from eli.core.paths import get_paths
+    base = Path(get_paths().artifacts_dir)
     base.mkdir(parents=True, exist_ok=True)
     return base / "ui_prefs.json"
 

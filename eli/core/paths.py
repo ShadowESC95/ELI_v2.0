@@ -26,8 +26,9 @@ from functools import lru_cache
 
 log = logging.getLogger(__name__)
 
-_APP_NAME = "eli"
-_APP_AUTHOR = "eli"
+# v2's own folder name, packaged or installed. Other ELI versions (v3, the first version, ELI Legal,
+# ELI VR) are separate products and keep their own folders; nothing of v2's goes in a generic "eli" one.
+_APP_NAME = "ELI_v2"
 
 
 def _env_truthy(name: str) -> bool | None:
@@ -43,14 +44,15 @@ def is_frozen() -> bool:
     return getattr(sys, 'frozen', False)
 
 def _frozen_user_root() -> Path:
-    """Per-user ELI_v2 root — must match packaging/pyinstaller/rthook_eli_frozen_paths.py."""
+    """v2's per-user root, for the packaged app and an installed one alike — must match
+    packaging/pyinstaller/rthook_eli_frozen_paths.py."""
     if sys.platform == "win32":
         base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
     elif sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
     else:
         base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return (base / "ELI_v2").expanduser().resolve()
+    return (base / _APP_NAME).expanduser().resolve()
 
 
 def _frozen_base() -> Path:
@@ -168,15 +170,25 @@ def _is_dev_mode() -> bool:
     return False
 
 
-# ── Platform-aware directories ──
-
-def _get_platformdirs():
-    """Import platformdirs when available."""
+def adopt_legacy_file(own: Path, legacy: str) -> Path:
+    """`own`, a file in v2's own folders. When it does not exist yet and v2 used to keep it at
+    `legacy` (a generic place such as "~/.eli/labs_notebook.json"), that file is copied over once —
+    copied, not moved, because another ELI version may still use the old place."""
+    own = Path(own)
     try:
-        import platformdirs
-        return platformdirs
-    except ImportError:
-        return None
+        if not own.exists():
+            old = Path(os.path.expanduser(legacy))
+            if old.is_file():
+                import shutil
+                own.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(old, own)
+                log.info("brought %s into v2's own folder: %s", legacy, own)
+    except OSError:
+        log.debug("could not bring over %s", legacy, exc_info=True)
+    return own
+
+
+# ── Platform-aware directories ──
 
 @lru_cache(maxsize=1)
 def data_dir() -> Path:
@@ -184,7 +196,8 @@ def data_dir() -> Path:
     Persistent user data: databases, conversations, persona, notes.
     Override: ELI_DATA_DIR env var.
     Dev mode: <project_root>/artifacts
-    Installed: ~/.local/share/eli (Linux), %LOCALAPPDATA%/eli (Win), ~/Library/Application Support/eli (Mac)
+    Packaged or installed: <v2 root>/artifacts — ~/.local/share/ELI_v2 (Linux), %LOCALAPPDATA%/ELI_v2 (Win),
+    ~/Library/Application Support/ELI_v2 (Mac)
     """
     override = os.environ.get("ELI_DATA_DIR")
     if override:
@@ -196,17 +209,7 @@ def data_dir() -> Path:
     if _is_dev_mode():
         return project_root() / "artifacts"
     
-    pd = _get_platformdirs()
-    if pd:
-        return Path(pd.user_data_dir(_APP_NAME, _APP_AUTHOR))
-    
-    # Manual fallback
-    if sys.platform == "win32":
-        return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / _APP_NAME
-    elif sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / _APP_NAME
-    else:
-        return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / _APP_NAME
+    return _frozen_user_root() / "artifacts"
 
 @lru_cache(maxsize=1)
 def config_dir() -> Path:
@@ -214,7 +217,7 @@ def config_dir() -> Path:
     Configuration files: config.yaml, user_id, settings.json.
     Override: ELI_CONFIG_DIR env var.
     Dev mode: <project_root>/config
-    Installed: ~/.config/eli (Linux), %APPDATA%/eli (Win), ~/Library/Preferences/eli (Mac)
+    Packaged or installed: <v2 root>/config (see data_dir)
     """
     override = os.environ.get("ELI_CONFIG_DIR")
     if override:
@@ -226,16 +229,7 @@ def config_dir() -> Path:
     if _is_dev_mode():
         return project_root() / "config"
     
-    pd = _get_platformdirs()
-    if pd:
-        return Path(pd.user_config_dir(_APP_NAME, _APP_AUTHOR))
-    
-    if sys.platform == "win32":
-        return Path(os.environ.get("APPDATA", Path.home() / "AppData" / "Roaming")) / _APP_NAME
-    elif sys.platform == "darwin":
-        return Path.home() / "Library" / "Preferences" / _APP_NAME
-    else:
-        return Path(os.environ.get("XDG_CONFIG_HOME", Path.home() / ".config")) / _APP_NAME
+    return _frozen_user_root() / "config"
 
 @lru_cache(maxsize=1)
 def cache_dir() -> Path:
@@ -243,25 +237,19 @@ def cache_dir() -> Path:
     Temporary/cache data: model caches, compiled assets.
     Override: ELI_CACHE_DIR env var.
     Dev mode: <project_root>/cache
-    Installed: ~/.cache/eli (Linux), %LOCALAPPDATA%/eli/cache (Win), ~/Library/Caches/eli (Mac)
+    Packaged or installed: <v2 root>/cache (see data_dir)
     """
     override = os.environ.get("ELI_CACHE_DIR")
     if override:
         return Path(override).expanduser().resolve()
     
+    if is_frozen():
+        return _frozen_user_root() / "cache"
+
     if _is_dev_mode():
         return project_root() / "cache"
-    
-    pd = _get_platformdirs()
-    if pd:
-        return Path(pd.user_cache_dir(_APP_NAME, _APP_AUTHOR))
-    
-    if sys.platform == "win32":
-        return Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local")) / _APP_NAME / "cache"
-    elif sys.platform == "darwin":
-        return Path.home() / "Library" / "Caches" / _APP_NAME
-    else:
-        return Path(os.environ.get("XDG_CACHE_HOME", Path.home() / ".cache")) / _APP_NAME
+
+    return _frozen_user_root() / "cache"
 
 
 # ── Derived directories ──

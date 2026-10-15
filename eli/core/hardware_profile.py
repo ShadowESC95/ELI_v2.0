@@ -2494,9 +2494,8 @@ def recommend(hw: Optional[HardwareProfile] = None,
         )
 
     if not models:
-        rec.reasoning.append("No GGUF models found. Consider Ollama.")
-        rec.provider = "ollama"
-        rec.n_ctx = 0           # no GGUF to size: the Ollama model's own context applies
+        # The provider stays as it is: Ollama is used only when the user chooses it.
+        rec.reasoning.append("No GGUF models found: download one, or choose an Ollama model as the provider.")
         return rec
 
     # KV-cache quantization: only when memory, not the model, limits the context. q8_0 holds

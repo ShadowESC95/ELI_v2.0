@@ -522,7 +522,17 @@ def _inference_runtime_lines() -> str:
     lines.append(f"- provider: {snap.get('provider', 'unknown')}")
     lines.append(f"- context window (n_ctx): {pick('n_ctx')}")
     if req.get("n_ctx") not in (None, "") and req.get("n_ctx") != eff.get("n_ctx"):
-        lines.append(f"  (requested {req.get('n_ctx')}, reduced to fit VRAM)")
+        try:
+            _r, _e = int(req.get("n_ctx")), int(eff.get("n_ctx"))
+        except (TypeError, ValueError):
+            _r = _e = 0
+        if _e > _r > 0:
+            # llama.cpp sizes the window in whole blocks: 14000 asked becomes 14080
+            lines.append(f"  (requested {_r}, rounded up by llama.cpp to a whole number of its blocks)")
+        elif 0 < _e < _r:
+            lines.append(f"  (requested {_r}, reduced to fit memory)")
+        else:
+            lines.append(f"  (requested {req.get('n_ctx')})")
     lines.append(f"- GPU layers offloaded: {pick('n_gpu_layers')}")
     _moe = bool(snap.get("moe_expert_offload"))
     if _moe:
@@ -554,11 +564,15 @@ def _eli_cognition_pipeline_v2(focus: str = "", question: str = "") -> str:
     except Exception:
         format_inference_footprint_report = None  # type: ignore[assignment,misc]
 
-    if focus_l in ("inference_ram", "latency_timing") and format_inference_footprint_report:
-        return format_inference_footprint_report(
-            include_latency_note=(focus_l == "latency_timing"),
-            question=question,
-        )
+    if focus_l == "latency_timing":
+        # how long replies took: the turns' own timings (eli.cognition.self_claims), not RAM figures
+        try:
+            from eli.cognition.self_claims import explain_turn_times
+            return explain_turn_times() + "\n\n" + _inference_runtime_lines()
+        except Exception:
+            log.debug("turn timing report unavailable", exc_info=True)
+    if focus_l == "inference_ram" and format_inference_footprint_report:
+        return format_inference_footprint_report(include_latency_note=False, question=question)
 
     runtime_block = ""
     try:

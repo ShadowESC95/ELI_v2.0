@@ -52,3 +52,16 @@ def test_the_window_can_be_turned_off(monkeypatch):
         assert _invoke()["choices"][0]["text"] == "generated"
     finally:
         gi.set_background_inference(False)
+
+
+def test_a_long_reply_in_progress_keeps_background_work_waiting(monkeypatch):
+    """45 s into a 78 s streamed reply the daemon judged the model free and started an insight call."""
+    from eli.cognition import inference_broker as ib
+    started = ib.foreground_call_started()
+    try:
+        monkeypatch.setattr(ib, "_last_foreground_ts", ib._time.monotonic() - 3600)
+        monkeypatch.setattr(ib, "_last_foreground_duration", 0.0)
+        assert ib.foreground_recently_active(30.0)
+    finally:
+        ib.foreground_call_finished(started)
+    assert not ib.foreground_in_progress()

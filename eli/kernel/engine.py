@@ -3863,7 +3863,10 @@ def _is_explicit_command_match(intent) -> bool:
         conf = float(intent.get("confidence") or 0.0)
     except Exception:
         return False
-    return bool(via) and not via.startswith("fallback.") and conf >= 0.9
+    # A follow-up nudge ("go deeper", "tell me more") is the router saying "continue what ELI last
+    # did" — which only the engine knows. It must not outrank the previous-turn rules (news
+    # deepen): "go deeper on the AI and Caine prize" after a briefing went to chat without the story.
+    return bool(via) and not via.startswith(("fallback.", "eli.followup.")) and conf >= 0.9
 
 
 def _news_deepen_news_fetch_args(topic: str, user_input: str) -> dict:
@@ -5143,11 +5146,10 @@ class CognitiveEngine:
             return self._compact_persona()
 
     def _get_user_id(self) -> str:
-        try:
-            user_id_file = get_paths().config_dir / "user_id"
-            user_id_file.parent.mkdir(parents=True, exist_ok=True)
-        except Exception:
-            user_id_file = Path.home() / ".eli_user_id"
+        from eli.core.paths import adopt_legacy_file
+        # v2's own id file; one kept in the generic ~/.eli_user_id by earlier versions is brought over once
+        user_id_file = adopt_legacy_file(get_paths().config_dir / "user_id", "~/.eli_user_id")
+        user_id_file.parent.mkdir(parents=True, exist_ok=True)
         import uuid
         file_id = user_id_file.read_text(encoding="utf-8", errors="ignore").strip() if user_id_file.exists() else ""
         owner = file_id or str(uuid.uuid4())
@@ -7486,7 +7488,8 @@ Answer:"""
                             enhanced_system = _truncate_system_prompt_preserving_evidence(
                                 enhanced_system, _sys_room)
                     if _reused_system and len(enhanced_system) + len(prompt) > _max_prompt_chars:
-                        prompt = prompt[-max(200, _max_prompt_chars - len(enhanced_system)):]
+                        from eli.runtime.session_continuity import fit_exchange_prompt as _fit_exchange
+                        prompt = _fit_exchange(prompt, max(200, _max_prompt_chars - len(enhanced_system)))
                         log.debug(f"[COGNITIVE] Prompt capped to {_max_prompt_chars}chars (the turn's system prompt kept)")
                     elif len(enhanced_system) + len(prompt) > _max_prompt_chars:
                         # Give the user prompt at least 25% of the budget so the
@@ -7499,7 +7502,8 @@ Answer:"""
                             # keep it whole and shrink the persona/rules around it instead.
                             enhanced_system = _truncate_system_prompt_preserving_evidence(
                                 enhanced_system, _sys_budget)
-                        prompt = prompt[-_prompt_budget:]
+                        from eli.runtime.session_continuity import fit_exchange_prompt as _fit_exchange
+                        prompt = _fit_exchange(prompt, _prompt_budget)
                         log.debug(
     f"[COGNITIVE] Prompt capped to {_max_prompt_chars}chars "
     f"(evidence-preserving; n_ctx={_n_ctx_pf1}, qcap={_qcap})")
@@ -7541,7 +7545,8 @@ Answer:"""
                         _prompt_budget2 = _max_prompt_chars2 - _sys_budget2
                         enhanced_system = _truncate_system_prompt_preserving_evidence(
                             enhanced_system, _sys_budget2)
-                        prompt = prompt[-_prompt_budget2:]
+                        from eli.runtime.session_continuity import fit_exchange_prompt as _fit_exchange
+                        prompt = _fit_exchange(prompt, _prompt_budget2)
                         log.debug(
     f"[COGNITIVE] Direct GGUF overflow: truncated to fit n_ctx={_n_ctx_pf2}")
                     with self._gguf_lock:
@@ -7783,6 +7788,22 @@ Answer:"""
                     reasoning_mode=reasoning_mode,
                     situation_brief=situation_brief,
                 )
+                # The turn record (what the pipeline did on recent turns, put in for a question or complaint about
+                # ELI) goes beside the recent exchange, just before the message: in the middle of the system prompt
+                # the overflow trim cut it, and "you just told me a news article" was answered without it.
+                try:
+                    from eli.kernel.request_context import turn_facts_var as _tfv
+                    _rec_rows = list(((_tfv.get() or {}).get("_record_lines")) or [])
+                    if _rec_rows:
+                        from eli.cognition.self_claims import record_block as _record_block
+                        _rec_blk = _record_block(_rec_rows)
+                        if _rec_blk and _rec_blk not in prompt:
+                            enhanced_system = enhanced_system.replace(_rec_blk, "")
+                            _rh, _rsep, _rmsg = prompt.rpartition("\n\nYou: ")
+                            prompt = (_rh + "\n" + _rec_blk + _rsep + _rmsg) if _rsep else (
+                                _rec_blk + "\n\nYou: " + prompt)
+                except Exception:
+                    log.debug("[COGNITIVE] turn record placement skipped", exc_info=True)
                 # Pre-flight clamp
                 _pt = max(1, (len(enhanced_system) + len(prompt)) // 3)
                 _avail_s = max(128, _n_ctx - _pt - 64)
@@ -7809,7 +7830,8 @@ Answer:"""
                         enhanced_system = self._trim_enhanced_system_for_stream(
                             enhanced_system, _sys_budget
                         )
-                    prompt = prompt[-_prompt_budget:]
+                    from eli.runtime.session_continuity import fit_exchange_prompt as _fit_exchange
+                    prompt = _fit_exchange(prompt, _prompt_budget)
                     log.debug(
     f"[COGNITIVE] Stream overflow: truncated to fit n_ctx={_n_ctx}")
                     # Re-fit answer budget against the prompt actually sent (see non-stream
@@ -13195,6 +13217,31 @@ Answer:"""
         except Exception as _redo_err:
             log.debug(f"[REDO] skipped: {_redo_err}")
 
+        # A correction or complaint about ELI's last reply is answered, not re-run: "I did not ask about
+        # RAM, I asked why it took so long" ran the same report again, word for word. When the message is
+        # about ELI's last reply and the route is the very action that produced it, it goes to chat, which
+        # has the turn record and that reply whole. "Do it again" is the redo rule above, not this.
+        try:
+            _prev_cmd = dict(getattr(self, "_last_command_action", None) or {})
+            if (str(action).upper() not in ("CHAT", "")
+                    and not ((intent or {}).get("meta") or {}).get("redo_of_last_action")
+                    and str(_prev_cmd.get("action") or "").upper() == str(action).upper()
+                    and time.time() - float(_prev_cmd.get("ts") or 0) < 600):
+                from eli.cognition.self_claims import asks_about_own_behaviour as _about_last
+                if _about_last(user_input):
+                    log.debug(f"[CORRECTION] about the last reply — answered, not a second {action}")
+                    action = "CHAT"
+                    args = {"message": user_input}
+                    intent = dict(intent or {})
+                    intent["action"] = "CHAT"
+                    intent["args"] = args
+                    _cmeta2 = dict(intent.get("meta") or {})
+                    _cmeta2.update({"matched_by": "correction.answered_not_rerun",
+                                    "allow_chat_without_evidence": True})
+                    intent["meta"] = _cmeta2
+        except Exception:
+            log.debug("[CORRECTION] check skipped", exc_info=True)
+
         # Crisis guard (ELI_CRISIS_GUARD_V1): first-person self-harm or suicidal language is a hard
         # safety override. STT text is flat and unpunctuated, so it matches normalised phrase patterns
         # (eli.core.crisis_guard). When it fires: force CHAT (never PLAY_MEDIA / WEB_SEARCH / NEWS_FETCH),
@@ -15331,8 +15378,11 @@ Answer:"""
         # adopt a confident, actionable result; otherwise fall through to chat.
         try:
             from eli.cognition.llm_intent import is_plain_statement, is_social_checkin
+            from eli.cognition.self_claims import asks_about_own_behaviour
+            # A remark, a check-in, or a question/complaint about ELI's own last reply is never a
+            # command: asking the model which action it is cost 45 s for "What the fuck is going on".
             if router_intent and _matched_by == "fallback.chat" and (
-                    is_plain_statement(text) or is_social_checkin(text)):
+                    is_plain_statement(text) or is_social_checkin(text) or asks_about_own_behaviour(text)):
                 return router_intent
         except Exception:
             log.debug("statement check failed", exc_info=True)

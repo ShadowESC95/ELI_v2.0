@@ -16,11 +16,8 @@ log = get_logger(__name__)
 
 
 def browser_user_dir() -> Path:
-    try:
-        from eli.core.paths import get_paths
-        base = Path(get_paths().config_dir)
-    except Exception:
-        base = Path.home() / ".config" / "eli"
+    from eli.core.paths import get_paths
+    base = Path(get_paths().config_dir)
     return (base / "browser").expanduser().resolve()
 
 

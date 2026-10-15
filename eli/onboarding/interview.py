@@ -54,11 +54,8 @@ NONCOMMITTAL_FOCUS = _FOCUS_OPTIONS["d"]
 
 
 def _artifacts_dir() -> Path:
-    try:
-        from eli.core.paths import get_paths
-        d = Path(get_paths().artifacts_dir)
-    except Exception:
-        d = Path("artifacts")
+    from eli.core.paths import get_paths
+    d = Path(get_paths().artifacts_dir)
     d.mkdir(parents=True, exist_ok=True)
     return d
 

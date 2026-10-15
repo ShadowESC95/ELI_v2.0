@@ -1749,12 +1749,20 @@ def _format_cognition_runtime(report: Dict[str, Any], args: Optional[Dict[str, A
     lines = []
     _args = args if isinstance(args, dict) else {}
     _focus = str(_args.get("diagnostic_focus") or "").strip().lower()
-    if _focus in ("inference_ram", "latency_timing", "inference_runtime"):
+    if _focus == "latency_timing":
+        # A question about how long a reply took: the turns' own timings, then where the model runs.
+        try:
+            from eli.cognition.self_claims import explain_turn_times
+            from eli.runtime.deterministic_grounding_gate import _inference_runtime_lines
+            return explain_turn_times() + "\n\n" + _inference_runtime_lines()
+        except Exception:
+            log.debug("[EXECUTOR] turn timing report unavailable", exc_info=True)
+    if _focus in ("inference_ram", "inference_runtime"):
         try:
             from eli.runtime.inference_footprint import format_inference_footprint_report
             from eli.runtime.deterministic_grounding_gate import _inference_runtime_lines
             parts = []
-            if _focus in ("latency_timing", "inference_runtime"):
+            if _focus == "inference_runtime":
                 try:
                     parts.append(_inference_runtime_lines())
                 except Exception:
@@ -2978,7 +2986,13 @@ def self_test() -> Dict[str, Any]:
         return {"ok": overall_ok, "action": "SELF_TEST", "results": results,
                 "content": msg, "response": msg, "evidence_source": "self_test"}
 
-    if not _ollama_reachable():
+    try:
+        from eli.integrations.ollama.client import ollama_chosen as _ollama_chosen
+        _use_ollama = _ollama_chosen()
+    except Exception:
+        _use_ollama = False
+    if not _use_ollama or not _ollama_reachable():
+        # Ollama is tested only when it is the backend the user chose, not whenever one is running
         gguf_run = _self_test_gguf(model_label)
         results["tests"] = gguf_run["tests"]
         results["active_backend"] = "gguf"
@@ -4318,7 +4332,14 @@ def chat(message: str, *, model: Optional[str] = None, skip_router: bool = False
     except Exception:
         log.debug("suppressed exception", exc_info=True)  # GGUF unavailable → fall through to Ollama
 
-    # ── Ollama fallback (requires network / local Ollama server) ──────────────
+    # ── Ollama: only when the user chose it as the backend, never as a fallback ──
+    try:
+        from eli.integrations.ollama.client import ollama_chosen
+        if not ollama_chosen():
+            err = "The model is not loaded yet. ELI uses its GGUF model; load it in Settings > Model."
+            return {"ok": False, "action": "CHAT", "error": "model_not_loaded", "content": err, "response": err}
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
     try:
         body = {"model": model, "messages": [{"role": "user", "content": msg}], "stream": False}
         res = requests.post(f"{_OLLAMA_HOST}/api/chat", json=body, timeout=CHAT_TIMEOUT_S)
@@ -4378,6 +4399,15 @@ def chat_stream(message: str, *, model: Optional[str] = None):
             "Run PERSONA_LOCK_SET with the intended model/modelfile, or fix environment drift."
         )
         return
+
+    try:
+        from eli.integrations.ollama.client import ollama_chosen
+        if not ollama_chosen():
+            # Ollama only when the user chose it as the backend: never a fallback for the GGUF model
+            yield "The model is not loaded yet. ELI uses its GGUF model; load it in Settings > Model."
+            return
+    except Exception:
+        log.debug("suppressed exception", exc_info=True)
 
     model = (model or DEFAULT_CHAT_MODEL).strip()
     full = []

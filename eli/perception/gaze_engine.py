@@ -66,24 +66,16 @@ def _inject_gaze_core() -> bool:
 
 # ── Cross-platform state/config paths (platformdirs via eli.core.paths) ──────
 def _gaze_state_dir() -> Path:
-    try:
-        from eli.core.paths import data_dir
-        base = Path(data_dir())
-    except Exception:
-        xdg = os.environ.get("XDG_STATE_HOME")
-        base = Path(xdg).expanduser() if xdg else Path.home() / ".local" / "state"
+    from eli.core.paths import data_dir
+    base = Path(data_dir())
     p = base / "eli_ar_avatar"
     p.mkdir(parents=True, exist_ok=True)
     return p
 
 
 def _gaze_config_dir() -> Path:
-    try:
-        from eli.core.paths import config_dir
-        base = Path(config_dir())
-    except Exception:
-        xdg = os.environ.get("XDG_CONFIG_HOME")
-        base = Path(xdg).expanduser() if xdg else Path.home() / ".config"
+    from eli.core.paths import config_dir
+    base = Path(config_dir())
     p = base / "eli_ar_avatar"
     p.mkdir(parents=True, exist_ok=True)
     return p

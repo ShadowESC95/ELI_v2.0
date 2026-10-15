@@ -1469,11 +1469,8 @@ class ELIAudioSTT:
     # ── Voice profile learning ───────────────────────────────────────────
     def _voice_profile_path(self):
         from pathlib import Path
-        try:
-            from eli.core.paths import get_paths
-            return get_paths().artifacts_dir / "runtime" / "voice_profile.json"
-        except Exception:
-            return Path.home() / ".eli_voice_profile.json"
+        from eli.core.paths import get_paths
+        return get_paths().artifacts_dir / "runtime" / "voice_profile.json"
 
     def _load_voice_profile(self) -> dict:
         import json

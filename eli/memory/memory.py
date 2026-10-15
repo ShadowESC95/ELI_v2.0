@@ -4073,6 +4073,14 @@ class Memory(metaclass=_MemoryMeta):
             ).fetchone()
             if not row or not row[0]:
                 return
+            # A complaint, insult or correction aimed at ELI is not a topic ELI holds a position on:
+            # "it is 2026 you fucking idiot" was recorded as a stance on "2026 idiot".
+            try:
+                from eli.cognition.self_claims import asks_about_own_behaviour
+                if asks_about_own_behaviour(str(row[0])):
+                    return
+            except Exception:
+                log.debug("stance: own-behaviour check failed", exc_info=True)
             topic = capture(conn.cursor(), str(row[0]), str(reply or ""))
             if topic:
                 conn.commit()

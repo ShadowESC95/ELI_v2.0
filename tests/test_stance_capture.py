@@ -122,3 +122,21 @@ def test_a_contradicting_position_is_declined_not_swapped(cur):
     SS.record_stance(cur, t, "I am not conscious in that sense.")
     assert SS.record_stance(cur, t, "I am conscious after all.") is False
     assert "not conscious" in SS.get_stance(cur, t).statement
+
+
+def test_an_insult_or_complaint_is_not_a_topic_eli_holds_a_position_on(monkeypatch):
+    """'it is 2026 you fucking idiot' was recorded as a stance on '2026 idiot'."""
+    import eli.cognition.stance_capture as stc
+    from eli.memory.memory import Memory
+    calls = []
+    monkeypatch.setattr(stc, "capture", lambda *a, **k: calls.append(a) or "topic")
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE conversation_turns (id INTEGER PRIMARY KEY, session_id TEXT, role TEXT, content TEXT)")
+    con.execute("INSERT INTO conversation_turns (session_id, role, content) VALUES "
+                "('s', 'user', 'it is 2026 you fucking idiot, and you still are talking shit!')")
+
+    class _Fake:
+        def _get_connection(self):
+            return con
+    Memory._capture_stance(_Fake(), POSITION, "s")
+    assert not calls

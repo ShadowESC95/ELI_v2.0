@@ -229,7 +229,18 @@ def is_running() -> bool:
 _autostart_tried = False
 
 
-def ensure_server_running(timeout: float = 8.0) -> bool:
+def ollama_chosen() -> bool:
+    """Whether the user chose an Ollama model as ELI's backend (in the GUI or at start-up): the saved
+    provider is "ollama" (ELI_PROVIDER=ollama sets it too). Only then does ELI use Ollama at all —
+    never as a fallback, never because a server happens to be running (another app's, say)."""
+    try:
+        from eli.core.runtime_settings import load_runtime_settings
+        return str((load_runtime_settings() or {}).get("provider") or "").strip().lower() == "ollama"
+    except Exception:
+        return False
+
+
+def ensure_server_running(timeout: float = 8.0, *, user_choice: bool = False) -> bool:
     """Make Ollama reachable if we reasonably can.
 
     The #1 "Ollama not loading anything" cause is simply that the local server
@@ -240,6 +251,10 @@ def ensure_server_running(timeout: float = 8.0) -> bool:
     ``ELI_OLLAMA_AUTOSTART=0``. Returns True if reachable (already or after start).
     """
     global _autostart_tried
+    # Ollama is the user's choice, never ELI's: started (and used) only when its provider is selected,
+    # or while the user is choosing it (user_choice: the start-up dialog or the GUI's Ollama picker).
+    if not (user_choice or ollama_chosen()):
+        return False
     if is_running():
         return True
     if os.environ.get("ELI_OLLAMA_AUTOSTART", "1").strip().lower() in {"0", "false", "no", "off"}:
@@ -280,12 +295,13 @@ def get_version() -> str:
         return "unavailable"
 
 
-def list_models(autostart: bool = True) -> List[str]:
+def list_models(autostart: bool = False) -> List[str]:
     """
     Return a sorted list of installed Ollama model names.
     Returns [] if Ollama is not running or no models installed.
-    Safe to call at any time — never raises. Auto-starts a local Ollama server if
-    it's installed but stopped (the common "not loading anything" case).
+    Safe to call at any time — never raises. Does not start the server unless `autostart`:
+    filling in a model list at start-up started `ollama serve` while the model in use was a GGUF.
+    The server is started when a reply is actually asked of an Ollama model (chat, chat_completion).
     """
     if autostart:
         ensure_server_running()
@@ -493,6 +509,9 @@ def chat(
         },
     }
 
+    if not ollama_chosen():
+        raise RuntimeError("Ollama is not ELI's selected backend; choose an Ollama model in Settings or at start-up")
+    ensure_server_running()   # an Ollama model is being used: the one time it should start
     data = _post("/api/chat", payload, timeout=180)
     msg = data.get("message", {})
     return (msg.get("content") or "").strip()
@@ -510,6 +529,11 @@ def chat_completion(
 
     Accepted kwargs: temperature, max_tokens, num_predict, top_p, top_k, repeat_penalty
     """
+    if not ollama_chosen():
+        return ("[Ollama is not ELI's selected backend. To use an Ollama model, choose it in "
+                "Settings > Model or at start-up; ELI is using its GGUF model.]")
+    if not is_running():
+        ensure_server_running()   # a reply is being asked of the chosen Ollama model: start it if installed
     if not is_running():
         # `ollama serve` is Linux advice; Windows/macOS users need their own
         # instructions, and everyone needs to see WHICH host was actually tried.

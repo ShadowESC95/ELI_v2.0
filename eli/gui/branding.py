@@ -7,7 +7,7 @@ import shutil
 from pathlib import Path
 from typing import Optional
 
-ICON_NAME = "eli"
+ICON_NAME = "eli-v2"  # named for v2: other ELI versions install their own icons
 _ICON_REL_CANDIDATES = (
     "packaging/desktop/Eli_Icon.png",
     "blueprints/Eli_Icon.png",
@@ -95,7 +95,7 @@ def write_packaged_icons(root: Optional[Path] = None) -> Path:
 
 
 def install_linux_theme_icon(root: Optional[Path] = None) -> str:
-    """Install ~/.local/share/icons/hicolor/*/apps/eli.png — returns Freedesktop icon name."""
+    """Install ~/.local/share/icons/hicolor/*/apps/eli-v2.png — returns Freedesktop icon name."""
     src = source_icon_path(root)
     if src is None:
         return ICON_NAME

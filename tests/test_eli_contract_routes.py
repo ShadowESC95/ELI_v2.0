@@ -93,3 +93,16 @@ def test_gui_runtime_audit_executor_shape():
         "proof_requested": True,
     })
     assert_standard_result(result, "GUI_RUNTIME_AUDIT")
+
+
+def test_a_slow_reply_is_answered_with_its_timings_and_ram_with_ram(monkeypatch):
+    """'that took over a minute??' got the inference-RAM report, twice. Time words get the turns'
+    recorded timings; RAM words keep the RAM report."""
+    from eli.execution import executor_enhanced as ex
+    r = route("that took over a minute?? i didn't ask if anything was carried out")
+    assert r["action"] == "EXPLAIN_COGNITION_RUNTIME" and r["args"]["diagnostic_focus"] == "latency_timing"
+    monkeypatch.setattr("eli.cognition.self_claims.explain_turn_times",
+                        lambda *a, **k: "How long the recent replies took, from the pipeline's own record")
+    out = ex._format_cognition_runtime({"ok": True}, {"diagnostic_focus": "latency_timing", "question": "why so slow"})
+    assert "How long the recent replies took" in out
+    assert "inference RAM" not in out

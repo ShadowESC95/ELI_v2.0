@@ -14,7 +14,8 @@ def _default_goal_store() -> Path:
     env = os.environ.get("ELI_GOAL_STORE", "").strip()
     if env:
         return Path(env).expanduser()
-    return Path("artifacts/runtime/goals.json")
+    from eli.core.paths import get_paths
+    return Path(get_paths().artifacts_dir) / "runtime" / "goals.json"
 
 
 def goal_store_path() -> Path:

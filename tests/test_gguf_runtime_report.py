@@ -74,3 +74,13 @@ def test_gguf_diagnostics_report_includes_runtime_version(monkeypatch):
     txt = grr.format_gguf_diagnostics_report(question="nemotron")
     assert "llama-cpp-python: 0.3.16" in txt
     assert "unknown model architecture" in txt.lower() or "Common GGUF" in txt
+
+
+def test_a_window_rounded_up_is_not_called_reduced(monkeypatch):
+    """Asked for 14000, llama.cpp gave 14080 and the report said "reduced to fit VRAM"."""
+    from eli.runtime import deterministic_grounding_gate as g
+    monkeypatch.setattr(g, "_runtime_snapshot", lambda: {
+        "model_name": "m.gguf", "provider": "gguf",
+        "requested": {"n_ctx": 14000}, "effective": {"n_ctx": 14080, "n_gpu_layers": 9}})
+    out = g._inference_runtime_lines()
+    assert "14080" in out and "rounded up" in out and "reduced" not in out

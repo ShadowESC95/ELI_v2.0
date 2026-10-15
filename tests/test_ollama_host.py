@@ -104,3 +104,23 @@ def test_gui_query_normalises_the_same_way(monkeypatch):
     names, err = startup._query_ollama_tags("localhost:11434", timeout=1)
     assert names is None and err is not None
     assert seen and seen[0] == "http://localhost:11434/api/tags"
+
+
+def test_ollama_never_starts_or_answers_unless_it_is_the_chosen_backend(monkeypatch):
+    """2.5.14 started `ollama serve` at launch with a GGUF model in use. Ollama is the user's choice:
+    started only when chosen (or while being chosen in the GUI / start-up), never a fallback."""
+    import subprocess
+    from eli.integrations.ollama import client
+    spawned = []
+    monkeypatch.delenv("ELI_OLLAMA_AUTOSTART", raising=False)
+    monkeypatch.setattr(client, "is_running", lambda: False)
+    monkeypatch.setattr(client, "ollama_chosen", lambda: False)
+    monkeypatch.setattr(client, "_autostart_tried", False)
+    monkeypatch.setattr("shutil.which", lambda name: "/usr/bin/ollama")
+    monkeypatch.setattr(client, "candidate_hosts", lambda *a, **k: ["http://127.0.0.1:11434"])
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: spawned.append(a))
+    assert client.ensure_server_running(timeout=0.1) is False
+    assert "not ELI's selected backend" in client.chat_completion("hi")
+    assert not spawned
+    client.ensure_server_running(timeout=0.1, user_choice=True)   # the user choosing it in the GUI
+    assert spawned

@@ -21,11 +21,8 @@ class QuickNotesPlugin(Plugin):
         super().__init__()
 
     def _notes_dir(self) -> Path:
-        try:
-            from eli.core.paths import get_paths
-            d = get_paths().artifacts_dir / "notes"
-        except Exception:
-            d = Path.home() / ".eli" / "notes"
+        from eli.core.paths import get_paths
+        d = get_paths().artifacts_dir / "notes"
         d.mkdir(parents=True, exist_ok=True)
         return d
 

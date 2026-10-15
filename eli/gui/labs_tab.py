@@ -316,7 +316,10 @@ class _CodeRunnerThread(QThread):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class _NotebookTab(QWidget):
-    _DATA_FILE = Path.home() / ".eli" / "labs_notebook.json"
+    @property
+    def _DATA_FILE(self) -> Path:
+        from eli.core.paths import adopt_legacy_file, data_dir
+        return adopt_legacy_file(data_dir() / "labs" / "labs_notebook.json", "~/.eli/labs_notebook.json")
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -3746,7 +3749,8 @@ class _ReportTab(QWidget):
             return
 
     def _rb_manifest_path(self, title: str) -> Path:
-        root = Path("artifacts/documents")
+        from eli.core.paths import documents_dir
+        root = Path(documents_dir())
         root.mkdir(parents=True, exist_ok=True)
         safe = re.sub(r"[^A-Za-z0-9._-]+", "_", title.strip() or "eli_report").strip("_") or "eli_report"
         return root / f"{safe}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.generation_manifest.json"
@@ -4475,7 +4479,10 @@ class _FileChatTab(QWidget):
 # ═══════════════════════════════════════════════════════════════════════════
 
 class _WorkspacesTab(QWidget):
-    _DATA_FILE = Path.home() / ".eli" / "labs_workspaces.json"
+    @property
+    def _DATA_FILE(self) -> Path:
+        from eli.core.paths import adopt_legacy_file, data_dir
+        return adopt_legacy_file(data_dir() / "labs" / "labs_workspaces.json", "~/.eli/labs_workspaces.json")
 
     def __init__(self, parent=None):
         super().__init__(parent)

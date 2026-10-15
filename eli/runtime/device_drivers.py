@@ -29,11 +29,8 @@ log = logging.getLogger(__name__)
 
 def _creds_dir() -> Path:
     """Per-device credentials (ADB keys, AirPlay creds) live beside the registry, 0700."""
-    try:
-        from eli.core.paths import get_paths
-        p = Path(get_paths().artifacts_dir) / "devices" / "creds"
-    except Exception:
-        p = Path("artifacts") / "devices" / "creds"
+    from eli.core.paths import get_paths
+    p = Path(get_paths().artifacts_dir) / "devices" / "creds"
     p.mkdir(parents=True, exist_ok=True)
     try:
         p.chmod(0o700)
