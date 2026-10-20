@@ -9,6 +9,17 @@ def test_a_reply_cut_at_its_limit_ends_at_its_last_finished_line():
     assert fa.finished("### Methods\n1. **Action:** variational.\n4.  **") == "### Methods\n1. **Action:** variational."
     assert fa.finished("All done.") == "All done."
     assert fa.finished("The documents outline an attempt to") == "The documents outline an attempt to…"
+    # cut right after a heading's closing ** it looked finished, and the PDF showed the heading alone
+    cut = "Intro.\n\n6. **Roadmaps**:\n   - Numerical methods.\n\n7.  **Theoretical Challenges**"
+    assert fa.finished(cut) == "Intro.\n\n6. **Roadmaps**:\n   - Numerical methods."
+    assert fa.finished("Intro.\n\nKey themes include:\n1.  **") == "Intro."
+
+
+def test_the_model_is_told_how_many_words_its_reply_holds(monkeypatch):
+    monkeypatch.setattr("eli.cognition.context_budget.chars_per_token", lambda: 4.0)
+    assert fa._words(700, "aaaa bbbb") == int(700 * 4.0 * 2 / 9)
+    assert fa._words(700, "a b c d") > fa._words(700, "abcdefghij klmnopqrst")     # longer words, fewer
+    assert all("{words}" in ask for ask in (fa._PART_ASK, fa._JOIN_ASK, fa._FILE_ASK))
 
 
 def test_every_document_reaches_the_summary_however_many_there_are():
@@ -24,6 +35,7 @@ def test_every_document_reaches_the_summary_however_many_there_are():
     assert len(parts) > 1
     assert all(any(f"Doc{i}.pdf" in p for p in parts) for i in range(12))
     assert asked[-1].startswith("Below are 4 summaries, each of a share of the 12 documents") and "Group" not in asked[-1]
+    assert all(" words, so it ends complete." in a for a in asked)
     assert out == f"summary {len(asked)}."
 
 
@@ -41,6 +53,9 @@ def test_a_folder_goes_to_the_document_index_and_a_saved_document(tmp_path, inde
     folder.mkdir()
     for i in range(3):
         (folder / f"chapter{i}.pdf").write_text(f"Chapter {i} entropy gradient field Xi")
+    for sub in ("a", "b"):          # the same name in two subfolders is shown by where it is
+        (folder / sub).mkdir()
+        (folder / sub / "notes.pdf").write_text(f"Notes on {sub}")
     (folder / "broken.pdf").write_bytes(b"")
     # the reader stands in for pypdf, which the test setup's mocked Pillow keeps from importing
     monkeypatch.setattr("eli.plugins.document_reader.plugin.document_sections",
@@ -50,10 +65,11 @@ def test_a_folder_goes_to_the_document_index_and_a_saved_document(tmp_path, inde
     stored = []
     monkeypatch.setattr("eli.memory.memory.Memory.store_memory", lambda *a, **k: stored.append(a))
     out = fa.analyse(folder, progress=lambda done, total, stage: seen.append((stage, done, total)))
-    assert out["count"] == 3 and out["unreadable"] == ["broken.pdf"] and not stored
-    assert {d["title"] for d in index.documents()} == {"chapter0.pdf", "chapter1.pdf", "chapter2.pdf"}
+    assert out["count"] == 5 and out["unreadable"] == ["broken.pdf"] and not stored
+    assert {d["title"] for d in index.documents()} == {"chapter0.pdf", "chapter1.pdf", "chapter2.pdf", "notes.pdf"}
+    assert "| a/notes.pdf |" in out["content"] and "| b/notes.pdf |" in out["content"]
     assert all(f"chapter{i}.pdf" in calls[0] for i in range(3))
-    assert ("reading", 4, 4) in seen and seen[-1][0] == "summarising"
+    assert ("reading", 6, 6) in seen and seen[-1][0] == "summarising"
     assert "## Documents" in out["content"] and "broken.pdf" in out["content"]
     saved = out["document_path"]
     assert saved and (saved.endswith(".pdf") or saved.endswith(".docx"))

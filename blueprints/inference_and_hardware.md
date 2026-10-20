@@ -1,6 +1,6 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.5.20.** GGUF path is canonical (optional Ollama backend still
+> **Updated for v2.5.21.** GGUF path is canonical (optional Ollama backend still
 > exists as a secondary path). What a model loads with is planned by llama.cpp's own
 > load simulation on every GPU it sees (`core/load_plan.py`); the prompt format is
 > the model's own chat template. Token budgets scale by reasoning mode via
@@ -251,10 +251,12 @@ grounding it would have drawn from was empty.
   `_resolve_relative_model_paths` + `_heal_model_paths` (fix stale absolute paths
   when the project moves machines), and `_portable_settings_for_storage` (strip
   machine-specific values before storage) — though personal values like
-  `user_name` can still end up tracked. A path outside this install is cleared only when it no
-  longer exists here: a model the user browsed to (a download, another drive) is kept. The
-  guard cleared every outside model path unless `ELI_ALLOW_EXTERNAL_MODEL_PATHS` was set, so a
-  chosen model was gone from the settings at the next load.
+  `user_name` can still end up tracked. A model path outside this install is cleared only when it
+  no longer exists here: a model the user browsed to (a download, another drive) is kept. Two
+  guards (`_eli_runtime_sanitize_path_string`, then `_eli_final_clean_path_value`) each cleared
+  every outside model path, so a chosen model was gone from the settings at the next load (fixed
+  in 2.5.21; 2.5.20 fixed only the first guard). The final pass now checks only that a model path
+  leads somewhere: a relative one under `models/`, a full one that exists.
 - **`settings_file_was_corrupt_on_last_load()`** — a settings file that exists
   but fails to parse (truncated write, disk-full, a concurrent-write race)
   silently fell back to `DEFAULTS` with no signal that the fallback happened,

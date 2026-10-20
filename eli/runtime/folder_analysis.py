@@ -26,15 +26,17 @@ _SYSTEM = "You are a precise technical analyst summarising a collection of resea
 _PART_ASK = ("Below are the opening pages of {n} PDF documents from the folder “{folder}”{part}. Write a "
              "concise, technical summary of what they cover: the central topics, methods/formalism, and how "
              "the documents relate. Be specific and grounded ONLY in the text shown; do not invent results. "
-             "Write formulas in LaTeX between $ signs.\n\n")
+             "Write formulas in LaTeX between $ signs. Keep it within about {words} words, so it ends complete.\n\n")
 _JOIN_ASK = ("Below are {n} summaries, each of a share of the {docs} documents in the folder “{folder}”. Write "
              "one technical summary of the whole folder: the central topics, methods/formalism, and how the "
              "documents relate. Use only what the summaries say, and do not mention the summaries or how the "
-             "folder was split. Write formulas in LaTeX between $ signs.\n\n")
+             "folder was split. Write formulas in LaTeX between $ signs. Keep it within about {words} words, so it "
+             "ends complete.\n\n")
 _FILE_ASK = ("Summarise this single research document titled “{name}”. Cover: (1) the central topic/claim, "
              "(2) the methods/formalism used, (3) key findings or conclusions, and (4) any notable equations "
              "or results named in the text. Be specific and grounded ONLY in the text below; do not invent "
-             "results or citations. Write formulas in LaTeX between $ signs.\n\n")
+             "results or citations. Write formulas in LaTeX between $ signs. Keep it within about {words} words, "
+             "so it ends complete.\n\n")
 
 
 def _model():
@@ -57,24 +59,35 @@ def _model():
 
 
 _LONE_MARKER = re.compile(r"^\s*(?:#{1,6}|[-*+]|\d+[.)])?\s*\**\s*$")
+# a heading or label, which introduces what follows it: at the end of a reply, what followed was cut
+_LABEL = re.compile(r"^\s*(?:#{1,6}\s.*|(?:[-*+]|\d+[.)])?\s*\*\*[^*]+\*\*\s*:?|.*:)\s*$")
 
 
 def _line_done(line: str) -> bool:
     s = line.rstrip()
-    return (not _LONE_MARKER.match(s) and s.count("**") % 2 == 0
+    return (not _LONE_MARKER.match(s) and not _LABEL.match(s) and s.count("**") % 2 == 0
             and bool(re.search(r"[.!?)\]}$`\"”’|]$|\*\*$", s)))
 
 
 def finished(text: str) -> str:
-    """A reply that hit its token limit ends mid-line ("4.  **"): end it at the last finished line."""
+    """A reply that hit its token limit ends mid-line ("4.  **"), or on a heading whose points were cut
+    ("7. **Theoretical Challenges**"): end it at the last finished line."""
     whole = str(text or "").rstrip()
     lines = whole.split("\n")
     if _line_done(lines[-1]):
         return whole
     lines.pop()
-    while lines and (not lines[-1].strip() or _LONE_MARKER.match(lines[-1])):
+    while lines and (not lines[-1].strip() or _LONE_MARKER.match(lines[-1]) or _LABEL.match(lines[-1])):
         lines.pop()
     return "\n".join(lines).rstrip() or (whole + "…" if whole else "")
+
+
+def _words(reply_tokens: int, text: str) -> int:
+    """The words a reply of `reply_tokens` holds: the loaded model's characters per token, over the
+    characters per word of the text it reads. Told its room, the model ends where it means to instead
+    of being cut off mid-list."""
+    from eli.cognition.context_budget import chars_per_token
+    return max(1, int(reply_tokens * chars_per_token() * len(text.split()) / max(1, len(text))))
 
 
 def _pack(items: List[str], limit: int) -> List[List[str]]:
@@ -96,14 +109,16 @@ def _summary(openings: List[str], folder: str, call, room: int, report) -> str:
     for i, part in enumerate(parts, 1):
         report(i - 1, len(parts), "summarising")
         where = f" (part {i} of {len(parts)})" if len(parts) > 1 else ""
-        notes.append(call(_PART_ASK.format(n=len(part), folder=folder, part=where) + "\n\n".join(part),
-                          SUMMARY_TOKENS))
+        text = "\n\n".join(part)
+        notes.append(call(_PART_ASK.format(n=len(part), folder=folder, part=where,
+                                           words=_words(SUMMARY_TOKENS, text)) + text, SUMMARY_TOKENS))
     report(len(parts), len(parts), "summarising")
     while len(notes) > 1:
         groups = _pack(notes, max(1, room - len(_JOIN_ASK)))
         if len(groups) == len(notes):
             break       # each summary alone fills a call: nothing left to join
-        notes = [call(_JOIN_ASK.format(n=len(g), folder=folder, docs=len(openings)) + "\n\n---\n\n".join(g),
+        notes = [call(_JOIN_ASK.format(n=len(g), folder=folder, docs=len(openings),
+                                       words=_words(SUMMARY_TOKENS, "\n\n".join(g))) + "\n\n---\n\n".join(g),
                       SUMMARY_TOKENS) for g in groups]
     return "\n\n".join(notes)
 
@@ -124,6 +139,14 @@ def analyse(folder: Any, *, recursive: bool = True, limit: Optional[int] = None,
 
     root = Path(str(folder)).expanduser()
     name = root.name or str(root)
+
+    def shown(path) -> str:
+        """Where a file sits in the folder: three subfolders each held a symbolism_interpretation.pdf."""
+        try:
+            return Path(path).resolve().relative_to(root.resolve()).as_posix()
+        except (ValueError, OSError):
+            return Path(path).name
+
     files = document_files(root, (".pdf",), recursive)
     if limit:
         files = files[: int(limit)]
@@ -140,12 +163,12 @@ def analyse(folder: Any, *, recursive: bool = True, limit: Optional[int] = None,
             if res.get("ok"):
                 docs.append(index.outline(res["doc_id"], share))
             else:
-                unreadable.append((path.name, res.get("error") or "unreadable"))
+                unreadable.append((shown(path), res.get("error") or "unreadable"))
             continue
         from eli.plugins.document_reader.plugin import document_sections
         parts = document_sections(path)
         if not parts:
-            unreadable.append((path.name, "no readable text"))
+            unreadable.append((shown(path), "no readable text"))
             continue
         text = "\n".join(t for _, t in parts)
         docs.append({"title": path.name, "path": str(path), "chars": len(text),
@@ -160,7 +183,8 @@ def analyse(folder: Any, *, recursive: bool = True, limit: Optional[int] = None,
         blocks = []
         for i, d in enumerate(docs):
             report(i, len(docs), "summarising")
-            text = call(_FILE_ASK.format(name=d["title"]) + d["opening"], PER_FILE_TOKENS) if call else ""
+            text = (call(_FILE_ASK.format(name=d["title"], words=_words(PER_FILE_TOKENS, d["opening"]))
+                         + d["opening"], PER_FILE_TOKENS) if call else "")
             blocks.append(f"## {d['title']}\n_{d['pages'] or '?'} pages_\n\n"
                           + (text or "(No model loaded: no summary.)"))
         report(len(docs), len(docs), "summarising")
@@ -171,7 +195,7 @@ def analyse(folder: Any, *, recursive: bool = True, limit: Optional[int] = None,
         summary = "No model is loaded, so there is no summary; the documents are in the index."
 
     when = time.strftime("%d %B %Y")
-    rows = "\n".join(f"| {i} | {d['title'].replace('|', '/')} | {d['pages'] or ''} | {d['chars']:,} |"
+    rows = "\n".join(f"| {i} | {shown(d['path']).replace('|', '/')} | {d['pages'] or ''} | {d['chars']:,} |"
                      for i, d in enumerate(docs, 1))
     md = (f"{len(docs)} of {len(files)} documents read on {when}"
           + (f"; {len(unreadable)} could not be read." if unreadable else ".")

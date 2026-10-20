@@ -133,7 +133,7 @@ def document_sections(path) -> list:
     if not text.strip():
         return []
     starts = out.get("page_starts") or []
-    if len(starts) > 1:
+    if starts:              # a one-page PDF is page 1 too: unlabelled, it was listed with no pages
         ends = starts[1:] + [len(text)]
         return [(f"p. {i}", text[a:b]) for i, (a, b) in enumerate(zip(starts, ends), 1) if text[a:b].strip()]
     return [("", text)]

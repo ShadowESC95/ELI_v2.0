@@ -12303,18 +12303,17 @@ class EliMainWindow(QMainWindow):
         if start is None:
             return
         try:
-            from eli.runtime.rich_document import add_images, has_markup, to_html
+            from eli.runtime.rich_document import has_markup, put_html, to_html
             cursor = self.chat_display.textCursor()
             cursor.setPosition(int(start))
             cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
             text = cursor.selectedText().replace("\u2029", "\n")
             if not has_markup(text):
                 return
-            body, images = to_html(text, color=color, size_pt=self.chat_display.font().pointSizeF(),
+            body, images = to_html(text, color=color, font=self.chat_display.font(),
                                    scale=self.chat_display.devicePixelRatioF())
-            add_images(self.chat_display.document(), images)
             cursor.removeSelectedText()
-            cursor.insertHtml(f'<div style="color:{color}">{body}</div>')
+            put_html(self.chat_display.document(), f'<div style="color:{color}">{body}</div>', images, cursor)
         except Exception:
             log.debug("reply left as plain text", exc_info=True)
 

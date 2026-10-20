@@ -177,12 +177,11 @@ class TasksTab(QWidget):
             body.append(_note(d))
         text = "\n\n".join(body)
         try:
-            from eli.runtime.rich_document import add_images, to_html
+            from eli.runtime.rich_document import put_html, to_html
             html, images = to_html(text, color=self.result.palette().text().color().name(),
-                                   size_pt=self.result.font().pointSizeF(),
+                                   font=self.result.font(),
                                    scale=self.result.devicePixelRatioF())
-            add_images(self.result.document(), images)
-            self.result.setHtml(html)
+            put_html(self.result.document(), html, images)
         except Exception:
             log.debug("task result shown as plain text", exc_info=True)
             self.result.setPlainText(text)

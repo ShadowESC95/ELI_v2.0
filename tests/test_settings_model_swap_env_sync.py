@@ -107,15 +107,25 @@ def test_draft_only_gguf_preflight(tmp_path):
 
 
 def test_a_model_outside_elis_folder_that_exists_is_kept(tmp_path, monkeypatch):
-    """A browsed-to model (~/Downloads, another drive) was wiped from the settings at the next load
-    unless ELI_ALLOW_EXTERNAL_MODEL_PATHS was set; only a path that no longer exists is stale."""
+    """A browsed-to model (~/Downloads, another drive) was wiped from the settings at the next load:
+    two guards each cleared a full path outside the install folder. Only a path that no longer exists
+    is stale. Read through load_settings(), as the app reads it."""
+    import json
     from eli.core import runtime_settings as rs
-    monkeypatch.delenv("ELI_ALLOW_EXTERNAL_MODEL_PATHS", raising=False)
+    for name in ("ELI_ALLOW_EXTERNAL_MODEL_PATHS", "ELI_SETTINGS_FILE", "ELI_SETTINGS_PATH", "ELI_GGUF_MODEL_PATH",
+                 "ELI_MODEL_PATH", "ELI_CUSTOM_MODEL_PATH", "ELI_BUNDLED_MODEL_PATH", "ELI_GGUF_MODEL"):
+        monkeypatch.delenv(name, raising=False)
     root, downloads = tmp_path / "ELI_v2", tmp_path / "Downloads"
-    root.mkdir()
+    (root / "config").mkdir(parents=True)
     downloads.mkdir()
     model = downloads / "chosen.gguf"
     model.write_bytes(b"GGUF")
-    monkeypatch.setattr(rs, "_eli_runtime_physical_project_root", lambda: root)
-    assert rs._eli_runtime_sanitize_path_string("model_path", str(model)) == str(model.resolve())
-    assert rs._eli_runtime_sanitize_path_string("model_path", str(downloads / "gone.gguf")) == ""
+    monkeypatch.setenv("ELI_CONFIG_DIR", str(root / "config"))
+    for fn in ("_eli_runtime_physical_project_root", "_eli_final_project_root"):
+        monkeypatch.setattr(rs, fn, lambda: root)
+    (root / "config" / "settings.json").write_text(json.dumps(
+        {"provider": "custom_gguf", "model_path": str(model), "custom_model_path": str(downloads / "gone.gguf"),
+         "gguf_model_path": "../elsewhere.gguf"}), encoding="utf-8")
+    loaded = rs.load_settings()
+    assert loaded["model_path"] == str(model.resolve())
+    assert loaded["custom_model_path"] == "" and loaded["gguf_model_path"] == ""

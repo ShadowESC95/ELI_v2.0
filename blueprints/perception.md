@@ -312,12 +312,26 @@ extracted content (text/OCR/structure) into the grounded pipeline.
 
 A folder (`ANALYZE_PDF_FOLDER`, `eli/runtime/folder_analysis.py`) is read through the document
 index: every PDF is stored whole there, one summary covers all of them (in parts of what one call
-has always read, then joined), a reply cut at its limit ends at its last finished line, and the
-result, with the document list and any unreadable files, is saved as a PDF
-(`eli/runtime/rich_document.py`: matplotlib typesets the formulas, Qt lays out the page, .docx
-where there is no window). The same rendering lays out chat replies and task results, so
-`$\Xi$` reads as Ξ. It used to file each piece of every PDF as a personal memory and summarise
-from the first 17 documents.
+has always read, then joined), each call is told how many words its reply holds (the reply limit
+times the model's measured characters per token, over the characters per word of what it reads),
+a reply cut at its limit still ends at its last finished line and drops a heading left with
+nothing under it, and the result, with every document listed by its path in the folder and any
+unreadable files, is saved as a PDF (`eli/runtime/rich_document.py`: matplotlib typesets the
+formulas, Qt lays out the page, .docx where there is no window). The same rendering lays out chat
+replies and task results, so `$\Xi$` reads as Ξ.
+
+Formulas match the text: each is drawn at the size whose x stands as tall as the text font's x
+(Computer Modern's x is 0.44 of its size, a sans font's about 0.54, so at the same size formulas
+looked a size smaller), and `put_html` stands each on the text's baseline with Qt's
+`AlignBaseline`, sizing the image format's font so its descent is the depth the formula was drawn
+with. Qt's HTML reader can only centre an image in the line box, which moves with whatever else
+the line holds, or stand its lower edge on the baseline, which lifts subscripts and fractions.
+A fraction standing in a displayed formula is full size (`\dfrac`), as in TeX. The PDF is laid
+out at the resolution text is measured in and drawn page by page in black: `QTextDocument.print_`
+re-lays an unpaged document out in printer units, where an image's baseline is still measured in
+screen pixels, and drawing with the window's palette printed ELI's dark-theme text near white.
+.docx pictures are lowered by their depth (`w:position`). It used to file each piece of every PDF
+as a personal memory and summarise from the first 17 documents.
 
 ## Honest assessment
 

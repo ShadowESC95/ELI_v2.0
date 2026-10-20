@@ -1,6 +1,7 @@
 """Tests for the background task manager, the cost/should-background heuristic,
 and the CHECK_JOB / BACKGROUND_JOBS executor actions. No model required."""
 
+import pytest
 import time
 
 
@@ -81,28 +82,33 @@ def test_cost_open_ended_backgrounds():
     assert should_background("write a function to add two numbers")["background"] is False
 
 
-def test_fix_file_backgrounds_by_default():
-    from eli.execution.executor_enhanced import _maybe_background_code_work
+@pytest.fixture
+def held_jobs(monkeypatch):
+    """Jobs are taken, not run. Cancelling one that had started did not stop it: it ran on after its
+    test, loaded the stand-in model, and wrote n_ctx=1 into the real runtime snapshot, which a later
+    test then read as this machine's window."""
     from eli.runtime.background_tasks import get_background_tasks
+    taken = []
+    monkeypatch.setattr(get_background_tasks(), "submit", lambda name, fn, **kw: taken.append(name) or len(taken))
+    return taken
+
+
+def test_fix_file_backgrounds_by_default(held_jobs):
+    from eli.execution.executor_enhanced import _maybe_background_code_work
     result = _maybe_background_code_work("FIX_FILE", {"path": "eli/memory/memory.py"})
     assert result is not None
     assert result.get("background") is True
     assert "job #" in result["content"].lower()
-    jid = result.get("job_id")
-    if jid:
-        get_background_tasks().cancel(jid)
+    assert held_jobs == ["FIX_FILE: eli/memory/memory.py"]
 
 
-def test_examine_sweep_backgrounds():
+def test_examine_sweep_backgrounds(held_jobs):
     from eli.execution.executor_enhanced import _maybe_background_code_work
-    from eli.runtime.background_tasks import get_background_tasks
     result = _maybe_background_code_work(
         "EXAMINE_CODE", {"request": "examine the codebase for bugs"})
     assert result is not None
     assert result.get("background") is True
-    jid = result.get("job_id")
-    if jid:
-        get_background_tasks().cancel(jid)
+    assert held_jobs == ["EXAMINE_CODE: examine the codebase for bugs"]
 
 
 def test_examine_recall_skips_background():

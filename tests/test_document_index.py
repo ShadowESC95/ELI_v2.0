@@ -79,6 +79,10 @@ def test_every_page_of_a_pdf_is_stored_with_its_page_number(index, tmp_path, mon
     from eli.plugins.document_reader.plugin import DocumentReaderPlugin, document_sections
     assert "coolant" not in DocumentReaderPlugin().read({"path": str(pdf)})["content"]  # page 40 is past the preview
     assert len(document_sections(pdf)) == 60
+    whole = list(pages)
+    pages[1:] = []                  # one page is page 1, not unlabelled (its row showed no pages)
+    assert document_sections(pdf) == [("p. 1", pages[0])]
+    pages[:] = whole
     index.add(pdf)
     hit = index.search("how often must the reactor coolant be replaced?", 2)[0]
     assert "eighteen months" in hit["text"] and hit["where"] == "p. 40"

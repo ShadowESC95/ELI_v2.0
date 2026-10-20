@@ -1111,100 +1111,6 @@ def _eli_runtime_clear_stale_env_paths():
 
 
 
-# ---------------------------------------------------------------------
-# Portability guard: model path validation
-# ---------------------------------------------------------------------
-def _eli_project_root_for_runtime_settings() -> Path:
-    try:
-        # Same frozen exception as _eli_runtime_physical_project_root: the
-        # bundle is read-only; the rthook-pinned per-user root is the anchor.
-        return _eli_runtime_physical_project_root()
-    except Exception:
-        return Path.cwd().resolve()
-
-
-def _eli_is_relative_portable_model_path(value: str) -> bool:
-    if not value:
-        return True
-
-    try:
-        q = Path(str(value))
-    except Exception:
-        return False
-
-    if q.is_absolute():
-        return False
-
-    s = str(q).replace("\\", "/")
-    if s.startswith("../") or "/../" in s or s == "..":
-        return False
-
-    return s.startswith("models/")
-
-
-def _eli_validate_model_path_value(value):
-    """
-    Return a portable/safe model path value.
-
-    Rules:
-    - Empty is allowed.
-    - Relative models/... paths are allowed for portable templates.
-    - Absolute paths are accepted only if they exist and are inside this active
-      project root.
-    - Stale paths from another machine/user/install are rejected.
-    """
-    if value in (None, ""):
-        return ""
-
-    s = str(value).strip()
-    if not s:
-        return ""
-
-    # Portable config/template path.
-    if _eli_is_relative_portable_model_path(s):
-        return s
-
-    try:
-        root = _eli_project_root_for_runtime_settings().resolve()
-        q = Path(s).expanduser()
-        if not q.is_absolute():
-            return ""
-
-        q = q.resolve(strict=False)
-
-        # Reject nonexistent poisoned env paths such as .../BAD.gguf.
-        if not q.exists():
-            return ""
-
-        # Reject stale absolute paths outside this active install.
-        try:
-            q.relative_to(root)
-        except Exception:
-            return ""
-
-        return str(q)
-    except Exception:
-        return ""
-
-
-def _eli_sanitize_model_path_keys(settings: dict) -> dict:
-    if not isinstance(settings, dict):
-        return settings
-
-    model_keys = {
-        "model_path",
-        "custom_model_path",
-        "bundled_model_path",
-        "gguf_model_path",
-        "image_model_path",
-    }
-
-    for key in model_keys:
-        if key in settings:
-            settings[key] = _eli_validate_model_path_value(settings.get(key))
-
-    return settings
-
 def _eli_portability_load_settings(*args, **kwargs):
     _eli_runtime_clear_stale_env_paths()
     settings = _load_settings_unsanitized(*args, **kwargs)
@@ -1243,39 +1149,17 @@ def _eli_final_project_root() -> Path:
 
 
 def _eli_final_clean_path_value(value):
-    if value in (None, ""):
-        return ""
-
-    s = str(value).strip()
+    """A model path must lead to a model: a relative one stays under models/, a full one must exist,
+    wherever the user chose it. This pass also required it inside the install folder, which wiped
+    every model chosen outside it, and it ignored ELI_ALLOW_EXTERNAL_MODEL_PATHS."""
+    s = str(value or "").strip()
     if not s:
         return ""
-
-    try:
-        p = Path(s).expanduser()
-
-        # Portable relative model paths are allowed.
-        if not p.is_absolute():
-            norm = str(p).replace("\\", "/")
-            if norm.startswith("models/") and ".." not in Path(norm).parts:
-                return norm
-            return ""
-
-        root = _eli_final_project_root().resolve()
-        resolved = p.resolve(strict=False)
-
-        # Absolute model paths must exist.
-        if not resolved.exists():
-            return ""
-
-        # Absolute model paths must belong to this active install.
-        try:
-            resolved.relative_to(root)
-        except Exception:
-            return ""
-
-        return str(resolved)
-    except Exception:
-        return ""
+    p = Path(s).expanduser()
+    if p.is_absolute():
+        return s if p.exists() or _eli_runtime_truthy(os.getenv("ELI_ALLOW_EXTERNAL_MODEL_PATHS")) else ""
+    norm = s.replace("\\", "/")
+    return norm if norm.startswith("models/") and ".." not in Path(norm).parts else ""
 
 
 def _eli_final_sanitize_loaded_settings(settings):
@@ -1286,7 +1170,6 @@ def _eli_final_sanitize_loaded_settings(settings):
         str(os.environ.get("ELI_SETTINGS_FILE") or os.environ.get("ELI_SETTINGS_PATH") or "").strip()
     )
     if not explicit_settings_file:
-        # Remove stale absolute machine-specific paths from production model keys.
         for key in (
             "model_path",
             "custom_model_path",
