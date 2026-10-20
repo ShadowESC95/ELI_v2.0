@@ -214,6 +214,7 @@ def read_gguf_identity(path: Optional[str | Path]) -> dict[str, Any]:
         "family": None,
         "thinking": False,
         "draft_only": False,
+        "not_chat": "",          # what the file is when it is not a chat model (not_a_chat_model)
     }
     if not path:
         return out
@@ -223,6 +224,7 @@ def read_gguf_identity(path: Optional[str | Path]) -> dict[str, Any]:
             gguf_architecture,
             gguf_metadata,
             is_draft_only_gguf,
+            not_a_chat_model,
         )
         arch = gguf_architecture(p) or ""
         md = gguf_metadata(p) or {}
@@ -232,6 +234,7 @@ def read_gguf_identity(path: Optional[str | Path]) -> dict[str, Any]:
         out["family"] = resolve_chat_family(template=tmpl, architecture=arch, path=p)
         out["thinking"] = is_thinking_model(template=tmpl, architecture=arch, path=p)
         out["draft_only"] = bool(is_draft_only_gguf(p, arch))
+        out["not_chat"] = not_a_chat_model(p, arch, md)
     except Exception:
         out["family"] = family_from_filename(p)
     return out

@@ -81,19 +81,37 @@ def recent_turns_from_context(context: Any) -> List[Dict[str, str]]:
 
 
 def extract_thread_topic(turns: List[Dict[str, str]]) -> str:
-    """Best-effort subject of the current conversation thread."""
-    blob = " ".join(t["content"] for t in turns[-8:] if t.get("content"))
-    m = _SHOW_TITLE_RE.search(blob)
-    if m:
-        topic = m.group(1).strip(" .?!,\"'")
-        if len(topic.split()) <= 8:
-            return topic
-    m = _TITLE_BEFORE_SEASON_RE.search(blob)
-    if m:
-        return _LEADING_VERB_RE.sub("", m.group(1)).strip()
-    ents = _ENTERTAINMENT_RE.findall(blob)
-    if ents:
-        return " ".join(dict.fromkeys(str(e).strip() for e in ents[:3]))
+    """Best-effort subject of the current conversation thread: the show or film the most recent
+    turns are about. Read newest first: the whole window read in order gave the oldest title, so
+    "watching Oppenheimer now" stayed the topic after the talk had moved to something else."""
+    for turn in reversed(turns[-8:]):
+        text = str(turn.get("content") or "")
+        m = _SHOW_TITLE_RE.search(text)
+        if m:
+            topic = m.group(1).strip(" .?!,\"'")
+            if len(topic.split()) <= 8:
+                return topic
+        m = _TITLE_BEFORE_SEASON_RE.search(text)
+        if m:
+            return _LEADING_VERB_RE.sub("", m.group(1)).strip()
+        ents = _ENTERTAINMENT_RE.findall(text)
+        if ents:
+            return " ".join(dict.fromkeys(str(e).strip() for e in ents[:3]))
+    return ""
+
+
+def last_subject(turns: List[Dict[str, str]]) -> str:
+    """What the user last asked about: the subject of their most recent earlier message that has
+    one ("look up RAIMS", "no dude, RAIMS and Orcawise" -> "RAIMS and Orcawise"). What "look it up"
+    refers to. "" when no earlier message names anything."""
+    from eli.runtime.command_splitter import without_correction_lead
+    for turn in reversed(turns or []):
+        if str(turn.get("role") or "").lower() != "user":
+            continue
+        text = without_correction_lead(str(turn.get("content") or ""))
+        subject = extract_search_subject(text)
+        if subject and web_query_has_substance(subject) and not is_grounding_demand(subject):
+            return subject
     return ""
 
 
@@ -108,9 +126,10 @@ def expand_web_query(user_input: str, thread_topic: str = "") -> str:
     if topic and _UNDERSPECIFIED_RE.search(low):
         if topic.lower() not in low:
             q = f"{topic} {q}"
-    elif topic and _SEARCH_VERB_RE.search(raw) and len(q.split()) <= 8:
-        if topic.lower() not in low:
-            q = f"{topic} {q}"
+    elif topic and _SEARCH_VERB_RE.search(raw) and not web_query_has_substance(q):
+        # "google it": the topic is what "it" is. A search that names something is left as the
+        # user said it ("look up RAIMS" became "Oppenheimer now RAIMS" while a film was the topic).
+        q = topic
     return re.sub(r"\s+", " ", q).strip()
 
 
@@ -167,8 +186,9 @@ _META_STOP_RE = re.compile(
 )
 
 
-def web_query_has_substance(query: str, *, min_terms: int = 2) -> bool:
-    """True when a web query has enough content terms after stripping meta-instructions."""
+def web_query_has_substance(query: str, *, min_terms: int = 1) -> bool:
+    """True when a web query names something after stripping meta-instructions: "look it up" names
+    nothing, "look up RAIMS" names one thing (two were required, so it opened the browser)."""
     q = str(query or "").strip()
     if not q:
         return False
@@ -181,12 +201,17 @@ def build_thread_aware_query(user_input: str, turns: Optional[List[Dict[str, str
     topic = extract_thread_topic(turns or []) or get_route_thread_topic()
     raw = str(user_input or "").strip()
     subject = extract_search_subject(raw)
-    if is_grounding_demand(raw) and topic:
-        if (not subject or len(subject.split()) < 3
-                or subject.lower() in {
-                    "some facts", "facts", "info", "some info",
-                    "and come with some facts", "come with some facts",
-                }):
+    vague = (not subject or not web_query_has_substance(subject) or is_grounding_demand(subject)
+             or subject.lower() in {"some facts", "facts", "info", "some info",
+                                    "and come with some facts", "come with some facts"})
+    if is_grounding_demand(raw) and vague:
+        # "look it up": what the user last asked about. Only when no earlier message names
+        # anything does the show being talked about stand in (it gave "Oppenheimer now facts
+        # reviews plot summary" two messages after the talk had moved on to RAIMS).
+        earlier = last_subject(turns or [])
+        if earlier:
+            return expand_web_query(earlier, "")
+        if topic:
             return f"{topic} facts reviews plot summary"
     if subject:
         return expand_web_query(subject, topic)

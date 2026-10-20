@@ -120,11 +120,12 @@ AUDITED_2026_09_18_PASS4 = {
 # states the design intent is LLM narration) or the action never reaches a
 # verifiable single handler (CHAT is the model call itself; SHOW_DIFF routes
 # straight to chat(); WEB_SEARCH's own comment says its results are evidence
-# for the model, not the answer; EXECUTE_GOAL has no executor handler at all;
-# NOOP has no single handler in the dispatch ladder).
+# for the model, not the answer, and the same holds for WEB_FETCH, a linked page's
+# text (2026-10-19); EXECUTE_GOAL has no executor handler at all; NOOP has no
+# single handler in the dispatch ladder).
 AUDITED_2026_09_18_EXCLUDED = {
     "FIX_FILE", "RUN_TESTS", "CODE_SOLVE", "GENERATE_SCRIPT", "CHAT",
-    "SHOW_DIFF", "WEB_SEARCH", "EXECUTE_GOAL", "NOOP",
+    "SHOW_DIFF", "WEB_SEARCH", "WEB_FETCH", "EXECUTE_GOAL", "NOOP",
 }
 
 # The highest-risk entries: raw content/tool output that must never be

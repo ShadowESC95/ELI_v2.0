@@ -1,58 +1,41 @@
-"""Live session report (2026-10-02): the status bar said 'gpu=40' for a MoE model where
-only ~1.97GB of the 19.71GB file is actually GPU-resident (experts stay in RAM regardless
-of layer count) — "why does it say the full 40 GPU layers instead of 8 on GPU, the
-remaining is on RAM" from the user directly. 40 is the real, correct layer count (every
-layer's small core tensor IS on the GPU), but on its own it reads as "40 of 40 layers'
-worth of memory is on the GPU", which is false for MoE. Both the live "Model ready"
-status line and the Hardware Tuning panel's recommendation summary must state the real
-GPU-resident GB alongside the layer count, not the layer count alone.
-
-Qt-coupled GUI module, not directly executable in CI — verified at the source-text level,
-matching this file's established pattern (see test_moe_gpu_layer_print_matches_what_loads.py).
+"""Live session report (2026-10-02): the status bar said 'gpu=40' for a MoE model where only
+~1.97GB of the 19.71GB file was GPU-resident — "why does it say the full 40 GPU layers instead of 8
+on GPU, the remaining is on RAM". A layer count alone reads as "all of the model is on the GPU",
+which is false when experts stay in RAM. The ready line and the Hardware Tuning summary say where
+the experts are and what each card holds: both come from the load plan (eli/core/load_plan.py).
 """
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-GUI = ROOT / "eli/gui/eli_pro_audio_gui_v2_0.py"
+from eli.core.load_plan import Device, Plan
+
+GUI = Path(__file__).resolve().parents[1] / "eli/gui/eli_pro_audio_gui_v2_0.py"
 
 
-def test_model_ready_status_carries_a_moe_gb_note():
+def _moe_plan(**kw):
+    base = dict(model_path="qwen.gguf", n_ctx=60000, n_gpu_layers=41, n_batch=128, n_threads=6,
+                cache_type_k="q8_0", cache_type_v="q8_0", flash_attn=True, split_mode=1, main_gpu=0,
+                tensor_split=[18, 23], experts_in_ram=19, blocks=40,
+                devices=[Device(0, "CUDA0", "RTX 2060 SUPER", 6589, 7783, False),
+                         Device(1, "CUDA1", "RTX 2060 SUPER", 7689, 7786, False)],
+                use_mb={0: 959.0, 1: 956.0}, measured=True)
+    base.update(kw)
+    return Plan(**base)
+
+
+def test_the_plan_says_where_the_experts_are_and_what_each_card_holds():
+    text = _moe_plan().describe()
+    assert "40/40 layers on GPU + output" in text
+    assert "experts of the first 19 layers in RAM" in text
+    assert "CUDA0 RTX 2060 SUPER: uses 959 of 6589 MB free" in text and "CUDA1" in text
+
+
+def test_a_dense_plan_mentions_no_experts():
+    assert "experts" not in _moe_plan(experts_in_ram=None).describe()
+
+
+def test_the_ready_line_and_the_tuning_summary_carry_the_plan():
     src = GUI.read_text(encoding="utf-8")
-    i = src.index('f"gpu={_gpu_disp}{_moe_note} "')
-    around = src[max(0, i - 900):i + 100]
-    assert "moe_offload" in around
-    assert "plan_for_load" in around
-    assert "resident_gb" in around
-    assert "experts_gb" in around
-
-
-def test_model_ready_note_is_blank_when_not_moe():
-    """A dict-returning plan is the only thing that should add text — None must not
-    crash the f-string or silently print a stale note from a prior model."""
-    src = GUI.read_text(encoding="utf-8")
-    i = src.index('f"gpu={_gpu_disp}{_moe_note} "')
-    around = src[max(0, i - 900):i + 100]
-    assert '_moe_note = ""' in around
-    assert "if _moe_plan:" in around
-
-
-def test_hardware_tuning_recommendation_summary_carries_a_moe_gb_note():
-    src = GUI.read_text(encoding="utf-8")
-    i = src.index("_moe_note_rec = (")
-    around = src[max(0, i - 400):i + 700]
-    assert "moe_offload" in around
-    assert "plan_for_load" in around
-    assert "resident_gb" in around
-    assert "experts_gb" in around
-    assert "HW Profile (recommended)" in around
-
-
-def test_neither_moe_lookup_can_crash_the_load_or_recommendation_path():
-    """plan_for_load() does a live GPU/RAM probe — it must never be allowed to take
-    down model loading or the recommendation panel if that probe fails."""
-    src = GUI.read_text(encoding="utf-8")
-    for anchor in ('f"gpu={_gpu_disp}{_moe_note} "', "_moe_note_rec = ("):
-        i = src.index(anchor)
-        j = src.rindex("plan_for_load", 0, i)
-        block = src[j:j + 150]
-        assert "except Exception" in block
+    i = src.index("def status_line(self)")
+    assert "experts_in_ram" in src[i:i + 900]
+    j = src.index('summary += f"  |  loaded: {_loaded_plan}"')
+    assert '"load_plan"' in src[j - 400:j]

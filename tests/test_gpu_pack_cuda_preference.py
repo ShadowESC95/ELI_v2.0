@@ -11,6 +11,7 @@ Regressions this guards (seen on live installs):
     Result: 2.7 GB pack with libggml-cuda.so and no libcudart.so.12.
   * ``"cuda".startswith("cu")`` was treated as a cuNNN pin, breaking vendoring.
 """
+import re
 import sys
 from pathlib import Path
 
@@ -143,9 +144,11 @@ def test_vulkan_picker_falls_back_when_api_fails(monkeypatch):
     monkeypatch.setattr(eli_gpu_pack.sys, "version_info", _VI())
 
     picked = eli_gpu_pack._pick_vulkan_wheel(prefer_cuda=False)
+    pinned = re.findall(r"^llama-cpp-python==(\S+)\s*$", (Path(__file__).resolve().parents[1] / "packaging"
+                                                         / "llama_cpp_constraints.txt").read_text(), re.M)[0]
     assert picked is not None
-    assert picked[0] == "0.3.35"
-    assert picked[1].endswith("vulkan-llama_cpp_python-0.3.35-py3-none-linux_x86_64.whl")
+    assert picked[0] == pinned, "the fallback list must offer the pack built for the bundled runtime"
+    assert picked[1].endswith(f"vulkan-llama_cpp_python-{pinned}-py3-none-linux_x86_64.whl")
     assert "cuda-" not in picked[1]
 
 

@@ -64,18 +64,13 @@ def test_integrated_intel_device_is_not_arc(tmp_path):
 
 
 @requires_linux
-def test_detect_hardware_falls_back_to_intel_igpu(monkeypatch):
-    monkeypatch.setattr(hp, "nvidia_smi_path", lambda: None)
-    monkeypatch.setattr(hp, "_nvidia_driver_loaded", lambda: False)
-    monkeypatch.setattr(hp, "_windows_gpus", lambda: [])
-    monkeypatch.setattr(hp, "_macos_gpus", lambda: [])
+def test_detect_hardware_falls_back_to_intel_igpu(monkeypatch, quiet_gpu_sources):
     monkeypatch.setattr(
         hp,
         "_linux_intel_display_adapters",
         lambda: [("Intel Corporation Iris Xe Graphics", False)],
     )
 
-    hp._DETECT_HW_CACHE = None
     hw = hp.detect_hardware(force=True)
     assert hw.has_gpu is True
     assert hw.gpu_integrated is True
@@ -109,19 +104,13 @@ def test_qualcomm_name_heuristics():
 
 
 @requires_linux
-def test_detect_hardware_falls_back_to_qualcomm_adreno(monkeypatch):
-    monkeypatch.setattr(hp, "nvidia_smi_path", lambda: None)
-    monkeypatch.setattr(hp, "_nvidia_driver_loaded", lambda: False)
-    monkeypatch.setattr(hp, "_windows_gpus", lambda: [])
-    monkeypatch.setattr(hp, "_macos_gpus", lambda: [])
-    monkeypatch.setattr(hp, "_linux_intel_display_adapters", lambda: [])
+def test_detect_hardware_falls_back_to_qualcomm_adreno(monkeypatch, quiet_gpu_sources):
     monkeypatch.setattr(
         hp,
-        "_linux_qualcomm_display_adapters",
-        lambda: ["Qualcomm Adreno X1-85 GPU"],
+        "_linux_soc_display_adapters",
+        lambda: [("Qualcomm Adreno X1-85 GPU", "qualcomm")],
     )
 
-    hp._DETECT_HW_CACHE = None
     hw = hp.detect_hardware(force=True)
     assert hw.has_gpu is True
     assert hw.gpu_integrated is True
@@ -145,7 +134,7 @@ def test_detect_hardware_is_cached(monkeypatch):
         return hw
 
     monkeypatch.setattr(hp, "_detect_hardware_impl", _fake_impl)
-    hp._DETECT_HW_CACHE = None
+    monkeypatch.setattr(hp, "_DETECT_HW_CACHE", None)    # restored afterwards: the fake must not leak
     a = hp.detect_hardware()
     b = hp.detect_hardware()
     assert calls["n"] == 1
@@ -158,6 +147,7 @@ def test_detect_hardware_is_cached(monkeypatch):
 def test_recommend_igpu_cpu_only_sizes_from_ram_not_shared_vram(monkeypatch):
     """Without an active GPU backend, recommend() must not plan iGPU layers."""
     monkeypatch.setattr(hp, "_llama_gpu_offload_available", lambda: False)
+    monkeypatch.setattr(hp, "ram_budget_fraction", lambda: 0.6)    # the budget is the operator's, not under test
     hw = hp.HardwareProfile(
         ram_gb=16.0,
         available_ram_gb=10.0,
@@ -210,25 +200,3 @@ def test_gpu_offload_unavailable_message_intel():
     )
     assert "Vulkan GPU pack" in msg
     assert "NVIDIA" not in msg
-
-
-def test_resolve_gpu_for_allocate_falls_back_to_detect_hardware(monkeypatch):
-    from eli.core import startup_hardware_optimizer as sho
-
-    monkeypatch.setattr(sho, "detect_gpus", lambda: [])
-    monkeypatch.setattr(
-        hp,
-        "detect_hardware",
-        lambda **_: hp.HardwareProfile(
-            has_gpu=True,
-            gpu_integrated=True,
-            gpu_vendor="intel",
-            gpu_name="Intel Iris Xe",
-            free_vram_mb=1400,
-            total_vram_mb=1500,
-        ),
-    )
-    gpu = sho.resolve_gpu_for_allocate()
-    assert gpu is not None
-    assert gpu.free_mb == 1400
-    assert gpu.vendor == "intel"

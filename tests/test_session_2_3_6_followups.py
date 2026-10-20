@@ -65,23 +65,13 @@ def test_the_summary_still_refuses_to_cold_load():
 
 
 # ── 3. the GPU report must not advertise committed memory ─────────────────
-def test_free_vram_is_reported_net_of_what_generation_will_take():
-    """nvidia-smi "free" is not spare: llama.cpp allocates the compute/graph
-    buffer lazily at the first decode. Advertising it as headroom is advice to
-    make the over-commit that aborted the process at 2.2.7 and 2.2.9."""
+def test_free_vram_is_reported_net_of_what_llamacpp_still_takes():
+    """What reads free is spare except what llama.cpp was measured to add as it works (its compute
+    buffers are allocated with the model); the old fixed formula (graph reserve, 350 MB overhead and
+    a 700 MB reserve) is gone."""
     src = (pathlib.Path(__file__).resolve().parents[1] / "eli" / "execution"
            / "executor_enhanced.py").read_text(encoding="utf-8")
-    i = src.index("MiB VRAM reads free")
+    i = src.index("MiB VRAM free")
     window = src[max(0, i - 2000):i + 1500]
-    assert "_compute_graph_reserve_mb" in window
-    assert "_CUDA_OVERHEAD_MB" in window
     assert "vram_reserve_mb" in window
-
-
-def test_the_live_numbers_report_no_spare_room():
-    """Your session: 1493 MiB read free, but the commitment exceeds it."""
-    from eli.core.hardware_profile import (_compute_graph_reserve_mb,
-                                           _CUDA_OVERHEAD_MB, vram_reserve_mb)
-    committed = (_compute_graph_reserve_mb(12288, 128)
-                 + _CUDA_OVERHEAD_MB + vram_reserve_mb())
-    assert committed > 1493, f"committed {committed} should exceed the 1493 MiB that read free"
+    assert "_compute_graph_reserve_mb" not in window and "_CUDA_OVERHEAD_MB" not in window

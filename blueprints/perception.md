@@ -340,6 +340,9 @@ extracted content (text/OCR/structure) into the grounded pipeline.
   gpu_layers=11; after the fix free_vram 7092 MB → gpu_layers=99). `small.en` int8 on CPU is
   ~1–2 s for a short command. Explicit `ELI_WHISPER_DEVICE` still wins; `ELI_WHISPER_GPU_MIN_MB`
   tunes the threshold.
+  *Superseded in 2.5.18:* no size threshold. Whisper goes on CUDA device 0 only when that card
+  still holds its measured footprint after the language model's load plan (see
+  `inference_and_hardware.md`, STT VRAM awareness); `ELI_WHISPER_GPU_MIN_MB` is gone.
 - **Drag-and-drop keeps the FULL path.** A file dropped into the chat input now expands to
   `[File: <full path>]` followed by the inlined content (was content + basename only), so
   "fix/examine/edit this file" can resolve the file on disk while "summarise this" still has the

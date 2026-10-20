@@ -1,54 +1,73 @@
-"""Live session report (2026-10-02): the Hardware Tuning preview line showed
-"gpu=all layers" right next to the real load's "gpu=10, 2.0GB actually on GPU"
-— looked like a contradiction. gpu_layers=10 was the user's own prior pin
-(user_gpu_layers is a hard ceiling in smart_fit_config, by design), but the
-preview's unified_fit_config call never passed it, so it always showed the
-uncapped fit.
+"""The start-up window's load plan is the loader's own plan, and its GPU choices reach the loader.
 
-Fixed: the preview now passes the resolved pin as user_gpu_layers (same
-function the real loader uses to resolve it), and appends a note when the pin
-is below what would otherwise fit.
+Live session report (2026-10-02): the Hardware Tuning preview line showed "gpu=all layers" right next
+to the real load's "gpu=10": the preview ran a fit calculation of its own and never saw the user's
+pinned layers. The window now asks the planner the loader uses (gguf_inference.load_request ->
+load_plan.plan), so the pin, the context, the batch and the GPUs it shows are the ones that load.
 
-Qt-coupled GUI module, not directly executable in CI — verified at the
-source-text level (established pattern, see
-test_moe_gpu_layer_print_matches_what_loads.py).
+Qt-coupled GUI module: the planner call is checked at the source level; the GPU choice logic runs
+against stand-in widgets.
 """
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 STARTUP = ROOT / "eli/gui/panels/startup.py"
 
 
-def _preview_fit_block() -> str:
+def test_the_preview_is_the_loaders_own_plan():
     src = STARTUP.read_text(encoding="utf-8")
-    i = src.index("_fit_line = \"\"")
-    j = src.index("if not _hw.has_gpu:", i)
-    return src[i:j]
+    i = src.index("class _PlanPreviewThread")
+    block = src[i:src.index("\nclass ", i + 10)]
+    assert "load_request(self._model_path, **self._overrides)" in block
+    assert "load_plan.plan(" in block
+    assert "unified_fit_config" not in src, "a second fit calculation came back into the window"
 
 
-def test_preview_looks_up_the_same_pin_the_real_loader_uses():
-    block = _preview_fit_block()
-    assert "from eli.core.runtime_settings import pinned_gpu_layers_for_model" in block
-    assert "pinned_gpu_layers_for_model(" in block
+class _Box:
+    def __init__(self, on=True, enabled=True, share=50):
+        self._on, self._enabled, self._share = on, enabled, share
+
+    def isChecked(self):
+        return self._on
+
+    def isEnabled(self):
+        return self._enabled
+
+    def value(self):
+        return self._share
 
 
-def test_capped_fit_call_passes_the_pin():
-    block = _preview_fit_block()
-    i = block.index("_fc, _fl, _fb = unified_fit_config(")
-    j = block.index(")", i)
-    assert "user_gpu_layers=_pin" in block[i:j]
+def _choice(rows, mode="auto"):
+    try:
+        from eli.gui.panels.startup import StartupModelSelectionDialog
+    except Exception as exc:  # Qt bindings are stubbed in the headless test env
+        pytest.skip(f"GUI panels unavailable here: {exc}")
+    fake = SimpleNamespace(_gpu_rows=[(i, _Box(on, en), _Box(share=sh)) for i, (on, en, sh) in enumerate(rows)],
+                           gpu_split_combo=SimpleNamespace(currentData=lambda: mode))
+    return StartupModelSelectionDialog._gpu_choice(fake)
 
 
-def test_uncapped_fallback_call_passes_none_to_show_true_headroom():
-    block = _preview_fit_block()
-    i = block.index("_uc_fc, _uc_fl, _uc_fb = unified_fit_config(")
-    j = block.index(")", i)
-    assert "user_gpu_layers=None" in block[i:j]
+def test_every_card_ticked_means_every_card():
+    assert _choice([(True, True, 50), (True, True, 50)]) == {"gpu_devices": "", "tensor_split": "",
+                                                              "cpu_only": False}
 
 
-def test_note_only_appears_when_pin_is_below_the_uncapped_fit():
-    block = _preview_fit_block()
-    i = block.index("if _uc_fl > _fl:")
-    j = block.index("except Exception", i)
-    assert "pinned to" in block[i:j]
-    assert "would fit" in block[i:j]
+def test_one_card_ticked_is_single_gpu():
+    assert _choice([(False, True, 50), (True, True, 50)])["gpu_devices"] == "1"
+
+
+def test_no_card_ticked_runs_on_the_processor():
+    assert _choice([(False, True, 50), (False, True, 50)])["cpu_only"] is True
+
+
+def test_manual_shares_reach_the_loader_as_fractions():
+    out = _choice([(True, True, 30), (True, True, 90)], mode="manual")
+    assert out["tensor_split"] == "0.250,0.750"
+
+
+def test_a_card_without_a_gpu_runtime_is_not_counted():
+    assert _choice([(True, True, 50), (True, False, 50)]) == {"gpu_devices": "", "tensor_split": "",
+                                                              "cpu_only": False}

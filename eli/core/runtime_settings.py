@@ -116,7 +116,8 @@ DEFAULTS: Dict[str, Any] = {
     # Empty means unknown provenance, treated as not pinned for this model.
     "n_gpu_layers_model": "",
     "n_gpu_layers_source": "",
-    "n_threads": max(1, os.cpu_count() or 8),
+    # 0 = auto (recommend_cpu_threads)
+    "n_threads": 0,
     "batch_size": 512,
     # Fraction of available RAM for model weights + KV (startup dialog, 10–75%).
     "ram_budget_percent": 60,
@@ -130,6 +131,8 @@ DEFAULTS: Dict[str, Any] = {
     "tensor_split": "",
     "main_gpu": 0,
     "split_mode": "",
+    # GPUs the model may use, by llama.cpp device index ("0,1"); "" = every GPU (start-up window).
+    "gpu_devices": "",
     "gpu_profiles_file": "",
     # Deep thinking on the answer call for models whose chat template has a reasoning channel
     # (detected from metadata, not names). On is higher quality and slower. Utility calls (routing,
@@ -171,7 +174,7 @@ DEFAULTS: Dict[str, Any] = {
     "vision_mmproj_path": "",
     "vision_chat_handler": "",
     "vision_n_ctx": 4096,
-    "vision_n_gpu_layers": 99,
+    "vision_n_gpu_layers": -1,
     "vision_n_batch": 256,
     # GPU clip segfaults on some CUDA cards (e.g. compute capability 7.5); keep the
     # vision encoder on CPU. The language decoder still uses the GPU.
@@ -188,7 +191,7 @@ DEFAULTS: Dict[str, Any] = {
     "vision_fast_mmproj_path": "",
     "vision_fast_chat_handler": "",
     "vision_fast_n_ctx": 2048,
-    "vision_fast_n_gpu_layers": 99,
+    "vision_fast_n_gpu_layers": -1,
     # Co-resident (no model swap) — big latency win; enable once 8GB VRAM fit
     # is confirmed with both models loaded.
     "vision_fast_no_swap": False,
@@ -224,9 +227,9 @@ DEFAULTS: Dict[str, Any] = {
     "habit_shell_enabled": True,
 }
 
-# The codebase's "offload everything" idiom (see vision_n_gpu_layers = 99 above);
-# llama.cpp itself also accepts -1 for the same thing.
-ALL_GPU_LAYERS_MIN = 99
+# every layer, as llama.cpp counts it; older settings files wrote 99
+ALL_GPU_LAYERS = -1
+_LEGACY_ALL_GPU_LAYERS = 99
 
 
 def pinned_gpu_layers_for_model(model_path, settings=None, current_ctx=None):
@@ -260,7 +263,7 @@ def pinned_gpu_layers_for_model(model_path, settings=None, current_ctx=None):
 
     Returns None when the pin does not apply, meaning "let the tuner measure".
 
-    "All layers" (>= ALL_GPU_LAYERS_MIN, or negative for llama.cpp's -1) is
+    "All layers" (ALL_GPU_LAYERS, llama.cpp's -1) is
     deliberately exempt: it is a POLICY rather than a measurement, it is correct
     on every model and every ctx, and the loader already reduces it to fit.
     Treating it as stale would quietly downgrade "try them all, then fall
@@ -278,8 +281,8 @@ def pinned_gpu_layers_for_model(model_path, settings=None, current_ctx=None):
         return None
     if not pin:
         return None
-    if pin < 0 or pin >= ALL_GPU_LAYERS_MIN:
-        return pin
+    if pin < 0:
+        return ALL_GPU_LAYERS
     # A count the tuner wrote is a measurement, not the operator's choice. Treating it as a pin
     # made one low reading (RAM briefly short) cap every later launch. Older files carry no
     # source, so a pin identical to the tuner's mirror is taken to be the tuner's.
@@ -354,6 +357,7 @@ ENV_TO_KEY = {
     "ELI_GGUF_MAIN_GPU": "main_gpu",
     "ELI_SPLIT_MODE": "split_mode",
     "ELI_GGUF_SPLIT_MODE": "split_mode",
+    "ELI_GPU_DEVICES": "gpu_devices",
     "ELI_RAM_BUDGET_PERCENT": "ram_budget_percent",
     "ELI_FIT_PRIORITY": "fit_priority",
     "ELI_GPU_PROFILES_FILE": "gpu_profiles_file",
@@ -578,6 +582,12 @@ def _load_settings_unsanitized(*, apply_env_overlay: bool = True) -> Dict[str, A
     # Canonical coercion (no more dual-key fallbacks)
     settings["n_threads"] = int(settings.get("n_threads", DEFAULTS["n_threads"]))
     settings["n_gpu_layers"] = int(settings.get("n_gpu_layers", DEFAULTS["n_gpu_layers"]))
+    for _key in ("n_gpu_layers", "vision_n_gpu_layers", "vision_fast_n_gpu_layers"):
+        try:
+            if int(settings.get(_key) or 0) == _LEGACY_ALL_GPU_LAYERS:
+                settings[_key] = ALL_GPU_LAYERS
+        except (TypeError, ValueError):
+            log.debug("unreadable %s", _key, exc_info=True)
     settings["gpu_layers"] = settings["n_gpu_layers"]
 
     if not settings.get("model_path"):
@@ -797,8 +807,7 @@ def apply_env(settings=None):
 
     n_ctx = int(s.get("n_ctx") or 0)
     n_batch = int(s.get("batch_size", DEFAULTS["batch_size"]) or DEFAULTS["batch_size"])
-    n_threads = int(s.get("n_threads", DEFAULTS["n_threads"]) or DEFAULTS["n_threads"])
-    n_gpu_layers = int(s.get("n_gpu_layers", DEFAULTS["n_gpu_layers"]) or DEFAULTS["n_gpu_layers"])
+    n_threads = int(s.get("n_threads") or 0)
     max_tokens = int(s.get("max_tokens", DEFAULTS["max_tokens"]) or DEFAULTS["max_tokens"])
 
     if n_ctx > 0:
@@ -806,8 +815,12 @@ def apply_env(settings=None):
     else:                                    # auto: nothing pinned
         os.environ.pop("ELI_GGUF_N_CTX", None)
     os.environ["ELI_GGUF_N_BATCH"] = str(n_batch)
-    os.environ["ELI_GGUF_THREADS"] = str(n_threads)
-    os.environ["ELI_GGUF_N_GPU_LAYERS"] = str(n_gpu_layers)
+    for _env in ("ELI_GGUF_THREADS", "ELI_N_THREADS"):
+        if n_threads > 0:
+            os.environ[_env] = str(n_threads)
+        else:                                # auto: nothing pinned
+            os.environ.pop(_env, None)
+    # n_gpu_layers is not exported: the loader reads it per model (pinned_gpu_layers_for_model)
     os.environ["ELI_MAX_TOKENS"] = str(max_tokens)
 
     # legacy mirrors for older callers still reading the non-GGUF names
@@ -816,8 +829,6 @@ def apply_env(settings=None):
     else:
         os.environ.pop("ELI_N_CTX", None)
     os.environ["ELI_BATCH_SIZE"] = str(n_batch)
-    os.environ["ELI_N_THREADS"] = str(n_threads)
-    os.environ["ELI_N_GPU_LAYERS"] = str(n_gpu_layers)
 
     os.environ["ELI_GGUF_USE_MMAP"] = "1" if bool(s.get("use_mmap", True)) else "0"
     os.environ["ELI_GGUF_USE_MLOCK"] = "1" if bool(s.get("use_mlock", False)) else "0"

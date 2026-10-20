@@ -240,6 +240,32 @@ jobs:
           & $iscc packaging\windows\installer.iss /DMyAppVersion=${{ needs.guard.outputs.version }}
           if ($LASTEXITCODE -ne 0) { Write-Error "ISCC failed with exit code $LASTEXITCODE"; exit 1 }
 
+      - name: Run the installer the way a user does (silent, time-limited)
+        shell: pwsh
+        run: |
+          # Setup once hung at its last step, the Visual C++ runtime, until users powered off. Install
+          # the built Setup here with that step forced, so a hang or failure at the end fails the
+          # release, then start the installed app's selftest.
+          $setup = Get-Item "dist\ELI-Setup-${{ needs.guard.outputs.version }}.exe"
+          $dir = Join-Path $env:RUNNER_TEMP "ELI-installed"
+          $log = Join-Path $env:RUNNER_TEMP "eli-setup.log"
+          $p = Start-Process $setup.FullName -PassThru -ArgumentList @(
+            "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/VCRUNTIME=force", "/LOG=$log", "/DIR=$dir")
+          if (-not $p.WaitForExit(900000)) {
+            Get-Content $log -ErrorAction SilentlyContinue | Select-Object -Last 60
+            Stop-Process -Id $p.Id -Force
+            Write-Error "Setup did not finish within 15 minutes"; exit 1
+          }
+          Select-String -Path $log -Pattern "Visual C\+\+ runtime" | ForEach-Object { $_.Line }
+          if ($p.ExitCode -ne 0) { Get-Content $log | Select-Object -Last 60; Write-Error "Setup exited with $($p.ExitCode)"; exit 1 }
+          if (-not (Select-String -Path $log -Pattern "Visual C\+\+ runtime installer exit code: (0|1638|3010)" -Quiet)) {
+            Get-Content $log | Select-Object -Last 60; Write-Error "the Visual C++ runtime step did not complete"; exit 1
+          }
+          # ELI.exe is a windowed program: PowerShell does not wait for one unless asked to
+          $st = Start-Process (Join-Path $dir "ELI.exe") -ArgumentList "--selftest" -WorkingDirectory $dir -Wait -PassThru
+          if ($st.ExitCode -ne 0) { Write-Error "the installed app failed its selftest ($($st.ExitCode))"; exit 1 }
+          Remove-Item -Recurse -Force $dir
+
       - name: Checksums + GitHub 2 GiB asset-size guard
         shell: bash
         run: |

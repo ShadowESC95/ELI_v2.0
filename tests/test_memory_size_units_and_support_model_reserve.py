@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import pytest
 
-from eli.core import mem_units, hardware_profile, moe_offload
+from eli.core import mem_units, hardware_profile
 from tests._sparse import sparse_file
 
 # eli/gui/panels/_qt.py re-exports Qt via `from PySide6.QtWidgets import *`. The root
@@ -152,13 +152,6 @@ def test_embedder_footprint_and_resolve_path_are_the_same_source_of_truth():
         assert footprint > 0.0
     else:
         assert footprint == 0.0
-
-
-def test_moe_plan_uses_mem_units_not_inline_math():
-    import inspect
-    src = inspect.getsource(moe_offload.plan_for_load)
-    assert "1024 ** 3" not in src and "1024**3" not in src
-    assert "mem_units" in src
 
 
 def test_gui_dropdown_and_hardware_profile_discover_agree_on_a_real_file(tmp_path):

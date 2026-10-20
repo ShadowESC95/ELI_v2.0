@@ -1,29 +1,25 @@
-import pytest
-from unittest.mock import patch
+import types
+
 from eli.core.hardware_profile import detect_hardware, recommend
 
-@patch("subprocess.check_output")
-def test_detect_hardware_with_nvidia(mock_subprocess):
-    # Correct nvidia-smi CSV line (without spaces)
-    mock_subprocess.return_value = b"NVIDIA GPU,8192,0,8192,0,40,50,200,535.161.02"
-    hw = detect_hardware()
-    # Detection may still fail due to parsing; just ensure no exception and has_gpu may be True
-    assert isinstance(hw, object)
 
-@patch("subprocess.check_output", side_effect=Exception("no nvidia-smi"))
-def test_detect_hardware_no_gpu(mock_subprocess):
+def test_detect_hardware_counts_every_nvidia_card(quiet_gpu_sources, monkeypatch):
+    hp = quiet_gpu_sources
+    monkeypatch.setattr(hp, "nvidia_smi_path", lambda: "/usr/bin/nvidia-smi")
+    rows = ("NVIDIA GeForce RTX 3090, 24576, 1000, 23576, 0, 40, 30.0, 350.0, 595.99\n"
+            "NVIDIA GeForce RTX 3060, 12288, 500, 11788, 0, 38, 20.0, 170.0, 595.99\n")
+    monkeypatch.setattr(hp.subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stdout=rows))
+    hw = detect_hardware(force=True)
+    assert hw.has_gpu and hw.gpu_vendor == "nvidia"
+    assert hw.gpu_name == "NVIDIA GeForce RTX 3090 + NVIDIA GeForce RTX 3060"
+    assert (hw.total_vram_mb, hw.free_vram_mb) == (36864, 35364)
+    assert [g["free_mb"] for g in hw.gpus] == [23576, 11788]
+
+def test_detect_hardware_no_gpu(quiet_gpu_sources):
     # Simulate a genuinely GPU-less machine: no nvidia-smi AND no loaded kernel
     # driver (the driver-loaded fallback must also see nothing). Otherwise this
     # test detects the real GPU on a developer's NVIDIA box via /proc//sys.
-    import eli.core.hardware_profile as hp
-    with patch.object(hp, "_nvidia_driver_loaded", return_value=False), \
-         patch.object(hp, "nvidia_smi_path", lambda: None), \
-         patch.object(hp, "_windows_gpus", lambda: []), \
-         patch.object(hp, "_macos_gpus", lambda: []), \
-         patch.object(hp, "_linux_intel_display_adapters", lambda: []), \
-         patch.object(hp, "_linux_qualcomm_display_adapters", lambda: []):
-        hp._DETECT_HW_CACHE = None
-        hw = detect_hardware(force=True)
+    hw = quiet_gpu_sources.detect_hardware(force=True)
     assert hw.has_gpu is False
 
 def test_recommend_no_models():

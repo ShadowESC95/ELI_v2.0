@@ -20,7 +20,7 @@ def _fit(free_mb, reserve=700, user_gpu_layers=None):
 def test_generous_vram_keeps_user_settings_full_offload():
     ctx, layers, batch = _fit(24000)
     assert ctx == USER_CTX and batch == USER_BATCH
-    assert layers == 99  # all layers on GPU
+    assert layers == -1  # every layer on the GPU (llama.cpp's -1)
 
 
 def test_tight_vram_reduces_layers_first_preserving_ctx_and_batch():
@@ -28,7 +28,7 @@ def test_tight_vram_reduces_layers_first_preserving_ctx_and_batch():
     ctx, layers, batch = _fit(5000)
     assert ctx == USER_CTX, "ctx must be preserved before layers are exhausted"
     assert batch == USER_BATCH, "batch must not drop while layer reduction suffices"
-    assert 0 < layers < 99, f"expected partial GPU offload, got {layers}"
+    assert 0 < layers < TOTAL, f"expected partial GPU offload, got {layers}"
 
 
 def test_tighter_vram_reduces_batch_before_ctx():
@@ -66,20 +66,20 @@ def test_no_budget_falls_to_cpu():
 def test_reduction_priority_order_holds_monotonically():
     # As VRAM shrinks, ctx should never drop before batch, and batch never
     # before layers leave full offload.
-    prev_layers, prev_batch, prev_ctx = 99, USER_BATCH, USER_CTX
+    prev_layers, prev_batch, prev_ctx = -1, USER_BATCH, USER_CTX
     for free in (24000, 6000, 5000, 4000, 3400, 3000, 2600, 2200):
         ctx, layers, batch = _fit(free)
         # ctx only changes after batch has already been reduced from user value
         if ctx < USER_CTX:
             assert batch <= USER_BATCH
-        # batch only changes after layers left full offload (99)
+        # batch only changes after layers left full offload (-1)
         if batch < USER_BATCH:
-            assert layers != 99
+            assert layers != -1
 
 
 # gpu_layers is a ceiling like ctx and batch: freed headroom must not backfill more layers.
 def test_user_gpu_layers_is_never_exceeded_by_the_backfill():
-    # Generous VRAM: with no ceiling this backfills to 99 (all 32 layers), same
+    # Generous VRAM: with no ceiling this backfills to every layer (-1), same
     # as test_generous_vram_keeps_user_settings_full_offload above.
     ctx, layers, batch = _fit(24000, user_gpu_layers=10)
     assert layers == 10, (
@@ -101,8 +101,9 @@ def test_user_gpu_layers_ceiling_matches_unconstrained_when_above_full_offload()
     # A ceiling at or above the model's own layer count is a no-op -- same
     # result as passing no ceiling at all.
     unconstrained = _fit(24000)
-    ceiling_above_total = _fit(24000, user_gpu_layers=99)
-    assert unconstrained == ceiling_above_total
+    ceiling_above_total = _fit(24000, user_gpu_layers=TOTAL + 1)
+    every_layer = _fit(24000, user_gpu_layers=-1)
+    assert unconstrained == ceiling_above_total == every_layer
 
 
 # ── moe_resident_gb: a mixture-of-experts model's real GPU-resident footprint ──────────────────
@@ -132,7 +133,7 @@ def test_without_moe_resident_gb_the_naive_fit_badly_undersizes_layers():
 
 def test_moe_resident_gb_lets_full_layers_fit_despite_large_file_size():
     ctx, layers, batch = _moe_fit(6667)
-    assert layers == 99, f"1.97GB resident should fit all {_MOE_LAYERS} layers in 6667MB, got {layers}"
+    assert layers == -1, f"1.97GB resident should fit all {_MOE_LAYERS} layers in 6667MB, got {layers}"
     assert ctx == 12000
 
 
@@ -159,7 +160,7 @@ def test_non_moe_callers_are_unaffected():
         MODEL_GB, 24000, user_ctx=USER_CTX, user_batch=USER_BATCH,
         reserve_mb=700, kv_quantized=True, total_layers=TOTAL, moe_resident_gb=None,
     )
-    assert with_kwarg_absent == with_kwarg_none == (USER_CTX, 99, USER_BATCH)
+    assert with_kwarg_absent == with_kwarg_none == (USER_CTX, -1, USER_BATCH)
 
 
 def test_unified_fit_config_passes_moe_resident_gb_through():
@@ -168,5 +169,5 @@ def test_unified_fit_config_passes_moe_resident_gb_through():
         reserve_mb=700, kv_quantized=True, total_layers=_MOE_LAYERS,
         min_batch=128, gpu_integrated=False, moe_resident_gb=_MOE_RESIDENT_GB,
     )
-    assert layers == 99, f"unified_fit_config did not forward moe_resident_gb correctly, got {layers}"
+    assert layers == -1, f"unified_fit_config did not forward moe_resident_gb correctly, got {layers}"
     assert ctx == 12000

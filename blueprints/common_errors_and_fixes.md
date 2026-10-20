@@ -309,20 +309,18 @@ are not covered.
 
 ---
 
-## Startup: "could not verify your settings in time"
+## Startup: the model loads with fewer GPU layers or a smaller context than you set
 
-**Symptom:** at launch the log says `[GUI][LOAD] could not verify your settings in time (probe timed
-out after Ns ...)` and the model loads with fewer GPU layers than you set.
-**Cause:** your GPU layers are above what ELI measured as fitting the free VRAM, so before loading
-them it runs them once in a separate process with a prompt the size of a real conversation. That
-check did not finish within its time budget. It runs the prompt in chunks and the line says how far
-it got: "the model had not finished loading", or "loaded in Ns; the test prompt was at N/M tokens after
-Ns (R tokens/s)". Other programs keeping every core busy slow it most (measured: the layers left on
-the CPU ran about ten times slower), so a slow rate points at what else is running.
-**Fix:** free VRAM (another program holding the card is listed at startup), lower the GPU layers or
-context to the measured fit, give the check more time with `ELI_LOAD_PROBE_TIMEOUT=<seconds>`, or
-skip it with `ELI_LOAD_PROBE=0` to load your settings unchecked. A timeout is remembered for an
-hour, so the next launch within that hour does not wait again.
+**Symptom:** a `[LOAD_PLAN]` line says the settings did not fit, and the status bar shows fewer
+layers or a smaller context than the settings.
+**Cause:** before loading, llama.cpp simulates the load on every GPU and the plan keeps the largest
+settings that fit the memory each card has free now (`eli/core/load_plan.py`). The `[LOAD_PLAN]`
+lines say what each card would use of what it has free. Another program holding a card (listed at
+startup), a context larger than the cards hold, or a card left out in the startup window's GPU list
+all show up there.
+**Fix:** free the card's memory, include every card in the startup window, pick the fit profile
+that keeps what matters to you (Max GPU keeps layers, Max context keeps the window), or set
+`ELI_VRAM_RESERVE_MB` if your desktop needs more kept free than ELI measured.
 
 ---
 

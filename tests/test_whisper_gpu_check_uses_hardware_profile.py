@@ -1,74 +1,46 @@
-"""_gpu_total_mb() used to shell out to nvidia-smi directly with no fallback
--- the same fragile pattern fixed elsewhere in hardware_profile.py. A broken
-driver (NVML version mismatch, a transient hiccup) read as "no GPU", silently
-forcing faster-whisper onto CPU even on a machine with a perfectly good big
-NVIDIA card. It now routes through detect_hardware(), which already has the
-kernel-level fallbacks for exactly that failure.
+"""Whisper's GPU is read from the one per-card telemetry, never its own nvidia-smi call.
 
-Deliberately NVIDIA-only, not a bug: the caller sets device="cuda" for
-ctranslate2, which has no ROCm/Vulkan backend -- AMD/Intel/Apple correctly
-stay on CPU here regardless of VRAM.
+It used to shell out to nvidia-smi directly with no fallback: a broken driver (NVML version
+mismatch, a transient hiccup) read as "no GPU", forcing faster-whisper onto the CPU on a machine with
+a perfectly good NVIDIA card; then it read detect_hardware()'s total, which on a multi-GPU machine is
+every card's memory summed. It now takes CUDA device 0 from get_live_gpu_telemetry, which has the
+fallbacks and lists each card.
+
+NVIDIA only on purpose: ctranslate2 has no ROCm, Vulkan or Metal backend, so AMD, Intel, Apple and
+Qualcomm machines keep whisper on the CPU whatever their memory.
 """
 import eli.perception.local_whisper_stt as stt
 
 
-def _reset_cache(monkeypatch):
-    monkeypatch.setattr(stt, "_GPU_TOTAL_MB", None)
+def _cards(monkeypatch, *cards):
+    monkeypatch.setattr("eli.core.hardware_profile.get_live_gpu_telemetry",
+                        lambda: {"ok": bool(cards), "devices": [dict(c) for c in cards]})
 
 
-def _fake_hw(**kw):
-    base = {"has_gpu": False, "gpu_vendor": "", "total_vram_mb": 0}
-    base.update(kw)
-    return type("HW", (), base)()
+def test_the_first_nvidia_card_is_whisper_s(monkeypatch):
+    _cards(monkeypatch, {"index": 0, "name": "AMD Radeon RX 7900 XTX", "vendor": "amd", "total_mb": 24576},
+           {"index": 1, "name": "RTX A", "vendor": "nvidia", "total_mb": 8192},
+           {"index": 2, "name": "RTX B", "vendor": "nvidia", "total_mb": 16384})
+    assert stt._whisper_card()["name"] == "RTX A"
 
 
-def test_nvidia_vram_is_reported(monkeypatch):
-    _reset_cache(monkeypatch)
-    monkeypatch.setattr(
-        "eli.core.hardware_profile.detect_hardware",
-        lambda: _fake_hw(has_gpu=True, gpu_vendor="nvidia", total_vram_mb=16384),
-    )
-    assert stt._gpu_total_mb() == 16384
+def test_other_makers_cards_are_not_offered_to_ctranslate2(monkeypatch):
+    _cards(monkeypatch, {"index": 0, "name": "AMD Radeon RX 7900 XTX", "vendor": "amd", "total_mb": 24576})
+    assert stt._whisper_card() is None
 
 
-def test_amd_reports_zero_not_its_own_vram(monkeypatch):
-    """ctranslate2 has no ROCm backend -- an AMD card's VRAM must not make
-    the caller think a CUDA device is usable."""
-    _reset_cache(monkeypatch)
-    monkeypatch.setattr(
-        "eli.core.hardware_profile.detect_hardware",
-        lambda: _fake_hw(has_gpu=True, gpu_vendor="amd", total_vram_mb=24576),
-    )
-    assert stt._gpu_total_mb() == 0
+def test_no_gpu_means_no_card(monkeypatch):
+    _cards(monkeypatch)
+    assert stt._whisper_card() is None
 
 
-def test_broken_driver_still_reports_real_vram_via_fallback(monkeypatch):
-    """The field case: nvidia-smi itself is broken, but detect_hardware()'s
-    own fallback (model-name lookup) still knows the real card."""
-    _reset_cache(monkeypatch)
-    monkeypatch.setattr(
-        "eli.core.hardware_profile.detect_hardware",
-        lambda: _fake_hw(has_gpu=True, gpu_vendor="nvidia", total_vram_mb=8192),
-    )
-    assert stt._gpu_total_mb() == 8192
-
-
-def test_no_gpu_reports_zero(monkeypatch):
-    _reset_cache(monkeypatch)
-    monkeypatch.setattr("eli.core.hardware_profile.detect_hardware", lambda: _fake_hw())
-    assert stt._gpu_total_mb() == 0
-
-
-def test_result_is_cached(monkeypatch):
-    _reset_cache(monkeypatch)
-    calls = {"n": 0}
-    def _detect():
-        calls["n"] += 1
-        return _fake_hw(has_gpu=True, gpu_vendor="nvidia", total_vram_mb=16384)
-    monkeypatch.setattr("eli.core.hardware_profile.detect_hardware", _detect)
-    assert stt._gpu_total_mb() == 16384
-    assert stt._gpu_total_mb() == 16384
-    assert calls["n"] == 1
+def test_a_cuda_card_found_only_by_llama_cpp_is_named_nvidia():
+    """llama.cpp's device list used to give every card an empty maker."""
+    from eli.core.hardware_profile import _vendor_of
+    assert _vendor_of("Some Card", "CUDA0") == "nvidia"
+    assert _vendor_of("AMD Radeon RX 7900 XTX", "Vulkan0") == "amd"
+    assert _vendor_of("Apple M3 Max", "MTL0") == "apple"
+    assert _vendor_of("Unknown", "Vulkan0") == ""
 
 
 # ── what faster-whisper is given ─────────────────────────────────────────────

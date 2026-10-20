@@ -29,12 +29,12 @@ on the development box can produce multi-minute turns.
 | Capability | Where | What it adapts to |
 |---|---|---|
 | Model-agnostic resolution (no baked model) | `gguf_inference.get_model_path` | settings, environment |
-| Chat family and template | `cognition/model_identity.py`, `model_output_tokens.py` | GGUF metadata (template, architecture), not the file name |
+| Chat family and template | `cognition/chat_template.py`, `model_identity.py`, `model_output_tokens.py` | the model's own Jinja template (format, reasoning and end-of-turn markers), not the file name |
 | Thinking-channel detection | `gguf_inference._is_thinking_model` → `model_identity.is_thinking_model` | the embedded chat template, then architecture; no name list |
 | Trained context length | `core/startup_hardware_optimizer.train_ctx_for_model` | `ELI_MODEL_TRAIN_CTX`, then real GGUF `context_length`, else 8192; no filename table |
-| Free-VRAM-aware sizing, one fit calculation | `core/hardware_profile.py` (`smart_fit_config`, `unified_fit_config`) | free VRAM, RAM budget, fit priority |
-| KV-cache and compute-buffer reserve | `hardware_profile.py` (`_kv_cache_mb`, `_compute_graph_reserve_mb`) | context, layers, batch |
-| Graceful GPU-layer fallback | boot optimiser; `runtime_snapshot.json` `adaptive_load_report` | load success |
+| Load plan, measured before the load | `core/load_plan.py` | llama.cpp's load simulation on every GPU, each card's free memory and measured headroom, fit priority; the RAM budget on the processor |
+| Estimate where llama.cpp cannot simulate | `hardware_profile.py` (`smart_fit_config`, `_kv_cache_mb`, `_compute_graph_reserve_mb`) | context, layers, batch |
+| Load retry | `gguf_inference._build_with_plan` | a failed load is planned again for the memory free then, then on the processor |
 | Per-mode token budget | `cognition/reasoning_modes.py` | `n_ctx` (20 % of the window for quick, 30 % otherwise), prompt pressure, complexity, mode |
 | Size tier → budget scale | `core/model_tier.py` `detect_tier`, `tier_scale` | model size |
 | Live decode-speed EMA | `model_tier.record_speed`, `measured_tok_s` (fed from the non-stream generation path in `gguf_inference`) | measured tokens per second |

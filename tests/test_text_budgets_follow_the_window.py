@@ -87,27 +87,37 @@ def test_timeouts_grow_with_the_window_without_steps(monkeypatch):
 # ── whisper takes the GPU only when there is measured room ──────────────────
 
 def test_whisper_stays_off_the_gpu_when_the_language_model_needs_it(monkeypatch, tmp_path):
-    import sys
+    """Whisper goes on the card only if the card still holds it after the language model's plan."""
     from eli.perception import local_whisper_stt as w
+    from eli.core import config, load_plan
     import eli.core.hardware_profile as hp
-    from tests.test_model_costs_come_from_the_file import _dense
-    model = _dense(tmp_path, blocks=32, block_mib=200, embd_mib=500)        # ~6.9 GB on the GPU
-    monkeypatch.setattr(w, "_gpu_total_mb", lambda: 12288)
+    import eli.cognition.gguf_inference as gi
+    card = {"index": 0, "name": "Card", "vendor": "nvidia", "total_mb": 12288}
+    monkeypatch.setattr(w, "_whisper_card", lambda: dict(card))
+    monkeypatch.setattr(w, "_measured_footprint_mb", lambda c, m: None)
     monkeypatch.setattr(w, "_whisper_weights_mb", lambda m, d: 461.0)
-    monkeypatch.setattr(hp, "vram_reserve_mb", lambda **k: 700)
-    from eli.core import config
-    monkeypatch.setattr(config, "get_gguf_model_path", lambda: model)
-    monkeypatch.setattr(config, "get_gguf_n_ctx", lambda: 4096)
-    monkeypatch.setitem(sys.modules, "eli.cognition.gguf_inference", None)
-    monkeypatch.setattr(hp, "get_live_gpu_telemetry", lambda: {"free_mb": 8000})
-    assert w._gpu_room_for_whisper("small.en", str(tmp_path)) is False    # a 12 GB card, no room
-    monkeypatch.setattr(hp, "get_live_gpu_telemetry", lambda: {"free_mb": 11500})
+    monkeypatch.setattr(hp, "vram_reserve_mb", lambda **k: 46)
+    monkeypatch.setattr(gi, "_llm", None)
+    monkeypatch.setattr(config, "get_gguf_model_path", lambda: "m.gguf")
+    monkeypatch.setattr(gi, "load_request", lambda path: None)
+    dev = load_plan.Device(0, "CUDA0", "Card", 0, 12288, False)
+    plan = load_plan.Plan(model_path="m.gguf", n_ctx=4096, n_gpu_layers=33, n_batch=512, n_threads=6,
+                          cache_type_k="", cache_type_v="", flash_attn=True, split_mode=1, main_gpu=0,
+                          tensor_split=None, experts_in_ram=None, blocks=32, devices=[dev],
+                          use_mb={0: 6900.0})
+    monkeypatch.setattr(load_plan, "plan", lambda req: plan)
+    card["free_mb"] = 7200                       # 300 MB left after the language model: no room
+    assert w._gpu_room_for_whisper("small.en", str(tmp_path)) is False
+    card["free_mb"] = 11500                      # 4.5 GB left: room
     assert w._gpu_room_for_whisper("small.en", str(tmp_path)) is True
+    plan.n_gpu_layers = 20                       # the language model does not fit: whisper stays off
+    assert w._gpu_room_for_whisper("small.en", str(tmp_path)) is False
 
 
 def test_whisper_is_never_put_on_the_gpu_on_a_guess(monkeypatch, tmp_path):
     from eli.perception import local_whisper_stt as w
-    monkeypatch.setattr(w, "_gpu_total_mb", lambda: 24576)
+    monkeypatch.setattr(w, "_whisper_card", lambda: {"name": "Card", "vendor": "nvidia", "free_mb": 24000})
+    monkeypatch.setattr(w, "_measured_footprint_mb", lambda c, m: None)
     monkeypatch.setattr(w, "_whisper_weights_mb", lambda m, d: 0.0)         # not downloaded
     assert w._gpu_room_for_whisper("small.en", str(tmp_path)) is False
 

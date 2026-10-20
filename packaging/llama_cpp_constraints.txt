@@ -4,4 +4,4 @@
 # process crash (v2.5.0 bundled 0.3.36 against 0.3.35 packs: "undefined symbol:
 # ggml_rope_set_offset" on launch). Change both together, and rebuild the packs.
 # tests/test_llama_runtime_pin.py enforces it.
-llama-cpp-python==0.3.35
+llama-cpp-python==0.3.36

@@ -14,41 +14,10 @@ _MODEL_LOCK = threading.Lock()
 _MODEL_LOADING = False   # True while a download/load is in progress
 _MODEL_READY = threading.Event()  # set once the model is loaded successfully
 _CUDA_FAILED = False  # set permanently once CUDA OOM occurs; prevents re-escalation
-_GPU_TOTAL_MB: Optional[int] = None  # cached total VRAM of GPU 0
 
 
 def _env(name, default):
     return (os.environ.get(name, default) or default).strip()
-
-
-def _gpu_total_mb() -> int:
-    """Total VRAM of the NVIDIA GPU in MB (0 if none / can't tell). Cheap, cached.
-
-    NVIDIA-specific on purpose, not an oversight: the caller sets
-    device="cuda" for ctranslate2 (what faster-whisper uses), and ctranslate2
-    has no ROCm/Vulkan backend to offload to on AMD/Intel/Apple -- those stay
-    on CPU here regardless of VRAM, correctly.
-
-    Used to shell out to nvidia-smi directly, which is fragile (a raw
-    subprocess call with no fallback for a broken driver reads as "no GPU",
-    same failure class fixed elsewhere in hardware_profile.py) and returns 0
-    on a driver hiccup even on a machine with a perfectly good big card,
-    silently forcing whisper onto CPU. Route through detect_hardware()
-    instead, which already has the kernel-level fallbacks for that.
-    """
-    global _GPU_TOTAL_MB
-    if _GPU_TOTAL_MB is not None:
-        return _GPU_TOTAL_MB
-    mb = 0
-    try:
-        from eli.core.hardware_profile import detect_hardware
-        hw = detect_hardware()
-        if hw.has_gpu and (hw.gpu_vendor or "").lower() == "nvidia":
-            mb = int(hw.total_vram_mb or 0)
-    except Exception:
-        mb = 0
-    _GPU_TOTAL_MB = mb
-    return mb
 
 
 def _whisper_hub_dir(model: str) -> str:
@@ -68,44 +37,80 @@ def _whisper_weights_mb(model: str, model_dir: str) -> float:
     return 0.0
 
 
+_DEVICE_DECIDED: dict = {}
+
+
+def _whisper_card() -> Optional[dict]:
+    """The card ctranslate2 runs whisper on: CUDA device 0, the first NVIDIA card in bus order
+    (eli/__init__.py sets CUDA_DEVICE_ORDER=PCI_BUS_ID). None otherwise: ctranslate2 is CUDA only."""
+    try:
+        from eli.core.hardware_profile import get_live_gpu_telemetry
+        cards = [d for d in (get_live_gpu_telemetry().get("devices") or []) if d.get("vendor") == "nvidia"]
+    except Exception:
+        log.debug("whisper card unknown", exc_info=True)
+        return None
+    return cards[0] if cards else None
+
+
+def _footprint_file() -> Path:
+    from eli.core.paths import data_dir
+    return Path(data_dir()) / "runtime" / "whisper_gpu.json"
+
+
+def _footprint_key(card: dict, model: str) -> str:
+    return f"{card.get('name')}|{int(card.get('total_mb') or 0)}|{model}"
+
+
+def _measured_footprint_mb(card: dict, model: str) -> Optional[float]:
+    """What whisper was measured holding on this card, weights and working buffers, after its warm-up."""
+    import json
+    try:
+        return float(json.loads(_footprint_file().read_text(encoding="utf-8"))[_footprint_key(card, model)])
+    except Exception:
+        return None
+
+
+def _record_footprint(card: dict, model: str, mb: float) -> None:
+    import json
+    path = _footprint_file()
+    try:
+        table = json.loads(path.read_text(encoding="utf-8")) if path.is_file() else {}
+        table[_footprint_key(card, model)] = round(float(mb), 1)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(table, indent=1), encoding="utf-8")
+    except Exception:
+        log.debug("whisper footprint not recorded", exc_info=True)
+
+
 def _gpu_room_for_whisper(model: str, model_dir: str) -> bool:
-    """GPU only when, after what the language model takes there, the free VRAM still holds this
-    whisper model's weights and the configured headroom. Measured from the files and the card:
-    a fixed 12000 MB card size kept whisper off a 10 GB card beside a small model and put it on a
-    12 GB card beside one that needed all of it. Unknown either way: the CPU, so the language
-    model keeps the GPU."""
-    if _gpu_total_mb() <= 0:                 # ctranslate2 offloads to NVIDIA only
+    """GPU only when its card still holds this whisper model after the language model takes every
+    layer it can: whisper on the GPU must not cost the language model layers. What whisper needs is
+    its measured footprint on this card (weights and working buffers), or its weights until measured;
+    what the language model needs is its load plan (eli/core/load_plan.py), or, loaded, what it holds.
+    Unknown either way: the CPU, so the language model keeps the GPU."""
+    card = _whisper_card()
+    if card is None or not card.get("free_mb"):         # ctranslate2 offloads to NVIDIA only
         return False
-    need = _whisper_weights_mb(model, model_dir)
+    need = _measured_footprint_mb(card, model) or _whisper_weights_mb(model, model_dir)
     if need <= 0:
         return False
     try:
         import sys
-        from eli.core.hardware_profile import (
-            _CUDA_OVERHEAD_MB, _compute_graph_reserve_mb, get_live_gpu_telemetry, model_cost,
-            vram_reserve_mb)
-        free = get_live_gpu_telemetry().get("free_mb")
-        if not free:
-            return False
-        room = int(free) - int(vram_reserve_mb())
+        from eli.core.hardware_profile import vram_reserve_mb
+        room = float(card["free_mb"]) - float(vram_reserve_mb())
         gi = sys.modules.get("eli.cognition.gguf_inference")
         if gi is None or getattr(gi, "_llm", None) is None:
-            # the language model is not loaded yet: keep what it will take
-            from eli.core import config
-            from eli.core.runtime_settings import load_settings
-            path, ctx = config.get_gguf_model_path(), int(config.get_gguf_n_ctx() or 0)
-            kv_type = str((load_settings() or {}).get("cache_type_k") or "f16")
-            whole = model_cost(path, kv_cache_type=kv_type)
-            if whole is None:
+            # not loaded yet: what its plan puts on this card
+            from eli.core import config, load_plan
+            from eli.cognition.gguf_inference import load_request
+            plan = load_plan.plan(load_request(config.get_gguf_model_path()))
+            if plan is None or plan.cpu_only:
                 return False
-            fixed = whole.kv_mb(ctx) + _compute_graph_reserve_mb(ctx) + _CUDA_OVERHEAD_MB
-            every_layer = whole.weights.blocks + 1
-            if whole.gpu_weights_mb(every_layer) + fixed <= room:
-                room -= whole.gpu_weights_mb(every_layer) + fixed
-            elif whole.weights.experts_total > 0:   # experts stay in RAM, the rest on the GPU
-                room -= model_cost(path, experts_in_ram=True, kv_cache_type=kv_type).gpu_weights_mb(every_layer) + fixed
-            else:
-                return False                       # a partial offload uses the whole card
+            if plan.n_gpu_layers < plan.blocks + 1 or plan.experts_in_ram:
+                return False                       # the language model already wants more than the cards hold
+            same = [d.index for d in plan.devices if d.name.lower() == "cuda0"] or \
+                [d.index for d in plan.devices if d.description == card.get("name")]
+            room -= float(plan.use_mb.get(same[0], 0.0)) if same else max(plan.use_mb.values(), default=0.0)
         return room >= need
     except Exception:
         log.debug("whisper GPU room unknown", exc_info=True)
@@ -169,7 +174,7 @@ def whisper_status() -> dict:
             "loaded": _MODEL is not None,
             "loading": _MODEL_LOADING,
             "cuda_failed": _CUDA_FAILED,
-            "gpu_total_mb": _gpu_total_mb(),
+            "gpu_total_mb": int((_whisper_card() or {}).get("total_mb") or 0),
         }
     except Exception as exc:
         return {"error": repr(exc)}
@@ -211,7 +216,11 @@ def _model_settings():
     if _explicit_device:
         device = _explicit_device
     else:
-        device = "cuda" if _gpu_room_for_whisper(model, model_dir) else "cpu"
+        # decided once per model: whisper's own memory, once loaded, would otherwise turn the answer
+        # round on the next call and reload it on the other device
+        if model not in _DEVICE_DECIDED:
+            _DEVICE_DECIDED[model] = "cuda" if _gpu_room_for_whisper(model, model_dir) else "cpu"
+        device = _DEVICE_DECIDED[model]
     compute_type = _env(
         "ELI_WHISPER_COMPUTE_TYPE", "int8_float16" if device == "cuda" else "int8")
     local_only = _env("ELI_WHISPER_LOCAL_ONLY", "0").lower() in {"1", "true", "yes", "on"}
@@ -316,16 +325,34 @@ def get_model():
 
 
 def preload_model() -> bool:
-    """Eagerly load whisper at startup so it claims its VRAM before the GGUF
-    autotune runs. Returns True only when the model loaded onto CUDA — the
-    startup dialog uses this to decide whether to cap ELI_TARGET_BATCH.
-    Returns False on CPU loads (no VRAM impact on the GGUF autotune)."""
+    """Load whisper at startup, before the language model is planned, so the memory it holds is
+    already taken when the load plan measures what each card has free. On a GPU it transcribes one
+    second of silence: its working buffers are allocated on the first transcription, and the plan
+    keeps only what llama.cpp itself was measured to need free. True when it is on CUDA."""
     try:
+        model = _env("ELI_WHISPER_MODEL", "small.en")
+        _card = _whisper_card() if _MODEL is None else None
+        _free_before_load = (_card or {}).get("free_mb")
         get_model()
         if _MODEL is None:
             return False
         _, _, device, _, _ = _model_settings()
-        return device == "cuda"
+        if device != "cuda":
+            return False
+        try:
+            import numpy as np
+            from eli.perception.audio_samples import SPEECH_RATE
+            segments, _info = _MODEL.transcribe(np.zeros(int(SPEECH_RATE), dtype=np.float32), beam_size=5,
+                                                vad_filter=False, without_timestamps=True)
+            for _seg in segments:
+                pass
+        except Exception:
+            log.debug("[LOCAL_STT] warm-up transcription skipped", exc_info=True)
+        if _free_before_load is not None:
+            card = _whisper_card()
+            if card and card.get("free_mb") is not None:
+                _record_footprint(card, model, max(0.0, float(_free_before_load) - float(card["free_mb"])))
+        return True
     except Exception:
         return False
 

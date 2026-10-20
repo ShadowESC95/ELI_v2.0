@@ -51,17 +51,28 @@ def test_the_key_survives_a_settings_load():
 
 
 def test_all_layers_is_a_policy_and_survives_a_model_swap():
-    """99 / -1 mean "offload everything" -- correct on EVERY model.
+    """-1 means "offload everything" -- correct on EVERY model.
 
-    Treating them as stale would quietly downgrade "try them all, then fall back
+    Treating it as stale would quietly downgrade "try them all, then fall back
     to the measured fit" into "just use the fallback", which is a different and
     worse behaviour on capable hardware. The loader already reduces to fit.
     """
-    for pin in (99, 128, -1):
-        got = rs.pinned_gpu_layers_for_model(
-            "/models/phi3.gguf",
-            {"n_gpu_layers": pin, "n_gpu_layers_model": "some-other-27b.gguf"})
-        assert got == pin, f"'all layers' pin {pin} was discarded on a model swap"
+    got = rs.pinned_gpu_layers_for_model(
+        "/models/phi3.gguf", {"n_gpu_layers": -1, "n_gpu_layers_model": "some-other-27b.gguf"})
+    assert got == -1, "'all layers' was discarded on a model swap"
+
+
+def test_the_99_earlier_releases_wrote_for_every_layer_is_read_as_every_layer(tmp_path, monkeypatch):
+    """99 stood for every layer and fell short on a model of more than 99 layers; a settings file
+    carrying it is read as llama.cpp's -1."""
+    import json
+    f = tmp_path / "settings.json"
+    f.write_text(json.dumps({"n_gpu_layers": 99, "vision_n_gpu_layers": 99, "vision_fast_n_gpu_layers": 99}))
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(f))
+    for var in ("ELI_GGUF_N_GPU_LAYERS", "ELI_N_GPU_LAYERS", "ELI_GPU_LAYERS"):
+        monkeypatch.delenv(var, raising=False)
+    s = rs._load_settings_unsanitized()
+    assert (s["n_gpu_layers"], s["vision_n_gpu_layers"], s["vision_fast_n_gpu_layers"]) == (-1, -1, -1)
 
 
 def test_a_specific_count_from_another_model_is_dropped():
@@ -85,6 +96,20 @@ def test_the_headless_loader_uses_the_same_rule():
     assert "pinned_gpu_layers_for_model" in src, (
         "the headless/server load path resolves n_gpu_layers straight from "
         "settings again, so a stale pin still strands models on the CPU there")
+
+
+def test_saving_settings_does_not_turn_the_setting_into_a_global_override(tmp_path, monkeypatch):
+    """apply_env, run after every save, copied n_gpu_layers into ELI_GGUF_N_GPU_LAYERS, which the
+    loader reads first: an unpinned 0 became "processor only" and one model's pin applied to all."""
+    from eli.cognition.gguf_inference import load_request
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(tmp_path / "settings.json"))
+    for var in ("ELI_GGUF_N_GPU_LAYERS", "ELI_N_GPU_LAYERS", "ELI_GPU_LAYERS"):
+        monkeypatch.delenv(var, raising=False)
+    rs.save_settings({"model_path": "/m/a.gguf"})
+    assert load_request("/m/a.gguf").n_gpu_layers is None
+    rs.save_settings({"n_gpu_layers": 7, "n_gpu_layers_model": "a.gguf", "n_gpu_layers_source": "user"})
+    assert load_request("/m/a.gguf").n_gpu_layers == 7
+    assert load_request("/m/b.gguf").n_gpu_layers is None
 
 
 def test_the_gui_defers_to_the_shared_rule():
@@ -168,13 +193,12 @@ def test_a_pin_saved_before_ctx_was_ever_stamped_is_not_spuriously_invalidated()
 
 
 def test_all_layers_pin_survives_a_ctx_change_too():
-    """99 / -1 are a policy, correct at every ctx as well as every model."""
-    for pin in (99, 128, -1):
-        got = rs.pinned_gpu_layers_for_model(
-            "/models/phi3.gguf",
-            {"n_gpu_layers": pin, "n_gpu_layers_model": "phi3.gguf", "n_gpu_layers_ctx": 2048},
-            current_ctx=12200)
-        assert got == pin
+    """-1 is a policy, correct at every ctx as well as every model."""
+    got = rs.pinned_gpu_layers_for_model(
+        "/models/phi3.gguf",
+        {"n_gpu_layers": -1, "n_gpu_layers_model": "phi3.gguf", "n_gpu_layers_ctx": 2048},
+        current_ctx=12200)
+    assert got == -1
 
 
 def test_the_pin_is_stamped_with_ctx_when_saved():
@@ -194,7 +218,7 @@ def test_the_tuner_checks_ctx_before_honouring_a_pin():
 def test_the_headless_loader_checks_ctx_before_honouring_a_pin():
     root = Path(rs.__file__).resolve().parents[2]
     src = (root / "eli/cognition/gguf_inference.py").read_text(encoding="utf-8")
-    assert re.search(r"_pin4\([^)]*current_ctx\s*=", src), (
+    assert re.search(r"pinned_gpu_layers_for_model\([^)]*current_ctx\s*=", src), (
         "the headless/server load path resolves n_gpu_layers without "
         "checking ctx, so it can diverge from the GUI on the exact same "
         "stale-ctx-pin scenario")

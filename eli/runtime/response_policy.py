@@ -32,6 +32,7 @@ EXECUTION_ACTION_HINTS = {
     "FILE_READ",
     "SEARCH_WEB",
     "WEB_SEARCH",
+    "WEB_FETCH",
 }
 
 

@@ -53,7 +53,7 @@ def _loader_fit(size_gb: float, free_mb: int, ctx: int, kv_q: bool, avail_ram_gb
         min_batch=128,
         gpu_integrated=False,
     )
-    return _c, (total if int(layers) >= 99 else int(layers))
+    return _c, (total if int(layers) < 0 else int(layers))      # -1: every layer
 
 
 @pytest.mark.parametrize("size_gb,free_mb,total_mb", [

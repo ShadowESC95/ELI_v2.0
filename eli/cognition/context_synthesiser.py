@@ -309,8 +309,7 @@ def _runtime_snapshot() -> Dict[str, Any]:
     return {}
 
 
-# The load parameters worth comparing. n_gpu_layers uses 99 as "all layers", so a
-# straight numeric compare is still correct: 99 vs 99 is not a reduction.
+# The load parameters worth comparing. n_gpu_layers -1 is every layer.
 _LOAD_PARAMS = ("n_ctx", "n_gpu_layers", "n_batch", "n_threads")
 
 
@@ -359,6 +358,8 @@ def runtime_load_gap(snap: Dict[str, Any] | None = None) -> Dict[str, Any]:
         # batch a 0 means the figure is missing
         if r > 0 and e < r and (e > 0 or (key == "n_gpu_layers" and eff.get(key) is not None)):
             reduced[key] = {"requested": r, "effective": e}
+        elif key == "n_gpu_layers" and r < 0 and e == 0 and eff.get(key) is not None:
+            reduced[key] = {"requested": r, "effective": e}      # every layer asked, none loaded
         # A mixture-of-experts model raises n_gpu_layers ABOVE what was requested (llama.cpp's
         # "put everything on the GPU" convention, with the experts kept in RAM) — "loaded exactly
         # as requested" was being said for a load that did not match the request at all, just
@@ -377,7 +378,7 @@ def runtime_load_gap(snap: Dict[str, Any] | None = None) -> Dict[str, Any]:
     load_mode = str(snap.get("load_mode") or "").strip().upper()
     on_gpu = bool(snap.get(
         "on_gpu",
-        (load_mode == "GPU") or (gpu_layers > 0 and offload_supported is not False),
+        (load_mode == "GPU") or (gpu_layers != 0 and offload_supported is not False),
     ))
 
     flag = snap.get("clamped")
@@ -420,7 +421,7 @@ def live_runtime_brief() -> str:
         snap.get(
             "on_gpu",
             (load_mode == "GPU")
-            or (gpu_layers > 0 and backend_gpu_offload_supported is not False),
+            or (gpu_layers != 0 and backend_gpu_offload_supported is not False),
         )
     )
     clamped = bool(gap.get("clamped"))

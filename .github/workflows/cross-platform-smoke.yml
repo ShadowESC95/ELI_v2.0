@@ -162,6 +162,9 @@ jobs:
           tests/test_document_formats.py
           tests/test_cross_platform_apps.py
           tests/test_gpu_detection_cross_platform.py
+          tests/test_get_live_gpu_telemetry.py
+          tests/test_load_plan.py
+          tests/test_wizard_assets_and_server_fixes.py
           tests/test_media_cross_platform_smoke.py
           tests/test_media_capabilities.py
           tests/test_open_url_linux.py

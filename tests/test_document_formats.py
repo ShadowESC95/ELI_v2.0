@@ -19,7 +19,7 @@ import zipfile
 
 import pytest
 
-from eli.plugins.document_reader.plugin import DocumentReaderPlugin, _html_to_text
+from eli.plugins.document_reader.plugin import DocumentReaderPlugin, html_to_text
 
 ODT_CONTENT_XML = """<?xml version="1.0" encoding="UTF-8"?>
 <office:document-content
@@ -366,16 +366,16 @@ def test_extensionless_text_still_reads(plugin, tmp_path):
 
 
 # ── html extraction unit ────────────────────────────────────────────────────
-def test_html_to_text_separates_block_elements():
-    assert _html_to_text("<p>one</p><p>two</p>").splitlines() == ["one", "two"]
+def testhtml_to_text_separates_block_elements():
+    assert html_to_text("<p>one</p><p>two</p>").splitlines() == ["one", "two"]
 
 
-def test_html_to_text_resolves_entities():
-    assert "AT&T" in _html_to_text("<p>AT&amp;T</p>")
+def testhtml_to_text_resolves_entities():
+    assert "AT&T" in html_to_text("<p>AT&amp;T</p>")
 
 
-def test_html_to_text_survives_malformed_markup():
-    _html_to_text("<p>unclosed <b>bold")   # must not raise
+def testhtml_to_text_survives_malformed_markup():
+    html_to_text("<p>unclosed <b>bold")   # must not raise
 
 
 # ── coverage matches what is advertised ─────────────────────────────────────

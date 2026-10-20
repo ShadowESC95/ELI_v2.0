@@ -14,6 +14,8 @@ _SWLOG = _swlog_logging.getLogger(__name__)
 from pathlib import Path
 from typing import Any
 
+from eli.core.hardware_profile import describe_gpus as _describe_gpus
+
 try:
     from eli.core.paths import canonical_root
     PROJECT_ROOT = canonical_root(Path(__file__).resolve().parents[2])
@@ -269,22 +271,6 @@ def _eli_settings_v2() -> dict:
     return _eli_json_file_v2(_eli_project_root_v2() / "config" / "settings.json")
 
 
-def _eli_gpu_line_v2() -> str:
-    try:
-        out = _eli_subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total,memory.used,memory.free,driver_version",
-                "--format=csv,noheader,nounits",
-            ],
-            text=True,
-            timeout=3,
-        ).strip().splitlines()
-        return out[0].strip() if out else "unavailable"
-    except Exception as e:
-        return f"unavailable ({type(e).__name__}: {e})"
-
-
 def _eli_db_paths_v2() -> dict[str, _EliPath]:
     root = _eli_project_root_v2()
     return {
@@ -412,7 +398,7 @@ def _eli_runtime_truth_v2(mode_label: str = "") -> str:
                 "n_threads": snap.get("n_threads", "unknown"),
                 "n_batch": snap.get("n_batch", "unknown"),
             },
-            "gpu": _eli_gpu_line_v2(),
+            "gpu": _describe_gpus(),
             "mode": mode_label or "",
         },
         ensure_ascii=False,
@@ -671,7 +657,7 @@ def _eli_runtime_audit_v2() -> str:
         f"- configured gpu layers: {settings.get('n_gpu_layers', settings.get('gpu_layers', 'unknown'))}",
         f"- effective gpu layers: {snap.get('n_gpu_layers', 'unknown')}",
         f"- effective batch: {snap.get('n_batch', 'unknown')}",
-        f"- gpu: {_eli_gpu_line_v2()}",
+        f"- gpu: {_describe_gpus()}",
         "",
         "## File presence",
     ]
@@ -2998,34 +2984,6 @@ def _eli_v14_settings() -> dict:
     return {}
 
 
-def _eli_v14_gpu_line() -> str:
-    try:
-        out = _eli_v14_subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total,memory.used,memory.free,driver_version",
-                "--format=csv,noheader,nounits",
-            ],
-            text=True,
-            stderr=_eli_v14_subprocess.DEVNULL,
-            timeout=3,
-        ).strip().splitlines()
-        if out:
-            return out[0].strip()
-    except Exception:
-        _SWLOG.debug("suppressed exception", exc_info=True)
-    # Cross-vendor fallback -- see _gpu_line() above for why.
-    try:
-        from eli.core.hardware_profile import detect_hardware
-        hw = detect_hardware()
-        if hw.has_gpu:
-            note = " (estimated)" if hw.gpu_detection_uncertain else ""
-            return f"{hw.gpu_name}{note}, {hw.total_vram_mb} MiB total (live query unavailable)"
-    except Exception:
-        _SWLOG.debug("suppressed exception", exc_info=True)
-    return "unavailable"
-
-
 def _eli_v14_get_runtime_value(data: dict, *keys, default="unknown"):
     cur = data
     for key in keys:
@@ -3074,7 +3032,7 @@ def _eli_v14_runtime_data() -> dict:
         "platform": __import__("sys").platform,
         "configured": configured,
         "effective": effective,
-        "gpu": _eli_v14_gpu_line(),
+        "gpu": _describe_gpus(),
     }
 
 

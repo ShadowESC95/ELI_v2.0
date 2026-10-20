@@ -184,6 +184,7 @@ _add("System status & info", "GET_DATE", "Current date (alt)", "“what day is i
 _add("System status & info", "GET_WEATHER", "Weather for a place", "“weather in Paris”")
 _add("System status & info", "NEWS_FETCH", "Synthesised news digest; topic-scoped re-fetch after a briefing when you go deeper", "“what's the news”", "“catch me up”", "“go deeper into Hubble”", "“more on the transformer story”")
 _add("System status & info", "WEB_SEARCH", "Web search (Net-gated)", "“search the web for X”")
+_add("System status & info", "WEB_FETCH", "Read a linked web page and answer about it (Net-gated)", "“https://github.com/ShadowESC95/ELI_v2.0 what do you think?”", "“summarise this https://example.com/article”")
 _add("System status & info", "MESSAGE_TIME_QUERY", "Time-of-a-message query", "“when did I say that”")
 _add("System status & info", "CHECK_CHRONAL_ALIGNMENT", "Playful date/time sanity check", "“check chronal alignment”")
 

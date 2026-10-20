@@ -353,7 +353,7 @@ class VectorStore:
                 _embed_ctx = 0
             try:
                 from eli.core.hardware_profile import recommend_cpu_threads
-                _embed_threads = int(recommend_cpu_threads(os.cpu_count() or 1, cpu_bound=False))
+                _embed_threads = int(recommend_cpu_threads())
             except Exception:
                 _embed_threads = max(1, (os.cpu_count() or 1) - 1)
             _llm = Llama(

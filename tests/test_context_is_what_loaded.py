@@ -261,15 +261,14 @@ def test_an_argument_llama_cpp_does_not_take_is_left_out_and_said(caplog):
     assert not kv_cache_refused(["CUDA error: out of memory\n"])
 
 
-def test_every_loader_and_the_probe_use_the_one_helper():
-    for rel in ("eli/cognition/gguf_inference.py", "eli/gui/app.py", "eli/gui/eli_pro_audio_gui_v2_0.py",
-                "eli/core/load_probe.py"):
-        text = (ROOT / rel).read_text(encoding="utf-8")
-        assert "llama_cache_args" in text, rel
-        assert 'kwargs["cache_type_k"]' not in text and 'kwargs["cache_type_v"]' not in text, rel
-    # and the three loaders read the stored setting one way, so each fits for the cache it loads
+def test_the_one_loader_uses_the_one_helper():
+    """One loader (gguf_inference.load_model, from the plan's llama_kwargs) builds the cache arguments
+    with gguf_sizes.llama_cache_args; the window and the launcher hand their loads to it."""
+    assert "llama_cache_args" in (ROOT / "eli/core/load_plan.py").read_text(encoding="utf-8")
     for rel in ("eli/cognition/gguf_inference.py", "eli/gui/app.py", "eli/gui/eli_pro_audio_gui_v2_0.py"):
-        assert "cache_setting" in (ROOT / rel).read_text(encoding="utf-8"), rel
+        text = (ROOT / rel).read_text(encoding="utf-8")
+        assert 'kwargs["cache_type_k"]' not in text and 'kwargs["cache_type_v"]' not in text, rel
+    assert "cache_setting" in (ROOT / "eli/cognition/gguf_inference.py").read_text(encoding="utf-8")
 
 
 def test_the_settings_page_offers_only_cache_types_that_load():

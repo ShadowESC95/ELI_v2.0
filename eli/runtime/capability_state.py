@@ -208,42 +208,15 @@ def is_stale(action: str, dimension: str, *, now: Optional[float] = None,
 
 
 # ── probe adapters ────────────────────────────────────────────────────────
-# Four existing probes, four genuinely incompatible native return shapes —
-# confirmed by direct read, not assumed:
-#   load_probe.probe_verdict        -> Tuple[str, str]           (verdict, detail)
+# Three existing probes, three incompatible native return shapes:
 #   mic_diag._probe_device          -> Optional[int]             (mean RMS, or None)
 #   ble_light.probe                 -> dict                      (BleProbe.as_dict())
 #   mqtt_setup.probe_broker_connection -> Dict[str, Any]
 # Each adapter below normalizes one probe's raw return into
 # (evidence_state, cost_estimate, detail).
 #
-# Only load_probe.probe_verdict has a real, live caller today (the GUI's
-# model-load-fit check, eli_pro_audio_gui_v2_0.py) — confirmed by a
-# repo-wide search that mic_diag/ble_light.probe/mqtt_setup.
-# probe_broker_connection have NO current caller anywhere in the running
-# pipeline (mic_diag is a standalone diagnostic script; device_server.py
-# uses ble_light's set_rgb/set_power, never its own probe() wrapper; mqtt
-# setup's probe function is unused). None of the four also correspond to an
-# existing capability_manifest action name (confirmed against the live
-# manifest) — load_probe is about model-load viability, not a dispatchable
-# action, and no MIC/BLE/MQTT-flavoured action exists today. So these
-# adapters are built and tested here, ready to use the moment a real caller
-# or a real action needs them — wiring one into record_probe_result for an
-# action that doesn't exist would be inventing usage, not building it.
-
-def _adapt_load_probe(verdict: str, detail: str = "") -> Tuple[str, Optional[float], str]:
-    from eli.core.load_probe import (
-        PROVEN_OK, PROVEN_BAD, UNPROVEN_TIMEOUT, UNPROVEN_UNAVAILABLE, SKIPPED,
-    )
-    mapping = {
-        PROVEN_OK: EvidenceState.FOUND,
-        PROVEN_BAD: EvidenceState.NOT_FOUND,
-        UNPROVEN_TIMEOUT: EvidenceState.INSPECTION_FAILED,
-        UNPROVEN_UNAVAILABLE: EvidenceState.NOT_AVAILABLE,
-        SKIPPED: EvidenceState.NOT_INSPECTED,
-    }
-    return mapping.get(verdict, EvidenceState.NOT_INSPECTED), None, detail
-
+# None of them has a caller in the running pipeline yet, and none corresponds to a capability
+# manifest action; they are built and tested so a real caller can use them.
 
 def _adapt_mic_probe(rms: Optional[int]) -> Tuple[str, Optional[float], str]:
     if rms is None:
@@ -267,7 +240,6 @@ def _adapt_mqtt_probe(result: Dict[str, Any]) -> Tuple[str, Optional[float], str
 
 
 _ADAPTERS = {
-    "load_probe": _adapt_load_probe,
     "mic_probe": _adapt_mic_probe,
     "ble_probe": _adapt_ble_probe,
     "mqtt_probe": _adapt_mqtt_probe,
@@ -302,5 +274,5 @@ def select_cheapest_adapter(dimension: str) -> Optional[str]:
 __all__ = [
     "ensure_schema", "get_state", "touch_discovered", "upsert_state",
     "record_probe_result", "is_stale", "select_cheapest_adapter",
-    "_adapt_load_probe", "_adapt_mic_probe", "_adapt_ble_probe", "_adapt_mqtt_probe",
+    "_adapt_mic_probe", "_adapt_ble_probe", "_adapt_mqtt_probe",
 ]

@@ -140,6 +140,41 @@ def redo_applies(text: str, last_cmd: Optional[Dict[str, Any]],
     return any(t.startswith(stem[:4]) or stem.startswith(t[:4]) for t in tokens)
 
 
+# Words that point at something already said rather than name it
+_POINTS_BACK = frozenset(("the", "a", "an", "this", "that", "these", "those", "it", "them", "one", "ones", "other",
+                          "another", "same", "thing", "previous", "last", "first", "second", "next", "earlier",
+                          "before", "again", "instead", "please", "mate", "dude"))
+
+
+def corrected_action(text: str, last_cmd: Optional[Dict[str, Any]],
+                     now: Optional[float] = None) -> Optional[Dict[str, Any]]:
+    """"no dude, RAIMS and Orcawise" right after a search for the wrong thing: the last action again,
+    on what the correction names ({"action", "args"}). The search is redone, where the reply used
+    to be the model's guess about the new words ("Orcawise is a band"). None unless the message is
+    a correction naming something (not a question, not an instruction of its own) and the last
+    action, recent, acted on one named thing (route_contracts.TARGET_ARGS)."""
+    from eli.execution.route_contracts import TARGET_ARGS
+    from eli.runtime.command_splitter import correction, starts_with_command
+    if not last_cmd:
+        return None
+    age = (time.time() if now is None else float(now)) - float(last_cmd.get("ts") or 0.0)
+    if age > REDO_MAX_AGE_S:
+        return None
+    named = correction(text)
+    if not named or "?" in named or starts_with_command(named) or len(named.split()) > 12:
+        return None
+    if not [w for w in re.findall(r"[a-z0-9']+", named.lower()) if w not in _POINTS_BACK]:
+        return None                     # "the other one" points back; it names nothing new
+    args = dict(last_cmd.get("args") or {})
+    key = next((k for k in TARGET_ARGS if isinstance(args.get(k), str) and args[k].strip()), None)
+    if key is None:
+        return None
+    args[key] = named
+    if key == "name" and isinstance(args.get("target"), str):
+        args["target"] = named          # app actions carry the name twice
+    return {"action": str(last_cmd.get("action") or ""), "args": args}
+
+
 # "Go deeper on <topic>" phrasings. When the previous turn was a news briefing,
 # the captured topic is what the user wants re-fetched specifically — not the
 # whole briefing again. Pure/deterministic so the engine can gate on it.

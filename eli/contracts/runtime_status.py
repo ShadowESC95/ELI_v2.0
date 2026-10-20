@@ -185,44 +185,22 @@ def _read_settings(project_root: Path) -> dict[str, Any]:
     return {}
 
 
-def _gpu_probe_from_nvidia_smi() -> dict[str, Any]:
-    import subprocess
-
+def _gpu_probe() -> dict[str, Any]:
+    """Every GPU, from the one telemetry reader (hardware_profile.get_live_gpu_telemetry); {} when none."""
     try:
-        out = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total,memory.free",
-                "--format=csv,noheader,nounits",
-            ],
-            stderr=subprocess.DEVNULL,
-            text=True,
-            timeout=2,
-        ).strip()
-        if out:
-            first = out.splitlines()[0]
-            name, total, free = [x.strip() for x in first.split(",", 2)]
-            return {
-                "name": name,
-                "total_mib": int(float(total)),
-                "free_mib": int(float(free)),
-            }
+        from eli.core.hardware_profile import get_live_gpu_telemetry, gpu_label
+        t = get_live_gpu_telemetry()
     except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    # Cross-vendor fallback: this returned {} on every AMD/Intel/Apple machine and on NVIDIA with a
-    # driver hiccup, although hardware_profile.detect_hardware() already knows the card.
-    try:
-        from eli.core.hardware_profile import detect_hardware
-        hw = detect_hardware()
-        if hw.has_gpu:
-            return {
-                "name": hw.gpu_name + (" (estimated)" if hw.gpu_detection_uncertain else ""),
-                "total_mib": int(hw.total_vram_mb) if hw.total_vram_mb else None,
-                "free_mib": int(hw.free_vram_mb) if hw.free_vram_mb else None,
-            }
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    return {}
+        log.debug("GPU telemetry unavailable", exc_info=True)
+        return {}
+    if not t.get("ok"):
+        return {}
+    return {
+        "name": gpu_label(t),
+        "total_mib": t.get("total_mb"),
+        "free_mib": t.get("free_mb"),
+        "devices": list(t.get("devices") or []),
+    }
 
 
 def is_runtime_status_question(prompt: Any) -> bool:
@@ -258,11 +236,7 @@ def build_live_evidence(
 
     requested = _as_mapping(runtime.get("requested"))
     effective = _as_mapping(runtime.get("effective"))
-    adaptive = _as_mapping(runtime.get("adaptive_load_report"))
-    gpu_probe = _as_mapping(adaptive.get("gpu_probe"))
-
-    if not gpu_probe:
-        gpu_probe = _gpu_probe_from_nvidia_smi()
+    gpu_probe = _gpu_probe()
 
     model_path = _first(
         runtime.get("model_path"),

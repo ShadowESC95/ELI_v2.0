@@ -415,7 +415,7 @@ def locate_on_screen(
         from eli.perception.ui_ground import configured_precision_backend, locate_with_precision_backend
         if configured_precision_backend():
             from eli.perception.os_controller import take_screenshot as _ts
-            _shot = _ts(region=region)
+            _shot = _ts(region=region, keep=False)
             _path = _shot.get("path") or _shot.get("file") or ""
             if _shot.get("ok") and _path:
                 _vg = locate_with_precision_backend(str(query or "").strip(), _path)
@@ -452,7 +452,7 @@ def locate_on_screen(
     # ── Strategy 2: OCR (unchanged) ──────────────────────────────────────────
     from eli.perception.os_controller import take_screenshot
 
-    screenshot = take_screenshot(region=region)
+    screenshot = take_screenshot(region=region, keep=False)
     path = screenshot.get("path") or screenshot.get("file") or ""
     if not screenshot.get("ok") or not path:
         error = str(screenshot.get("error") or "Screenshot failed")

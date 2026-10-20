@@ -198,14 +198,6 @@ def test_greetings_skip_the_llm_intent_resolver(text, social):
 
 # ── what the GPU actually holds ──────────────────────────────────────────────
 
-def test_a_full_expert_offload_asks_llamacpp_for_every_layer():
-    from eli.core import moe_offload
-    with patch.object(moe_offload, "profile", return_value=SimpleNamespace(block_count=40)):
-        assert moe_offload.full_offload_layers(40, "m.gguf") == 41  # 40 gave 39 blocks + output
-        assert moe_offload.full_offload_layers(30, "m.gguf") == 30
-        assert moe_offload.full_offload_layers(99, "m.gguf") == 99
-
-
 def test_the_whole_layer_fit_line_is_marked_unused_for_moe():
     from pathlib import Path
     src = (Path(__file__).resolve().parents[1] / "eli/core/hardware_profile.py").read_text()

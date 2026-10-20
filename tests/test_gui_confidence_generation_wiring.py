@@ -37,14 +37,11 @@ def test_engine_ask_uses_cognitive_engine_dict_response():
     assert engine_ask.index("if isinstance(result, dict):") < engine_ask.index("backend.chat")
 
 
-def test_gui_preloaded_handoff_reads_preloaded_params():
+def test_gui_adopts_the_model_the_launcher_loaded():
+    """A model the terminal launcher loaded is taken over as it is, with the plan it loaded with,
+    instead of being loaded a second time."""
     source = Path("eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
-    handoff = source[source.index("_PRELOADED_PARAMS"):source.index("QTimer.singleShot(600")]
-
-    assert "_pre_params" in handoff
-    assert "for _src in (_pre_params, locals())" in handoff
-    assert '"model_path"' in handoff
-    assert '"batch_size"' in handoff
+    assert "def adopt(self, llm" in source and "model_manager.adopt(" in source
 
 
 def test_runtime_status_context_allows_followup_when_evidence_missing():

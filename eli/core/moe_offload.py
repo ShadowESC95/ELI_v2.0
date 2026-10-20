@@ -17,6 +17,7 @@ import contextlib
 import ctypes
 import os
 import threading
+from pathlib import Path
 from typing import Any, Dict, Iterator, Optional
 
 from eli.utils.log import get_logger
@@ -25,8 +26,7 @@ log = get_logger(__name__)
 
 EXPERT_PATTERN = rb"blk\.\d+\.ffn_(up|down|gate|gate_up)_exps"
 _DEFAULT_EXPERT_FRACTION = 0.90
-_patch_lock = threading.Lock()
-_keepalive: list = []
+_patch_lock = threading.RLock()
 
 
 def mode() -> str:
@@ -85,36 +85,6 @@ def plan(model_path: Optional[str], model_size_gb: float, *, free_vram_mb: int, 
             "layers": int(prof.block_count or 0)}
 
 
-def plan_for_load(model_path: str, gpu_supported: Optional[bool]) -> Optional[Dict[str, Any]]:
-    """The plan at load time, from live memory."""
-    try:
-        from eli.core import mem_units
-        if gpu_supported is False:
-            return None
-        from eli.core.hardware_profile import get_live_gpu_telemetry
-        free = int(get_live_gpu_telemetry().get("free_mb") or 0)
-        try:
-            import psutil
-            ram_gb = mem_units.bytes_to_gib(psutil.virtual_memory().available)
-        except Exception:
-            ram_gb = 0.0
-        return plan(model_path, mem_units.file_size_gib(model_path), free_vram_mb=free, available_ram_gb=ram_gb)
-    except Exception:
-        log.debug("moe: load plan unavailable", exc_info=True)
-        return None
-
-
-def full_offload_layers(n_gpu_layers: Any, model_path: Optional[str]) -> int:
-    """llama.cpp counts one more layer than the model has blocks (the output layer).
-    Asking for 40 on a 40-block model put the output layer and 39 blocks on the GPU and
-    left block 0's attention on the CPU, while ELI reported "40/40" (live load log,
-    2026-10-03). An expert-offload request for every block asks for every layer."""
-    n = int(n_gpu_layers)
-    prof = profile(model_path)
-    blocks = int(getattr(prof, "block_count", 0) or 0)
-    return blocks + 1 if blocks and 0 < blocks <= n < 99 else n
-
-
 def _zero_copy_experts_wanted() -> bool:
     return (os.environ.get("ELI_MOE_PINNED_EXPERTS") or "").strip().lower() not in {"1", "true", "yes", "on"}
 
@@ -141,20 +111,43 @@ def apply_zero_copy(params: Any) -> Any:
     return params
 
 
+def expert_pattern(layers: Optional[int] = None) -> bytes:
+    """The tensor-name pattern for the experts of every layer, or of the first `layers` layers only."""
+    if layers is None:
+        return EXPERT_PATTERN
+    numbers = "|".join(str(i) for i in range(max(0, int(layers))))
+    return rb"blk\.(" + numbers.encode("ascii") + rb")\.ffn_(up|down|gate|gate_up)_exps"
+
+
+_tables: Dict[Optional[int], Any] = {}
+
+
+def override_table(layers: Optional[int] = None):
+    """llama.cpp's tensor buffer override list that keeps these experts in system memory (a ctypes
+    array, kept alive for the process: llama.cpp reads it whenever a model loads)."""
+    with _patch_lock:
+        if layers in _tables:
+            return _tables[layers]
+        import llama_cpp
+        from llama_cpp import _ctypes_extensions as ext
+        base = ext.load_shared_library("ggml-base", Path(llama_cpp.__file__).resolve().parent / "lib")
+        base.ggml_backend_cpu_buffer_type.restype = ctypes.c_void_p
+        cpu = base.ggml_backend_cpu_buffer_type()
+
+        class _Override(ctypes.Structure):
+            _fields_ = [("pattern", ctypes.c_char_p), ("buft", ctypes.c_void_p)]
+
+        table = (_Override * 2)(_Override(expert_pattern(layers), cpu), _Override(None, None))
+        _tables[layers] = table
+        return table
+
+
 @contextlib.contextmanager
-def expert_offload_params() -> Iterator[None]:
-    """While a model is constructed, its parameters carry the override that puts expert tensors in system memory."""
-    import llama_cpp
+def expert_offload_params(layers: Optional[int] = None) -> Iterator[None]:
+    """While a model is constructed, its parameters carry the override that puts expert tensors in
+    system memory: every layer's, or the first `layers` layers' (the rest stay on the GPUs)."""
     from llama_cpp import llama_cpp as lc
-    base = ctypes.CDLL(os.path.join(os.path.dirname(llama_cpp.__file__), "lib", "libggml-base.so"))
-    base.ggml_backend_cpu_buffer_type.restype = ctypes.c_void_p
-    cpu = base.ggml_backend_cpu_buffer_type()
-
-    class _Override(ctypes.Structure):
-        _fields_ = [("pattern", ctypes.c_char_p), ("buft", ctypes.c_void_p)]
-
-    table = (_Override * 2)(_Override(EXPERT_PATTERN, cpu), _Override(None, None))
-    _keepalive.append(table)
+    table = override_table(layers)
     with _patch_lock:
         original = lc.llama_model_default_params
 

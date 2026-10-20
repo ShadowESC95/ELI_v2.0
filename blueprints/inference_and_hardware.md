@@ -1,9 +1,10 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.4.84.** GGUF path is canonical (optional Ollama backend still
-> exists as a secondary path). VRAM fit reads `{arch}.block_count` from the GGUF
-> header (model-agnostic) with a size heuristic fallback only when metadata is
-> unreadable. Token budgets scale by reasoning mode via `reasoning_modes.py`.
+> **Updated for v2.5.18.** GGUF path is canonical (optional Ollama backend still
+> exists as a secondary path). What a model loads with is planned by llama.cpp's own
+> load simulation on every GPU it sees (`core/load_plan.py`); the prompt format is
+> the model's own chat template. Token budgets scale by reasoning mode via
+> `reasoning_modes.py`.
 
 How ELI loads a model, talks to it, and adapts to whatever machine it's on. The
 inference path is model-agnostic (see memory `eli-model-agnostic`); the boot path
@@ -14,17 +15,21 @@ is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
 - **Model resolution (`get_model_path`)**: `ELI_GGUF_MODEL_PATH` env →
   `model_path`/`custom_model_path`/`bundled_model_path`/`gguf_model_path` settings
   keys. No baked model; empty default.
-- **`load_model(force_reload)`**: resolves `n_ctx` (env → settings →
-  `config.get_gguf_n_ctx()`), caps it to `vision_coresident_text_ctx` when a
-  co-resident vision model is loaded; resolves `n_gpu_layers` similarly.
-- **Graceful GPU-layer fallback**: if context allocation fails at the requested
-  layer count, it retries with fewer layers / without flash-attention rather than
-  crashing — keeps the model + n_ctx and degrades GPU offload instead.
-- **Chat templating is family-aware**: `_is_mistral_model` / `_is_chatml_model`
-  / `_is_llama_model` sniff the filename to pick the right prompt format. This is
-  *adaptation* to whatever model you load (like the ctx table), not a hardcoded
-  model — but it is filename-based, so an unrecognised naming scheme falls back
-  to a default template.
+- **`load_model(force_reload)`**: `load_request()` reads the settings (env first): context
+  (0 = auto), threads (0 = one per physical core), batch, cache type, GPUs to use and their
+  shares, and a GPU-layer count only when it was pinned for this model at this context
+  (`pinned_gpu_layers_for_model`; -1, llama.cpp's own value, is every layer). `load_plan.plan()`
+  turns that into the load (below) and `_build_with_plan` makes it. A load that still fails is
+  planned again for the memory free at that moment, then on the processor (three attempts); a
+  cache type llama.cpp refuses is planned again with the default cache; a GPU pack too old for
+  the model hands over to the bundled runtime. What was asked and what loaded are both written
+  to the runtime snapshot, read from the live model.
+- **Chat format from the model** (`cognition/chat_template.py`): every GGUF chat model carries
+  the Jinja template it was trained with (`tokenizer.chat_template`); rendering it gives each
+  model its own format, and rendering it around sentinel text gives its reasoning markers and
+  end-of-turn marker. The family formats in `_format_chat` are kept only for a file with no
+  template or one that will not render. Thinking is switched through the template's own
+  `enable_thinking` where it has one.
 - **Serialization**: all calls hold `_LLM_CALL_LOCK` (a native RLock from
   `runtime/native_locks`) — llama_cpp is not safe under concurrent calls; this is
   also what vision hot-swap and the ambient daemon coordinate on.
@@ -56,54 +61,35 @@ is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
   wheels assume AVX-VNNI and SIGILL on older chips; the loader now reports that plainly instead of
   crashing. Only a definitive illegal-instruction blocks a load. `ELI_CPU_PREFLIGHT=0` disables it.
 
-## Hardware profiling (`core/hardware_profile.py`, ~1400 LOC)
+## Hardware profiling (`core/hardware_profile.py`, ~3200 LOC)
 
-Free-VRAM-aware sizing, genuinely cross-vendor: NVIDIA via `nvidia-smi`, then a
-kernel-driver fallback, then AMD via `rocm-smi`, then AMD via the stock `amdgpu`
-sysfs (the common desktop case where ROCm is absent), then discrete Intel Arc,
-then integrated Intel/AMD/Qualcomm/Apple unified memory. All of them populate
-the same `HardwareProfile` fields, so smart-fit GPU-layer allocation is
-identical whatever the card.
+Every GPU, every vendor, every OS, read by one function per source and shared by detection
+(`detect_hardware`) and live telemetry (`get_live_gpu_telemetry`, printed by `describe_gpus`):
 
-- **When the live VRAM probe can't run, fall back to a known-model lookup,
-  not one flat number for every card.** `nvidia-smi` can fail for reasons that
-  have nothing to do with whether a GPU is present or how big it is — most
-  concretely, a loaded kernel module out of sync with the userspace driver
-  library after an update with no reboot yet (confirmed in the field: NVML's
-  own "Driver/library version mismatch", RTX 2060 SUPER, halved GPU layer
-  counts). The model name is still readable straight from the kernel module's
-  `/proc/driver/nvidia/gpus/*/information` even when NVML itself is broken, so
-  `_nvidia_vram_mb_from_model_name()` looks up real factory VRAM for common
-  cards (GTX 10xx through RTX 40xx) instead of guessing a flat 4096MB for a
-  card that might have 24GB. Same idea for discrete Intel Arc, which has no
-  free-VRAM sysfs at all (`_intel_arc_vram_mb_from_name()`, A310 through B580).
-  An unrecognized model still falls back to a conservative flat guess — this
-  narrows how often that happens, it doesn't eliminate the last resort.
-- **Unified memory scales with actual RAM, not a flat 8GB ceiling.**
-  `_estimate_integrated_vram_mb()` (Apple Silicon, AMD APUs, Intel iGPUs) used
-  to cap its shared-VRAM budget at 8192MB regardless of how much RAM the
-  machine had — a 64GB+ Mac Studio got the identical GPU-layer budget as an
-  8GB laptop iGPU. It now uses the same uncapped fraction-of-available-RAM
-  basis as `cpu_ram_budget_mb()`, which it was already supposed to match.
-- Subprocess calls to `nvidia-smi` / `rocm-smi` / `lspci` sanitize
-  `LD_LIBRARY_PATH` first (`_external_tool_env()`) — a frozen PyInstaller
-  build points that at its own bundle for its own libraries, and handing that
-  to a *system* binary can make the real tool silently fail, landing on the
-  same conservative-fallback path as a genuinely absent tool.
+| Source | Cards | Where |
+|---|---|---|
+| `_nvidia_cards` | NVIDIA, per card | `nvidia-smi`, any OS |
+| `_amd_cards` | AMD, discrete and APU | `amdgpu` kernel counters (no ROCm needed), else `rocm-smi` |
+| `_windows_dxgi_adapters` | any vendor | Windows DXGI: memory and the budget Windows gives this process |
+| `_macos_accelerators` | Apple Silicon, AMD on Intel Macs | `ioreg` IOAccelerator |
+| `_linux_drm_gpus` | every display device once, PCI and SoC (msm, asahi) | `/sys/class/drm` |
+| `_llama_cpp_cards` | whatever llama.cpp sees (CUDA, Vulkan, Metal, HIP, SYCL) | fills what a vendor tool leaves out, once llama.cpp is loaded |
 
-- `HardwareProfile` dataclass tracks **free** vs total VRAM (free is what
-  matters for whether a profile actually loads).
-- **`gpu_detection_uncertain`** — a real GPU PCI device can be present in
-  `/sys/class/drm` (kernel sees it) while every vendor-specific probe above
-  fails to characterize it (a timeout, a missing tool, a permission error, an
-  unrecognised card). That used to collapse into the identical `has_gpu=False`
-  as a genuinely GPU-less machine, so "no GPU" was reported with full
-  confidence even when the honest answer was "couldn't check."
-  `_linux_gpu_pci_device_present()` is the vendor-agnostic last-resort check
-  that sets this flag; `has_gpu` itself stays `False` either way (still the
-  safe default for offload decisions) — this field is for anything that
-  *reports* the result.
-- `_kv_cache_mb(n_ctx, n_layers)` — KV-cache cost, for the cache type the load will use.
+A model uses the discrete cards, or the integrated ones when there are none (llama.cpp's rule,
+`_cards_in_use`). Each card's maker comes from its llama.cpp backend or its name (`_vendor_of`).
+
+- **No guessed figures.** A card whose memory no source reports (an NVIDIA driver whose
+  `nvidia-smi` fails, Intel Arc on Linux, Windows before 10 for the free figure) keeps its name,
+  its memory is left unknown and `gpu_detection_uncertain` is set; `effective_use_gpu_layers`
+  still plans for it and llama.cpp measures it before a load. The tables of NVIDIA and Arc
+  models with their factory memory, the flat 4 GB, the "keep a fifth for the desktop" share and
+  the RAM floors are gone.
+- **Unified memory** (Apple Silicon, APUs, iGPUs): the same fraction of available RAM as
+  `cpu_ram_budget_mb()`, with no floor or ceiling of ELI's own.
+- Subprocess calls to `nvidia-smi` / `rocm-smi` / `lspci` sanitize `LD_LIBRARY_PATH` first
+  (`_external_tool_env()`): a frozen build points it at its own bundle.
+- **Threads**: `recommend_cpu_threads()` = the physical performance cores (measured on an
+  i7-8700: 4.37 tokens/s at 6 threads, 3.99 at 12). The setting's 0 means this rule.
 - **KV cache type** — the settings `cache_type_k` / `cache_type_v` are empty (fp16, the default)
   or `q8_0`. Any other quantized type stored there reads, sizes and loads as `q8_0`
   (`core/gguf_sizes.py`: `cache_setting`, `effective_cache_type`): measured on llama.cpp 0.3.35,
@@ -114,31 +100,15 @@ identical whatever the card.
   dropped and logged (`model_load_diagnostics.llama_accepts`), a cache it refuses is loaded
   again as the default with the fit redone, and the type it reports is what the runtime
   snapshot records.
-- `_compute_graph_reserve_mb(n_ctx, batch)` — the model-agnostic compute
-  buffer estimate (`256MB + 24MB/1K ctx + 1.5MB/batch`), reserved so a profile
-  that loads cleanly doesn't then hard-crash on the first decode when the lazy
-  compute buffer pushes VRAM over the limit.
-- `_layers_for_size`, `ModelRecommendation` — pick offload layers from model
-  size and free VRAM.
+- **The recommendation is the plan.** `recommend()` for one model asks the load planner
+  (`_recommend_from_plan`), so the startup window shows what the loader will do. The older
+  estimate (`smart_fit_config`, `unified_fit_config`, `_compute_graph_reserve_mb`,
+  `_kv_cache_mb`) is used only where llama.cpp cannot simulate (no runtime, or several
+  candidate models).
 - **Fit profiles** — startup exposes **Balanced / Max GPU / Max context**
-  (`fit_priority` in settings, `ELI_FIT_PRIORITY` env): Balanced preserves
-  context and sheds GPU layers → batch → ctx (default); Max GPU shrinks
-  ctx/batch before dropping layers; Max context spills weights to RAM for
-  larger windows. `unified_fit_config()` is the joint VRAM+RAM planner used by
-  `recommend()`, the GUI load ladder, and `gguf_inference` smart-fit.
-- **CPU/RAM fit when GPU offload is inactive**: `effective_use_gpu_layers(hw)`
-  returns false when `llama_supports_gpu_offload()` is unavailable, when
-  `compute_mode=cpu`, or when `ELI_FORCE_GPU_LAYERS=0`. When false,
-  `recommend()` and the startup optimizer use `cpu_ram_fit_config()` — same
-  `smart_fit_config` math, budgeted from live RAM instead.
-
-Vendor parity leaks at the ~15 sites that bypass `hardware_profile` and
-re-implement `nvidia-smi` directly instead of reading the profile it already
-built — e.g. `perception/local_whisper_stt.py`'s `_gpu_total_mb()` and a few
-status-reporting surfaces (`self_status.py`, `truth_report.py`) that fall back
-to "GPU telemetry unavailable" on non-NVIDIA hardware they could otherwise
-read from the shared profile. The fix direction is routing those sites through
-`hardware_profile` rather than adding more vendor detection.
+  (`fit_priority` in settings, `ELI_FIT_PRIORITY` env): Balanced sheds GPU layers → batch → ctx;
+  Max GPU shrinks ctx/batch before dropping layers; Max context moves layers to the processor
+  first. The planner searches in that order.
 
 ### Install-time detection is a SEPARATE stack from `hardware_profile`
 
@@ -212,39 +182,34 @@ bundled copy via `sys.path`.
 - Writes `runtime/gpu/.gpu_pack_ok` + `.gpu_pack.json` (backend, version) on
   success; respects `runtime/.gpu_choice` for CPU opt-out.
 
-## Load-probe cache (`core/load_probe.py`)
+## Load plan (`core/load_plan.py`)
 
-`_gpu_identity()` memoizes a `name|total_mb` string per process so every cache
-lookup and record doesn't shell out to `nvidia-smi`. A detection **exception**
-(not a clean "no GPU found") no longer gets memoized as `"cpu"` — that used to
-permanently mislabel the process's load-probe cache identity for the rest of
-the session after one transient early-boot failure, even after the GPU became
-detectable. `"cpu"` is still returned for that one call (a safe, conservative
-answer right now); the next call gets a real chance to detect the GPU.
+llama.cpp can simulate a load (`no_alloc`): it builds the model and a context the way a real
+load would and, allocating nothing, logs which device each layer and cache goes to and how large
+every compute buffer is. The planner asks it about the operator's settings and, when they do not
+fit what each GPU has free now, about smaller ones in the fit profile's order, and keeps the
+largest that fits every device. It replaced a ladder of guessed configurations, a load probe
+whose checks timed out (30 of 32 since September) and a one-card fit.
 
-The probe used to test the raw requested layer count regardless of MoE. For a mixture-of-experts
-model too big to fit as requested, the loader always offloads with experts in RAM and every layer
-on the GPU instead — a completely different, much lighter VRAM footprint — so the probe was
-proving a configuration that is never actually attempted, thrashing the full timeout budget (180s
-on an 8 GB card) every launch instead of the few seconds a real MoE load takes. It now checks
-`moe_offload.plan_for_load()` first and, when a plan applies, probes that configuration (the child
-subprocess wraps its `Llama(...)` call in `moe_offload.expert_offload_params()` the same way the
-real loaders do) — proven in 31s against a live model instead of an "unproven" 180s timeout.
+- **Several GPUs**: layers are shared so each card fills the same share of what it holds after
+  its compute buffers and headroom (`tensor_split`); the startup window chooses which cards and,
+  optionally, manual shares (`gpu_devices`, `tensor_split`). `CUDA_DEVICE_ORDER=PCI_BUS_ID`
+  keeps llama.cpp, nvidia-smi and the settings numbering cards the same way.
+- **Headroom**: what llama.cpp takes on a card after the load as it works through the first
+  prompts, measured on this machine and kept per card and model in
+  `data_dir/runtime/gpu_headroom.json` (`watch_headroom`, `note_headroom`). Until a card is
+  measured the plan keeps llama.cpp's own compute-buffer figure free on it. `ELI_VRAM_RESERVE_MB`
+  is used as given. Measured on two RTX 2060 SUPER: 28-82 MB, where a fixed 700 MB was held back.
+- **Mixture-of-experts**: a model that does not fit keeps the experts of its first layers in RAM,
+  as few as the GPUs need (`tensor_buft_overrides`).
+- **Processor only**: the largest context up to the target whose weights, cache and buffers fit
+  the RAM budget, from two simulations (the cache grows with the context) and a third to confirm.
+- **No simulation** (an older llama.cpp): the same search on the file's own tensor sizes
+  (`core/gguf_sizes.py`) with the buffers estimated, and the plan says so. A file whose tensor
+  table cannot be read is loaded as asked (`as_asked`).
 
-That fixed WHAT is tested but not the timeout BUDGET, which still charged the full file size at
-the VRAM-upload rate (`_TIMEOUT_PER_GB_S`, calibrated for synchronous per-layer VRAM upload) —
-for a 24GB mixture-of-experts model that estimate came to ~294s, so the probe was still capped
-by the same 180s ceiling as everything else and looked "unproven" every launch regardless of the
-fix above. `_probe_budget_sizes_gb()` now separates the VRAM-bound share (the small resident
-portion under MoE, `moe_offload.plan_for_load().resident_gb`) from the rest of the file, which
-only pays a cheap disk-page-in rate (`_TIMEOUT_PER_GB_DISK_S`); a MoE model gets its own, higher
-ceiling (`_TIMEOUT_MOE_CEILING_S`, 240s) since the estimate is now trustworthy rather than a
-known-wrong number capped at the same limit as everything else. A genuinely dense model of the
-same size is unaffected — the two size shares collapse to the same value with no MoE plan, and
-the calculation reduces exactly to the original single-term formula.
-
-`runtime_load_gap()` (`cognition/context_synthesiser.py`) only ever checked for `effective <
-requested` ("reduced," the classic VRAM-shortfall case) — a mixture-of-experts load *raises*
+`runtime_load_gap()` (`cognition/context_synthesiser.py`; -1 asked and none loaded is a reduction)
+only ever checked for `effective < requested` ("reduced," the classic VRAM-shortfall case) — a mixture-of-experts load *raises*
 `n_gpu_layers` above the request instead, and that case reported "loaded exactly as requested"
 for a load that did not match the request at all. It now reports a separate `raised` dict, and
 every surface that reads it (`GPU_STATUS`, `EXPLAIN_COGNITION_RUNTIME`'s `_inference_runtime_lines`,
@@ -300,10 +265,11 @@ touched.
 
 ## STT VRAM awareness
 
-`local_whisper_stt` is VRAM-aware (GPU only on ≥12 GB cards, else CPU) so
-faster-whisper preloading on CUDA doesn't starve the main GGUF model's layer
-budget. `ELI_WHISPER_DEVICE` overrides; `ELI_WHISPER_GPU_MIN_MB` tunes the
-threshold. See `perception.md`.
+`local_whisper_stt` puts faster-whisper on CUDA device 0 only when that card still holds it
+after the language model's plan: whisper's footprint on that card is measured on its first
+warm-up and kept (`data_dir/runtime/whisper_gpu.json`), its weights stand in until then. Any
+doubt keeps it on the processor. ctranslate2 is CUDA only, so other makers' cards keep whisper
+on the processor. `ELI_WHISPER_DEVICE` overrides. See `perception.md`.
 
 ## Piper and LoRA device selection
 
@@ -323,31 +289,18 @@ detected and honestly marked as unable to run that trainer. See
 
 ## Honest assessment
 
-- **Strong:** genuinely adaptive and agnostic — free-VRAM-aware sizing, the
-  compute-buffer reservation that prevents first-decode crashes, graceful
-  GPU-layer fallback, filename→ctx adaptation, env/settings/relative-path
-  healing for moving between machines, a single broker + lock so concurrency
-  is correct, and (as of this release) a GPU pack that trusts a verified
-  install instead of re-proving itself live on every boot. This is mature,
-  hard-won infrastructure.
+- **Strong:** loads are measured by llama.cpp on every device before they happen; every card
+  of every vendor is read by one shared reader per source; the model's own chat template;
+  env/settings/relative-path healing for moving between machines; a single broker + lock so
+  concurrency is correct; a GPU pack that trusts a verified install.
 - **Weak / watch:**
-  1. **Filename-based family detection** (chat template + ctx) is fragile: a
-     model with an unconventional filename gets a default template + 32768
-     ctx, which can be wrong. A metadata/GGUF-header probe would be more
-     robust than string matching.
+  1. The DXGI (Windows) and ioreg (macOS) readers are tested with fakes and on CI runners
+     without GPUs, not yet on real Windows or Mac GPUs.
   2. **Settings sprawl** — `DEFAULTS` is large with several overlapping keys
-     (`n_gpu_layers`/`gpu_layers`, `n_ctx`/`context_size`) and migration
-     logic.
-  3. VRAM heuristics are empirically tuned around an 8GB card. The flat-guess
-     fallbacks that used to apply uniformly regardless of actual card/RAM size
-     are narrower now (known-model lookup for NVIDIA/Arc, uncapped budget for
-     unified memory — see above), but an *unrecognized* NVIDIA/Arc model still
-     lands on a conservative flat guess, and the live nvidia-smi/rocm-smi path
-     (when it works) is still the only source of a true measured number rather
-     than a factory-spec lookup or RAM-fraction estimate.
-  4. `_portable_settings_for_storage` exists but isn't fully preventing
-     personal values (e.g. `user_name`) from being persisted/committed —
-     worth tightening for redistribution.
-  5. The ~15 sites that bypass `hardware_profile` for direct `nvidia-smi`
-     calls (see above) are still there — known, not yet routed through the
-     shared profile.
+     (`n_gpu_layers`/`gpu_layers`, `n_ctx`/`context_size`) and migration logic.
+  3. Policy figures remain: the RAM budget (60%, 70% on processor-bound machines up to 16 GB,
+     bounded 10-75%), the context target (0.9 of the trained context, half the memory left for
+     the cache, a 2048 step) and the batch defaults.
+  4. `_portable_settings_for_storage` exists but isn't fully preventing personal values (e.g.
+     `user_name`) from being persisted.
+  5. Install-time detection (`install.sh`, `setup/hardware_policy.py`) is still its own stack.

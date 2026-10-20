@@ -142,7 +142,7 @@ def _do_glance() -> None:
         # Capture the screen.
         try:
             from eli.perception.os_controller import take_screenshot
-            ss = take_screenshot(region="full")
+            ss = take_screenshot(region="full", keep=False)
             path = ss.get("path") or ss.get("file") or ""
         except Exception as e:
             _state["last_skip_reason"] = f"screenshot failed: {e}"

@@ -189,7 +189,7 @@ def get_gguf_n_gpu_layers() -> int:
             return int(env)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
-    return int(get("n_gpu_layers", 99))
+    return int(get("n_gpu_layers", -1))        # -1: every layer, llama.cpp's own value
 
 
 def set_gguf_n_ctx(ctx: int):
@@ -338,10 +338,12 @@ def get_n_threads() -> int:
     cur = get("n_threads", None)
     if cur is not None:
         try:
-            return int(cur)
+            if int(cur) > 0:
+                return int(cur)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
-    return max(1, (os.cpu_count() or 8) - 1)
+    from eli.core.hardware_profile import recommend_cpu_threads   # auto: the one thread rule
+    return int(recommend_cpu_threads())
 
 
 def set_n_threads(n: int) -> None:

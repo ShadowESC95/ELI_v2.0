@@ -1,31 +1,33 @@
 """Reported: GPU layer counts crashed on a machine whose nvidia-smi was broken
 (NVML "Driver/library version mismatch" after a driver update with no reboot)
 -- the RTX 2060 SUPER's real ~7.75GB VRAM fell back to a flat 4096MB guess,
-roughly halving every GPU layer count. Investigating that also turned up the
-same class of bug on unified-memory systems (Apple Silicon / AMD APU): the
-shared-VRAM budget was hard-capped at 8192MB no matter how much RAM the
-machine actually had, so a 64GB+ Mac Studio got the same GPU-layer budget as
-an 8GB laptop iGPU.
+roughly halving every GPU layer count. A table of NVIDIA and Intel Arc models and
+their factory memory replaced the flat guess, and was still a guess: every card
+missing from it, every later model and every variant got a wrong figure.
 
-These tests cover the fix: NVIDIA and Intel Arc fall back to a real per-model
-VRAM lookup (read from a kernel-native source that survives NVML being
-broken) instead of one flat number for every card, and the unified-memory
-estimator scales with actual available RAM instead of capping at 8GB.
+Now a card whose memory no source reports keeps its name, its memory is left
+unknown and flagged uncertain, and llama.cpp measures it before a load
+(eli/core/load_plan.py). The unified-memory share scales with the RAM actually
+available, with no floor or ceiling of ELI's own.
 """
 from eli.core import hardware_profile as hwp
 
 
-def test_nvidia_model_lookup_matches_known_cards():
-    assert hwp._nvidia_vram_mb_from_model_name("NVIDIA GeForce RTX 2060 SUPER") == 8192
-    assert hwp._nvidia_vram_mb_from_model_name("NVIDIA GeForce RTX 2060") == 6144
-    assert hwp._nvidia_vram_mb_from_model_name("NVIDIA GeForce RTX 4090") == 24576
-    assert hwp._nvidia_vram_mb_from_model_name("NVIDIA GeForce GTX 1050") == 2048
+def test_no_table_of_cards_stands_in_for_a_reading():
+    for name in ("_NVIDIA_VRAM_MB_BY_MODEL", "_nvidia_vram_mb_from_model_name",
+                 "_INTEL_ARC_VRAM_MB_BY_MODEL", "_intel_arc_vram_mb_from_name"):
+        assert not hasattr(hwp, name), name
 
 
-def test_nvidia_model_lookup_is_case_insensitive_and_unknown_returns_zero():
-    assert hwp._nvidia_vram_mb_from_model_name("nvidia geforce rtx 2060 super") == 8192
-    assert hwp._nvidia_vram_mb_from_model_name("Some Future GPU Nobody Has Heard Of") == 0
-    assert hwp._nvidia_vram_mb_from_model_name("") == 0
+def test_a_card_whose_memory_is_unread_is_still_planned_for(monkeypatch):
+    """No free figure: the card's total stands for it, flagged uncertain, and the plan reads it."""
+    hw = hwp.HardwareProfile()
+    assert hwp._apply_cards(hw, [{"name": "Intel Arc A770", "vendor": "intel", "integrated": False,
+                                  "total_mb": None, "free_mb": None}])
+    assert hw.has_gpu and hw.gpu_detection_uncertain and hw.free_vram_mb == 0
+    monkeypatch.setattr(hwp, "_llama_gpu_offload_available", lambda: True)
+    monkeypatch.delenv("ELI_FORCE_GPU_LAYERS", raising=False)
+    assert hwp.effective_use_gpu_layers(hw)
 
 
 def test_nvidia_gpu_model_from_proc_reads_information_file(tmp_path, monkeypatch):
@@ -47,22 +49,6 @@ def test_nvidia_gpu_model_from_proc_reads_information_file(tmp_path, monkeypatch
     assert name == "NVIDIA GeForce RTX 2060 SUPER"
 
 
-def test_nvidia_fallback_env_prefers_known_model_over_flat_guess():
-    """Direct proof the RTX 2060 SUPER case is fixed: the fallback branch's own
-    logic (known lookup, else 4096) must resolve to the real 8GB, not 4GB."""
-    known = hwp._nvidia_vram_mb_from_model_name("NVIDIA GeForce RTX 2060 SUPER")
-    total = known or 4096
-    assert total == 8192, "the exact field bug: RTX 2060 SUPER must not fall back to 4096MB"
-
-
-def test_intel_arc_model_lookup_matches_known_cards():
-    assert hwp._intel_arc_vram_mb_from_name("Intel Arc A770 16GB") == 16384
-    assert hwp._intel_arc_vram_mb_from_name("Intel Arc A770") == 8192
-    assert hwp._intel_arc_vram_mb_from_name("Intel Arc A380") == 6144
-    assert hwp._intel_arc_vram_mb_from_name("Intel Arc B580") == 12288
-    assert hwp._intel_arc_vram_mb_from_name("Intel Arc A999 Nonexistent") == 0
-
-
 def test_integrated_vram_budget_scales_with_ram_not_capped_at_8gb():
     """The regression: a unified-memory machine with far more than 8GB RAM
     used to get the identical 8192MB ceiling as a small laptop iGPU."""
@@ -82,7 +68,8 @@ def test_integrated_vram_budget_matches_cpu_ram_budget_basis():
     assert free_mb == cpu_budget_mb
 
 
-def test_integrated_vram_budget_still_floors_low_ram_machines():
+def test_a_small_device_gets_its_own_share_not_a_floor():
+    """A floor of 512 MB free and 2 GB total promised a phone with 1 GB available more than it had."""
     free_mb, total_mb = hwp._estimate_integrated_vram_mb(ram_gb=2.0, available_ram_gb=1.0)
-    assert total_mb >= 2048
-    assert free_mb >= 512
+    assert 0 < free_mb < 1024 and total_mb == free_mb
+    assert hwp.cpu_ram_budget_mb(0.25) < 256

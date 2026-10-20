@@ -160,10 +160,10 @@ wrapper:
   project/interest facts age out unless reaffirmed. Hybrid recall blends vector,
   full-text, graph, and conversation, then reranks.
 
-- **Inference & hardware.** GGUF via llama.cpp, **fully model-agnostic** (chat
-  template auto-detected by model family — ChatML/Qwen, Llama-3, Mistral). A
-  hardware profiler auto-fits context/GPU-layers/batch to your machine with
-  **adaptive fallback** (it steps context, batch and GPU layers down until the model fits). A user-tunable **synthesis prompt cap** keeps the small model
+- **Inference & hardware.** GGUF via llama.cpp, **fully model-agnostic** (each model's own chat
+  template, read from its file). Before every load llama.cpp simulates it on every GPU, any vendor,
+  and ELI keeps the largest context, GPU layers and batch that fit what each card has free, sharing
+  layers across several cards; on the processor alone, what fits the RAM budget. A user-tunable **synthesis prompt cap** keeps the small model
   from degenerating on oversized prompts — exposed in a GUI "Cognition" tab.
 
 - **Self-improvement & learning.** A real failure→analysis→patch loop

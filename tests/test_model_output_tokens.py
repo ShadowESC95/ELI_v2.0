@@ -61,8 +61,9 @@ def test_embedded_template_family_detection(tmpl, expect):
 
 def test_glm_format_prompt():
     path = Path("GLM-4.7-Flash-Q4_K_M.gguf")
+    # no template in the file: the architecture names the family
     with patch.object(GI, "get_model_path", return_value=path), \
-         patch.object(GI, "_gguf_template_family", return_value="glm"):
+         patch.object(GI, "_gguf_model_metadata", return_value={"general.architecture": "glm4"}):
         out = GI._format_prompt("You are ELI.", "hey")
     assert out.startswith("[gMASK]")
     assert "<|system|>You are ELI." in out
@@ -73,7 +74,7 @@ def test_glm_format_prompt():
 def test_glm_filename_fallback_when_no_embedded_template():
     path = Path("GLM-4.7-Flash-Q4_K_M.gguf")
     with patch.object(GI, "get_model_path", return_value=path), \
-         patch.object(GI, "_gguf_template_family", return_value=None):
+         patch.object(GI, "_gguf_model_metadata", return_value={}):
         out = GI._format_prompt("SYS", "hi")
     assert out.startswith("[gMASK]")
 

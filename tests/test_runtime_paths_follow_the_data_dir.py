@@ -34,7 +34,6 @@ def data_dir(tmp_path, monkeypatch):
 
 
 def _reload(name):
-    import sys
     mod = importlib.import_module(name)
     return importlib.reload(mod)
 
@@ -64,11 +63,3 @@ def test_the_snapshot_is_read_from_where_it_is_written():
     assert "project_root" not in code
 
 
-def test_the_hardware_profile_is_read_from_the_data_dir():
-    import inspect
-    from eli.core import hardware_profile
-    src = inspect.getsource(hardware_profile)
-    code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
-    i = code.index("runtime_hardware_profile.json")
-    window = code[max(0, i - 300):i]
-    assert "artifacts_dir" in window and "project_root" not in window

@@ -117,14 +117,6 @@ def test_a_dimension_with_no_freshness_policy_is_never_forced_stale(db):
 # ── probe adapters: 4 genuinely incompatible native shapes, confirmed by
 # direct read, normalized to one (evidence_state, cost_estimate, detail) ────
 
-def test_adapt_load_probe_maps_all_four_real_verdicts():
-    from eli.core.load_probe import PROVEN_OK, PROVEN_BAD, UNPROVEN_TIMEOUT, UNPROVEN_UNAVAILABLE
-    assert cs._adapt_load_probe(PROVEN_OK, "fine")[0] == EvidenceState.FOUND
-    assert cs._adapt_load_probe(PROVEN_BAD, "crashed")[0] == EvidenceState.NOT_FOUND
-    assert cs._adapt_load_probe(UNPROVEN_TIMEOUT, "slow")[0] == EvidenceState.INSPECTION_FAILED
-    assert cs._adapt_load_probe(UNPROVEN_UNAVAILABLE, "n/a")[0] == EvidenceState.NOT_AVAILABLE
-
-
 def test_adapt_mic_probe_handles_none_and_a_real_rms():
     assert cs._adapt_mic_probe(None)[0] == EvidenceState.NOT_FOUND
     state, _, detail = cs._adapt_mic_probe(450)
@@ -144,7 +136,7 @@ def test_adapt_mqtt_probe_handles_ok_and_failure():
 
 
 def test_all_four_adapters_are_registered():
-    assert set(cs._ADAPTERS) == {"load_probe", "mic_probe", "ble_probe", "mqtt_probe"}
+    assert set(cs._ADAPTERS) == {"mic_probe", "ble_probe", "mqtt_probe"}
 
 
 # ── probe selection ──────────────────────────────────────────────────────

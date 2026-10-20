@@ -44,10 +44,10 @@ GPU_PACKS_DOWNLOAD = (
 # Newest-first. ``py3-none`` wheels work on every CPython 3.x; cp311 tags are
 # legacy fallbacks from older CI builds.
 _GPU_PACK_FALLBACK_ASSETS: tuple[str, ...] = (
-    "vulkan-llama_cpp_python-0.3.35-py3-none-linux_x86_64.whl",
-    "vulkan-llama_cpp_python-0.3.35-py3-none-win_amd64.whl",
-    "cuda-llama_cpp_python-0.3.35-py3-none-linux_x86_64.whl",
-    "cuda-llama_cpp_python-0.3.35-py3-none-win_amd64.whl",
+    "vulkan-llama_cpp_python-0.3.36-py3-none-linux_x86_64.whl",
+    "vulkan-llama_cpp_python-0.3.36-py3-none-win_amd64.whl",
+    "cuda-llama_cpp_python-0.3.36-py3-none-linux_x86_64.whl",
+    "cuda-llama_cpp_python-0.3.36-py3-none-win_amd64.whl",
     "vulkan-llama_cpp_python-0.3.19-cp311-cp311-linux_x86_64.whl",
     "vulkan-llama_cpp_python-0.3.19-cp311-cp311-win_amd64.whl",
 )

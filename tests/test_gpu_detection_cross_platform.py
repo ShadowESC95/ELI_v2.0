@@ -24,7 +24,6 @@ from pathlib import Path
 import pytest
 
 from eli.core import hardware_profile as hp
-from eli.core import startup_hardware_optimizer as sho
 
 
 # ── nvidia-smi must be found by path, never by bare name ───────────────────
@@ -38,54 +37,45 @@ def test_resolver_checks_windows_install_locations():
     assert "NVSMI" in src, "does not look where the CUDA toolkit puts it"
 
 
-def test_detect_hardware_uses_the_resolver_not_a_bare_name():
-    src = inspect.getsource(hp._detect_hardware_impl)
+def test_nvidia_smi_is_run_by_path_in_one_place():
+    src = inspect.getsource(hp._nvidia_cards)
     assert "nvidia_smi_path()" in src
     assert '["nvidia-smi",' not in src, "still invokes nvidia-smi by bare name"
-
-
-def test_startup_optimizer_uses_the_resolver_too():
-    src = inspect.getsource(sho.detect_nvidia_gpus)
-    assert "nvidia_smi_path" in src
-    assert '"nvidia-smi",' not in src, "still invokes nvidia-smi by bare name"
+    assert "_nvidia_cards(" in inspect.getsource(hp._detect_hardware_impl)
 
 
 # ── the fallback must not be Linux-only ────────────────────────────────────
-def test_gpu_fallback_is_not_gated_to_linux_alone():
+def test_gpu_detection_is_not_gated_to_linux_alone():
     """The exact defect: every fallback sat behind a linux-only condition."""
     src = inspect.getsource(hp._detect_hardware_impl)
-    tail = src[src.index("_nvidia_driver_loaded()"):]
-    assert "_windows_gpus()" in tail, "no Windows fallback after nvidia-smi fails"
-    assert "_macos_gpus()" in tail, "no macOS fallback after nvidia-smi fails"
+    assert "_windows_dxgi_adapters()" in src, "no Windows reader after nvidia-smi fails"
+    assert "_macos_gpus()" in src, "no macOS reader after nvidia-smi fails"
 
 
-@pytest.mark.parametrize("fn", ["_windows_gpus", "_macos_gpus"])
-def test_native_enumerators_exist_and_are_safe_off_platform(fn):
+@pytest.mark.parametrize("fn,empty", [("_windows_dxgi_adapters", None), ("_macos_gpus", []),
+                                      ("_macos_accelerators", None), ("_linux_drm_gpus", [])])
+def test_native_enumerators_are_safe_off_platform(fn, empty):
     """Each must no-op rather than raise on the wrong OS -- they run inside
     detect_hardware() on every start."""
-    assert hasattr(hp, fn)
-    assert getattr(hp, fn)() == [] or sys.platform in ("win32", "darwin")
+    own = {"_windows_dxgi_adapters": "win32", "_macos_gpus": "darwin", "_macos_accelerators": "darwin",
+           "_linux_drm_gpus": "linux"}[fn]
+    if not sys.platform.startswith(own):
+        assert getattr(hp, fn)() == empty
 
 
-def test_windows_enumeration_reads_64bit_vram():
-    """WMI's AdapterRAM is signed 32-bit and saturates at 4 GB, so an 8 GB card
-    reports ~4095 MB and the loader under-provisions it. The registry value is
-    64-bit and correct."""
-    src = inspect.getsource(hp._windows_gpus)
-    assert "qwMemorySize" in src, "falls back to the 4 GB-capped AdapterRAM only"
-    assert "Win32_VideoController" in src
+def test_windows_memory_figures_are_64_bit():
+    """WMI's AdapterRAM is signed 32-bit and saturates at 4 GB, so an 8 GB card reported 4095 MB
+    and the loader under-provisioned it. DXGI's memory sizes are SIZE_T and its budget UINT64."""
+    src = inspect.getsource(hp._windows_dxgi_adapters)
+    assert '("DedicatedVideoMemory", ctypes.c_size_t)' in src
+    assert '("Budget", ctypes.c_uint64)' in src
+    assert "AdapterRAM" not in src
 
 
 def test_macos_handles_unified_memory():
     """Apple Silicon reports no discrete VRAM; a 0 there must not mean 'no GPU'."""
     src = inspect.getsource(hp._detect_hardware_impl)
-    assert "darwin" in src and "ram_gb" in src
-
-
-def test_startup_optimizer_falls_back_to_native_enumeration():
-    src = inspect.getsource(sho.detect_gpus)
-    assert "detect_native_gpus" in src, \
-        "detect_other_gpus reads lspci/rocm-smi, neither of which exists off Linux"
+    assert "darwin" in src and '_vendor == "apple"' in src
 
 
 # ── the frozen-app path (what a downloaded exe actually runs) ──────────────
@@ -122,14 +112,7 @@ def test_detect_hardware_reports_consistently():
 # error got reported to the user with the same confidence as a verified "no
 # GPU here" — the worst failure mode for a product whose pitch is honest,
 # grounded local intelligence. ─────────────────────────────────────────────
-def test_confirmed_no_gpu_is_not_marked_uncertain(monkeypatch):
-    monkeypatch.setattr(hp, "nvidia_smi_path", lambda: None)
-    monkeypatch.setattr(hp, "_nvidia_driver_loaded", lambda: False)
-    monkeypatch.setattr(hp, "_windows_gpus", lambda: [])
-    monkeypatch.setattr(hp, "_macos_gpus", lambda: [])
-    monkeypatch.setattr(hp, "_linux_intel_display_adapters", lambda: [])
-    monkeypatch.setattr(hp, "_linux_qualcomm_display_adapters", lambda: [])
-    monkeypatch.setattr(hp, "_linux_gpu_pci_device_present", lambda: False)
+def test_confirmed_no_gpu_is_not_marked_uncertain(monkeypatch, quiet_gpu_sources):
     monkeypatch.setattr(sys, "platform", "linux")
 
     hw = hp._detect_hardware_impl()
@@ -140,17 +123,11 @@ def test_confirmed_no_gpu_is_not_marked_uncertain(monkeypatch):
     assert hw.gpu_name == "CPU only"
 
 
-def test_probe_failure_with_real_gpu_present_is_marked_uncertain(monkeypatch):
+def test_probe_failure_with_real_gpu_present_is_marked_uncertain(monkeypatch, quiet_gpu_sources):
     """A GPU PCI device exists (kernel sees it) but every vendor-specific probe
-    above failed to characterize it -- this must NOT be reported the same way
-    as a confirmed GPU-less machine."""
-    monkeypatch.setattr(hp, "nvidia_smi_path", lambda: None)
-    monkeypatch.setattr(hp, "_nvidia_driver_loaded", lambda: False)
-    monkeypatch.setattr(hp, "_windows_gpus", lambda: [])
-    monkeypatch.setattr(hp, "_macos_gpus", lambda: [])
-    monkeypatch.setattr(hp, "_linux_intel_display_adapters", lambda: [])
-    monkeypatch.setattr(hp, "_linux_qualcomm_display_adapters", lambda: [])
-    monkeypatch.setattr(hp, "_linux_gpu_pci_device_present", lambda: True)
+    above failed to characterize it (here an AMD card whose driver counters cannot be read) --
+    this must NOT be reported the same way as a confirmed GPU-less machine."""
+    monkeypatch.setattr(hp, "_linux_drm_gpus", lambda: [("amd", Path("/nonexistent/0000:03:00.0"))])
     monkeypatch.setattr(sys, "platform", "linux")
 
     hw = hp._detect_hardware_impl()

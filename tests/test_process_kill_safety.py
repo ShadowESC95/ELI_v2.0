@@ -81,6 +81,22 @@ def test_refused_kill_signals_nothing():
     assert res["reason"]
 
 
+@pytest.mark.skipif(os.name != "posix", reason="signals are POSIX")
+def test_an_app_is_asked_to_quit_from_its_top_process_first(monkeypatch):
+    """Spotify: nine processes signalled at once left a crash dump. The top process is asked first
+    and its helpers are signalled only if they are still there after it had time to close them."""
+    plan = pg.KillPlan(allowed=True, reason="ok", pattern="spotify", full_cmdline=True)
+    plan.pids = [100, 101, 102]
+    monkeypatch.setattr(pg, "check_kill_pattern", lambda *a, **k: plan)
+    monkeypatch.setattr(pg, "_parent_pid", lambda pid: {100: 1, 101: 100, 102: 100}[pid])
+    signalled = []
+    monkeypatch.setattr(pg.os, "kill", lambda pid, sig: signalled.append(pid))
+    monkeypatch.setattr(pg, "_alive", lambda pid: pid == 102 and signalled == [100])  # 101 closed with its parent
+    res = pg.safe_pkill("spotify", full_cmdline=True, timeout=0.3)
+    assert signalled[0] == 100 and signalled.count(101) == 0
+    assert res["ok"] and res["pids"] == [100, 101, 102]
+
+
 @pytest.mark.skipif(os.name != "posix", reason="pgrep/pkill path is POSIX-only")
 @pytest.mark.skipif(shutil.which("pgrep") is None, reason="pgrep not installed")
 def test_live_dry_run_blocks_patterns_resolving_to_protected_processes():

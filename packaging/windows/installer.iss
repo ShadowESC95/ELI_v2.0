@@ -36,6 +36,22 @@
   #pragma error "packaging\windows\LICENSE.txt not found - run `python scripts\make_installer_license.py` first"
 #endif
 
+; Microsoft Visual C++ 2015-2022 runtime, required by llama.cpp and onnxruntime. Setup runs without
+; admin rights and this installer needs them, so it only runs when the machine lacks this version
+; (most already have it), and it asks Windows for permission in front of Setup with its own
+; progress window. Run with /quiet from a non-admin Setup, Windows' permission prompt could open
+; behind the Setup window while Setup waited on it with no visible prompt, which looked like a
+; hang ("gets to the C++ runtime at the very end and just hangs there").
+#define VCRedist "..\..\build\vc_redist.x64.exe"
+#if !FileExists(VCRedist)
+  #pragma error "build\vc_redist.x64.exe not found - CI downloads it next to the bundle"
+#endif
+#define VCMajor 0
+#define VCMinor 0
+#define VCRev 0
+#define VCBuild 0
+#expr ParseVersion(VCRedist, VCMajor, VCMinor, VCRev, VCBuild)
+
 [Setup]
 AppId={{7E1D9F5C-4B2A-4D3E-9C8F-2A6B5E0D7F41}
 AppName={#MyAppName}
@@ -69,15 +85,17 @@ WizardSmallImageFile=..\desktop\wizard_small.bmp,..\desktop\wizard_small_138.bmp
 VersionInfoVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=ELI v2.0 - Local AI Assistant
+; %TEMP%\Setup Log <date> #NNN.txt: what Setup did, for any report of a failed install
+SetupLogging=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"; Flags: checkedonce
-; Only shown when an NVIDIA driver is present (nvcuda.dll). Downloads the CUDA
-; llama.cpp build (~several hundred MB) into the per-user data root.
-Name: "gpupack"; Description: "Download NVIDIA GPU acceleration now (recommended for NVIDIA cards)"; GroupDescription: "GPU:"; Check: HasNvidiaDriver
+; The GPU pack is not downloaded here: ELI offers it on first start for whichever GPU it finds
+; (NVIDIA, AMD, Intel), with a progress window, and CPU mode works without it. A download inside
+; Setup had no cancel and only covered NVIDIA.
 ; Game-save semantics: by default an upgrade KEEPS your settings/memory/models.
 ; Tick for a clean slate (models and GPU pack are kept — static downloads).
 Name: "freshinstall"; Description: "Fresh install — reset ELI's settings and memory (keeps downloaded AI models)"; GroupDescription: "Existing data:"; Flags: unchecked; Check: HasExistingData
@@ -90,21 +108,71 @@ Type: filesandordirs; Name: "{app}\_internal"
 
 [Files]
 Source: "{#BundleDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
-; Microsoft Visual C++ 2015-2022 runtime — required by llama.cpp/onnxruntime
-; on machines that never installed it (CI downloads this next to the bundle).
-Source: "..\..\build\vc_redist.x64.exe"; DestDir: "{tmp}"; Flags: deleteafterinstall
-
-[Run]
-Filename: "{tmp}\vc_redist.x64.exe"; Parameters: "/install /quiet /norestart"; \
-  StatusMsg: "Installing Microsoft Visual C++ runtime (required)..."; Flags: waituntilterminated
-; ELI-Server.exe is the console build — the user sees download progress.
-Filename: "{app}\ELI-Server.exe"; Parameters: "--install-gpu-pack"; Tasks: gpupack; \
-  StatusMsg: "Downloading NVIDIA GPU acceleration pack..."; Flags: waituntilterminated
+; Extracted and run only when the machine needs it (VCRuntimeNeeded, InstallVCRuntime below).
+Source: "{#VCRedist}"; DestDir: "{tmp}"; Flags: deleteafterinstall; Check: VCRuntimeNeeded; \
+  AfterInstall: InstallVCRuntime
 
 [Code]
-function HasNvidiaDriver: Boolean;
+var
+  VCRuntimeRestart: Boolean;
+
+{ True unless the x64 Visual C++ 14 runtime is registered at the bundled version or newer.
+  /VCRUNTIME=force on Setup's command line runs it regardless (CI uses it to exercise this path). }
+function VCRuntimeNeeded: Boolean;
+var
+  Key: string;
+  Installed, Major, Minor, Bld: Cardinal;
 begin
-  Result := FileExists(ExpandConstant('{sys}\nvcuda.dll'));
+  Key := 'SOFTWARE\Microsoft\VisualStudio\14.0\VC\Runtimes\x64';
+  Result := True;
+  if CompareText(ExpandConstant('{param:VCRUNTIME|auto}'), 'force') = 0 then
+    Log('Visual C++ runtime: forced from the command line')
+  else if RegQueryDWordValue(HKLM64, Key, 'Installed', Installed) and (Installed = 1) and
+     RegQueryDWordValue(HKLM64, Key, 'Major', Major) and
+     RegQueryDWordValue(HKLM64, Key, 'Minor', Minor) and
+     RegQueryDWordValue(HKLM64, Key, 'Bld', Bld) then
+    Result := (Major < {#VCMajor}) or ((Major = {#VCMajor}) and
+              ((Minor < {#VCMinor}) or ((Minor = {#VCMinor}) and (Bld < {#VCRev}))));
+  Log(Format('Visual C++ runtime needed: %d (bundled {#VCMajor}.{#VCMinor}.{#VCRev})', [Ord(Result)]));
+end;
+
+{ Runs the runtime installer elevated through Windows' own permission prompt, with its progress
+  window showing. Declining, or a failure, is said plainly; Setup never waits on something unseen. }
+procedure InstallVCRuntime;
+var
+  Path: string;
+  Code: Integer;
+begin
+  Path := ExpandConstant('{tmp}\vc_redist.x64.exe');
+  if not FileExists(Path) then
+    Exit;
+  WizardForm.StatusLabel.Caption := 'Installing the Microsoft Visual C++ runtime (Windows will ask for permission)...';
+  if not ShellExec('runas', Path, '/install /passive /norestart', '', SW_SHOW, ewWaitUntilTerminated, Code) then
+  begin
+    Log(Format('Visual C++ runtime installer did not start: %d %s', [Code, SysErrorMessage(Code)]));
+    SuppressibleMsgBox('ELI needs the Microsoft Visual C++ runtime, and its installer did not run ('
+      + SysErrorMessage(Code) + ').' + #13#10#13#10
+      + 'ELI is installed. If it does not start, install "Microsoft Visual C++ Redistributable (x64)" '
+      + 'from https://aka.ms/vs/17/release/vc_redist.x64.exe, or run this Setup again.',
+      mbInformation, MB_OK, IDOK);
+  end
+  else
+  begin
+    Log(Format('Visual C++ runtime installer exit code: %d', [Code]));
+    { 1638: a newer version is already installed; 3010: installed, restart needed }
+    if Code = 3010 then
+      VCRuntimeRestart := True
+    else if (Code <> 0) and (Code <> 1638) then
+      SuppressibleMsgBox(Format('The Microsoft Visual C++ runtime installer stopped with code %d.', [Code])
+        + #13#10#13#10 + 'ELI is installed. If it does not start, install "Microsoft Visual C++ '
+        + 'Redistributable (x64)" from https://aka.ms/vs/17/release/vc_redist.x64.exe.',
+        mbInformation, MB_OK, IDOK);
+  end;
+end;
+
+function NeedRestart: Boolean;
+begin
+  Result := VCRuntimeRestart;
 end;
 
 function HasExistingData: Boolean;
@@ -143,6 +211,5 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDi
 Name: "{autodesktop}\Uninstall ELI"; Filename: "{uninstallexe}"; Tasks: desktopicon
 
 [Run]
-; Exactly one post-install GUI launch. GPU-pack above uses ELI-Server.exe
-; (console + --install-gpu-pack) and must not open a second desktop window.
+; Exactly one post-install GUI launch.
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch ELI"; Flags: postinstall nowait skipifsilent

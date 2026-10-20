@@ -182,14 +182,57 @@ def test_unknown_failures_stay_retryable():
     assert mld.is_retryable_load_failure([]) is True
 
 
-def test_both_load_ladders_stop_on_unrecoverable_failures():
-    for path, marker in [
-        ("eli/cognition/gguf_inference.py", 'getattr(e, "retryable", True)'),
-        ("eli/gui/eli_pro_audio_gui_v2_0.py", "_retryable(_attempt_log)"),
-    ]:
-        src = Path(path).read_text(encoding="utf-8")
-        code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
-        assert marker in code, f"{path} still retries an unrecoverable load"
+def _fake_plan(**kw):
+    from eli.core import load_plan
+    base = dict(model_path="m.gguf", n_ctx=8192, n_gpu_layers=20, n_batch=256, n_threads=6,
+                cache_type_k="", cache_type_v="", flash_attn=True, tensor_split=[20], split_mode=1, main_gpu=0,
+                experts_in_ram=None, blocks=40, devices=[], use_mb={}, host_mb=0.0, measured=True,
+                use_mmap=True, use_mlock=False, cpu_only=False, notes=[], asked={})
+    base.update(kw)
+    return load_plan.Plan(**base)
+
+
+def _failing_load(monkeypatch, lines):
+    """The one loader (gguf_inference._build_with_plan) against a llama.cpp that fails with `lines`."""
+    import contextlib
+    from eli.cognition import gguf_inference as gi
+    from eli.core import load_plan
+    calls = []
+
+    @contextlib.contextmanager
+    def _log():
+        yield list(lines)
+
+    def _new(plan):
+        calls.append(plan)
+        raise ValueError("Failed to load model from file")
+    monkeypatch.setattr(gi, "_new_llama", _new)
+    monkeypatch.setattr(mld, "capture_llama_log", _log)
+    monkeypatch.setattr(mld, "gpu_pack_is_too_old", lambda: False)
+    monkeypatch.setattr(load_plan, "plan", lambda req: _fake_plan(n_gpu_layers=10))
+    monkeypatch.setattr(load_plan, "on_processor", lambda req: _fake_plan(n_gpu_layers=0))
+    return gi, calls
+
+
+@pytest.mark.parametrize("line", [
+    "llama_model_load: error loading model: missing tensor 'blk.0.ssm_in.weight'",
+    "llama_model_load: error loading model: error loading model hyperparameters: key "
+    "nemotron_h_moe.expert_used_count has wrong array type",
+])
+def test_a_file_newer_than_the_runtime_is_tried_once_and_explained(monkeypatch, line):
+    gi, calls = _failing_load(monkeypatch, [line])
+    with pytest.raises(mld.ModelLoadError) as err:
+        gi._build_with_plan(_fake_plan(), object(), "m.gguf")
+    assert len(calls) == 1 and err.value.retryable is False
+    assert "newer than the runtime" in str(err.value)
+
+
+def test_a_load_that_ran_out_of_memory_is_planned_again(monkeypatch):
+    gi, calls = _failing_load(monkeypatch, ["ggml_backend_cuda_buffer_type_alloc_buffer: allocating 512 MiB on "
+                                            "device 0: cudaMalloc failed: out of memory"])
+    with pytest.raises(mld.ModelLoadError) as err:
+        gi._build_with_plan(_fake_plan(), object(), "m.gguf")
+    assert len(calls) == 3 and err.value.retryable is True
 
 
 def test_model_load_error_carries_retryability():

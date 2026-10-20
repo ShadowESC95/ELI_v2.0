@@ -24,191 +24,29 @@ MODELS_DIR = models_dir()
 CFG_PATH = _settings_file()
 
 
-# ── Hardware detection ────────────────────────────────────────────────────────
+# ── Tuning ────────────────────────────────────────────────────────────────────
 
-def _detect_hardware() -> dict:
-    """
-    Detect hardware using FREE VRAM (not total) so GPU layer counts
-    are based on what's actually available after the display server loads.
-
-    Runtime configuration delegates to eli.core.hardware_profile.
-    when available so CLI, GUI startup, and the executor's HARDWARE_PROFILE
-    action all converge on the same answer. Falls back to the inline
-    implementation if the canonical helper is unavailable.
-    """
-    try:
-        from eli.core.hardware_profile import detect_hardware as _canonical_detect
-        hp = _canonical_detect()
-        return {
-            "cpu_cores":         hp.cpu_threads,
-            "total_ram_gb":      hp.ram_gb,
-            "available_ram_gb":  hp.available_ram_gb,
-            "vram_mb":           hp.free_vram_mb,
-            "vram_total_mb":     hp.total_vram_mb,
-            "has_gpu":           hp.has_gpu,
-            "gpu_name":          hp.gpu_name or ("CPU only" if not hp.has_gpu else ""),
-        }
-    except Exception:
-        # Fall through to the legacy inline implementation below.
-        log.debug("suppressed exception", exc_info=True)
-    hw = {
-        "cpu_cores":       multiprocessing.cpu_count(),
-        "total_ram_gb":    8.0,
-        "available_ram_gb": 8.0,
-        "vram_mb":         0,           # free VRAM in MB
-        "vram_total_mb":   0,
-        "has_gpu":         False,
-        "gpu_name":        "CPU only",
-    }
-    try:
-        import psutil
-        from eli.core.mem_units import bytes_to_gib
-        vm = psutil.virtual_memory()
-        hw["total_ram_gb"] = bytes_to_gib(vm.total)
-        hw["available_ram_gb"] = bytes_to_gib(vm.available)
-    except Exception:
-        try:
-            with open("/proc/meminfo") as f:
-                for line in f:
-                    if line.startswith("MemTotal:"):
-                        hw["total_ram_gb"] = int(line.split()[1]) / 1_048_576
-                    elif line.startswith("MemAvailable:"):
-                        hw["available_ram_gb"] = int(line.split()[1]) / 1_048_576
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    # Query FREE VRAM — critical: display server consumes VRAM before ELI launches
-    try:
-        import subprocess
-        import shutil as _shutil
-        if _shutil.which("nvidia-smi"):
-            out = subprocess.check_output(
-                ["nvidia-smi",
-                 "--query-gpu=memory.free,memory.total,name",
-                 "--format=csv,noheader,nounits"],
-                stderr=subprocess.DEVNULL, timeout=5
-            ).decode().strip().splitlines()[0]
-            parts = [p.strip() for p in out.split(",")]
-            hw["vram_mb"]       = int(parts[0])   # FREE VRAM
-            hw["vram_total_mb"] = int(parts[1])
-            hw["gpu_name"]      = parts[2] if len(parts) > 2 else "NVIDIA GPU"
-            hw["has_gpu"]       = True
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    return hw
-
-
-def _model_size_category(size_bytes: int) -> str:
-    from eli.core.mem_units import bytes_to_gib
-    gb = bytes_to_gib(size_bytes)
-    if gb < 1.5:  return "tiny"
-    if gb < 3.0:  return "small"
-    if gb < 6.0:  return "medium"
-    return "large"
-
-
-
-
-def _auto_tune(model_path: Path, hw: dict) -> dict:
-    """
-    Compute optimal runtime parameters based on FREE VRAM and available RAM.
-    Uses KV-cache overhead estimation so GPU layer counts won't OOM.
-    Sets max_tokens=-1 (unlimited — use all remaining context window).
-
-    Runtime configuration delegates to eli.core.hardware_profile.recommend().
-    when available so the GUI, the executor's HARDWARE_PROFILE action, and any
-    other caller converge on the same recommendation. Falls back to the inline
-    implementation if the canonical helper is unavailable.
-    """
-    try:
-        from eli.core.hardware_profile import (
-            HardwareProfile as _HP,
-            recommend as _canonical_recommend,
-        )
-        canon_hw = _HP(
-            cpu_threads=int(hw.get("cpu_cores", 1)),
-            ram_gb=float(hw.get("total_ram_gb", 8.0)),
-            available_ram_gb=float(hw.get("available_ram_gb", hw.get("total_ram_gb", 8.0))),
-            has_gpu=bool(hw.get("has_gpu", False)),
-            gpu_name=str(hw.get("gpu_name", "")),
-            free_vram_mb=int(hw.get("vram_mb", 0)),
-            total_vram_mb=int(hw.get("vram_total_mb", 0)),
-            vram_gb=float(hw.get("vram_mb", 0)) / 1024.0,
-        )
-        from eli.core.mem_units import file_size_gib
-        rec = _canonical_recommend(
-            hw=canon_hw,
-            models=[{
-                "name": model_path.name,
-                "path": str(model_path),
-                "size_bytes": model_path.stat().st_size,
-                "size_gb": file_size_gib(model_path),
-            }],
-        )
-        return {
-            "n_ctx":        rec.n_ctx,
-            "n_gpu_layers": rec.n_gpu_layers,
-            "n_threads":    rec.n_threads,
-            "batch_size":   rec.batch_size,
-            "max_tokens":   rec.max_tokens,
-            "temperature":  rec.temperature,
-            "use_mmap":     rec.use_mmap,
-            "use_mlock":    rec.use_mlock,
-            "cache_type_k": rec.cache_type_k,
-            "cache_type_v": rec.cache_type_v,
-        }
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    # recommend() failed: the same measured pieces, without the joint planner.
-    from eli.core.mem_units import bytes_to_gib
-    size_gb        = bytes_to_gib(model_path.stat().st_size)
-    free_vram_mb   = int(hw.get("vram_mb", 0) or 0)
-    cpu_cores      = int(hw.get("cpu_cores", 1) or 1)
-    avail_ram_gb   = float(hw.get("available_ram_gb", hw.get("total_ram_gb", 0.0)) or 0.0)
-    try:
-        from eli.core.hardware_profile import _gpu_layers_for_model, auto_ctx_target
-        n_ctx = auto_ctx_target(str(model_path), size_gb, free_vram_mb=free_vram_mb,
-                                available_ram_gb=avail_ram_gb, use_gpu=free_vram_mb > 0)
-        n_gpu_layers = _gpu_layers_for_model(size_gb, free_vram_mb, n_ctx, model_path=str(model_path))
-    except Exception:
-        log.debug("measured fallback unavailable; loading on the CPU at the smallest window",
-                  exc_info=True)
-        n_ctx, n_gpu_layers = 2048, 0
-    try:
-        from eli.core.hardware_profile import recommend_cpu_threads as _rct
-        n_threads = _rct(cpu_cores, cpu_bound=(n_gpu_layers <= 0))
-    except Exception:
-        n_threads = max(1, cpu_cores - (1 if n_gpu_layers <= 0 else 2))
+def _auto_tune(model_path: Path) -> dict:
+    """What this model loads with on this machine now: the plan gguf_inference.load_model uses
+    (eli/core/load_plan.py), as the values the setup screen shows and saves."""
+    from eli.cognition.gguf_inference import load_request
+    from eli.core import load_plan
+    from eli.core.hardware_profile import detect_hardware, mlock_holds
+    from eli.core.mem_units import file_size_gib
+    plan = load_plan.plan(load_request(model_path)) or load_plan.as_asked(load_request(model_path))
+    hw = detect_hardware()
     return {
-        "n_ctx":        n_ctx,
-        "n_gpu_layers": n_gpu_layers,
-        "n_threads":    n_threads,
-        "batch_size":   int(os.environ.get("ELI_MIN_BATCH", "128") or "128"),
-        "max_tokens":   -1,      # unlimited — use full remaining context
+        "n_ctx":        plan.n_ctx,
+        "n_gpu_layers": plan.n_gpu_layers,
+        "n_threads":    plan.n_threads,
+        "batch_size":   plan.n_batch,
+        "max_tokens":   -1,      # a ceiling only: each reply is sized from the window
         "temperature":  0.7,
         "use_mmap":     True,
-        "use_mlock":    _mlock_viable(),
+        "use_mlock":    mlock_holds(file_size_gib(model_path), float(hw.available_ram_gb)),
+        "cache_type_k": plan.cache_type_k,
+        "cache_type_v": plan.cache_type_v,
     }
-
-
-def _mlock_viable() -> bool:
-    """True only when the OS memlock limit can actually lock a multi-GB model.
-
-    RLIMIT_MEMLOCK is frequently capped low (64 KB–8 MB) regardless of installed
-    RAM, so requesting use_mlock there just yields 'failed to mlock … Cannot
-    allocate memory' warnings — the load still succeeds via mmap. Only gate on
-    POSIX where the limit is inspectable; leave non-POSIX (Windows) behaviour
-    unchanged.
-    """
-    try:
-        import resource
-    except Exception:
-        return True  # non-POSIX — preserve prior behaviour
-    try:
-        soft, _hard = resource.getrlimit(resource.RLIMIT_MEMLOCK)
-        return soft == -1 or soft >= 4 * 1024 ** 3  # -1 = unlimited; else need ≥4 GiB
-    except Exception:
-        return True
 
 
 # ── UI helpers ────────────────────────────────────────────────────────────────
@@ -224,10 +62,8 @@ def _pick_model(models: list[Path]) -> Path:
     print("  " + "─" * 54)
     from eli.core.mem_units import bytes_to_gib
     for i, m in enumerate(models):
-        gb   = bytes_to_gib(m.stat().st_size)
-        cat  = _model_size_category(m.stat().st_size)
         print(f"  [{i+1}]  {m.name}")
-        print(f"        {gb:.2f} GB  ·  {cat}")
+        print(f"        {bytes_to_gib(m.stat().st_size):.2f} GB")
     print("  " + "─" * 54)
     while True:
         try:
@@ -241,19 +77,20 @@ def _pick_model(models: list[Path]) -> Path:
         print(f"  Please enter 1–{len(models)}")
 
 
-def _confirm_params(model_path: Path, params: dict, hw: dict) -> dict:
+def _confirm_params(model_path: Path, params: dict) -> dict:
     """Show auto-tuned params, let user edit any."""
+    from eli.core.hardware_profile import detect_hardware
     from eli.core.mem_units import bytes_to_gib
-    cat = _model_size_category(model_path.stat().st_size)
-    gb  = bytes_to_gib(model_path.stat().st_size)
+    hw = detect_hardware()
+    gb = bytes_to_gib(model_path.stat().st_size)
     print(f"\n  Selected:  {model_path.name}")
-    print(f"\n  Hardware:  {hw.get('gpu_name','CPU')}  ·  "
-          f"VRAM {hw['vram_mb']} MB  ·  RAM {hw['total_ram_gb']:.1f} GB  ·  "
-          f"{hw['cpu_cores']} cores")
+    print(f"\n  Hardware:  {hw.gpu_name or 'CPU'}  ·  "
+          f"VRAM {hw.free_vram_mb} MB free  ·  RAM {hw.ram_gb:.1f} GB  ·  "
+          f"{hw.cpu_cores or hw.cpu_threads} cores")
 
     PARAM_KEYS = [
         ("n_ctx",        "Context window (tokens)"),
-        ("n_gpu_layers", "GPU-layer load parameter (99=all-layer request)"),
+        ("n_gpu_layers", "GPU-layer load parameter (-1 = every layer)"),
         ("n_threads",    "CPU threads"),
         ("batch_size",   "Batch size"),
         ("max_tokens",   "Max tokens per response"),
@@ -261,7 +98,7 @@ def _confirm_params(model_path: Path, params: dict, hw: dict) -> dict:
     ]
 
     while True:
-        print(f"\n  Parameters  (auto-tuned · {cat} · {gb:.2f} GB)")
+        print(f"\n  Parameters  (auto-tuned · {gb:.2f} GB)")
         print("  " + "─" * 54)
         for i, (k, desc) in enumerate(PARAM_KEYS):
             print(f"  [{i+1}]  {k:<16}  {str(params[k]):<10}  {desc}")
@@ -394,14 +231,12 @@ def main():
         print(f"❌  No GGUF models found in {MODELS_DIR}")
         sys.exit(1)
 
-    hw = _detect_hardware()
-
     # On silent (returning) launch: use the persisted config as the source of
     # truth. First install / --setup seeds these values dynamically; later GUI
     # edits update the same config file and must win on subsequent launches.
     if silent:
         model_path = saved_path
-        params = _auto_tune(model_path, hw)
+        params = _auto_tune(model_path)
         for key in ("n_ctx", "n_gpu_layers", "n_threads", "batch_size",
                     "max_tokens", "temperature", "use_mmap", "use_mlock",
                     "cache_type_k", "cache_type_v"):
@@ -419,8 +254,8 @@ def main():
         # ── First run, or saved model file missing: show interactive setup ────
         _print_header()
         model_path = _pick_model(models)
-        params     = _auto_tune(model_path, hw)
-        params     = _confirm_params(model_path, params, hw)
+        params     = _auto_tune(model_path)
+        params     = _confirm_params(model_path, params)
 
     # Persist: update model paths + params, mark first run complete
     cfg.update(params)
@@ -431,344 +266,24 @@ def main():
     cfg["first_run_complete"]  = True
     _save_config(cfg)
 
-    # Load model — with free-VRAM-aware parameters and optional KV quantization
-    from eli.core.gguf_sizes import cache_setting
-    kv_k = cache_setting(params.get("cache_type_k"))
-    kv_v = cache_setting(params.get("cache_type_v"))
-    kv_tag = f"  kv_k={kv_k}" if kv_k else ""
+    # The same load the window and the server make: the plan for this machine now, the saved
+    # values as the request (gguf_inference.load_model writes what loaded to runtime_snapshot.json).
+    from eli.cognition import gguf_inference as _gi
     print(f"⏳  Loading {model_path.name} ...")
-    print(f"    ctx={params['n_ctx']}  gpu_layers={params['n_gpu_layers']}  "
-          f"threads={params['n_threads']}  batch={params['batch_size']}"
-          f"  max_tokens=auto/context-aware{kv_tag}\n")
-
-    from llama_cpp import Llama
-    _llama_kwargs: dict = dict(
-        model_path    = str(model_path),
-        n_ctx         = int(params["n_ctx"]),
-        n_threads     = int(params["n_threads"]),
-        n_gpu_layers  = int(params["n_gpu_layers"]),
-        n_batch       = int(params["batch_size"]),
-        use_mmap      = bool(params.get("use_mmap", True)),
-        use_mlock     = bool(params.get("use_mlock", False)),
-        verbose       = False,
+    request = _gi.load_request(
+        model_path,
+        n_ctx=int(params.get("n_ctx") or 0),
+        n_gpu_layers=int(params["n_gpu_layers"]) if params.get("n_gpu_layers") is not None else None,
+        n_batch=int(params.get("batch_size") or 512),
+        n_threads=int(params.get("n_threads") or 0),
+        cache_type_k=str(params.get("cache_type_k") or ""),
+        cache_type_v=str(params.get("cache_type_v") or ""),
+        use_mmap=bool(params.get("use_mmap", True)),
+        use_mlock=bool(params.get("use_mlock", False)),
     )
-    from eli.core.gguf_sizes import llama_cache_args
-    from eli.cognition.model_load_diagnostics import (
-        capture_llama_log, kv_cache_refused, llama_accepts)
-    _kv_args = llama_cache_args(kv_k, kv_v)
-    _llama_kwargs.update(_kv_args)
-
-    try:
-        # ELI_CTX_ENV_AND_FALLBACK_PATCH
-        # Respect shell/runtime overrides and degrade safely if llama.cpp cannot allocate.
-        import os as _eli_os
-
-        def _eli_int_env(name, default=None):
-            raw = _eli_os.environ.get(name)
-            if raw is None or str(raw).strip() == "":
-                return default
-            try:
-                return int(str(raw).strip())
-            except Exception:
-                print(f"⚠️  Ignoring invalid integer env {name}={raw!r}")
-                return default
-
-        _env_ctx = _eli_int_env("ELI_GGUF_N_CTX")
-        _env_gpu = _eli_int_env("ELI_GGUF_N_GPU_LAYERS")
-        _env_batch = _eli_int_env("ELI_GGUF_N_BATCH")
-
-        if _env_ctx is not None:
-            _llama_kwargs["n_ctx"] = _env_ctx
-        if _env_gpu is not None:
-            _llama_kwargs["n_gpu_layers"] = _env_gpu
-        if _env_batch is not None:
-            _llama_kwargs["n_batch"] = _env_batch
-
-        _free_mb = None
-        _total_mb = None
-
-        # ELI_FORCE_CPU=1 — user override to skip GPU entirely. Useful when
-        # VRAM is being held by another process or driver state is bad.
-        if os.environ.get("ELI_FORCE_CPU", "").strip().lower() in {"1", "true", "yes", "on"}:
-            print("ℹ️  ELI_FORCE_CPU=1 — skipping all GPU attempts.")
-            _llama_kwargs["n_gpu_layers"] = 0
-            os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-            os.environ.setdefault("HIP_VISIBLE_DEVICES", "")   # AMD/ROCm equivalent of CUDA_VISIBLE_DEVICES
-            os.environ.setdefault("ROCR_VISIBLE_DEVICES", "")  # ROCm runtime device mask
-            os.environ.setdefault("GGML_CUDA_NO_DEVICE_INIT", "1")
-            _free_mb = 0  # treat as VRAM-tight so the attempt list is CPU-only
-
-        try:
-            import subprocess as _eli_subprocess
-            _out = _eli_subprocess.check_output(
-                [
-                    "nvidia-smi",
-                    "--query-gpu=name,memory.total,memory.free",
-                    "--format=csv,noheader,nounits",
-                ],
-                text=True,
-                stderr=_eli_subprocess.DEVNULL,
-            ).strip().splitlines()
-
-            if _out:
-                _parts = [x.strip() for x in _out[0].split(",")]
-                _gpu_name = _parts[0]
-                _total_mb = int(_parts[1])
-                _free_mb = int(_parts[2])
-
-                print(f"🧠  GPU detected: {_gpu_name} total={_total_mb}MiB free={_free_mb}MiB")
-
-                # Other programs holding the card, named (llama-server under ollama.service,
-                # a previous ELI run...): listed whenever the card is not free, not below a size.
-                try:
-                    from eli.core.hardware_profile import describe_vram_holders, vram_holders
-                    _held = describe_vram_holders(vram_holders(), total_mb=_total_mb)
-                    if _held:
-                        print(f"🛑 Other programs are using this card's memory: {_held}. "
-                              f"Close them or have them release the GPU to give ELI more of it.")
-                except Exception:
-                    log.debug("VRAM holders unavailable", exc_info=True)
-
-                # CPU fallback only when not one layer of THIS model fits the free VRAM (from its
-                # own tensor sizes; it was 30% of the file size with a 900 MiB floor).
-                try:
-                    from eli.core.hardware_profile import _gpu_layers_for_model
-                    from eli.core.mem_units import file_size_gib as _fsg_app
-                    _fits_any = _gpu_layers_for_model(
-                        _fsg_app(model_path), int(_free_mb), int(_llama_kwargs.get("n_ctx") or 0),
-                        kv_quantized=bool(_kv_args.get("flash_attn")),
-                        model_path=str(model_path)) > 0
-                except Exception:
-                    _fits_any = True
-                if _free_mb is not None and not _fits_any:
-                    print(
-                        f"⚠️  GPU free={_free_mb}MiB holds no layer of {model_path.name} at this "
-                        f"context. Falling back to CPU."
-                    )
-                    _llama_kwargs["n_gpu_layers"] = 0
-                    import os as _os_cuda
-                    _os_cuda.environ.setdefault("CUDA_VISIBLE_DEVICES", "")
-                    _os_cuda.environ.setdefault("GGML_CUDA_NO_DEVICE_INIT", "1")
-                # Otherwise: trust _auto_tune's hardware_profile.recommend()
-                # output. No static ceilings — they shipped over and clamped
-                # legitimate hardware-aware tunes.
-
-        except Exception as _e:
-            print(f"⚠️  GPU diagnostic skipped: {_e}")
-
-        print(
-            "🧠  Effective llama.cpp runtime: "
-            f"ctx={_llama_kwargs.get('n_ctx')} "
-            f"gpu_layers={_llama_kwargs.get('n_gpu_layers')} "
-            f"threads={_llama_kwargs.get('n_threads')} "
-            f"batch={_llama_kwargs.get('n_batch')}"
-        )
-
-        _base = dict(_llama_kwargs)
-        _base_gpu = int(_base.get("n_gpu_layers", 0) or 0)
-        _base_ctx = int(_base.get("n_ctx") or 2048)
-        _base_batch = int(_base.get("n_batch", 128) or 128)
-
-        # Each fallback halves the GPU offload and shrinks the context,
-        # ending in CPU-only. Values derive from the fresh hardware-aware
-        # tune — no fixed ceilings.
-        def _half(v: int, floor: int) -> int:
-            return max(floor, v // 2)
-
-        _force_cpu = os.environ.get("ELI_FORCE_CPU", "").strip().lower() in {"1", "true", "yes", "on"}
-        if _force_cpu or _base_gpu <= 0:
-            _load_attempts = [
-                dict(_base, n_gpu_layers=0),
-                dict(_base, n_gpu_layers=0,
-                     n_ctx=max(2048, _base_ctx // 2),
-                     n_batch=_half(_base_batch, 32)),
-                dict(_base, n_gpu_layers=0, n_ctx=2048, n_batch=32, _force_no_cuda=True),
-            ]
-        else:
-            _load_attempts = [dict(_base)]
-            _load_attempts.append(dict(
-                _base, n_gpu_layers=_half(_base_gpu, 0),
-                n_batch=_half(_base_batch, 64),
-            ))
-            _load_attempts.append(dict(
-                _base, n_gpu_layers=_half(_base_gpu, 0) // 2,
-                n_ctx=max(2048, _base_ctx // 2),
-                n_batch=_half(_base_batch, 32),
-            ))
-            _load_attempts.append(dict(
-                _base, n_gpu_layers=0, n_ctx=_base_ctx,
-                n_batch=_half(_base_batch, 64),
-            ))
-            _load_attempts.append(dict(
-                _base, n_gpu_layers=0, n_ctx=2048, n_batch=32,
-                _force_no_cuda=True,
-            ))
-
-        _last_error = None
-        model = None
-
-        _queue = list(_load_attempts)
-        _i = 0
-        while _queue:
-            _attempt = _queue.pop(0)
-            _i += 1
-            _attempt_log: list = []
-            try:
-                _attempt_kwargs = dict(_attempt)
-                _force_no_cuda = bool(_attempt_kwargs.pop("_force_no_cuda", False))
-                if _force_no_cuda:
-                    import os as _os_lc
-                    _os_lc.environ["CUDA_VISIBLE_DEVICES"] = ""
-                    _os_lc.environ["GGML_CUDA_NO_DEVICE_INIT"] = "1"
-                    _os_lc.environ["GGML_CUDA_FORCE_DMMV"] = "0"
-                    print(
-                        "⏳  Final CPU attempt with CUDA disabled "
-                        "(CUDA_VISIBLE_DEVICES='', GGML_CUDA_NO_DEVICE_INIT=1)"
-                    )
-                print(
-                    f"⏳  Llama load attempt {_i}: "
-                    f"ctx={_attempt_kwargs.get('n_ctx')} "
-                    f"gpu_layers={_attempt_kwargs.get('n_gpu_layers')} "
-                    f"batch={_attempt_kwargs.get('n_batch')}"
-                )
-                with capture_llama_log() as _attempt_log:
-                    model = Llama(**llama_accepts(Llama, _attempt_kwargs))
-                _llama_kwargs = _attempt_kwargs
-                print(
-                    f"✅  Llama load OK: "
-                    f"ctx={_attempt_kwargs.get('n_ctx')} "
-                    f"gpu_layers={_attempt_kwargs.get('n_gpu_layers')} "
-                    f"batch={_attempt_kwargs.get('n_batch')}"
-                )
-                break
-            except Exception as _e:
-                _last_error = _e
-                print(f"⚠️  Llama load attempt {_i} failed: {_e}")
-                if any(k in _attempt for k in _kv_args) and kv_cache_refused(_attempt_log):
-                    # the same attempt again with the default cache, and none after it asks
-                    print("⚠️  llama.cpp refused the quantized KV cache here (it needs flash "
-                          "attention); using the default cache.")
-                    _queue = [{k: v for k, v in a.items() if k not in _kv_args}
-                              for a in [_attempt, *_queue]]
-
-        if model is None:
-            # Friendly diagnostic so the user knows what to do.
-            _diag = [
-                "All llama.cpp load attempts failed.",
-                f"Last error: {_last_error}",
-                "",
-                "Common causes & fixes:",
-                "  1. Another process is holding the GPU. Run:",
-                "       nvidia-smi   # find the PID",
-                "       kill <PID>",
-                "     A previously crashed elix often leaves a llama.cpp",
-                "     process holding most of the VRAM.",
-                "  2. If this happens repeatedly, set ELI_FORCE_CPU=1 in",
-                "     your shell to skip GPU attempts entirely:",
-                "       export ELI_FORCE_CPU=1",
-                "  3. The model file may be corrupted. Re-download:",
-                f"       {model_path}",
-            ]
-            raise RuntimeError("\n".join(_diag))
-
-    except TypeError:
-        # An older llama_cpp without the cache arguments: retry without them
-        for _kv_name in _kv_args:
-            _llama_kwargs.pop(_kv_name, None)
-        model = Llama(**_llama_kwargs)
-
-    print(f"✅  {model_path.name} loaded — launching GUI...\n")
-
-    # Hand model to GUI module before it initialises.
-    # Add eli/ to path so package-local imports resolve.
-    _eli_dir = str(BASE_DIR / "eli")
-    if _eli_dir not in sys.path:
-        sys.path.insert(0, _eli_dir)
-
-    # Set env vars so gguf_inference / cognitive engine can find the model
-    # Effective parameters: what actually loaded (post-clamp / post-fallback).
-    # `params` holds the requested tune; `_llama_kwargs` holds the kwargs of
-    # the load attempt that actually SUCCEEDED. Downstream introspection must
-    # see the effective values so ELI never claims "21 GPU layers" when it
-    # actually fell back to CPU because Fallout 4 was holding the VRAM.
-    _effective = {
-        "model_path":   str(model_path),
-        "n_ctx":        int(_llama_kwargs.get("n_ctx", params["n_ctx"])),
-        "n_gpu_layers": int(_llama_kwargs.get("n_gpu_layers", params["n_gpu_layers"])),
-        "n_threads":    int(_llama_kwargs.get("n_threads", params["n_threads"])),
-        "n_batch":      int(_llama_kwargs.get("n_batch", params["batch_size"])),
-    }
-    _requested = {
-        "n_ctx":        int(params["n_ctx"]),
-        "n_gpu_layers": int(params["n_gpu_layers"]),
-        "n_threads":    int(params["n_threads"]),
-        "n_batch":      int(params["batch_size"]),
-    }
-    _on_gpu = _effective["n_gpu_layers"] > 0
-    _load_mode = "GPU" if _on_gpu else "CPU"
-    _clamped = (
-        _effective["n_ctx"] != _requested["n_ctx"]
-        or _effective["n_gpu_layers"] != _requested["n_gpu_layers"]
-        or _effective["n_batch"] != _requested["n_batch"]
-    )
-
-    import os as _os
-    _os.environ["ELI_GGUF_MODEL_PATH"] = str(model_path)
-    # Env vars get the EFFECTIVE values so any downstream callers that
-    # respect them won't claim runtime info that doesn't match reality.
-    _os.environ["ELI_GGUF_N_CTX"]      = str(_effective["n_ctx"])
-    _os.environ["ELI_GGUF_THREADS"]    = str(_effective["n_threads"])
-    _os.environ["ELI_GGUF_N_GPU_LAYERS"] = str(_effective["n_gpu_layers"])
-    _os.environ["ELI_GGUF_N_BATCH"]    = str(_effective["n_batch"])
-
-    # Push the already-loaded model into gguf_inference singleton
-    # so cognitive engine / broker use it without reloading.
-    try:
-        sys.path.insert(0, str(BASE_DIR / "eli"))
-        from eli.cognition import gguf_inference as _gi
-        _gi._llm = model
-        # _last_params is what context_synthesiser reads — set it to the
-        # effective values so reports match reality.
-        _gi._last_params = dict(_effective)
-        # _live_runtime_params is the public snapshot. Carry BOTH the
-        # effective and requested values so truth_report / persona brief
-        # can show the gap when one exists.
-        _gi._live_runtime_params = {
-            "provider":        "gguf",
-            "model_path":      str(model_path),
-            "model_name":      Path(str(model_path)).name,
-            "loaded":          True,
-            "load_mode":       _load_mode,            # "GPU" or "CPU"
-            "on_gpu":          bool(_on_gpu),
-            "clamped":         bool(_clamped),
-            # Effective (what actually loaded into Llama)
-            "n_ctx":           _effective["n_ctx"],
-            "n_gpu_layers":    _effective["n_gpu_layers"],
-            "n_threads":       _effective["n_threads"],
-            "n_batch":         _effective["n_batch"],
-            # Explicit requested-vs-effective split for downstream readers
-            "requested":       dict(_requested),
-            "effective":       dict(_effective),
-            "pid":             _os.getpid(),
-        }
-        # Persist runtime_snapshot.json with the same shape so the
-        # deterministic introspection module reads honest values.
-        try:
-            import json as _json2
-            from eli.core.paths import get_paths as _gp2
-            snap_path = Path(_gp2().artifacts_dir) / "runtime_snapshot.json"
-            snap_path.write_text(
-                _json2.dumps(_gi._live_runtime_params, indent=2),
-                encoding="utf-8",
-            )
-        except Exception as _snap_err:
-            print(f"⚠️  runtime_snapshot write: {_snap_err}")
-        print(f"✅ gguf_inference._llm wired ({_load_mode}, "
-              f"ctx={_effective['n_ctx']}, layers={_effective['n_gpu_layers']}"
-              f"{', clamped from request' if _clamped else ''})")
-        print("✅ gguf_inference singleton wired to preloaded model")
-    except Exception as _e:
-        print(f"⚠️  gguf_inference wiring: {_e}")
+    _gi.load_model(force_reload=True, request=request)
+    _report = _gi.get_effective_runtime_report()
+    print(f"✅  {model_path.name} loaded: {(_report.get('load_plan') or {}).get('text', '')}\n")
 
     # Pre-warm the nomic-embed model in a background thread so the first
     # user request doesn't pay the ~90s cold-load penalty.
@@ -788,15 +303,6 @@ def main():
     _thr.Thread(target=_prewarm_embed, daemon=True, name="embed-prewarm").start()
 
     import eli.gui.eli_pro_audio_gui_v2_0 as _gui_mod
-    _gui_mod._PRELOADED_MODEL      = model
-    _gui_mod._PRELOADED_MODEL_PATH = str(model_path)
-    # Pass the EFFECTIVE params (what actually loaded) — critical so the
-    # GUI's runtime status / introspection / persona brief show reality
-    # rather than the pre-clamp request. Requested values are still
-    # available via _gi._live_runtime_params["requested"] for diagnostics.
-    _gui_mod._PRELOADED_PARAMS     = dict(_effective, batch_size=_effective["n_batch"])
-    _gui_mod._PRELOADED_LOAD_MODE  = _load_mode
-    _gui_mod._PRELOADED_REQUESTED  = dict(_requested)
 
     # User-info background updater (inlined from former bottom-of-file
     # User-info startup refresh. Skipped under pytest so test

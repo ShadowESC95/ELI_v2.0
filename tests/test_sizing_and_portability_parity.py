@@ -1,36 +1,21 @@
 """One sizing authority, and an installer that runs off x86.
 
-Three engines were computing ctx / GPU layers / batch with DIFFERENT arithmetic,
-so the startup preview, the tuning panel and the loaded model reported three
-numbers for one machine at one moment:
-
-  * ``startup_hardware_optimizer.kv_cache_mb`` used 1024 B/token/layer while
-    ``hardware_profile._kv_cache_mb`` used 6000 (1500 at q4) — a 46% under-estimate
-    in the engine that powers the load ladder's live-tuner rung.
-  * ``recommend()`` called the joint fit and then overwrote its batch twelve lines
-    later, so ``ELI_TARGET_BATCH`` could only ever LOWER the value and a dialog set
-    to 512 stored 128.
-  * ``load_probe`` allowed a flat 30s regardless of model size, so a 8.89GB model at
-    ctx=10384 was structurally unprovable and the operator's GPU layers lost every
-    launch to the fallback.
+``recommend()`` called the joint fit and then overwrote its batch twelve lines later, so
+``ELI_TARGET_BATCH`` could only ever LOWER the value and a dialog set to 512 stored 128.
 
 And ``install.sh`` emitted ``-march=x86-64`` on every architecture, so no ARM host
 could build the inference engine at all.
 """
 from __future__ import annotations
 
-import ast
 import inspect
 import re
-import textwrap
 from pathlib import Path
 
 import pytest
 
 from eli.core import hardware_profile as hp
-from eli.core import startup_hardware_optimizer as sho
-from eli.core.hardware_profile import HardwareProfile, _kv_cache_mb, recommend
-from tests._sparse import sparse_file
+from eli.core.hardware_profile import HardwareProfile, recommend
 
 REPO = Path(__file__).resolve().parent.parent
 
@@ -53,35 +38,6 @@ def _clean_env(monkeypatch):
     for var in ("ELI_VRAM_RESERVE_MB", "ELI_FORCE_GPU_LAYERS",
                 "ELI_MIN_BATCH", "ELI_TARGET_BATCH"):
         monkeypatch.delenv(var, raising=False)
-
-
-# ── one KV formula ───────────────────────────────────────────────────────────
-@pytest.mark.parametrize("n_ctx,layers", [(2048, 32), (10384, 32), (12288, 48), (32768, 80)])
-def test_the_optimizer_uses_the_loaders_kv_arithmetic(n_ctx, layers):
-    """allocate() and the load ladder must budget the same KV cache."""
-    assert sho.kv_cache_mb(n_ctx, layers, quant=True) == _kv_cache_mb(n_ctx, layers, quant=True)
-    assert sho.kv_cache_mb(n_ctx, layers, quant=False) == _kv_cache_mb(n_ctx, layers, quant=False)
-    # the cache is fp16 unless the load is told otherwise: it used to be assumed quantized here
-    assert sho.kv_cache_mb(n_ctx, layers) == _kv_cache_mb(n_ctx, layers, quant=False)
-
-
-def test_the_1024_byte_kv_constant_is_gone():
-    """Match executable lines only — the docstring names the old constant on purpose."""
-    src = inspect.getsource(sho.kv_cache_mb)
-    body = ast.parse(textwrap.dedent(src)).body[0]
-    stmts = [s for s in body.body if not isinstance(s, ast.Expr)
-             or not isinstance(getattr(s, "value", None), ast.Constant)]
-    code = "\n".join(ast.unparse(s) for s in stmts)
-    assert "1048576" not in code and "1024" not in code, (
-        f"the local q4 approximation survived: {code}")
-    assert "_kv_cache_mb" in code, "kv_cache_mb no longer delegates to the canonical math"
-
-
-def test_per_layer_vram_matches_the_fit():
-    """hardware_profile divides by layers + 2 for embedding/output tensors."""
-    model_gb, layers = 4.68, 32
-    assert sho.layer_mb(model_gb, layers) == pytest.approx(
-        (model_gb * 1024.0) / (layers + 2))
 
 
 def test_gui_app_does_not_restate_the_kv_formula():
@@ -119,54 +75,6 @@ def test_the_batch_overwrite_no_longer_discards_the_target():
     src = inspect.getsource(recommend)
     code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
     assert "if _env_target_batch > 0:" in code, "the target is not the first branch"
-
-
-# ── the probe budget scales with the work ────────────────────────────────────
-def test_probe_timeout_scales_with_model_size(tmp_path, monkeypatch):
-    from eli.core import load_probe as lp
-    monkeypatch.delenv("ELI_LOAD_PROBE_TIMEOUT", raising=False)
-
-    small = tmp_path / "small.gguf"
-    small.write_bytes(b"\0" * (1024 * 1024))
-    big = tmp_path / "big.gguf"
-    sparse_file(big, 256 * 1024 * 1024)  # sparse: probe_timeout_for reads st_size only
-
-    t_small = lp.probe_timeout_for(str(small), 4096)
-    t_big = lp.probe_timeout_for(str(big), 10384)
-    assert t_big > t_small, "a larger model at a larger ctx got no more time"
-    assert t_small >= 30.0
-
-
-def test_probe_timeout_is_bounded_and_overridable(tmp_path, monkeypatch):
-    from eli.core import load_probe as lp
-    huge = tmp_path / "huge.gguf"
-    huge.write_bytes(b"\0")
-    monkeypatch.delenv("ELI_LOAD_PROBE_TIMEOUT", raising=False)
-    assert lp.probe_timeout_for(str(huge), 1_000_000) <= lp._TIMEOUT_CEILING_S
-    monkeypatch.setenv("ELI_LOAD_PROBE_TIMEOUT", "7")
-    assert lp.probe_timeout_for(str(huge), 10384) == 7.0
-
-
-def test_a_nine_gigabyte_model_gets_more_than_the_old_flat_budget(tmp_path, monkeypatch):
-    """The live Ornith-9B case: 30s could never cover load + 4672-token prefill."""
-    from eli.core import load_probe as lp
-    monkeypatch.delenv("ELI_LOAD_PROBE_TIMEOUT", raising=False)
-    model = tmp_path / "ornith-9b-q8.gguf"
-    # Sparse: real st_size, no 9GB written, and Path.stat left alone so pytest's
-    # own traceback machinery keeps working.
-    sparse_file(model, int(8.89 * 1024 ** 3))
-    budget = lp.probe_timeout_for(str(model), 10384)
-    assert budget > 120.0, f"still unprovable at {budget:.0f}s"
-    assert budget <= lp._TIMEOUT_CEILING_S
-
-
-def test_a_timeout_is_remembered_briefly_but_never_as_a_verdict():
-    from eli.core import load_probe as lp
-    src = inspect.getsource(lp.probe_verdict)
-    assert "_recently_timed_out" in src, "a slow config re-pays the full budget every launch"
-    assert "_record_timeout" in src
-    record_src = inspect.getsource(lp._record_timeout)
-    assert '"ok"' not in record_src, "a timeout was cached as a pass/fail verdict"
 
 
 # ── one VRAM reserve ─────────────────────────────────────────────────────────

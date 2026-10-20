@@ -85,13 +85,15 @@ Nothing here requires code changes; it's all configuration.
   `--choose` (multi-select), `--model <key>`.
 - **Load knobs (env vars):**
   - `ELI_GGUF_N_CTX` / `ELI_N_CTX` — context window
-  - `ELI_GGUF_N_GPU_LAYERS` / `ELI_N_GPU_LAYERS` / `ELI_GPU_LAYERS` — layers offloaded to GPU
-    (set high, e.g. `999`, to put the whole model on GPU when it fits)
+  - `ELI_GGUF_N_GPU_LAYERS` / `ELI_N_GPU_LAYERS` / `ELI_GPU_LAYERS` — a cap on the layers put on
+    the GPUs; leave unset and every layer that fits goes there (`-1` is every layer)
   - `ELI_GGUF_N_BATCH` / `ELI_BATCH_SIZE` — batch size
-  - `ELI_CTX_FRACTION` — fraction of VRAM budgeted for context
-  - `ELI_VRAM_RESERVE_MB` — headroom to leave free (default 250)
-- **Smart-fit.** With nothing forced, ELI auto-tunes to fit: it reduces GPU layers, then batch, then
-  context (context last) until the model loads — per machine, every boot.
+  - `ELI_CTX_FRACTION` — share of the model's trained context the automatic window aims for
+  - `ELI_VRAM_RESERVE_MB` — memory to keep free on each card (default: what ELI measured llama.cpp
+    taking after the load on that card)
+- **Load plan.** Before every load llama.cpp simulates it on each GPU and ELI keeps the largest
+  settings that fit what every card has free (`eli/core/load_plan.py`): GPU layers, then batch,
+  then context, in the order the fit profile gives.
 - **Multi-GPU (already wired, not a roadmap item):**
   - `ELI_TENSOR_SPLIT` (or `ELI_GGUF_TENSOR_SPLIT`) — comma weights across GPUs, e.g. `"0.5,0.5"` for
     two equal cards, `"1,1,1,1"` for four
@@ -114,8 +116,10 @@ The least-friction way to feel the jump.
    add it to `catalog.json` and use `model_download`.
 4. **Point ELI at it and put it fully on the GPU:**
    ```bash
-   export ELI_N_GPU_LAYERS=999      # whole model on GPU (80 GB fits a 70B Q4)
-   export ELI_N_CTX=16384           # or higher; the card has room
+   export ELI_N_CTX=16384           # or leave unset for the largest window that fits
+   ```
+   Every layer that fits goes on the GPU without a setting (80 GB holds a 70B Q4).
+   ```
    ```
 5. **Launch** (`scripts/eli_launch.sh`, or serve mode). Ask it something meaty and watch the quality.
 6. **Verify it's really on GPU:** check the load log for the GPU-offload line / `nvidia-smi`.
@@ -132,11 +136,10 @@ The least-friction way to feel the jump.
 3. **Place the GGUF** (often multi-part for huge models) in the models dir.
 4. **Spread it across the GPUs:**
    ```bash
-   export ELI_TENSOR_SPLIT="1,1,1,1"   # equal weight across 4 GPUs
    export ELI_GGUF_SPLIT_MODE=layer    # layer split is the usual choice
-   export ELI_MAIN_GPU=0
-   export ELI_N_GPU_LAYERS=999
-   export ELI_N_CTX=8192               # start modest, raise once it loads
+   export ELI_N_CTX=8192               # or leave unset for the largest window that fits
+   # optional: ELI_TENSOR_SPLIT="1,1,1,1" fixes the shares; unset, each card gets layers in
+   # proportion to the room it has
    ```
    For an MoE that exceeds VRAM, lower `ELI_N_GPU_LAYERS` so the rest offloads to system RAM (needs a
    high-RAM box, e.g. 384–512 GB for 671B-class).
@@ -177,7 +180,7 @@ simply load bigger models as your hardware grows, no rewrite required.
 - [ ] Choose the tier from §4 (start with 70B on one 80 GB card).
 - [ ] Launch a CUDA instance with enough disk for the GGUF.
 - [ ] `install.sh`, then download/place the model.
-- [ ] Set `ELI_N_GPU_LAYERS=999` (+ `ELI_TENSOR_SPLIT` if multi-GPU) and a sensible `ELI_N_CTX`.
+- [ ] Optionally set `ELI_N_CTX` (and `ELI_TENSOR_SPLIT` for fixed shares); every layer that fits goes on the GPUs.
 - [ ] Launch ELI, test, watch it think bigger.
 - [ ] **Tear the instance down** — pay only for the hours used.
 

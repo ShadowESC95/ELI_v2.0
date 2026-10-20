@@ -172,9 +172,16 @@ def test_loader_retries_on_the_bundle_instead_of_instructing_the_user():
     assert "gpu_pack_is_too_old" in code, "the retry is not conditioned on the pack"
 
 
-def test_the_bundle_retry_is_not_attempted_for_recoverable_failures():
-    """OOM must keep using the adaptive ladder; dropping the GPU for it would
-    turn a settings problem into a permanent slowdown."""
-    src = Path("eli/cognition/gguf_inference.py").read_text(encoding="utf-8")
-    code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
-    assert "not _retryable(_load_log) and _pack_old()" in code
+def test_the_bundle_retry_is_not_attempted_for_recoverable_failures(monkeypatch):
+    """Out of memory is planned again; dropping the GPU pack for it would turn a memory problem into a
+    permanent slowdown. Only a file the pack cannot read drops it (gguf_inference._build_with_plan)."""
+    import pytest
+    from eli.cognition import model_load_diagnostics as mld
+    from tests.test_model_load_diagnostics import _failing_load, _fake_plan
+    dropped = []
+    gi, calls = _failing_load(monkeypatch, ["cudaMalloc failed: out of memory"])
+    monkeypatch.setattr(mld, "gpu_pack_is_too_old", lambda: True)
+    monkeypatch.setattr(mld, "deactivate_gpu_pack", lambda: dropped.append(1) or True)
+    with pytest.raises(mld.ModelLoadError):
+        gi._build_with_plan(_fake_plan(), object(), "m.gguf")
+    assert dropped == [] and len(calls) == 3

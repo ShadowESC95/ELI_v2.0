@@ -164,6 +164,24 @@ def mock_executor():
         yield mock
 
 @pytest.fixture
+def quiet_gpu_sources(monkeypatch):
+    """A machine whose every GPU source (nvidia-smi and the NVIDIA kernel driver, the Linux device
+    scan, rocm-smi, DXGI, macOS's registry and system_profiler, llama.cpp's device list) reports
+    nothing, with detection's cache cleared. A test then gives one source something to say."""
+    import eli.core.hardware_profile as hp
+    monkeypatch.setattr(hp, "nvidia_smi_path", lambda: None)
+    monkeypatch.setattr(hp, "_nvidia_driver_loaded", lambda: False)
+    monkeypatch.setattr(hp, "_linux_drm_gpus", lambda: [])
+    monkeypatch.setattr(hp, "_windows_dxgi_adapters", lambda software=False: None)
+    monkeypatch.setattr(hp, "_macos_gpus", lambda: [])
+    monkeypatch.setattr(hp, "_macos_accelerators", lambda: None)
+    monkeypatch.setattr(hp, "_llama_cpp_cards", lambda: None)
+    monkeypatch.setattr(hp, "_lspci_name_for_pci_addr", lambda addr: "")
+    monkeypatch.setattr(hp.shutil, "which", lambda name: None)
+    monkeypatch.setattr(hp, "_DETECT_HW_CACHE", None)
+    return hp
+
+@pytest.fixture
 def engine_with_mocks(mock_gguf, mock_executor):
     from eli.kernel.engine import CognitiveEngine
     return CognitiveEngine(auto_init_gguf=False)
@@ -248,6 +266,17 @@ def guard_real_runtime_snapshot(request):
                 _REAL_SNAPSHOT.write_bytes(before)
         except OSError:
             pass
+
+
+@pytest.fixture(autouse=True, scope="function")
+def measurements_stay_on_this_machine(monkeypatch, tmp_path):
+    """What ELI measured on this machine (GPU headroom, whisper's footprint) is never read or written
+    by a test: a report test read this machine's 108 MB for Qwen3.6 once a real llama.cpp was loaded."""
+    from eli.core import load_plan
+    from eli.perception import local_whisper_stt
+    monkeypatch.setattr(load_plan, "_headroom_file", lambda: tmp_path / "gpu_headroom.json")
+    monkeypatch.setattr(load_plan, "_watch", {})
+    monkeypatch.setattr(local_whisper_stt, "_footprint_file", lambda: tmp_path / "whisper_gpu.json")
 
 
 # ── Auto-updating test-results document ──────────────────────────────────────

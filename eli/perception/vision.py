@@ -281,7 +281,7 @@ def vision_settings() -> Dict[str, Any]:
         "n_ctx": _as_int(_cfg("vision_n_ctx", 4096), 4096),
         # All layers on GPU by default — the text model is unloaded first, so the
         # ~7GB freed is enough for a 7B Q4 VL + clip. Lower if you hit OOM.
-        "n_gpu_layers": _as_int(_cfg("vision_n_gpu_layers", 99), 99),
+        "n_gpu_layers": _as_int(_cfg("vision_n_gpu_layers", -1), -1),       # -1: every layer
         "n_batch": _as_int(_cfg("vision_n_batch", 256), 256),
         # Downscale large screenshots before vision: a 4K/dual-monitor grab is thousands of image
         # tokens (3840x1440 is ~4000), which overflows the context and can crash the clip encoder. The
@@ -300,7 +300,7 @@ def vision_settings() -> Dict[str, Any]:
                                      disc_fast[1] if disc_fast else None),
         "fast_chat_handler": fast_chat_handler,
         "fast_n_ctx": _as_int(_cfg("vision_fast_n_ctx", 2048), 2048),
-        "fast_n_gpu_layers": _as_int(_cfg("vision_fast_n_gpu_layers", 99), 99),
+        "fast_n_gpu_layers": _as_int(_cfg("vision_fast_n_gpu_layers", -1), -1),
         # Co-resident mode: keep the text model loaded and run Moondream alongside it (no ~15s
         # text-model reload per glance). Off by default until the VRAM fit is confirmed on this 8GB
         # GPU; when false, fast glances hot-swap like the primary model.

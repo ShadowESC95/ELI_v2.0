@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional
 
 from eli.gui.panels._qt import (
     QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDockWidget,
-    QDoubleSpinBox, QFileDialog, QFormLayout, QLabel, QLineEdit,
+    QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QLabel, QLineEdit, QTimer,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox,
     QTabWidget, QThread, QVBoxLayout, QHBoxLayout, QWidget, Qt,
     now_hms, pyqtSignal,
@@ -23,7 +23,7 @@ from eli.gui.panels._qt import (
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
-from eli.core.mem_units import file_size_gib, dir_size_gib, bytes_to_gib
+from eli.core.mem_units import file_size_gib, bytes_to_gib
 
 try:
     from eli.core.paths import get_paths as _get_paths
@@ -63,6 +63,49 @@ def _import_eli_gpu_pack():
             import eli_gpu_pack
             return eli_gpu_pack
     raise ImportError("eli_gpu_pack not found")
+
+
+def _dialog_gpus() -> List[Dict[str, Any]]:
+    """The GPUs to offer in the start-up window: llama.cpp's own devices when its runtime has any
+    (the exact cards and order the loader uses, on CUDA, ROCm, Vulkan, Metal or SYCL), else what
+    detection found, marked as not usable until a GPU runtime is installed."""
+    try:
+        from eli.core import load_plan
+        found = load_plan.devices()
+    except Exception:
+        log.debug("llama.cpp device list unavailable for the start-up window", exc_info=True)
+        found = []
+    if found:
+        return [{"index": d.index, "name": d.description or d.name, "free_mb": d.free_mb, "total_mb": d.total_mb,
+                 "integrated": d.integrated, "usable": True} for d in found]
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        return [dict(g, usable=False) for g in (detect_hardware().gpus or [])]
+    except Exception:
+        return []
+
+
+class _PlanPreviewThread(QThread):
+    """The load plan for the window's current choices, worked out off the window's thread (llama.cpp
+    simulates the load: a second or two)."""
+    finished_result = pyqtSignal(int, str)
+
+    def __init__(self, generation: int, model_path: str, overrides: Dict[str, Any], parent=None):
+        super().__init__(parent)
+        self._generation = generation
+        self._model_path = model_path
+        self._overrides = dict(overrides)
+
+    def run(self):
+        try:
+            from eli.cognition.gguf_inference import load_request
+            from eli.core import load_plan
+            plan = load_plan.plan(load_request(self._model_path, **self._overrides))
+            text = plan.describe() + "".join(f"\n{note}" for note in plan.notes)
+        except Exception as exc:
+            log.debug("load plan preview failed", exc_info=True)
+            text = f"No plan could be made: {exc}"
+        self.finished_result.emit(self._generation, text)
 
 
 class _GpuPackInstallThread(QThread):
@@ -235,18 +278,14 @@ def _ollama_unreachable_message(host: str, err) -> str:
 # select something else — a user comparing the tab against the terminal saw two
 # different sets of numbers for the same launch.
 #
-# These are the prefixes the loader, the fit and the probe already emit. Routing
-# them into the dock means the tab shows the same calculation the terminal does,
-# as it happens, before and during the load — no second source of truth, and no
-# figure computed twice.
+# These are the prefixes the tuner and the loader already emit. Routing them into
+# the dock means the tab shows the same calculation the terminal does, as it
+# happens, before and during the load — no second source of truth, and no figure
+# computed twice.
 HARDWARE_LOG_MARKERS = (
     "[STARTUP_DIALOG][HW_OPT]",
-    "[GUI][HW_PROFILE]",
-    "[GUI][GPU]",
     "[GUI][LOAD]",
-    "[LOAD_PROBE]",
-    "[GGUF][ADAPTIVE]",
-    "[GGUF][EFFECTIVE]",
+    "[LOAD_PLAN]",
     "[HW_AUTHORITY]",
 )
 
@@ -390,6 +429,14 @@ class StartupModelSelectionDialog(QDialog):
         self.gguf_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToContents)
         for m in self._models:
             self.gguf_combo.addItem(self._model_label(m), str(m.get("path") or ""))
+            if m.get("not_chat") or m.get("draft_only"):
+                # a draft head (Kimi-K3-DSpark), a vision projector (mmproj) or an embedding model:
+                # listed so the folder reads as it is, and not pickable as the model to talk to
+                _item = self.gguf_combo.model().item(self.gguf_combo.count() - 1)
+                if _item is not None:
+                    _item.setEnabled(False)
+                    _item.setToolTip(f"Not a chat model: {m.get('not_chat') or 'a draft model'}. "
+                                     "It cannot answer on its own.")
         form.addRow("GGUF models", self.gguf_combo)
 
         self.model_path_input = QLineEdit(current_model_path or "")
@@ -477,16 +524,18 @@ class StartupModelSelectionDialog(QDialog):
         )
 
         _env_ctx = (os.environ.get("ELI_FORCE_CTX") or "").strip()
-        if _env_ctx.isdigit() and int(_env_ctx) >= 2048:
+        if _env_ctx.isdigit() and int(_env_ctx) > 0:
             _initial_ctx = int(_env_ctx)            # explicit in-session override
-        elif _saved_ctx >= 2048 and _same_model:
+        elif _saved_ctx > 0 and _same_model:
             _initial_ctx = _saved_ctx               # your last choice, for THIS model
         else:
             # Auto. Deliberately not a constant: 16384 was as arbitrary for a 1M
             # model as for a 4k one, and "auto" already derives per model.
             _initial_ctx = 0
         self.ctx_window_spin = QSpinBox()
-        self.ctx_window_spin.setRange(0, 262144)
+        # no ceiling of ELI's own: the planner holds the window to what the model was trained on and
+        # what the machine has room for (eli/core/load_plan.py); a QSpinBox counts in int32
+        self.ctx_window_spin.setRange(0, 2_147_483_647)
         self.ctx_window_spin.setSingleStep(2048)
         self.ctx_window_spin.setValue(_initial_ctx)
         form.addRow("Context window (tokens, 0=auto)", self.ctx_window_spin)
@@ -504,7 +553,7 @@ class StartupModelSelectionDialog(QDialog):
         form.addRow("Context target fraction", self.ctx_fraction_spin)
 
         self.target_batch_spin = QSpinBox()
-        self.target_batch_spin.setRange(16, 4096)
+        self.target_batch_spin.setRange(1, 2_147_483_647)     # llama.cpp holds it to the context
         self.target_batch_spin.setSingleStep(16)
         # Default from the hardware, not a constant. 256 was the same number on
         # every machine and for every model; hardware_profile.recommend() already
@@ -614,6 +663,65 @@ class StartupModelSelectionDialog(QDialog):
         )
         form.addRow("Hardware fit profile", self.fit_priority_combo)
 
+        # Which GPUs, and how the model is split across them. Empty "gpu_devices" means every card;
+        # "tensor_split" set means the operator's shares, empty means the planner's own split by
+        # each card's free memory.
+        try:
+            from eli.core.runtime_settings import load_settings as _ls_gpu
+            _gpu_saved = _ls_gpu() or {}
+        except Exception:
+            _gpu_saved = {}
+        _chosen_gpus = {int(x) for x in str(_gpu_saved.get("gpu_devices") or "").split(",") if x.strip().isdigit()}
+        _saved_split = [x for x in str(_gpu_saved.get("tensor_split") or "").split(",") if x.strip()]
+        self._gpus = _dialog_gpus()
+        self._gpu_rows: List[tuple] = []
+        self.gpu_split_combo = QComboBox()
+        self.gpu_split_combo.addItem("Automatic — measured, by each card's free memory", "auto")
+        self.gpu_split_combo.addItem("Manual — the shares set below", "manual")
+        if self._gpus:
+            _grid_host = QWidget()
+            _grid = QGridLayout(_grid_host)
+            _grid.setContentsMargins(0, 0, 0, 0)
+            for _row, _g in enumerate(self._gpus):
+                _cb = QCheckBox(f"GPU {_g['index']}: {_g['name']} — {float(_g.get('free_mb') or 0) / 1024:.1f} of "
+                                f"{float(_g.get('total_mb') or 0) / 1024:.1f} GB free"
+                                + ("" if _g.get("usable") else " (needs a GPU pack)"))
+                _cb.setChecked(not _chosen_gpus or int(_g["index"]) in _chosen_gpus)
+                _cb.setEnabled(bool(_g.get("usable")))
+                _share = QSpinBox()
+                _share.setRange(1, 100)
+                _share.setSuffix(" %")
+                _share.setToolTip("This card's share of the model's layers (llama.cpp's tensor split). Its "
+                                  "memory use also depends on which layers hold the most cache: in some "
+                                  "models the first layers do. The load plan shows what each card will hold.")
+                try:
+                    _share.setValue(int(round(float(_saved_split[_row]) * 100))
+                                    if len(_saved_split) == len(self._gpus) else int(round(100 / len(self._gpus))))
+                except (ValueError, IndexError):
+                    _share.setValue(int(round(100 / len(self._gpus))))
+                _grid.addWidget(_cb, _row, 0)
+                _grid.addWidget(_share, _row, 1)
+                self._gpu_rows.append((int(_g["index"]), _cb, _share))
+                _cb.toggled.connect(lambda _on: self._schedule_plan_preview())
+                _share.valueChanged.connect(lambda _v: self._schedule_plan_preview())
+            _grid_host.setToolTip("Untick a card to keep the model off it; one card ticked is single-GPU mode.")
+            form.addRow("GPUs", _grid_host)
+            if len(_saved_split) == len(self._gpus) and len(self._gpus) > 1:
+                self.gpu_split_combo.setCurrentIndex(1)
+            if len(self._gpus) > 1:
+                form.addRow("Split across GPUs", self.gpu_split_combo)
+            self.gpu_split_combo.currentIndexChanged.connect(lambda _i: self._sync_gpu_split_controls())
+        self.plan_preview_label = QLabel("")
+        self.plan_preview_label.setWordWrap(True)
+        self.plan_preview_label.setStyleSheet("color:#9aa5b5;font-size:11px;")
+        form.addRow("Load plan", self.plan_preview_label)
+        self._plan_generation = 0
+        self._plan_threads: List[QThread] = []
+        self._plan_timer = QTimer(self)
+        self._plan_timer.setSingleShot(True)
+        self._plan_timer.timeout.connect(self._start_plan_preview)
+        self._sync_gpu_split_controls()
+
         self.gpu_pack_status_label = QLabel("")
         self.gpu_pack_status_label.setWordWrap(True)
         self.gpu_pack_status_label.setStyleSheet("color:#9aa5b5;font-size:11px;")
@@ -641,21 +749,27 @@ class StartupModelSelectionDialog(QDialog):
         self.target_batch_spin.valueChanged.connect(lambda _v: self._refresh_hw_summary())
         self.model_path_input.textChanged.connect(lambda _t: self._refresh_hw_summary())
         self.gguf_combo.currentIndexChanged.connect(lambda _i: self._refresh_hw_summary())
+        self.compute_mode_combo.currentIndexChanged.connect(lambda _i: self._schedule_plan_preview())
         self._refresh_hw_summary()
         self._refresh_gpu_pack_controls()
 
         self.vram_reserve_spin = QSpinBox()
-        self.vram_reserve_spin.setRange(0, 16384)
-        self.vram_reserve_spin.setSingleStep(128)
-        # One default, from hardware_profile — this spin box exports its value into
-        # ELI_VRAM_RESERVE_MB, so a low default here silently overrode the loader's
-        # own 700 and produced a fit llama.cpp refused. See DEFAULT_VRAM_RESERVE_MB.
-        from eli.core.hardware_profile import vram_reserve_mb as _vrm
-        self.vram_reserve_spin.setValue(int(_vrm()))
-        form.addRow("VRAM reserve MB", self.vram_reserve_spin)
+        # 0 = measured: what llama.cpp takes on each card after a load is measured on this machine and
+        # left free from then on (eli/core/load_plan.py, headroom). A figure here is used as given.
+        self.vram_reserve_spin.setRange(0, int(max([float(g.get("total_mb") or 0) for g in self._gpus], default=0))
+                                        or 2_147_483_647)
+        self.vram_reserve_spin.setSingleStep(max(1, int(self.vram_reserve_spin.maximum() // 64)))
+        _reserve_env = (os.environ.get("ELI_VRAM_RESERVE_MB") or "").strip()
+        self.vram_reserve_spin.setValue(int(_reserve_env) if _reserve_env.isdigit() else 0)
+        self.vram_reserve_spin.setSpecialValueText("measured")
+        self.vram_reserve_spin.setToolTip(
+            "GPU memory to keep free beyond what the model takes. \"measured\": ELI measures what llama.cpp "
+            "uses on each card after loading and keeps exactly that free; before the first measurement it "
+            "keeps llama.cpp's own working-buffer figure free.")
+        form.addRow("GPU memory kept free (MB)", self.vram_reserve_spin)
 
         self.model_train_ctx_spin = QSpinBox()
-        self.model_train_ctx_spin.setRange(0, 262144)
+        self.model_train_ctx_spin.setRange(0, 2_147_483_647)
         self.model_train_ctx_spin.setSingleStep(2048)
         self.model_train_ctx_spin.setValue(int(os.environ.get("ELI_MODEL_TRAIN_CTX", "0")))
         form.addRow("Model train ctx (0=auto)", self.model_train_ctx_spin)
@@ -714,9 +828,24 @@ class StartupModelSelectionDialog(QDialog):
                 _rs_ram(ram_budget_percent=_ram_pct, fit_priority=_fit_mode)
             except Exception:
                 log.debug("ram_budget_percent persist failed", exc_info=True)
+            _gpu_choice = self._gpu_choice()
+            for _env, _val in (("ELI_GPU_DEVICES", _gpu_choice["gpu_devices"]),
+                               ("ELI_GGUF_TENSOR_SPLIT", _gpu_choice["tensor_split"])):
+                if _val:
+                    os.environ[_env] = _val
+                else:
+                    os.environ.pop(_env, None)
+            try:
+                from eli.core.runtime_settings import update_settings as _rs_gpu
+                _rs_gpu(gpu_devices=_gpu_choice["gpu_devices"], tensor_split=_gpu_choice["tensor_split"])
+            except Exception:
+                log.debug("GPU choice persist failed", exc_info=True)
             os.environ["ELI_CTX_FRACTION"] = str(float(self.ctx_fraction_spin.value()))
             os.environ["ELI_TARGET_BATCH"]  = str(int(self.target_batch_spin.value()))
-            os.environ["ELI_VRAM_RESERVE_MB"] = str(int(self.vram_reserve_spin.value()))
+            if int(self.vram_reserve_spin.value()) > 0:
+                os.environ["ELI_VRAM_RESERVE_MB"] = str(int(self.vram_reserve_spin.value()))
+            else:
+                os.environ.pop("ELI_VRAM_RESERVE_MB", None)        # measured
             _cmode = str(self.compute_mode_combo.currentData() or "auto")
             try:
                 from eli.core.runtime_settings import update_settings as _rs_cm
@@ -745,16 +874,12 @@ class StartupModelSelectionDialog(QDialog):
 
         def _accept_wrapper():
             _apply_env()
-            # Preload faster-whisper FIRST so its VRAM allocation is visible to
-            # the GGUF hardware autotune below. Without this, the autotune sees
-            # full free VRAM, assigns all layers to GGUF, and whisper hits CUDA
-            # OOM on first utterance. With this, autotune sees the reduced free
-            # VRAM and correctly down-sizes gpu_layers for the LLM.
-            _whisper_on_cuda = False
+            # Preload faster-whisper FIRST (warmed up on a GPU) so the memory it holds is taken before
+            # the language model is planned against what each card has free; otherwise the plan
+            # filled the card and Whisper ran out of memory on the first utterance.
             try:
                 from eli.perception.local_whisper_stt import preload_model as _eli_preload_whisper
                 if _eli_preload_whisper():
-                    _whisper_on_cuda = True
                     log.debug(
                         "[STARTUP_DIALOG][AUDIO_PRELOAD] whisper claimed VRAM "
                         "before GGUF autotune",
@@ -765,35 +890,9 @@ class StartupModelSelectionDialog(QDialog):
                 selected_path = self.model_path_input.text().strip()
                 if selected_path:
                     os.environ["ELI_MODEL_PATH"] = selected_path
-                # When Whisper is resident on GPU, batch=256 consistently OOMs on
-                # the first llama_context load attempt. Always cap to 128 when
-                # Whisper is on CUDA — even if ELI_TARGET_BATCH is already set
-                # (prior sessions may have left "256" in the env).
-                if _whisper_on_cuda:
-                    # Fall back to the HARDWARE-derived batch, not a flat 256 —
-                    # same source the spin box uses. (The 128 cap below stays: it
-                    # is an empirical co-residency limit with a measured failure
-                    # behind it, not a default.)
-                    try:
-                        from eli.core.hardware_profile import (
-                            detect_hardware as _wb_dh, recommend as _wb_rec,
-                        )
-                        _default_batch = int(getattr(_wb_rec(_wb_dh()), "batch_size", 0) or 0)
-                    except Exception:
-                        _default_batch = 0
-                    _env_b = (os.environ.get("ELI_TARGET_BATCH") or "").strip()
-                    _existing_batch = int(_env_b) if _env_b.isdigit() else max(0, _default_batch)
-                    if _existing_batch > 128:
-                        os.environ["ELI_TARGET_BATCH"] = "128"
-                        try:
-                            self.target_batch_spin.setValue(128)
-                        except Exception:
-                            log.debug("[STARTUP_DIALOG] batch spin sync skipped", exc_info=True)
-                        log.info(
-                            "[STARTUP_DIALOG][AUDIO_PRELOAD] Whisper on CUDA → "
-                            "batch capped 128 (was %s) so STT co-residency fits VRAM",
-                            _existing_batch,
-                        )
+                # Whisper is loaded first, so the load plan measures what each card has free after it
+                # and sizes the batch from that (eli/core/load_plan.py). A fixed batch of 128 used to be
+                # forced whenever Whisper ran on the GPU, whatever the card.
                 from eli.core.hardware_profile import (
                     detect_hardware as _hp_detect,
                     discover_models as _hp_models,
@@ -828,7 +927,7 @@ class StartupModelSelectionDialog(QDialog):
                 # just set by _apply_env) so the regenerated profile reflects what
                 # they asked for — not the auto target.
                 _forced_ctx = (os.environ.get("ELI_FORCE_CTX") or "").strip()
-                _pin_ctx = int(_forced_ctx) if _forced_ctx.isdigit() and int(_forced_ctx) >= 2048 else None
+                _pin_ctx = int(_forced_ctx) if _forced_ctx.isdigit() and int(_forced_ctx) > 0 else None
                 _rec  = _hp_recommend(_hw, _rec_models, user_ctx=_pin_ctx)
                 _hp_apply(_rec)
                 log.debug(
@@ -949,16 +1048,10 @@ class StartupModelSelectionDialog(QDialog):
     def _refresh_hw_summary(self) -> None:
         try:
             from eli.core.hardware_profile import (
-                auto_ctx_target,
                 cpu_ram_budget_mb,
-                kv_cache_quantized,
-                describe_gpu_layers,
                 detect_hardware,
-                effective_use_gpu_layers,
                 _llama_gpu_offload_available,
                 integrated_gpu_label,
-                unified_fit_config,
-                vram_reserve_mb,
             )
             _hw = detect_hardware(force=True)
             _backend = _llama_gpu_offload_available()
@@ -968,80 +1061,14 @@ class StartupModelSelectionDialog(QDialog):
             os.environ["ELI_FIT_PRIORITY"] = _fit_mode
             _ram_budget = cpu_ram_budget_mb(
                 _hw.available_ram_gb, fraction=_ram_pct / 100.0)
-            _fit_line = ""
-            _model_path = self.model_path_input.text().strip()
-            if _model_path and Path(_model_path).is_file():
-                try:
-                    _mp = Path(_model_path)
-                    _size_gb = file_size_gib(_mp)
-                    _use_gpu = effective_use_gpu_layers(_hw)
-                    _kvq = kv_cache_quantized(
-                        str(_mp), _size_gb, free_vram_mb=_hw.free_vram_mb if _use_gpu else 0,
-                        available_ram_gb=_hw.available_ram_gb, use_gpu=_use_gpu,
-                        target_ctx=int(self.ctx_window_spin.value()) or None)
-                    _ctx = int(self.ctx_window_spin.value()) or auto_ctx_target(
-                        str(_mp), _size_gb, free_vram_mb=_hw.free_vram_mb,
-                        available_ram_gb=_hw.available_ram_gb,
-                        use_gpu=_use_gpu, kv_quantized=_kvq)
-                    _batch = int(self.target_batch_spin.value()) or 256
-                    _moe_preview = None
-                    if _use_gpu:
-                        try:
-                            from eli.core import moe_offload as _moe_startup
-                            _moe_preview = _moe_startup.plan(
-                                str(_mp), _size_gb,
-                                free_vram_mb=int(_hw.free_vram_mb),
-                                available_ram_gb=float(_hw.available_ram_gb),
-                            )
-                        except Exception:
-                            log.debug("startup MoE preview lookup failed", exc_info=True)
-                    from eli.core.runtime_settings import pinned_gpu_layers_for_model
-                    _pin = pinned_gpu_layers_for_model(str(_mp), current_ctx=max(2048, _ctx))
-                    _fit_common = dict(
-                        user_ctx=max(2048, _ctx),
-                        user_batch=max(128, _batch),
-                        reserve_mb=vram_reserve_mb(gpu_integrated=_hw.gpu_integrated),
-                        kv_quantized=_kvq,
-                        model_path=str(_mp),
-                        fit_priority_mode=_fit_mode,
-                        gpu_integrated=_hw.gpu_integrated,
-                        force_cpu=not _use_gpu,
-                        moe_resident_gb=(_moe_preview["resident_gb"] if _moe_preview else None),
-                    )
-                    _fc, _fl, _fb = unified_fit_config(
-                        _size_gb, _hw.free_vram_mb if _use_gpu else 0, _hw.available_ram_gb,
-                        user_gpu_layers=_pin, **_fit_common,
-                    )
-                    _fit_line = (
-                        f"  |  preview fit ({_fit_mode}): ctx={_fc} "
-                        f"gpu={describe_gpu_layers(_fl)} batch={_fb}"
-                    )
-                    if _moe_preview:
-                        _fit_line += (
-                            f" (MoE: ~{_moe_preview['resident_gb']}GB core weights on GPU, "
-                            f"~{_moe_preview['experts_gb']}GB experts stay in RAM)"
-                        )
-                    # Show the uncapped fit too, so the pin's headroom gap is explained.
-                    if _pin:
-                        try:
-                            _uc_fc, _uc_fl, _uc_fb = unified_fit_config(
-                                _size_gb, _hw.free_vram_mb if _use_gpu else 0,
-                                _hw.available_ram_gb, user_gpu_layers=None, **_fit_common,
-                            )
-                            if _uc_fl > _fl:
-                                _fit_line += (
-                                    f" (pinned to {_fl} — up to {_uc_fl} would fit; "
-                                    f"change in Hardware Tuning)"
-                                )
-                        except Exception:
-                            log.debug("startup uncapped fit preview failed", exc_info=True)
-                except Exception:
-                    log.debug("startup fit preview failed", exc_info=True)
+            # How the chosen model will load is the load plan below (the loader's own planner);
+            # this line is the machine.
+            self._schedule_plan_preview()
             if not _hw.has_gpu:
                 txt = (
                     f"CPU: {_hw.cpu_threads} threads  |  "
                     f"RAM: {_hw.ram_gb:.1f} GB ({_hw.available_ram_gb:.1f} GB free)  |  "
-                    f"model budget ~{_ram_budget} MB{_fit_line}"
+                    f"model budget ~{_ram_budget} MB"
                 )
             elif _hw.gpu_integrated:
                 _kind = integrated_gpu_label(_hw.gpu_name, _hw.gpu_vendor)
@@ -1050,7 +1077,6 @@ class StartupModelSelectionDialog(QDialog):
                     f"shared budget ~{_hw.free_vram_mb} MB  |  "
                     f"model RAM cap ~{_ram_budget} MB  |  "
                     f"GPU backend: {'active' if _backend else _pack_off_label('not installed (CPU until GPU pack)')}"
-                    f"{_fit_line}"
                 )
             else:
                 txt = (
@@ -1058,7 +1084,6 @@ class StartupModelSelectionDialog(QDialog):
                     f"VRAM {_hw.free_vram_mb}/{_hw.total_vram_mb} MB  |  "
                     f"RAM spill budget ~{_ram_budget} MB ({_ram_pct}%)  |  "
                     f"GPU backend: {'active' if _backend else _pack_off_label('not installed')}"
-                    f"{_fit_line}"
                 )
                 try:
                     from eli.core.hardware_profile import describe_vram_holders, vram_holders
@@ -1070,6 +1095,58 @@ class StartupModelSelectionDialog(QDialog):
             self.hw_summary_label.setText(txt)
         except Exception as exc:
             self.hw_summary_label.setText(f"Hardware probe pending ({exc})")
+
+    def _gpu_choice(self) -> Dict[str, Any]:
+        """The window's GPU choices as the loader reads them: gpu_devices ("" = every card),
+        tensor_split ("" = the planner's own split), cpu_only when no card is ticked."""
+        rows = getattr(self, "_gpu_rows", []) or []
+        usable = [r for r in rows if r[1].isEnabled()]
+        ticked = [r for r in usable if r[1].isChecked()]
+        devices = "" if len(ticked) == len(usable) else ",".join(str(i) for i, _cb, _sp in ticked)
+        split = ""
+        if (len(ticked) > 1 and getattr(self, "gpu_split_combo", None) is not None
+                and self.gpu_split_combo.currentData() == "manual"):
+            total = float(sum(sp.value() for _i, cb, sp in usable if cb.isChecked())) or 1.0
+            split = ",".join(f"{(sp.value() / total) if cb.isChecked() else 0.0:.3f}" for _i, cb, sp in usable)
+        return {"gpu_devices": devices, "tensor_split": split, "cpu_only": bool(usable) and not ticked}
+
+    def _sync_gpu_split_controls(self) -> None:
+        manual = getattr(self, "gpu_split_combo", None) is not None and self.gpu_split_combo.currentData() == "manual"
+        for _i, cb, share in getattr(self, "_gpu_rows", []) or []:
+            share.setEnabled(manual and cb.isEnabled())
+            share.setVisible(len(self._gpu_rows) > 1)
+        self._schedule_plan_preview()
+
+    def _schedule_plan_preview(self) -> None:
+        """Plan again shortly after the choices stop changing."""
+        timer = getattr(self, "_plan_timer", None)
+        if timer is not None:
+            timer.start(600)
+
+    def _start_plan_preview(self) -> None:
+        model_path = self.model_path_input.text().strip()
+        if not model_path or not Path(model_path).is_file():
+            self.plan_preview_label.setText("Choose a model to see how it will load.")
+            return
+        choice = self._gpu_choice()
+        overrides: Dict[str, Any] = {
+            "n_ctx": int(self.ctx_window_spin.value()),
+            "n_batch": int(self.target_batch_spin.value()),
+            "fit_priority": str(self.fit_priority_combo.currentData() or "balanced"),
+            "gpu_devices": choice["gpu_devices"], "tensor_split": choice["tensor_split"],
+            "cpu_only": choice["cpu_only"] or str(self.compute_mode_combo.currentData() or "auto") == "cpu",
+        }
+        self._plan_generation += 1
+        self.plan_preview_label.setText("Working out how the model will load…")
+        worker = _PlanPreviewThread(self._plan_generation, model_path, overrides, self)
+        worker.finished_result.connect(self._on_plan_preview)
+        worker.finished.connect(lambda: self._plan_threads.remove(worker) if worker in self._plan_threads else None)
+        self._plan_threads.append(worker)
+        worker.start()
+
+    def _on_plan_preview(self, generation: int, text: str) -> None:
+        if generation == self._plan_generation:     # a newer choice has a newer plan coming
+            self.plan_preview_label.setText(text)
 
     def _refresh_gpu_pack_controls(self) -> None:
         """2026-09-19: used to call the live subprocess gpu_pack_operational()
@@ -1242,8 +1319,11 @@ class StartupModelSelectionDialog(QDialog):
     def _select_model_path(self, path: str):
         target = str(path or "").strip()
         if not target:
-            if self.gguf_combo.count():
-                self.gguf_combo.setCurrentIndex(0)
+            _model = self.gguf_combo.model()
+            _first = next((i for i in range(self.gguf_combo.count())
+                           if getattr(_model.item(i), "isEnabled", lambda: True)()), None)
+            if _first is not None:
+                self.gguf_combo.setCurrentIndex(_first)
                 self._sync_model_path_from_combo()
             return
         idx = self.gguf_combo.findData(target)
@@ -1957,28 +2037,20 @@ class FirstBootWizard(QDialog):
             self._dl_status.setText(f"✓ {verb}: {path}{_sz}{_warn}")
             self._start_support_assets()
             try:
-                from eli.core.hardware_profile import detect_hardware, recommend
+                from eli.core.hardware_profile import detect_hardware, layers_for_model, recommend
                 _hw = detect_hardware()
-                _sz_gb = float(res.get("size_gib_actual") or 0)
-                if not _sz_gb and path:
-                    _sz_gb = file_size_gib(path)
-                if _hw.has_gpu and _hw.total_vram_mb > 0 and _sz_gb > 0:
-                    _vram_gb = _hw.total_vram_mb / 1024.0
-                    if _sz_gb * 1.1 > _vram_gb:
-                        self._dl_status.setText(
-                            self._dl_status.text()
-                            + f"\n⚠ {_sz_gb:.1f} GB model on {_vram_gb:.0f} GB GPU — "
-                            "expect partial offload; Qwen2.5-7B is better for 8 GB cards."
-                        )
                 if _hw.has_gpu and path:
-                    _probe = [{
-                        "name": Path(path).name,
-                        "path": path,
-                        "size_bytes": Path(path).stat().st_size,
-                        "size_gb": file_size_gib(path),
-                    }]
-                    _layers = recommend(_hw, _probe).n_gpu_layers
-                    if _layers == 0:
+                    _sz_gb = file_size_gib(path)
+                    _probe = [{"name": Path(path).name, "path": path,
+                               "size_bytes": Path(path).stat().st_size, "size_gb": _sz_gb}]
+                    _layers = int(recommend(_hw, _probe).n_gpu_layers)
+                    _total = layers_for_model(path, _sz_gb)
+                    if 0 <= _layers < _total:
+                        self._dl_status.setText(self._dl_status.text() + (
+                            "\n⚠ None of its layers fit the GPU's free memory, so it runs on the processor."
+                            if _layers == 0 else
+                            f"\n⚠ {_layers} of its {_total} layers fit the GPU's free memory; "
+                            "the rest run on the processor."))
                         self._dl_status.setStyleSheet("color:#ebcb8b;font-size:11px;")
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
@@ -2078,6 +2150,7 @@ class FirstBootWizard(QDialog):
             from eli.core.hardware_profile import (
                 effective_use_gpu_layers as _use_gpu,
                 format_gpu_layers_status as _fmt_layers,
+                layers_for_model,
             )
             _rec = _hp_recommend(_hw, _mods)
             _hp_apply(_rec)
@@ -2104,12 +2177,13 @@ class FirstBootWizard(QDialog):
             elif _hw.has_gpu and _rec.n_gpu_layers == 0:
                 _style = "color:#ebcb8b;font-size:12px;"
                 _extra = (
-                    "\n⚠ This model is too large for comfortable GPU offload on your card. "
-                    "Try a smaller quant or Qwen2.5-7B on 8 GB GPUs."
+                    "\n⚠ None of this model's layers fit the GPU's free memory, so it runs on the "
+                    "processor. A smaller file (a lower quantisation or fewer parameters) would fit."
                 )
-            elif _hw.has_gpu and 0 < _rec.n_gpu_layers < 10:
+            elif _hw.has_gpu and 0 < _rec.n_gpu_layers < layers_for_model(_rec.model_path):
                 _extra = (
-                    "\n⚠ Partial GPU offload — consider a smaller model for faster replies."
+                    "\n⚠ Only part of this model fits the GPU; the rest runs on the processor. "
+                    "A smaller file would reply faster."
                 )
             self._hw_result_label.setStyleSheet(_style)
             _ram_line = (

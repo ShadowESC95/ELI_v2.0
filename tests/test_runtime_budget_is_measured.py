@@ -98,7 +98,7 @@ def test_derive_budget_never_raises(vram, monkeypatch):
     b = drb.derive_budget("")
     assert b.n_ctx >= drb._MIN_CTX
     assert b.batch_size >= drb._MIN_BATCH
-    assert b.n_gpu_layers >= 0
+    assert b.n_gpu_layers >= -1                  # -1: every layer, llama.cpp's own value
 
 
 def test_no_gpu_means_no_layers(monkeypatch):

@@ -517,23 +517,31 @@ def minimize_app(name: str) -> dict:
         return _result(False, "MINIMIZE_APP", "No app name supplied.")
 
     if sysname == "linux":
+        # Found by class as well as title: Spotify's title is the song playing, so a title search
+        # for "spotify" found nothing. Minimised through the window manager (xdotool iconifies it):
+        # wmctrl's "hidden" state is not one a program may set, and GNOME ignores it.
+        ids: list = []
         wmctrl = shutil.which("wmctrl")
         if wmctrl:
-            cp = _run([wmctrl, "-lx"])
             q = target.name.lower()
-            for line in cp.stdout.splitlines():
-                if q in line.lower():
-                    win_id = line.split(None, 1)[0]
-                    rc = _run([wmctrl, "-i", "-r", win_id, "-b", "add,hidden"]).returncode
-                    if rc == 0:
-                        return _result(True, "MINIMIZE_APP", f"Minimized app/window: {target.name}", resolved=target.__dict__)
-
-        xdotool = shutil.which("xdotool")
-        if xdotool:
-            cp = _run([xdotool, "search", "--onlyvisible", "--name", target.name])
-            ids = [x.strip() for x in cp.stdout.splitlines() if x.strip()]
-            if ids and _run([xdotool, "windowminimize", ids[0]]).returncode == 0:
+            ids = [line.split(None, 1)[0] for line in _run([wmctrl, "-lx"]).stdout.splitlines() if q in line.lower()]
+        for tool in [t for t in ("xdotool", *_wayland_window_tools()) if shutil.which(t)]:
+            if tool == "wlrctl":
+                if _run([tool, "toplevel", "minimize", target.name]).returncode == 0:
+                    return _result(True, "MINIMIZE_APP", f"Minimized app/window: {target.name}", resolved=target.__dict__)
+                continue
+            found = [str(int(i, 16)) for i in ids] if tool == "xdotool" else []
+            for flag in ("--class", "--name"):
+                if found:
+                    break
+                found = [x.strip() for x in _run([tool, "search", "--onlyvisible", flag, target.name]).stdout.splitlines()
+                         if x.strip()]
+            if found and _run([tool, "windowminimize", found[0]]).returncode == 0:
                 return _result(True, "MINIMIZE_APP", f"Minimized app/window: {target.name}", resolved=target.__dict__)
+
+        if display_server() == "wayland":
+            return _result(False, "MINIMIZE_APP", _wayland_window_advice(f"minimise {target.name}"),
+                           resolved=target.__dict__, display_server="wayland")
 
     if sysname == "darwin":
         osascript = shutil.which("osascript")
@@ -597,6 +605,10 @@ def _wayland_window_advice(what: str) -> str:
     if tools:
         return (f"Could not {what} — this is a Wayland session and neither "
                 f"{'/'.join(tools)} nor XWayland could reach that window.")
+    if "gnome" in (os.environ.get("XDG_CURRENT_DESKTOP") or "").lower():
+        return (f"Could not {what}: on GNOME with Wayland, another program can only reach windows that "
+                f"run through XWayland, and this one is a native Wayland window. GNOME offers no way for "
+                f"a program to control it; logging in on GNOME on Xorg gives ELI full window control.")
     return (
         f"Could not {what}: this is a Wayland session, where wmctrl and xdotool "
         f"can only see XWayland windows, not native Wayland ones. Wayland has no "

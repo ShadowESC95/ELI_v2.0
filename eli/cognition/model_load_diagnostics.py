@@ -363,6 +363,13 @@ def kv_cache_refused(log_lines) -> bool:
                                                         "not compatible", "disabled"))
 
 
+# What llama.cpp says when a file describes the model in a way this build cannot read: settings
+# stored in a newer form (Nemotron 3.5 keeps one expert count per layer; 0.3.35 expects one number)
+# or under keys it does not know. Properties of the file and the runtime: retrying cannot help.
+_NEWER_THAN_RUNTIME = ("error loading model hyperparameters", "error loading model vocabulary",
+                       "has wrong type", "has wrong array type", "key not found in model", "exceeds max")
+
+
 def is_retryable_load_failure(log_lines) -> bool:
     """Whether retrying with different ctx/layers/batch could ever succeed.
 
@@ -382,7 +389,7 @@ def is_retryable_load_failure(log_lines) -> bool:
     terminal = ("missing tensor", "unknown model architecture",
                 "unsupported model architecture", "invalid magic",
                 "not a valid gguf", "wrong magic", "unexpected eof",
-                "no such file", "failed to open")
+                "no such file", "failed to open") + _NEWER_THAN_RUNTIME
     if any(k in text for k in terminal):
         return False
     return True
@@ -460,6 +467,25 @@ def is_draft_only_gguf(model_path, arch: Optional[str] = None) -> bool:
         "-draft.gguf", "_draft.gguf", ".draft.gguf",
     )
     return any(m in name for m in name_markers)
+
+
+def not_a_chat_model(model_path, arch: Optional[str] = None, metadata: Optional[dict] = None) -> str:
+    """What a GGUF is when it cannot hold a conversation, read from the file's own metadata: a
+    speculative-decoding draft head, a vision projector (architecture "clip", used beside its
+    language model), or an embedding model (it pools its output into one vector). "" for a chat
+    model."""
+    arch = str(arch or gguf_architecture(model_path) or "").lower()
+    if is_draft_only_gguf(model_path, arch):
+        return "a draft model for speculative decoding"
+    md = metadata if metadata is not None else (gguf_metadata(model_path) or {})
+    if arch == "clip" or any(str(k).startswith("clip.") for k in md):
+        return "a vision projector, used beside its language model"
+    try:
+        if int(md.get(f"{arch}.pooling_type") or 0) > 0:
+            return "an embedding model"
+    except (TypeError, ValueError):
+        log.debug("pooling type unreadable", exc_info=True)
+    return ""
 
 
 def draft_only_load_message(model_path, arch: Optional[str] = None) -> str:
@@ -577,6 +603,21 @@ def _runtime_note() -> str:
         return ""
 
 
+def _newer_than_runtime(what: str, hint: str) -> str:
+    """The remedy for a file newer than the runtime reading it, said once for every way it shows."""
+    if gpu_pack_is_too_old():
+        _is_pack, _pv = _active_llama_is_gpu_pack()
+        return ("could not load: the active runtime is the downloaded GPU pack "
+                f"(llama-cpp-python {_pv}), which predates this model.{hint} This build also ships a NEWER "
+                "runtime that can read it, so the quickest fix is to run once with the pack disabled:\n"
+                "    ELI_DISABLE_GPU_PACK=1 <the ELI command you used>\n"
+                "  That runs on CPU (slower) but loads the model. For GPU speed the pack itself has to be "
+                "rebuilt against a newer llama.cpp.")
+    return (f"could not load: this llama.cpp build {what}, so the file is newer than the runtime.{hint} "
+            "A newer ELI release (or pip install -U "
+            "llama-cpp-python, from source) reads it; or use a GGUF converted for this build.")
+
+
 def explain_load_failure(exc: BaseException, log_lines, model_path,
                          *, gpu_layers: Optional[int] = None) -> str:
     """A sentence saying what went wrong and what to do about it.
@@ -610,25 +651,10 @@ def explain_load_failure(exc: BaseException, log_lines, model_path,
         if any(k in missing.lower() for k in ("ssm_", "mamba", "conv1d")):
             hint = (" The missing tensor is a state-space (Mamba/SSM) layer, so this is a "
                     "hybrid attention+SSM model whose tensor layout this build predates.")
-        if gpu_pack_is_too_old():
-            _is_pack, _pv = _active_llama_is_gpu_pack()
-            return _msg(
-                "could not load: the active runtime is the downloaded GPU pack "
-                f"(llama-cpp-python {_pv}), which predates this model's tensor "
-                f"layout.{hint} This build also ships a NEWER runtime that can "
-                "read it, so the quickest fix is to run once with the pack "
-                "disabled:\n"
-                "    ELI_DISABLE_GPU_PACK=1 <the ELI command you used>\n"
-                "  That runs on CPU (slower) but loads the model. For GPU speed "
-                "on this architecture the pack itself has to be rebuilt against "
-                "a newer llama.cpp."
-            )
-        return _msg(
-            "could not load: this llama.cpp build knows the architecture but expects a "
-            f"different tensor set, so the file is newer than the runtime.{hint} "
-            "Upgrade the runtime (pip install -U llama-cpp-python) or use a GGUF "
-            "converted for this build."
-        )
+        return _msg(_newer_than_runtime("expects a different tensor set", hint))
+    if any(k in low for k in _NEWER_THAN_RUNTIME):
+        return _msg(_newer_than_runtime("cannot read how the file describes the model (its settings are "
+                                        "stored in a newer form)", ""))
     if "unknown model architecture" in low or "unsupported model architecture" in low:
         if is_draft_only_gguf(model_path, arch):
             return draft_only_load_message(model_path, arch)
@@ -660,7 +686,7 @@ __all__ = ["ModelLoadError", "deactivate_gpu_pack", "harden_llama_destructor",
            "GGUFModelProfile", "gguf_architecture", "gguf_metadata",
            "gguf_model_profile", "architecture_requires_modern_runtime",
            "installed_llama_version", "installed_llama_version_tuple",
-           "preflight_gguf_model", "is_draft_only_gguf", "draft_only_load_message",
+           "preflight_gguf_model", "is_draft_only_gguf", "not_a_chat_model", "draft_only_load_message",
            "gpu_pack_is_too_old", "MIN_MODERN_ARCH_VERSION",
            "capture_llama_log", "explain_load_failure",
            "is_retryable_load_failure", "kv_cache_refused", "llama_accepts"]

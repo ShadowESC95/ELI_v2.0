@@ -79,9 +79,17 @@ _GROUNDED_DIAGNOSTICS = {"EXPLAIN_COGNITION_RUNTIME", "GPU_STATUS", "RUNTIME_STA
 
 @pytest.mark.parametrize("text", [
     "what is my context window size?",
-    "why did you take 20 minutes to respond?",
     "show me the current inference runtime",
     "what are my gpu layers set to?",
 ])
 def test_real_diagnostics_still_route_to_a_grounded_report(text):
     assert str(route(text).get("action")) in _GROUNDED_DIAGNOSTICS
+
+
+def test_a_slow_reply_is_answered_from_the_turn_record():
+    """Since 2.5.16 "why did you take 20 minutes?" is answered from the turn record of that reply
+    (the engine's last-turn explainer, reached through chat), not by a runtime report."""
+    from eli.cognition.self_claims import asks_about_own_behaviour
+    text = "why did you take 20 minutes to respond?"
+    assert str(route(text).get("action")) == "CHAT"
+    assert asks_about_own_behaviour(text)

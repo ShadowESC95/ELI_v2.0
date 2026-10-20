@@ -160,6 +160,10 @@ def _catalogue_controls() -> set:
 
 _PHASE45_DIRECT_FAST_ACTIONS |= _catalogue_controls()
 
+# Reading the web: a search's results, or the page a link points to. Both are answered from what came
+# back and nothing else.
+_WEB_READS = frozenset(("WEB_SEARCH", "WEB_FETCH"))
+
 # NOOP = fragment rejected or truly empty input; return silence, store nothing
 _PHASE45_SILENT_FAST_ACTIONS = {'NOOP'}
 
@@ -183,7 +187,7 @@ _DIRECT_FINAL_ACTIONS = frozenset({
     "NEXT_MEDIA", "PREVIOUS_MEDIA", "NOW_PLAYING", "VOLUME", "TILE_WINDOWS",
     "KEYBOARD", "MOUSE_CONTROL", "SCREENSHOT",
     "SPEAK", "DICTATE", "TRANSCRIBE",
-    "NEWS_FETCH", "WEB_SEARCH", "GET_WEATHER",
+    "NEWS_FETCH", "WEB_SEARCH", "WEB_FETCH", "GET_WEATHER",
     "GET_TIME", "GET_DATE", "TIME", "DATE",
     "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS",
     "RUNTIME_STATUS", "REASONING_MODE_STATUS", "MEMORY_STATUS", "COGNITION_STATUS",
@@ -1248,7 +1252,8 @@ def _route_once(text: Any) -> Dict[str, Any]:
 # What ELI may do because its own reply said it would: look something up. Anything that changes
 # the calendar, the screen, files or settings waits for the user (see pending_proposal).
 _FOLLOWTHROUGH_READS = frozenset((
-    "NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT", "WEB_SEARCH", "GET_WEATHER", "LIST_EVENTS", "NOW_PLAYING",
+    "NEWS_FETCH", "MORNING_REPORT", "DAILY_REPORT", "WEB_SEARCH", "WEB_FETCH", "GET_WEATHER", "LIST_EVENTS",
+    "NOW_PLAYING",
     "SEARCH_NOTES", "LIST_NOTES", "MEMORY_RECALL", "CHECK_JOB", "BACKGROUND_JOBS", "SYSTEM_STATS", "CPU_USAGE",
     "RAM_USAGE", "GPU_STATUS", "LIST_DIR", "READ_FILE",
     # status reports: surfaced only when the reply promised to report (handled where they return)
@@ -5221,7 +5226,7 @@ class CognitiveEngine:
         except Exception:
             gpu_layers = int(getattr(self, "_gpu_layers", 0) or 0)
 
-        cpu_only = gpu_layers <= 0
+        cpu_only = gpu_layers == 0                 # -1 is every layer
 
         if requested <= 0:
             # -1 = unlimited: pass through — GGUF backend resolves against remaining ctx window
@@ -13252,6 +13257,21 @@ Answer:"""
         except Exception as _redo_err:
             log.debug(f"[REDO] skipped: {_redo_err}")
 
+        # A correction naming what the last action should have been about ("no dude, RAIMS and
+        # Orcawise" after a search for the wrong thing): that action again, on what it names.
+        try:
+            if str(action).upper() == "CHAT" and not ((intent or {}).get("meta") or {}).get("redo_of_last_action"):
+                from eli.runtime.action_commitment import corrected_action as _corrected
+                _fix = _corrected(user_input, getattr(self, "_last_command_action", None))
+                if _fix and _fix.get("action"):
+                    action, args = _fix["action"], _fix["args"]
+                    intent = dict(intent or {}, action=action, args=args)
+                    intent["meta"] = dict(intent.get("meta") or {}, redo_of_last_action=action,
+                                          matched_by="correction.redo_on_named")
+                    log.debug(f"[REDO] correction names a new subject → {action} {args}")
+        except Exception:
+            log.debug("[REDO] correction check skipped", exc_info=True)
+
         # A correction or complaint about ELI's last reply is answered, not re-run: "I did not ask about
         # RAM, I asked why it took so long" ran the same report again, word for word. When the message is
         # about ELI's last reply and the route is the very action that produced it, it goes to chat, which
@@ -13263,7 +13283,10 @@ Answer:"""
                     and str(_prev_cmd.get("action") or "").upper() == str(action).upper()
                     and time.time() - float(_prev_cmd.get("ts") or 0) < 600):
                 from eli.cognition.self_claims import asks_about_own_behaviour as _about_last
-                if _about_last(user_input):
+                from eli.runtime.command_splitter import tells_eli_to_do as _tells_to_do
+                # "...what the fuck is wrong with you. Look it up!" complains and also tells ELI what
+                # to do: the instruction is carried out (it was answered from the turn record instead)
+                if _about_last(user_input) and not _tells_to_do(user_input):
                     log.debug(f"[CORRECTION] about the last reply — answered, not a second {action}")
                     action = "CHAT"
                     args = {"message": user_input}
@@ -14696,7 +14719,7 @@ Answer:"""
             # WEB_SEARCH: with no usable results, show the executor's honest message directly and skip the
             # model (it re-narrated empty results as "the network toggle was off" and invented dates). With
             # results, run the hybrid synthesis so ELI answers in its own voice, plus an optional follow-up.
-            if str(action).upper() == "WEB_SEARCH":
+            if str(action).upper() in _WEB_READS:
                 _ws_results = (_action_result.get("results") or []) if isinstance(_action_result, dict) else []
                 _ws_grounded = bool(isinstance(_action_result, dict) and _action_result.get("web_grounded"))
                 if not (_ws_results and _ws_grounded):
@@ -14718,8 +14741,10 @@ Answer:"""
                         'grounded': True, 'trace': trace,
                     }
                 if evidence:
+                    _source = ("the page the user linked, fetched just now" if str(action).upper() == "WEB_FETCH"
+                               else "LIVE web search results")
                     evidence = (
-                        "[INSTRUCTION: The block below is LIVE web search results — the "
+                        f"[INSTRUCTION: The block below is {_source} — the "
                         "authoritative, current source. Reply in ELI's voice as a hybrid:\n"
                         "1) Lead with a direct answer to the user's question drawn ONLY from "
                         "these results. If the results do not actually contain the answer, say "
@@ -15266,7 +15291,7 @@ Answer:"""
             "MEDIA_CONTROL", "PLAY_MEDIA", "PAUSE_MEDIA", "STOP_MEDIA",
             "NEXT_MEDIA", "PREVIOUS_MEDIA", "VOLUME", "TILE_WINDOWS",
             "KEYBOARD", "MOUSE_CONTROL", "SCREENSHOT",
-            "NEWS_FETCH", "WEB_SEARCH", "GET_WEATHER",
+            "NEWS_FETCH", "WEB_SEARCH", "WEB_FETCH", "GET_WEATHER",
             "GET_TIME", "GET_DATE", "TIME", "DATE",
             # Grounded conversation-log timestamp — a fact, return verbatim.
             "MESSAGE_TIME_QUERY",
@@ -17410,7 +17435,7 @@ Answer:"""
             # max_tokens=-1 means "fill the rest of the context" (~8.8k tokens), which slows the reply and
             # starves the prompt budget so the system prompt and grounding get truncated. Cap it so the
             # evidence fits. Non-quick keeps its larger 1800.
-            if _max_tokens == -1 and str(action or "").upper() in ("WEB_SEARCH", "NEWS_FETCH"):
+            if _max_tokens == -1 and str(action or "").upper() in (_WEB_READS | {"NEWS_FETCH"}):
                 _max_tokens = 700
             _gen_kwargs = _eli_apply_response_kwargs(
                 {"max_tokens": _max_tokens, "temperature": 0.35},

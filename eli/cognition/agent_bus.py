@@ -1147,7 +1147,7 @@ class SystemAgent(_BaseAgent):
         # ── System stats ─────────────────────────────────────────────────────
         "GPU_STATUS", "CPU_USAGE", "RAM_USAGE", "SYSTEM_STATS", "HARDWARE_PROFILE",
         # ── Network / web ─────────────────────────────────────────────────────
-        "WEB_SEARCH", "GET_WEATHER", "NEWS_FETCH", "MORNING_REPORT",
+        "WEB_SEARCH", "WEB_FETCH", "GET_WEATHER", "NEWS_FETCH", "MORNING_REPORT",
         # ── Smart home ───────────────────────────────────────────────────────
         "SMART_HOME",
         # ── Plugin management ─────────────────────────────────────────────────

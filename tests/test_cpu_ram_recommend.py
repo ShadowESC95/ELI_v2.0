@@ -57,11 +57,14 @@ def test_recommend_cpu_path_matches_ram_not_igpu_vram(monkeypatch):
     assert any("CPU/RAM" in r or "CPU inference" in r for r in rec.reasoning)
 
 
-def test_recommend_cpu_threads_cpu_bound_leaves_one():
+def test_recommend_cpu_threads_is_the_physical_cores():
+    """llama.cpp is fastest at one thread per physical core (i7-8700: 4.37 tok/s at 6 threads, 3.99 at
+    12); without hyper-threads one core is left for the desktop."""
     from eli.core.hardware_profile import recommend_cpu_threads
-    assert recommend_cpu_threads(8, cpu_bound=True) == 7
-    assert recommend_cpu_threads(8, cpu_bound=False) == 6
-    assert recommend_cpu_threads(4, cpu_bound=False) == 3
+    assert recommend_cpu_threads(12, physical=6) == 6
+    assert recommend_cpu_threads(8, physical=8) == 7
+    assert recommend_cpu_threads(4, physical=4) == 3
+    assert recommend_cpu_threads(1, physical=1) == 1
 
 
 def test_recommend_threads_and_kv_on_iris_class(monkeypatch):

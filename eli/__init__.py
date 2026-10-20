@@ -38,3 +38,15 @@ def _no_outside_reporting() -> None:
 
 
 _no_outside_reporting()
+
+
+def _gpus_in_bus_order() -> None:
+    """CUDA numbers GPUs fastest first unless told otherwise; nvidia-smi, the settings and the
+    startup window number them in PCI bus order. With two cards the two orders can differ, and a
+    split or device choice saved for "GPU 1" would then land on the other card. Set before CUDA
+    starts (the packaged apps do it in their start-up hook too); the operator's own setting wins."""
+    import os
+    os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
+
+
+_gpus_in_bus_order()

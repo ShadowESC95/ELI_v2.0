@@ -26,8 +26,11 @@ route to real actions before executing, as a second safety net.
 """
 from __future__ import annotations
 
+import logging
 import re
 from typing import List, Optional
+
+log = logging.getLogger(__name__)
 
 # Conjunctions that separate chained commands. "and then" / "and also" before bare
 # "and"/"then" so they're consumed as one separator.
@@ -144,8 +147,9 @@ _CLAUSE_END = re.compile(
     r"[,;]\s+|\s+[-–—]\s+"
     r"|\s+(?=(?:can|could|would|will) (?:you|u)\b|i(?:'d| would) like you to\b|i (?:want|need) you to\b|please\s+\w)")
 _SENTENCE_END = re.compile(r"(?<=[.!?])[\s]+(?=[^\s])|\n+")
-# "mr. brightside", "vs. the world", "feat. ill bill": a full stop that does not end a sentence.
-_ABBREVIATION = re.compile(r"\b(?:mr|mrs|ms|dr|st|vs|feat|ft|no|vol|pt|jr|sr|inc|ltd|e\.g|i\.e|etc)\.$", re.I)
+# "mr. brightside", "vs. the world", "feat. ill bill", initials ("p.s. i love you", "r.e.m."): a
+# full stop that does not end a sentence.
+_ABBREVIATION = re.compile(r"\b(?:mr|mrs|ms|dr|st|vs|feat|ft|no|vol|pt|jr|sr|inc|ltd|e\.g|i\.e|etc|[a-z])\.$", re.I)
 
 
 def sentences(text: str) -> List[str]:
@@ -160,6 +164,38 @@ def sentences(text: str) -> List[str]:
         else:
             out.append(piece)
     return [part for sentence in out for part in _at_the_turn(sentence)]
+
+
+# Where one instruction ends and the next begins inside a sentence: a comma or semicolon (with or
+# without "and"/"then"), or "and"/"then" on their own.
+_NEXT_INSTRUCTION = re.compile(r"\s*[,;]\s*(?:and\s+(?:then\s+)?|then\s+)?|\s+(?:and\s+then|and|then)\s+", re.I)
+
+
+# "check the last, say 7-8 messages, ...": "say" before an amount is an aside, not "speak"
+_ASIDE = re.compile(r"say\s+(?:about\s+|around\s+|roughly\s+|maybe\s+)?\d", re.I)
+
+
+def _starts_instruction(text: str) -> bool:
+    text = _LEAD.sub("", text, count=1)
+    return not _ASIDE.match(text) and bool(_REQUEST.match(text) or _COMMAND_START.match(text))
+
+
+def _instructions_in(sentence: str) -> List[str]:
+    """An instruction sentence as the instructions it chains: "open steam, set an alarm for 30
+    minutes, and tell me the meaning of life" is three. A comma or "and" divides only where what
+    follows starts an instruction, so "open firefox, chrome and steam" and "play tom and jerry"
+    stay whole."""
+    parts: List[str] = []
+    start = 0
+    for brk in _NEXT_INSTRUCTION.finditer(sentence):
+        # both sides must be instructions: "so, you can see my screen?" is one question, not "so" and
+        # a request
+        if (brk.start() > start and _starts_instruction(sentence[brk.end():])
+                and _starts_instruction(sentence[start:brk.start()])):
+            parts.append(sentence[start:brk.start()])
+            start = brk.end()
+    parts.append(sentence[start:])
+    return [p.strip(" ,;") for p in parts if p.strip(" ,;")]
 
 
 def _at_the_turn(sentence: str) -> List[str]:
@@ -209,12 +245,116 @@ def instruction(sentence: str) -> str:
     return rest.strip() or said
 
 
-def read_message(text: str) -> List[dict]:
-    """The message sentence by sentence: [{"said": the sentence, "tells": the instruction in it
-    or ""}]. Which instructions are commands ELI has is the router's to say; this is only the
+def read_message(text: str, *, chains: bool = False) -> List[dict]:
+    """The message sentence by sentence: [{"said": the part, "tells": the instruction in it or ""}].
+    With `chains`, an instruction sentence also comes apart into the instructions it chains ("open
+    steam, set an alarm for 30 minutes"); the router asks for that only when one command took the
+    whole message. Which instructions are commands ELI has is the router's to say; this is only the
     form. A message of one sentence comes back as one entry."""
-    return [{"said": s, "tells": instruction(s)} for s in sentences(text)]
+    parts = [part for s in sentences(text)
+             for part in (_instructions_in(s) if chains and instruction(s) else [s])]
+    return [{"said": p, "tells": instruction(p)} for p in parts]
 
 
-__all__ = ["split_commands", "sentences", "instruction", "read_message", "starts_with_command", "is_request",
-           "COMMAND_VERBS"]
+# "no dude, raims and orcawise", "i meant the other one": what a correction starts with, before what
+# it names
+_CORRECTION_LEAD = re.compile(
+    r"^\s*(?:(?:no+|nope|nah|not\s+(?:that|this|it)|wrong)\b[\s,.!:-]*"
+    r"(?:(?:dude|man|mate|bro|buddy|bud|pal|eli|mister|sir)\b[\s,.!:-]*)?"
+    r"(?:i\s+(?:meant|said|asked\s+(?:about|for))\b[\s,:-]*)?"
+    r"|i\s+(?:meant|said|asked\s+(?:about|for))\b[\s,:-]*)", re.I)
+
+
+def correction(text: str) -> str:
+    """What a correction names, without its lead: "no dude, RAIMS and Orcawise" -> "RAIMS and
+    Orcawise". "" when the message does not start as a correction."""
+    said = str(text or "").strip()
+    m = _CORRECTION_LEAD.match(said)
+    return said[m.end():].strip(" .!,") if m and m.end() > 0 else ""
+
+
+def without_correction_lead(text: str) -> str:
+    """The message without a correction's lead, or as it was."""
+    return correction(text) or str(text or "").strip()
+
+
+# The closed class of words that complete a command after its verb or noun: "volume down", "turn it
+# off", "skip back".
+_COMPLETERS = ("up", "down", "on", "off", "in", "out", "back", "forward", "next", "previous", "louder", "quieter",
+               "higher", "lower", "more", "less", "again", "all", "full", "half")
+
+
+def _command_words() -> frozenset:
+    """Every word ELI's commands are made of: the verbs above, the words of each capability's
+    example phrases (eli/tools/registry/capabilities_doc.py), and the completers."""
+    global _COMMAND_WORDS
+    if _COMMAND_WORDS is None:
+        words = set(COMMAND_VERBS) | set(_COMPLETERS)
+        try:
+            from eli.tools.registry.capabilities_doc import _C
+            for action, (_cat, _desc, phrases) in _C.items():
+                if action != "CHAT":
+                    for phrase in phrases:
+                        words.update(re.findall(r"[a-z]+", phrase.lower()))
+        except Exception:
+            log.debug("capability phrases unavailable", exc_info=True)
+        _COMMAND_WORDS = frozenset(w for w in words if len(w) >= 2)
+    return _COMMAND_WORDS
+
+
+_COMMAND_WORDS: Optional[frozenset] = None
+
+
+def _one_edit_apart(a: str, b: str) -> bool:
+    """One letter added, dropped, changed, or two neighbours swapped."""
+    if a == b or abs(len(a) - len(b)) > 1:
+        return False
+    if len(a) == len(b):
+        diff = [i for i in range(len(a)) if a[i] != b[i]]
+        return len(diff) == 1 or (len(diff) == 2 and diff[1] == diff[0] + 1
+                                  and a[diff[0]] == b[diff[1]] and a[diff[1]] == b[diff[0]])
+    short, long_ = (a, b) if len(a) < len(b) else (b, a)
+    return any(long_[:i] + long_[i + 1:] == short for i in range(len(long_)))
+
+
+def misspelt_commands(text: str, *, max_words: int = 4) -> List[tuple]:
+    """For a short message with a word one letter away from a command word ("vol don"), each
+    reading with that word corrected, as (reading, the corrected word): ("vol down", "down"). The
+    router keeps a reading that is a command and does not carry the corrected word as what the
+    command acts on ("my name is listed" is not "my name is listen"). Empty for longer messages and
+    for words that are command words already."""
+    words = str(text or "").split()
+    if not words or len(words) > max_words:
+        return []
+    vocab = _command_words()
+    readings: List[str] = []
+    for i, word in enumerate(words):
+        low = word.lower().strip(".,!?")
+        if len(low) < 3 or low in vocab or not low.isalpha():
+            continue
+        for near in sorted(w for w in vocab if w[0] == low[0] and _one_edit_apart(low, w)):
+            readings.append((" ".join(words[:i] + [near] + words[i + 1:]), near))
+    return readings
+
+
+def tells_eli_to_do(text: str) -> bool:
+    """Whether any sentence of the message tells ELI to do something: "you are making things up.
+    look it up!" complains and instructs; "why did that take so long?" only asks."""
+    return any(part["tells"] and starts_with_command(part["tells"]) for part in read_message(text))
+
+
+def holds_more_than_one(value: str) -> bool:
+    """Whether a command's target (an app, site, file or search) reads as more than one sentence
+    or instruction: the command took the rest of the message as its target, as "open steam, set
+    an alarm for 30 minutes, and tell me the meaning of life" opening an app by that whole name,
+    a search for "RAIMS and tell me what you can see", or "open spotify. thanks a lot mate"
+    looking for an app called "spotify. thanks a lot"."""
+    value = str(value or "")
+    if len(sentences(value)) >= 2:
+        return True
+    return any(brk.start() > 0 and _starts_instruction(value[brk.end():]) for brk in _NEXT_INSTRUCTION.finditer(value))
+
+
+__all__ = ["split_commands", "sentences", "instruction", "read_message", "tells_eli_to_do", "holds_more_than_one",
+           "correction", "without_correction_lead", "misspelt_commands",
+           "starts_with_command", "is_request", "COMMAND_VERBS"]

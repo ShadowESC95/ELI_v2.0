@@ -260,6 +260,15 @@ def _estimated_kv_elements(meta: Dict[str, Any]) -> Optional[Tuple[int, int]]:
 
     Errs large where the rules are unsure (a sliding-window layer is counted at full size), since
     an underestimate is what runs out of memory. The first load replaces it with the real figure."""
+    per_layer = _estimated_kv_elements_per_layer(meta)
+    if not per_layer:
+        return None
+    k, v = sum(x[0] for x in per_layer), sum(x[1] for x in per_layer)
+    return (k, v) if k > 0 else None
+
+
+def _estimated_kv_elements_per_layer(meta: Dict[str, Any]) -> Optional[list]:
+    """(K, V) cache elements per token of each block, from the attention metadata, or None."""
     arch = str(meta.get("general.architecture") or "")
     p = f"{arch}."
     blocks = int(meta.get(p + "block_count") or 0)
@@ -269,7 +278,7 @@ def _estimated_kv_elements(meta: Dict[str, Any]) -> Optional[Tuple[int, int]]:
         return None
     if heads in (None, 0, []):
         # no head counts: full multi-head attention is the most a layer of this width can cache
-        return (blocks * embd, blocks * embd) if embd > 0 else None
+        return [(embd, embd)] * blocks if embd > 0 else None
     n_head = _per_layer(heads, blocks)
     n_head_kv = _per_layer(meta.get(p + "attention.head_count_kv", heads), blocks)
     head_dim = embd // max(1, max(n_head)) if embd else 0
@@ -288,10 +297,9 @@ def _estimated_kv_elements(meta: Dict[str, Any]) -> Optional[Tuple[int, int]]:
     shared = int(meta.get(p + "attention.shared_kv_layers") or 0)
     if 0 < shared < blocks:          # these layers reuse an earlier layer's cache
         n_head_kv = n_head_kv[:blocks - shared] + [0] * shared
-    kv_heads = sum(n_head_kv)
-    if kv_heads <= 0 or key_len <= 0:
+    if sum(n_head_kv) <= 0 or key_len <= 0:
         return None
-    return kv_heads * key_len, kv_heads * val_len
+    return [(h * key_len, h * val_len) for h in n_head_kv]
 
 
 def _record_path() -> Path:
@@ -338,6 +346,22 @@ def kv_bytes_per_token(model_path, cache_type_k: Optional[str] = None,
     k, v, _source = got
     return (k * bytes_per_element(effective_cache_type(cache_type_k))
             + v * bytes_per_element(effective_cache_type(cache_type_v or cache_type_k)))
+
+
+def kv_bytes_per_layer(model_path, cache_type_k: Optional[str] = None,
+                       cache_type_v: Optional[str] = None) -> Optional[list]:
+    """KV cache bytes per token of each block: the file's per-layer layout, scaled to the measured
+    total when a load on this machine has recorded one (kv_elements_per_token). None when unknown."""
+    head = _header(model_path)
+    per_layer = _estimated_kv_elements_per_layer(head.meta) if head else None
+    total = kv_elements_per_token(model_path)
+    if not per_layer or not total:
+        return None
+    est_k = sum(x[0] for x in per_layer) or 1
+    est_v = sum(x[1] for x in per_layer) or 1
+    bk = bytes_per_element(effective_cache_type(cache_type_k))
+    bv = bytes_per_element(effective_cache_type(cache_type_v or cache_type_k))
+    return [k * total[0] / est_k * bk + v * total[1] / est_v * bv for k, v in per_layer]
 
 
 _KV_LINE = re.compile(

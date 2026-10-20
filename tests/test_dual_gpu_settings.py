@@ -1,11 +1,12 @@
-"""Dual/multi-GPU settings → env publish + tensor_split resolution. Offline, no GPU needed."""
+"""Dual/multi-GPU settings → env publish + tensor_split resolution, and the planner's split. Offline,
+no GPU needed."""
 import json
 import os
 
 import pytest
 
 from eli.core import runtime_settings as rs
-from eli.core.startup_hardware_optimizer import recommend_tensor_split, GPUInfo
+from eli.core.load_plan import balanced_counts
 
 
 @pytest.fixture(autouse=True)
@@ -50,11 +51,14 @@ def test_profile_file_resolves_enabled_split(tmp_path):
     assert ts == "0.5,0.5" and mg == 0 and sm == "layer"
 
 
-def test_recommend_tensor_split_is_vram_proportional():
-    assert recommend_tensor_split([GPUInfo(0, "g", "nvidia", 8192, 8000)]) == ""   # 1 GPU → none
-    out = recommend_tensor_split([GPUInfo(0, "a", "nvidia", 8192, 8000),
-                                  GPUInfo(1, "b", "nvidia", 24576, 24000)])
-    assert out == "0.25,0.75"   # proportional to total VRAM
+def test_layers_are_split_so_every_card_fills_the_same_share():
+    """An 8 GB and a 24 GB card: three times the room takes about three times the layers, and one
+    card takes everything when it is the only one usable."""
+    units = [100.0] * 40
+    small, big = balanced_counts(units, 40, room=[2000.0, 6000.0], usable=[True, True])
+    assert small + big == 40 and 9 <= small <= 11
+    assert balanced_counts(units, 40, room=[2000.0, 6000.0], usable=[False, True]) == [0, 40]
+    assert balanced_counts(units, 40, room=[1000.0, 1000.0], usable=[True, True]) is None   # 4 GB of layers
 
 
 def test_shipped_profiles_file_is_valid_and_disabled():

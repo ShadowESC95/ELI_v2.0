@@ -115,7 +115,8 @@ def test_quick_is_still_quick_by_doing_less_work(monkeypatch):
 def test_no_flat_ceiling_remains_in_the_presets():
     src = (REPO / "eli/core/startup_hardware_optimizer.py").read_text(encoding="utf-8")
     start = src.index("def mode_presets(")
-    body = src[start:src.index("\ndef ", start + 10)]
+    end = src.find("\ndef ", start + 10)
+    body = src[start:end if end > 0 else len(src)]
     for bad in ("min(max_tokens, 1024)", "min(max_tokens, 3072)", "min(max_tokens, 1536)"):
         assert bad not in body, f"flat ceiling {bad} is back"
 
@@ -153,43 +154,3 @@ def test_the_budget_is_whatever_the_window_actually_has_left(n_ctx, prompt_tok, 
 
 
 # ── 3. the operator's settings are attempted first ────────────────────────
-def test_the_users_own_settings_are_the_first_load_attempt():
-    """smart-fit's reduced result used to be queued ahead of them, so a config
-    the operator explicitly chose was never tried.
-
-    This asserted SOURCE ORDER as a proxy for attempt order, with the rationale
-    that ELI must not "overrule the user before the driver does". The driver
-    never does: CUDA allocates lazily, so an over-committed layer count loads
-    cleanly and aborts the process mid-generation instead (2.2.7, core dumped).
-    The settings are therefore VERIFIED rather than assumed or reduced: they go
-    to llama.cpp exactly as entered, proven first in a separate process that can
-    take the abort in their place. Position in the ladder is the real invariant;
-    line number never was.
-    """
-    src = (REPO / "eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
-    assert '_add_attempt("requested", _base_ctx, _base_layers, _base_batch,' in src
-    # Verification is CONDITIONAL: only a request that exceeds the measured
-    # fit is proven. An unconditional verify made every GPU start pay for a
-    # cold load, and a live 2.2.8 launch sat silent for 3m29s.
-    assert "verify=_needs_proof" in src
-    assert "_attempts.insert(0, _entry)" in src
-
-
-def test_the_calculated_fit_is_still_the_fallback():
-    """Honouring the setting must not remove the safety net for hardware that
-    genuinely cannot take it."""
-    src = (REPO / "eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
-    assert '_add_attempt("smart-fit"' in src
-    for rung in ('"live-tuner-gpu"', '"lower-batch-half"', '"cpu-fallback"'):
-        assert rung in src, f"lost the {rung} fallback"
-
-
-def test_requested_is_queued_once_not_twice():
-    """One GPU front-of-ladder site and one CPU-only fallback — not a duplicate
-    of the same rung. Two identical front=True inserts would race the ladder.
-    """
-    src = (REPO / "eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
-    assert src.count('_add_attempt("requested"') == 2
-    assert '_add_attempt("requested", _base_ctx, _base_layers, _base_batch,' in src
-    assert '_add_attempt("requested", _base_ctx, 0, _base_batch, front=False)' in src
-    assert src.count("front=True") >= 1

@@ -8,6 +8,7 @@ fallbacks instead of falling through to Linux-only binaries.
 """
 
 import os
+import re
 from datetime import datetime
 import subprocess
 import shutil
@@ -33,28 +34,134 @@ def _check_tool(tool: str) -> bool:
     return shutil.which(tool) is not None
 
 
-def _screenshot_path(prefix: str = "Screenshot") -> str:
-    pictures = platform.user_pictures_dir()
-    pictures.mkdir(parents=True, exist_ok=True)
-    filename = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-    return str(pictures / filename)
+def _screenshot_path(prefix: str = "Screenshot", *, keep: bool = True) -> str:
+    """Where a screenshot goes: the user's Pictures folder when they asked for one, ELI's own data
+    folder when ELI takes it to read the screen (finding a button by its label filled Pictures)."""
+    if keep:
+        folder = platform.user_pictures_dir()
+    else:
+        from eli.core.paths import data_dir
+        folder = data_dir() / "screens"
+    folder.mkdir(parents=True, exist_ok=True)
+    filename = f"{prefix}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}.png"
+    return str(folder / filename)
+
+
+def _written(path: str) -> bool:
+    """A capture counts only when its file is there: gnome-screenshot on GNOME 50 exits 0 having
+    written nothing, and that was reported as a screenshot."""
+    try:
+        return os.path.isfile(path) and os.path.getsize(path) > 0
+    except OSError:
+        return False
+
+
+def _saved(path: str) -> Dict[str, Any]:
+    return {"ok": True, "path": path, "content": f"Screenshot saved: {path}", "response": f"Screenshot saved: {path}"}
+
+
+def _capture_with_tool(cmd: list, path: str, timeout: float = 30.0) -> bool:
+    """Run a capture program with a time limit; True when it wrote the picture."""
+    try:
+        done = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired):
+        log.debug("screenshot tool %s did not finish", cmd[0], exc_info=True)
+        return False
+    return done.returncode == 0 and _written(path)
 
 
 def _capture_with_imagegrab(path: str) -> Dict[str, Any] | None:
-    """Capture the full screen with Pillow ImageGrab when the OS allows it."""
+    """Pillow's capture: GDI on Windows (every monitor), XCB on X11, screencapture on macOS. Not on
+    Wayland, where it sees only XWayland's windows and falls back to a tool it runs without a time
+    limit."""
+    if IS_WAYLAND and LINUX:
+        return None
     try:
         from PIL import ImageGrab  # type: ignore
 
-        img = ImageGrab.grab()
+        img = ImageGrab.grab(all_screens=True) if WINDOWS else ImageGrab.grab()
         img.save(path)
-        return {
-            "ok": True,
-            "path": path,
-            "content": f"Screenshot saved: {path}",
-            "response": f"Screenshot saved: {path}",
-        }
+    except Exception:
+        log.debug("Pillow screen grab failed", exc_info=True)
+        return None
+    return _saved(path) if _written(path) else None
+
+
+def _capture_with_portal(path: str, *, interactive: bool = False, timeout: float = 90.0) -> bool:
+    """The desktop's own screenshot service on Linux (xdg-desktop-portal: GNOME, KDE, wlroots
+    compositors through xdg-desktop-portal-wlr, Hyprland, and X11 desktops that run it), asked
+    through gdbus. The first time, the desktop asks the user whether ELI may take screenshots; the
+    wait is for that answer and is bounded. True when the picture was written to `path`."""
+    import selectors
+    import time
+    import urllib.parse
+    gdbus = shutil.which("gdbus")
+    if not gdbus or not LINUX:
+        return False
+    token = f"eli_{os.getpid()}_{int(time.time() * 1000)}"
+    dest = "org.freedesktop.portal.Desktop"
+    try:
+        monitor = subprocess.Popen([gdbus, "monitor", "--session", "--dest", dest],
+                                   stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+    except OSError:
+        return False
+    picker = selectors.DefaultSelector()
+    picker.register(monitor.stdout, selectors.EVENT_READ)
+
+    def _line(deadline: float) -> Optional[str]:
+        left = deadline - time.monotonic()
+        if left <= 0 or not picker.select(left):
+            return None
+        return monitor.stdout.readline()
+
+    try:
+        if _line(time.monotonic() + 5.0) is None:          # listening before the request goes out
+            return False
+        options = f"{{'handle_token': <'{token}'>, 'interactive': <{'true' if interactive else 'false'}>}}"
+        call = subprocess.run([gdbus, "call", "--session", "--dest", dest, "--object-path", "/org/freedesktop/portal/desktop",
+                               "--method", "org.freedesktop.portal.Screenshot.Screenshot", "", options],
+                              capture_output=True, text=True, timeout=15)
+        if call.returncode != 0:
+            log.debug("screenshot portal refused the request: %s", (call.stderr or "").strip()[:200])
+            return False
+        deadline = time.monotonic() + timeout
+        while True:
+            line = _line(deadline)
+            if line is None:
+                return False
+            if token not in line or "Request.Response" not in line:
+                continue
+            answer = re.search(r"\(uint32 (\d+),", line)
+            uri = re.search(r"'uri': <'([^']+)'>", line)
+            if not answer or answer.group(1) != "0" or not uri:
+                return False                                  # declined or cancelled
+            source = urllib.parse.unquote(urllib.parse.urlparse(uri.group(1)).path)
+            if os.path.abspath(source) != os.path.abspath(path):
+                shutil.move(source, path)
+            return _written(path)
+    except (OSError, subprocess.TimeoutExpired, shutil.Error):
+        log.debug("screenshot portal failed", exc_info=True)
+        return False
+    finally:
+        monitor.terminate()
+        try:
+            monitor.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            monitor.kill()
+
+
+def _macos_screen_recording_allowed() -> Optional[bool]:
+    """macOS 10.15 and later: whether ELI may record the screen. Without it a capture shows the
+    desktop picture and none of the windows. None where it cannot be asked."""
+    try:
+        import ctypes
+        import ctypes.util
+        cg = ctypes.CDLL(ctypes.util.find_library("CoreGraphics"))
+        cg.CGPreflightScreenCaptureAccess.restype = ctypes.c_bool
+        return bool(cg.CGPreflightScreenCaptureAccess())
     except Exception:
         return None
+
 
 def _capture_windows_area(path: str, wait: float = 60.0) -> Dict[str, Any] | None:
     """Windows: the user picks the area with Windows' own snip overlay (ms-screenclip:), which puts
@@ -83,144 +190,98 @@ def _capture_windows_area(path: str, wait: float = 60.0) -> Dict[str, Any] | Non
 
 
 # ----------------------------------------------------------------------
-# Screenshot – GNOME Screenshot first, then Spectacle (KDE), grim, scrot
+# Screenshot — every OS, every Linux desktop (X11 and Wayland)
 # ----------------------------------------------------------------------
-def take_screenshot(region: str = "full") -> Dict[str, Any]:
-    """
-    Take a screenshot.
-    region: "full" (entire screen) or "area" (select region)
-    Returns dict with ok, path, error.
-    """
-    region = (region or "full").lower()
+def take_screenshot(region: str = "full", *, keep: bool = True) -> Dict[str, Any]:
+    """Take a screenshot: region "full" (every screen) or "area" (the user picks one).
+    `keep`: a screenshot the user asked for goes to their Pictures folder; one ELI takes to read
+    the screen goes to its own data folder. Returns {ok, path, error}.
 
-    # Windows and macOS can usually capture the full screen through Pillow.
+    Each OS and desktop has an ordered list of ways, each with a time limit and counted only when
+    it wrote the picture:
+      Windows   Pillow (GDI, all monitors); an area through Windows' own snip overlay.
+      macOS     screencapture, then Pillow; says so when screen recording is not allowed.
+      Linux     on Wayland (GNOME, KDE, Sway, Hyprland, any compositor): the desktop's screenshot
+                portal, then grim (+slurp for an area), spectacle, gnome-screenshot.
+                On X11 (any desktop): Pillow (XCB), then scrot, maim, ImageMagick's import,
+                spectacle, gnome-screenshot, then the portal.
+    """
+    area = (region or "full").lower() != "full"
+    path = _screenshot_path("Screenshot_area" if area else "Screenshot", keep=keep)
+
     if WINDOWS:
-        if region != "full":
-            result = _capture_windows_area(_screenshot_path("Screenshot_area"))
-            if result:
-                return result
-            return {
-                "ok": False,
-                "error": "No area was snipped (Windows' snip overlay closed without a picture).",
-                "content": "Screenshot cancelled",
-                "response": "Screenshot cancelled",
-            }
-        path = _screenshot_path()
-        result = _capture_with_imagegrab(path)
+        result = _capture_windows_area(path) if area else _capture_with_imagegrab(path)
         if result:
             return result
-        return {
-            "ok": False,
-            "error": "Pillow ImageGrab could not capture the Windows desktop.",
-            "content": "Screenshot failed",
-            "response": "Screenshot failed",
-        }
+        why = ("No area was snipped (Windows' snip overlay closed without a picture)." if area
+               else "Windows did not give ELI a picture of the screen.")
+        return {"ok": False, "error": why, "content": "Screenshot failed", "response": "Screenshot failed"}
 
     if MACOS:
-        path = _screenshot_path("Screenshot_area" if region != "full" else "Screenshot")
-        cmd = ["screencapture", "-x", path] if region == "full" else ["screencapture", "-i", path]
+        if _capture_with_tool(["screencapture", "-x"] + (["-i"] if area else []) + [path], path,
+                              timeout=120 if area else 30) or (not area and _capture_with_imagegrab(path)):
+            out = _saved(path)
+            if _macos_screen_recording_allowed() is False:
+                out["note"] = ("macOS has not allowed ELI to record the screen, so the picture shows the desktop "
+                               "without its windows: allow ELI in System Settings › Privacy & Security › Screen "
+                               "Recording.")
+            return out
+        return {"ok": False, "error": "screencapture did not produce a picture", "content": "Screenshot failed",
+                "response": "Screenshot failed"}
+
+    tried: list = []
+    def _slurp_then_grim() -> bool:
         try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0 and os.path.exists(path):
-                return {
-                    "ok": True,
-                    "path": path,
-                    "content": f"Screenshot saved: {path}",
-                    "response": f"Screenshot saved: {path}",
-                }
-            fallback = _capture_with_imagegrab(path) if region == "full" else None
-            if fallback:
-                return fallback
-            return {
-                "ok": False,
-                "error": result.stderr.strip() or "screencapture failed",
-                "content": "Screenshot failed",
-                "response": "Screenshot failed",
-            }
-        except Exception as e:
-            fallback = _capture_with_imagegrab(path) if region == "full" else None
-            if fallback:
-                return fallback
-            return {"ok": False, "error": str(e), "content": "Screenshot failed", "response": "Screenshot failed"}
+            pick = subprocess.run(["slurp"], capture_output=True, text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired):
+            return False
+        geometry = (pick.stdout or "").strip()
+        return pick.returncode == 0 and bool(geometry) and _capture_with_tool(["grim", "-g", geometry, path], path)
 
-    # Try a cross-platform Pillow capture before Linux-specific CLIs. On Linux
-    # this can work on X11; Wayland often requires portal/native tools.
-    if region == "full":
-        path = _screenshot_path()
-        result = _capture_with_imagegrab(path)
-        if result:
-            return result
-
-    # Try GNOME Screenshot (works on GNOME Wayland)
-    if IS_GNOME and _check_tool("gnome-screenshot"):
-        try:
-            path = _screenshot_path("Screenshot_area" if region != "full" else "Screenshot")
-            if region == "full":
-                cmd = ["gnome-screenshot", "-f", path]
-            else:
-                cmd = ["gnome-screenshot", "-a", "-f", path]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-            if result.returncode == 0:
-                return {"ok": True, "path": path, "content": f"Screenshot saved: {path}", "response": f"Screenshot saved: {path}"}
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    # KDE's own tool, which works on Wayland and X11
-    if _check_tool("spectacle"):
-        path = _screenshot_path("Screenshot_area" if region != "full" else "Screenshot")
-        cmd = ["spectacle", "-b", "-n", "-f" if region == "full" else "-r", "-o", path]
-        try:
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
-            if result.returncode == 0 and os.path.exists(path):
-                return {"ok": True, "path": path, "content": f"Screenshot saved: {path}", "response": f"Screenshot saved: {path}"}
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    # Try generic Wayland tools (grim + slurp)
     if IS_WAYLAND:
-        if region == "full":
-            if _check_tool("grim"):
-                path = _screenshot_path()
-                result = subprocess.run(["grim", path], capture_output=True, text=True)
-                if result.returncode == 0:
-                    return {"ok": True, "path": path, "content": f"Screenshot saved: {path}", "response": f"Screenshot saved: {path}"}
-                else:
-                    return {"ok": False, "error": f"grim failed: {result.stderr}", "content": "Screenshot failed", "response": "Screenshot failed"}
-            else:
-                return {"ok": False, "error": "grim not installed (sudo apt install grim)", "content": "Screenshot failed", "response": "Screenshot failed"}
-        else:  # area
-            if _check_tool("slurp") and _check_tool("grim"):
-                select = subprocess.run(["slurp"], capture_output=True, text=True)
-                if select.returncode != 0 or not select.stdout.strip():
-                    return {"ok": False, "error": "No area selected", "content": "Screenshot cancelled", "response": "Screenshot cancelled"}
-                geometry = select.stdout.strip()
-                path = _screenshot_path("Screenshot_area")
-                result = subprocess.run(["grim", "-g", geometry, path], capture_output=True, text=True)
-                if result.returncode == 0:
-                    return {"ok": True, "path": path, "content": f"Screenshot saved: {path}", "response": f"Screenshot saved: {path}"}
-                else:
-                    return {"ok": False, "error": f"grim failed: {result.stderr}", "content": "Screenshot failed", "response": "Screenshot failed"}
-            else:
-                return {"ok": False, "error": "slurp or grim not installed (sudo apt install slurp grim)", "content": "Screenshot failed", "response": "Screenshot failed"}
-
-    # X11 fallback (scrot)
-    if _check_tool("scrot"):
-        if region == "full":
-            path = _screenshot_path()
-            result = subprocess.run(["scrot", path], capture_output=True, text=True)
-            if result.returncode == 0:
-                return {"ok": True, "path": path, "content": f"Screenshot saved: {path}", "response": f"Screenshot saved: {path}"}
-            else:
-                return {"ok": False, "error": f"scrot failed: {result.stderr}", "content": "Screenshot failed", "response": "Screenshot failed"}
-        else:
-            path = _screenshot_path("Screenshot_area")
-            result = subprocess.run(["scrot", "-s", path], capture_output=True, text=True)
-            if result.returncode == 0:
-                return {"ok": True, "path": path, "content": f"Screenshot saved: {path}", "response": f"Screenshot saved: {path}"}
-            else:
-                return {"ok": False, "error": f"scrot failed: {result.stderr}", "content": "Screenshot failed", "response": "Screenshot failed"}
+        ways = [
+            ("the desktop's screenshot portal", lambda: _capture_with_portal(path, interactive=area)),
+            ("grim", lambda: (_slurp_then_grim() if _check_tool("slurp") else False) if area
+                     else _capture_with_tool(["grim", path], path)),
+            ("spectacle", lambda: _capture_with_tool(["spectacle", "-b", "-n", "-r" if area else "-f", "-o", path],
+                                                     path, timeout=120 if area else 30)),
+            ("gnome-screenshot", lambda: _capture_with_tool(
+                ["gnome-screenshot"] + (["-a"] if area else []) + ["-f", path], path, timeout=120 if area else 30)),
+        ]
+        tools = {"grim": "grim", "spectacle": "spectacle", "gnome-screenshot": "gnome-screenshot"}
     else:
-        return {"ok": False, "error": "No screenshot tool found (install gnome-screenshot, grim, or scrot)", "content": "Screenshot failed", "response": "Screenshot failed"}
+        ways = [
+            ("Pillow", lambda: (not area) and bool(_capture_with_imagegrab(path))),
+            ("scrot", lambda: _capture_with_tool(["scrot"] + (["-s"] if area else []) + [path], path,
+                                                 timeout=120 if area else 30)),
+            ("maim", lambda: _capture_with_tool(["maim"] + (["-s"] if area else []) + [path], path,
+                                                timeout=120 if area else 30)),
+            ("import", lambda: _capture_with_tool(["import"] + ([] if area else ["-window", "root"]) + [path], path,
+                                                  timeout=120 if area else 30)),
+            ("spectacle", lambda: _capture_with_tool(["spectacle", "-b", "-n", "-r" if area else "-f", "-o", path],
+                                                     path, timeout=120 if area else 30)),
+            ("gnome-screenshot", lambda: _capture_with_tool(
+                ["gnome-screenshot"] + (["-a"] if area else []) + ["-f", path], path, timeout=120 if area else 30)),
+            ("the desktop's screenshot portal", lambda: _capture_with_portal(path, interactive=area)),
+        ]
+        tools = {"scrot": "scrot", "maim": "maim", "import": "import", "spectacle": "spectacle",
+                 "gnome-screenshot": "gnome-screenshot"}
+    for name, way in ways:
+        if name in tools and not _check_tool(tools[name]):
+            continue
+        tried.append(name)
+        if way():
+            return _saved(path)
+
+    if IS_WAYLAND:
+        advice = ("install your desktop's portal backend (xdg-desktop-portal-gnome, -kde, -wlr or -hyprland), "
+                  "or grim on wlroots compositors")
+    else:
+        advice = "install scrot or maim"
+    error = (f"No screenshot was taken ({'tried ' + ', '.join(tried) if tried else 'no capture tool was found'}); "
+             f"{advice}.")
+    return {"ok": False, "error": error, "content": "Screenshot failed", "response": "Screenshot failed"}
+
 
 # ----------------------------------------------------------------------
 # Volume control – wpctl (Wayland) then pactl (X11)

@@ -441,10 +441,18 @@ def test_a_duration_is_not_a_complaint_about_speed(text):
     assert route(text)["action"] != "EXPLAIN_COGNITION_RUNTIME"
 
 
-@pytest.mark.parametrize("text", ["it took you 20 minutes to generate that answer?", "why did you take 20 minutes to respond?"])
-def test_a_complaint_about_speed_still_gets_the_timing_report(text):
+def test_a_complaint_about_speed_is_answered_from_the_turn_record():
+    """The last-turn rule reads how long the turn took (621087c9); "why did you take 20 minutes?" reaches
+    the same explainer through chat (tests/test_name_and_explain_routing.py)."""
     from eli.execution.router_enhanced import route
-    assert route(text)["action"] == "EXPLAIN_COGNITION_RUNTIME"
+    assert route("it took you 20 minutes to generate that answer?")["action"] == "ROUTING_FAULT_EXPLAIN"
+
+
+@pytest.mark.parametrize("text", ["why does it take 20 minutes to boil an egg?", "why did it take 3 hours to fly there?"])
+def test_a_question_about_how_long_something_else_takes_is_not_about_the_reply(text):
+    from eli.cognition.self_claims import asks_about_own_behaviour
+    from eli.execution.router_enhanced import route
+    assert route(text)["action"] != "ROUTING_FAULT_EXPLAIN" and not asks_about_own_behaviour(text)
 
 
 # ── asking for help with something is not asking what ELI can do ─────────────

@@ -14,6 +14,7 @@ import io
 import os
 import re
 import shutil
+import sys
 import threading
 import tempfile
 from pathlib import Path
@@ -46,6 +47,12 @@ def _packaged_piper_voice_dirs() -> list[Path]:
         _PACKAGED_TTS_PIPER_PARENT,
         _PACKAGED_TTS_PIPER_PARENT / "voices",
     ]
+    # A packaged app's own voices, read where the bundle keeps them: its code runs from the user
+    # folder, so the paths above never reached them, and the first start copied 600+ MB of
+    # voices there before any window appeared.
+    bundle = getattr(sys, "_MEIPASS", None)
+    if bundle:
+        candidates.append(Path(bundle) / "tts_piper" / "piper")
     return candidates
 
 

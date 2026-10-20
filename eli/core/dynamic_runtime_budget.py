@@ -5,7 +5,6 @@ from pathlib import Path
 import json
 import os
 import re
-import subprocess
 from typing import Optional, Any, Dict
 
 from eli.utils.log import get_logger
@@ -33,21 +32,16 @@ class DynamicRuntimeBudget:
         return asdict(self)
 
 
-def _run(cmd: list[str]) -> str:
-    return subprocess.check_output(cmd, text=True, stderr=subprocess.DEVNULL).strip()
-
-
 def detect_gpu() -> tuple[str, int, int]:
+    """(name, total MiB, free MiB) over every GPU, from hardware_profile.get_live_gpu_telemetry."""
     try:
-        raw = _run([
-            "nvidia-smi",
-            "--query-gpu=name,memory.total,memory.free",
-            "--format=csv,noheader,nounits",
-        ]).splitlines()[0]
-        name, total, free = [x.strip() for x in raw.split(",")]
-        return name, int(total), int(free)
+        from eli.core.hardware_profile import get_live_gpu_telemetry
+        t = get_live_gpu_telemetry()
+        if t.get("ok"):
+            return str(t.get("name") or "GPU"), int(t.get("total_mb") or 0), int(t.get("free_mb") or 0)
     except Exception:
-        return "CPU/no-NVIDIA", 0, 0
+        log.debug("GPU telemetry unavailable", exc_info=True)
+    return "CPU/no-GPU", 0, 0
 
 
 def detect_ram_gb() -> float:

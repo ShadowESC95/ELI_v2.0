@@ -150,9 +150,3 @@ def test_frontier_status_prefers_the_in_process_answer(monkeypatch):
 
 # ── the probe budget ──────────────────────────────────────────────────────────
 
-def test_the_load_probe_budget_never_starts_above_thirty_seconds():
-    """60s bought nothing on a config the smart-fit fallback had already measured; the budget is now
-    derived from model size and ctx, and its floor is thirty seconds."""
-    from eli.core.load_probe import _TIMEOUT_FLOOR_S, probe_timeout_for
-    assert _TIMEOUT_FLOOR_S == 30.0
-    assert probe_timeout_for("/no/such/model.gguf", 2048) >= 30.0

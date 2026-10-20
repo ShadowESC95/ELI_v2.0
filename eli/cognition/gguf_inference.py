@@ -334,38 +334,20 @@ def force_no_think():
         _NO_THINK_TLS.force = _prev
 
 
-def _no_think_prefill(*, structured: bool, max_tokens) -> str:
-    """Return an assistant-turn PREFILL that forces a reasoning model to SKIP its
-    <think> block on UTILITY calls, so it doesn't burn a small budget thinking instead
-    of producing the structured/short output ELI needs (the bug where the A3B routed
-    everything to fallback.chat and failed session summaries because <think> ate the
-    90/420-token budget). Prefilling a CLOSED empty think is reliable across reasoning
-    families — the /no_think soft-switch is ignored by some Qwen3 quants.
+def _thinking_wanted(*, structured: bool, max_tokens) -> bool:
+    """Whether this call may reason before it answers.
 
-    Disabled for: structured/JSON calls (always), small-budget chat (< 1024 tokens →
-    judge / summary / quick utility), and any call inside a `force_no_think()` scope. The
-    MAIN answer call (large budget) keeps thinking unless ELI_MODEL_THINK=0. '' (no-op)
-    for non-reasoning models or when thinking is wanted."""
-    _glm = _is_glm_model()
-    _closed_think = "<think>\n\n</think>\n\n"
-    _open_think = "<think>\n\n"
-    # Utility scopes (correction repair, routing, summaries) must suppress thinking
-    # even on models not yet in the name heuristic (e.g. Ornith) — otherwise the
-    # whole budget burns inside an unclosed  block and cleaning returns empty.
+    Never for structured/JSON calls, small-budget calls (< 1024 tokens: judge, summary, routing),
+    Quick mode (a "hey" once thought for 316 s) or inside a `force_no_think()` scope, whatever the
+    Think toggle says; otherwise the Think toggle (ELI_MODEL_THINK) decides. This turn's mode
+    first: the env var is process-global, so under concurrent API requests it holds whichever
+    turn wrote last and only counts for calls made outside a turn."""
     if _force_no_think_active():
-        return _closed_think if _glm else "<think>\n\n</think>\n\n"
-    if not _is_thinking_model():
-        return ""
+        return False
     try:
         _small = 0 < int(max_tokens or 0) < 1024
     except Exception:
         _small = False
-    # Utility calls (structured/JSON or small-budget: routing, reflection, summary, judge) never
-    # think, whatever the Think toggle says. The toggle only governs the main answer. Quick mode
-    # doesn't think either (a "hey" once thought for 316s). ELI_MODEL_THINK.
-    # This turn's mode first. The env var is process-global: under concurrent API
-    # requests it holds whichever turn wrote last, so it's only the fallback for
-    # calls made outside a turn.
     try:
         from eli.kernel.request_context import reasoning_mode_var as _turn_mode
         _mode = _turn_mode.get()
@@ -373,21 +355,31 @@ def _no_think_prefill(*, structured: bool, max_tokens) -> str:
         _mode = None
     if _mode is None:
         _mode = os.environ.get("ELI_CURRENT_REASONING_MODE", "")
-    _quick = str(_mode).strip().lower() == "quick"
-    if structured or _small or _quick:
-        disable = True
-    else:
-        _env = os.environ.get("ELI_MODEL_THINK", "").strip().lower()
-        disable = _env in ("0", "false", "no", "off")
+    if structured or _small or str(_mode).strip().lower() == "quick":
+        return False
+    return os.environ.get("ELI_MODEL_THINK", "").strip().lower() not in ("0", "false", "no", "off")
+
+
+def _no_think_prefill(*, structured: bool, max_tokens) -> str:
+    """The assistant-turn prefill for a model whose prompt comes from the family formats (no
+    template of its own): a CLOSED empty <think> block when the call must not reason, so a
+    utility call doesn't spend its budget thinking (the A3B routed everything to fallback.chat
+    and lost session summaries that way). Reliable across <think> families; the /no_think
+    soft-switch is ignored by some Qwen3 quants. '' for non-reasoning models or when reasoning is
+    wanted. A model with its own template is switched through it instead (_prompt_for_call)."""
+    _glm = _is_glm_model()
+    _closed_think = "<think>\n\n</think>\n\n"
+    _open_think = "<think>\n\n"
+    # Utility scopes must suppress thinking even on models the heuristics miss (e.g. Ornith):
+    # otherwise the whole budget burns inside an unclosed block and cleaning returns empty.
+    if _force_no_think_active():
+        return _closed_think
+    if not _is_thinking_model():
+        return ""
+    disable = not _thinking_wanted(structured=structured, max_tokens=max_tokens)
     if _glm:
         return _closed_think if disable else _open_think
     return _closed_think if disable else ""
-
-
-# Detect the chat template from the model's own metadata (`tokenizer.chat_template`) so any model
-# routes to the right format regardless of filename. Content-sniff for the major families; a novel
-# template falls back to filename heuristics, then the generic format.
-_TEMPLATE_FAMILY_CACHE: dict = {}
 
 
 def _gguf_model_metadata() -> dict:
@@ -398,34 +390,6 @@ def _gguf_model_metadata() -> dict:
         return md if isinstance(md, dict) else {}
     except Exception:
         return {}
-
-
-def _gguf_template_family() -> Optional[str]:
-    """Family from the model's EMBEDDED chat template, or None to fall back."""
-    md = _gguf_model_metadata()
-    tmpl = str(md.get("tokenizer.chat_template") or "")
-    if not tmpl:
-        return None
-    key = tmpl[:64]
-    cached = _TEMPLATE_FAMILY_CACHE.get(key)
-    if cached is not None:
-        return cached or None
-    if "<|im_start|>" in tmpl:
-        fam = "chatml"
-    elif "[gmask]" in tmpl.lower() or "<|observation|>" in tmpl:
-        fam = "glm"
-    elif "<|start_header_id|>" in tmpl or "<|eot_id|>" in tmpl:
-        fam = "llama"
-    elif "<start_of_turn>" in tmpl:
-        fam = "gemma"
-    elif "[INST]" in tmpl:
-        fam = "mistral"
-    elif "<|assistant|>" in tmpl or "<|user|>" in tmpl:
-        fam = "phi"
-    else:
-        fam = ""  # unknown embedded template → fall back
-    _TEMPLATE_FAMILY_CACHE[key] = fam
-    return fam or None
 
 
 def _gguf_param_count() -> int:
@@ -458,34 +422,46 @@ def _canonical_eli_persona() -> str:
 
     return "You are ELI, a local reasoning and automation assistant. Be direct, accurate, grounded, privacy-preserving, and useful."
 
+def _marker_pattern(marker: str, *, closing: bool) -> str:
+    """A reasoning marker as a pattern: a tag-like marker (`<think>`) also matches its attribute
+    and spacing variants; any other (`<|channel>thought`) matches as written."""
+    m = re.fullmatch(r"</?([A-Za-z_][\w-]*)>", marker.strip())
+    if m:
+        name = re.escape(m.group(1))
+        return rf"</{name}\s*>" if closing else rf"<{name}\b[^>]*>"
+    return re.escape(marker.strip())
+
+
+def _reasoning_patterns() -> list:
+    """(open, close) patterns of the reasoning markers in use: the loaded model's own, from its
+    template (eli/cognition/chat_template.py), then the common <think> forms."""
+    from eli.cognition.chat_template import reasoning_markers
+    return [(_marker_pattern(o, closing=False), _marker_pattern(c, closing=True))
+            for o, c in reasoning_markers()]
+
+
 def _strip_think_text(t: str) -> str:
     """Remove a reasoning block from text before user-visible cleaning.
 
-    Handles ``<think>``, ``<think>``, and unclosed blocks. Model-agnostic —
-    no-op when no thinking markers are present."""
+    Closed blocks, a block cut off before it closed, and a close marker whose opener the model
+    never wrote (everything before it was reasoning). The markers are the model's own where its
+    template has them; a no-op when none are present."""
     t = str(t or "")
     if not t.strip():
         return t
-    low = t.lower()
-    if "<think" not in low and "redacted_thinking" not in low:
+    pats = _reasoning_patterns()
+    if not any(re.search(o, t, re.I) or re.search(c, t, re.I) for o, c in pats):
         return t
-    # Closed blocks first (both common tag spellings).
-    t = re.sub(r"(?is)<redacted_thinking\b[^>]*>.*?</redacted_thinking\s*>", "", t)
-    t = re.sub(r"(?is)<think\b[^>]*>.*?</think\s*>", "", t)
-    # Unclosed / truncated: keep whatever follows the last close tag.
-    if re.search(r"(?i)</redacted_thinking\s*>", t):
-        t = re.split(r"(?i)</redacted_thinking\s*>", t)[-1]
-    elif re.search(r"(?i)</think\s*>", t):
-        t = re.split(r"(?i)</think\s*>", t)[-1]
-    elif re.search(r"(?i)<redacted_thinking\b", t):
-        t = re.split(r"(?i)<redacted_thinking\b[^>]*>", t)[0]
-    elif re.search(r"(?i)<think\b", t):
-        t = re.split(r"(?i)<think\b[^>]*>", t)[0]
-    return re.sub(
-        r"(?i)</?redacted_thinking\b[^>]*>|</?think\b[^>]*>",
-        "",
-        t,
-    ).strip()
+    for o, c in pats:
+        t = re.sub(rf"(?is){o}.*?{c}", "", t)
+    for o, c in pats:
+        if re.search(c, t, re.I):
+            t = re.split(c, t, flags=re.I)[-1]
+        elif re.search(o, t, re.I):
+            t = re.split(o, t, flags=re.I)[0]
+    for o, c in pats:
+        t = re.sub(rf"(?i){o}|{c}", "", t)
+    return t.strip()
 
 
 def _clean_eli_output(text: str) -> str:
@@ -549,11 +525,18 @@ def _clean_eli_output(text: str) -> str:
     return t.strip()
 
 def _strip_think_stream(chunks):
-    """Suppress a leading <think>…</think> reasoning block from a token stream
-    (Qwen3 / DeepSeek-R1 etc.). Engages ONLY when the output begins with <think>,
-    so it adds no latency and is a pure pass-through for non-reasoning models."""
+    """Suppress a leading reasoning block from a token stream (the model's own markers, from its
+    template, and the <think> forms). Engages ONLY when the output begins with an opener, so it
+    adds no latency and is a pure pass-through otherwise."""
+    from eli.cognition.chat_template import reasoning_markers
+    pats = _reasoning_patterns()
+    # what an opener starts with, to know whether a short head may still become one
+    heads = [re.sub(r">$", "", o.strip()).lower() if re.fullmatch(r"<[A-Za-z_][\w-]*>", o.strip())
+             else o.strip().lower() for o, _c in reasoning_markers()]
+    longest = max((len(h) for h in heads), default=0) + 8
     buf = ""
     mode = "detect"  # detect → suppress → pass  (or detect → pass)
+    closer = None
     for chunk in chunks:
         raw = chunk.get("response", "") if isinstance(chunk, dict) else str(chunk or "")
         if not raw:
@@ -563,28 +546,22 @@ def _strip_think_stream(chunks):
             continue
         buf += raw
         low = buf.lstrip().lower()
-        if mode == "suppress":
-            if re.search(r"(?i)</(?:redacted_thinking|think)\s*>", buf):
-                after = re.split(r"(?i)</(?:redacted_thinking|think)\s*>", buf, maxsplit=1)[-1]
-                buf, mode = "", "pass"
-                if after.strip():
-                    yield {"response": after}
-            continue
-        # detect: is this a thinking model emitting a reasoning block first?
-        if low.startswith("<think") or low.startswith("<redacted_thinking"):
-            mode = "suppress"
-            if re.search(r"(?i)</(?:redacted_thinking|think)\s*>", buf):
-                after = re.split(r"(?i)</(?:redacted_thinking|think)\s*>", buf, maxsplit=1)[-1]
-                buf, mode = "", "pass"
-                if after.strip():
-                    yield {"response": after}
-            continue
-        # still undecided (leading whitespace, or a partial prefix)?
-        if (low == "" or "<think".startswith(low) or "<redacted_thinking".startswith(low)) and len(buf) < 24:
-            continue
-        mode = "pass"
-        yield {"response": buf}
-        buf = ""
+        if mode == "detect":
+            opened = next((c for (o, c) in pats if re.match(o, buf.lstrip(), re.I)), None)
+            if opened is not None:
+                mode, closer = "suppress", opened
+            elif (low == "" or any(h.startswith(low) for h in heads)) and len(buf) < longest:
+                continue          # still undecided: leading whitespace or part of an opener
+            else:
+                mode = "pass"
+                yield {"response": buf}
+                buf = ""
+                continue
+        if mode == "suppress" and re.search(closer, buf, re.I):
+            after = re.split(closer, buf, maxsplit=1, flags=re.I)[-1]
+            buf, mode = "", "pass"
+            if after.strip():
+                yield {"response": after}
     if buf and mode != "suppress":
         yield {"response": buf}
 
@@ -665,6 +642,9 @@ def _stream_clean_chunks(chunks):
 
 _llm: Optional[Llama] = None
 _live_runtime_override: Optional[Dict[str, Any]] = None
+# What the last load asked for and what it loaded (requested/effective, the plan, per device), as
+# load_model writes it to runtime_snapshot.json.
+_ELI_EFFECTIVE_RUNTIME_REPORT: Dict[str, Any] = {}
 _load_failed: bool = False  # sentinel: don't retry after a confirmed failure
 _last_load_error: Optional[str] = None
 try:
@@ -792,31 +772,176 @@ def _make_stopping_criteria(background: bool):
     return StoppingCriteriaList([_crit])
 
 
-def load_model(force_reload: bool = False):
-    global _llm
+def load_request(model_path, settings: Optional[Dict[str, Any]] = None, **overrides):
+    """What the operator asked to load this model with (eli/core/load_plan.Request): the environment
+    first, then the settings, then `overrides` (the window's own boxes). Context 0 is auto; a GPU-layer
+    count counts only for the model and context it was set for (pinned_gpu_layers_for_model), else as
+    many layers as fit."""
+    from eli.core import config
+    from eli.core.load_plan import Request
+    from eli.core.runtime_settings import _resolve_gpu_split, pinned_gpu_layers_for_model
+    settings = settings if settings is not None else _load_runtime_settings()
+    n_ctx = int(_env_int("ELI_GGUF_N_CTX", None) or _as_int(_runtime_value(settings, "n_ctx", "context_size"), 0) or 0)
+    n_gpu_layers = _env_int("ELI_GGUF_N_GPU_LAYERS", None)
+    if n_gpu_layers is None:
+        try:
+            n_gpu_layers = pinned_gpu_layers_for_model(model_path, settings, current_ctx=n_ctx or None)
+        except Exception:
+            log.debug("[GGUF] gpu-layer pin provenance unavailable", exc_info=True)
+    ts, main_gpu, split_mode = _resolve_gpu_split(settings)
+    _force_cpu = str(os.environ.get("ELI_FORCE_CPU", "")).strip().lower() in ("1", "true", "yes", "on")
+    cache_k, cache_v = _cache_types(settings)
+    req = Request(
+        model_path=str(model_path),
+        n_ctx=n_ctx,
+        n_gpu_layers=None if n_gpu_layers is None else int(n_gpu_layers),
+        n_batch=int(_env_int("ELI_GGUF_N_BATCH", None)
+                    or _as_int(_runtime_value(settings, "batch_size", "n_batch"), config.get_gguf_n_batch())),
+        n_threads=int(_env_int("ELI_GGUF_THREADS", None) or _as_int(_runtime_value(settings, "cpu_threads", "n_threads"), 0)),
+        cache_type_k=cache_k, cache_type_v=cache_v,
+        use_mmap=_as_bool(_runtime_value(settings, "use_mmap", default=True), True),
+        use_mlock=_as_bool(_runtime_value(settings, "use_mlock", default=False), False),
+        fit_priority=str(os.environ.get("ELI_FIT_PRIORITY") or settings.get("fit_priority") or ""),
+        tensor_split=str(os.environ.get("ELI_GGUF_TENSOR_SPLIT") or ts or ""),
+        gpu_devices=str(os.environ.get("ELI_GPU_DEVICES") or settings.get("gpu_devices") or ""),
+        split_mode=str(os.environ.get("ELI_GGUF_SPLIT_MODE") or split_mode or ""),
+        main_gpu=_as_int(os.environ.get("ELI_GGUF_MAIN_GPU") or main_gpu, 0),
+        cpu_only=_force_cpu or str(settings.get("compute_mode") or "").strip().lower() == "cpu"
+        or str(os.environ.get("ELI_FORCE_GPU_LAYERS", "")).strip() == "0",
+    )
+    for key, value in overrides.items():
+        if value is not None and hasattr(req, key):
+            setattr(req, key, value)
+    return req
 
-    import os
-    import json as _json
+
+def _as_bool(value, default: bool) -> bool:
+    if value is None or value == "":
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in ("1", "true", "yes", "on")
+
+
+def _new_llama(plan):
+    """llama.cpp's model built as the plan says, experts kept in RAM where it says so."""
+    from llama_cpp import Llama
+    from eli.cognition.model_load_diagnostics import llama_accepts
+    kwargs = llama_accepts(Llama, plan.llama_kwargs())
+    if plan.experts_in_ram is None or int(plan.n_gpu_layers) <= 0:
+        return Llama(**kwargs)
+    from eli.core import moe_offload
+    layers = None if int(plan.experts_in_ram) >= int(plan.blocks) else int(plan.experts_in_ram)
+    with moe_offload.expert_offload_params(layers):
+        return Llama(**kwargs)
+
+
+def _build_with_plan(plan, req, model_path):
+    """Load the plan. A load that runs out of memory (another program took some between the plan and
+    the load) is planned again from what is free then; a file or runtime this build cannot read is
+    explained and not retried."""
+    from dataclasses import replace as _replace
+    from eli.core import load_plan
+    from eli.cognition.model_load_diagnostics import (
+        ModelLoadError, capture_llama_log, deactivate_gpu_pack, explain_load_failure,
+        gpu_pack_is_too_old, harden_llama_destructor, is_retryable_load_failure, kv_cache_refused)
+    harden_llama_destructor()
+    dropped_pack = False
+    for attempt in range(1, 4):
+        lines: list = []
+        try:
+            with capture_llama_log() as lines:
+                return _new_llama(plan), lines, plan, req
+        except Exception as err:
+            if (plan.cache_type_k or plan.cache_type_v) and kv_cache_refused(lines) and not _kv_cache_refused:
+                globals()["_kv_cache_refused"] = True
+                log.warning("[LOAD_PLAN] llama.cpp refused a %s KV cache here (it needs flash attention); "
+                            "planning again with the default cache", plan.cache_type_k or plan.cache_type_v)
+                req = _replace(req, cache_type_k="", cache_type_v="")
+                plan = load_plan.plan(req) or load_plan.as_asked(req)
+                continue
+            if not is_retryable_load_failure(lines):
+                if not dropped_pack and gpu_pack_is_too_old() and deactivate_gpu_pack():
+                    # the pack in the way of a model only the bundled runtime reads: drop it and try that
+                    dropped_pack = True
+                    globals()["Llama"] = __import__("importlib").import_module("llama_cpp").Llama
+                    log.warning("[LOAD_PLAN] the GPU pack cannot read this model; loading on the bundled "
+                                "runtime (slower; reinstall the pack once a build reads it)")
+                    plan = load_plan.plan(req) or load_plan.as_asked(req)
+                    continue
+                msg = explain_load_failure(err, lines, model_path, gpu_layers=plan.n_gpu_layers)
+                globals()["_last_load_error"] = msg
+                e = ModelLoadError(msg)
+                e.retryable = False
+                raise e from err
+            msg = explain_load_failure(err, lines, model_path, gpu_layers=plan.n_gpu_layers)
+            if attempt >= 3 or (plan.n_gpu_layers == 0 and not plan.devices):     # already on the processor
+                globals()["_last_load_error"] = msg
+                e = ModelLoadError(msg)
+                e.retryable = True
+                raise e from err
+            fresh = load_plan.plan(req)
+            if fresh is None or (fresh.n_gpu_layers, fresh.n_ctx, fresh.n_batch, fresh.tensor_split) == (
+                    plan.n_gpu_layers, plan.n_ctx, plan.n_batch, plan.tensor_split):
+                fresh = load_plan.on_processor(req)
+            log.warning("[LOAD_PLAN] the load did not fit (%s); planned again for the memory free now: %s",
+                        msg.splitlines()[0][:200], fresh.describe())
+            plan = fresh
+    raise RuntimeError("unreachable")
+
+
+def _note_headroom() -> None:
+    """After a generation call: what each card gave up since the load (eli/core/load_plan.py)."""
+    try:
+        from eli.core import load_plan
+        load_plan.note_headroom()
+    except Exception:
+        log.debug("[LOAD_PLAN] headroom not measured", exc_info=True)
+
+
+def _requested_and_effective(plan, llm) -> tuple:
+    """What the load was asked for (the plan's starting point: the user's settings with "auto"
+    worked out) and what is loaded, read from the live model where it says, the plan where not:
+    llama.cpp can change a value as it builds the model, and the report must say what is."""
+    def _live(read, fallback):
+        try:
+            value = read()
+            return int(value) if value is not None else int(fallback)
+        except Exception:
+            return int(fallback)
+    effective = {
+        "n_ctx": _live(lambda: llm.n_ctx(), plan.n_ctx),
+        "n_gpu_layers": _live(lambda: llm.model_params.n_gpu_layers, plan.n_gpu_layers),
+        "n_threads": _live(lambda: llm.n_threads, plan.n_threads),
+        "n_batch": _live(lambda: llm.n_batch, plan.n_batch),
+    }
+    asked = dict(plan.asked or {})
+    requested = {"n_ctx": int(asked.get("n_ctx") or effective["n_ctx"]),
+                 "n_gpu_layers": int(asked.get("n_gpu_layers") if asked.get("n_gpu_layers") is not None
+                                     else effective["n_gpu_layers"]),
+                 "n_threads": effective["n_threads"],
+                 "n_batch": int(asked.get("n_batch") or effective["n_batch"])}
+    return requested, effective
+
+
+def load_model(force_reload: bool = False, *, request=None):
+    """The loaded model, loading it if needed: the configured model, or `request`
+    (eli/core/load_plan.Request), with the plan for this machine now (eli/core/load_plan.py)."""
+    global _llm, _ELI_EFFECTIVE_RUNTIME_REPORT
+
     import time as _time
     from pathlib import Path as _Path
-    from llama_cpp import Llama
-    from llama_cpp import llama_cpp as _llama_native
-    from eli.core import config
-    from eli.core.paths import get_paths as _gp
+    from eli.core import load_plan
 
-    if _llm is not None and not force_reload:
+    if _llm is not None and not force_reload and request is None:
         return _llm
 
     # Resolve the path before dropping the handle: a reload that can't succeed must not destroy the
     # model that is loaded.
     settings = _load_runtime_settings()
-    model_path = get_model_path()
+    model_path = request.model_path if request is not None else get_model_path()
     if not model_path:
         raise FileNotFoundError("No GGUF model path configured")
-
-    if force_reload:
-        _llm = None
-
     model_path = _Path(model_path).expanduser().resolve()
     if not model_path.exists():
         raise FileNotFoundError(f"GGUF model not found: {model_path}")
@@ -840,308 +965,25 @@ def load_model(force_reload: bool = False):
         _ce.retryable = False
         raise _ce
 
-    n_ctx = _requested_ctx(settings, model_path)
+    _llm = None
 
-    # Co-resident vision: load the small fast model first to reserve its VRAM, then size the text
-    # model to what is left (no static ctx cap). If the fast model can't load, fall through to full
-    # context.
-    _co_resident_active = False
+    # Co-resident vision: the small fast model loads first so the plan below sees the memory it takes.
     if bool(_runtime_value(settings, "vision_coresident", default=False)):
         try:
             from eli.perception import vision as _eli_vision
             _rok, _rreason = _eli_vision.load_resident_fast_model()
-            _co_resident_active = bool(_rok)
             if not _rok:
-                log.debug(f"[GGUF] co-resident vision: fast model not loaded ({_rreason}); full ctx kept")
+                log.debug(f"[GGUF] co-resident vision: fast model not loaded ({_rreason})")
         except Exception as _co_err:
             log.debug(f"[GGUF] co-resident vision setup skipped: {_co_err}")
 
-    n_gpu_layers = _env_int("ELI_GGUF_N_GPU_LAYERS", None)
-    if n_gpu_layers is None:
-        # A pinned layer count only counts for the model it was pinned for. The GUI tuner applies
-        # the same rule; headless and API loaders need it too or a stale pin strands the new model
-        # on CPU.
-        _pinned = None
-        try:
-            from eli.core.runtime_settings import pinned_gpu_layers_for_model as _pin4
-            _pinned = _pin4(model_path, settings, current_ctx=n_ctx)
-        except Exception:
-            log.debug("[GGUF] gpu-layer pin provenance unavailable", exc_info=True)
-        if _pinned is not None:
-            n_gpu_layers = int(_pinned)
-        else:
-            # Invalidated pin: use the literal 99 ("let smart-fit measure"). config.get_gguf_n_gpu_layers()
-            # reads the same settings key and would reinstate the stale pin.
-            n_gpu_layers = 99
+    req = request if request is not None else load_request(model_path, settings)
+    req.model_path = str(model_path)
+    plan = load_plan.plan(req) or load_plan.as_asked(req)
+    for note in plan.notes:
+        log.info("[LOAD_PLAN] %s", note)
+    log.info("[LOAD_PLAN] %s: %s", model_path.name, plan.describe())
 
-    n_batch = _env_int("ELI_GGUF_N_BATCH", None)
-    if n_batch is None:
-        n_batch = _as_int(_runtime_value(settings, "batch_size", "n_batch"), config.get_gguf_n_batch())
-
-    n_threads = _env_int("ELI_GGUF_THREADS", None)
-    if n_threads is None:
-        _nt_default = os.cpu_count() or 4
-        try:
-            from eli.core.hardware_profile import (
-                detect_hardware as _nthw,
-                recommend_cpu_threads as _ntrct,
-                effective_use_gpu_layers as _nteugl,
-            )
-            _hw_nt = _nthw()
-            _nt_default = _ntrct(
-                int(getattr(_hw_nt, "cpu_threads", _nt_default) or _nt_default),
-                cpu_bound=not _nteugl(_hw_nt),
-            )
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-        n_threads = _as_int(_runtime_value(settings, "cpu_threads", "n_threads"), _nt_default)
-
-    # Detected up front (not after smart-fit, as before) so the smart-fit block below can
-    # pass it to moe_offload.plan_for_load() and get a real MoE fit instead of asserting one.
-    gpu_offload_supported = None
-    try:
-        _supports_fn = getattr(_llama_native, "llama_supports_gpu_offload", None)
-        if callable(_supports_fn):
-            gpu_offload_supported = bool(_supports_fn())
-    except Exception:
-        gpu_offload_supported = None
-    if gpu_offload_supported is False:
-        try:
-            from eli.core.gpu_pack_runtime import trust_vulkan_igpu_offload
-            if trust_vulkan_igpu_offload():
-                gpu_offload_supported = True
-                log.debug("[GGUF][GPU] trusting Vulkan iGPU pack despite offload flag=False")
-        except Exception:
-            log.debug("vulkan igpu offload trust probe failed", exc_info=True)
-
-    # Size the text model DYNAMICALLY to live free VRAM (GPU) or available RAM
-    # (CPU / iGPU without an active offload backend) instead of trusting a stale
-    # gpu_layers number. Opt out with ELI_GGUF_SMART_FIT=0.
-    _smart_fit_on = str(os.environ.get("ELI_GGUF_SMART_FIT", "1")).strip().lower() not in (
-        "0", "false", "no", "off",
-    )
-    _moe = None
-    _moe_fit_applied = False
-    globals()["_vram_at_load"] = {}
-    if _smart_fit_on:
-        try:
-            from eli.core.startup_hardware_optimizer import (
-                detect_nvidia_gpus as _sf_dng, select_gpu as _sf_sg,
-                train_ctx_for_model as _sf_tc,
-                cpu_ctx_ceiling_from_ram as _sf_ceil,
-            )
-            from eli.core.hardware_profile import (
-                detect_hardware as _sf_hw,
-                unified_fit_config as _sf_fit,
-                effective_use_gpu_layers as _sf_eugl,
-            )
-            _hw = _sf_hw()
-            _mp = _runtime_value(settings, "model_path", "model") or model_path or ""
-            # the fit assumes the KV cache type this load will use
-            _kv_type = _cache_types(settings)[0] or "f16"
-            _kvq = _kv_type.lower() not in ("f16", "bf16", "f32")
-            _sf_gpu = _sf_sg(_sf_dng())
-            _use_gpu = bool(
-                _sf_gpu and int(getattr(_sf_gpu, "free_mb", 0) or 0) > 0
-                and _sf_eugl(_hw)
-            )
-            if _mp and os.path.exists(str(_mp)):
-                from eli.core.mem_units import file_size_gib as _fsg
-                _mgb = _fsg(_mp)
-                _frac = float(os.environ.get("ELI_CTX_FRACTION", "0.9") or "0.9")
-                _want = max(2048, (int(int(_sf_tc(str(_mp))) * _frac) // 2048) * 2048)
-                _min_batch = int(os.environ.get("ELI_MIN_BATCH", "128") or "128")
-                if _use_gpu:
-                    from eli.core.hardware_profile import vram_reserve_mb as _vrm
-                    _res = int(_vrm(gpu_integrated=bool(getattr(_hw, "gpu_integrated", False))))
-                    if gpu_offload_supported is not False:
-                        from eli.core import moe_offload as _moe_offload
-                        _moe = _moe_offload.plan_for_load(str(_mp), gpu_offload_supported)
-                    _fc, _fl, _fb = _sf_fit(
-                        _mgb, _sf_gpu.free_mb, _hw.available_ram_gb,
-                        user_ctx=min(int(n_ctx), _want),
-                        user_batch=max(int(n_batch), _min_batch), reserve_mb=_res,
-                        kv_quantized=_kvq, kv_cache_type=_kv_type, min_batch=_min_batch,
-                        model_path=str(_mp),
-                        gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)),
-                        user_gpu_layers=int(n_gpu_layers) if int(n_gpu_layers) > 0 else None,
-                        moe_resident_gb=(_moe["resident_gb"] if _moe else None),
-                    )
-                    if _moe:
-                        _moe_fit_applied = True
-                        log.debug(f"[GGUF] MoE expert offload: {_fl}/{_moe['layers']} layers' core "
-                                  f"weights fit in {_sf_gpu.free_mb}MB free VRAM (~{_moe['resident_gb']}GB); "
-                                  f"~{_moe['experts_gb']}GB of experts stay in RAM regardless")
-                    else:
-                        log.debug(f"[GGUF] smart-fit (free={_sf_gpu.free_mb}MB reserve={_res} "
-                                  f"coresident={_co_resident_active}): ctx {n_ctx}->{_fc} "
-                                  f"layers {n_gpu_layers}->{_fl} batch {n_batch}->{_fb}")
-                    if int(_fl) < int(n_gpu_layers) or int(_fc) < int(n_ctx):
-                        try:
-                            from eli.core.hardware_profile import describe_vram_holders, vram_holders
-                            _held_now = describe_vram_holders(vram_holders(), total_mb=_sf_gpu.total_mb)
-                        except Exception:
-                            _held_now = ""
-                        globals()["_vram_at_load"] = {"free_mb": int(_sf_gpu.free_mb), "held": _held_now}
-                        if _held_now:
-                            log.warning(f"[GGUF] other programs are using this card's memory: {_held_now}. "
-                                        f"Close them or have them release the GPU, then reload the model.")
-                    n_ctx, n_gpu_layers, n_batch = _fc, _fl, _fb
-                else:
-                    try:
-                        _ceil = int(_sf_ceil(_mgb, int(_sf_tc(str(_mp)) or 0), model_path=str(_mp)) or 0)
-                    except Exception:
-                        _ceil = 0
-                    _user_ctx = min(int(n_ctx), _want)
-                    if _ceil > 0:
-                        _user_ctx = min(_user_ctx, _ceil)
-                    _fc, _fl, _fb = _sf_fit(
-                        _mgb, 0, _hw.available_ram_gb,
-                        user_ctx=_user_ctx,
-                        user_batch=min(max(int(n_batch), _min_batch), 128),
-                        reserve_mb=512,
-                        kv_quantized=_kvq, kv_cache_type=_kv_type, min_batch=min(_min_batch, 128),
-                        model_path=str(_mp),
-                        force_cpu=True,
-                    )
-                    log.debug(
-                        f"[GGUF] RAM smart-fit (available={_hw.available_ram_gb:.1f}GB "
-                        f"kvq={_kvq}): ctx {n_ctx}->{_fc} layers→0 "
-                        f"batch {n_batch}->{_fb}"
-                    )
-                    n_ctx, n_gpu_layers, n_batch = int(_fc), 0, min(128, int(_fb))
-        except Exception as _sf_err:
-            log.debug(f"[GGUF] smart-fit skipped: {_sf_err}")
-
-
-    def _boolish(v, default=False):
-        if v is None or v == "":
-            return default
-        if isinstance(v, bool):
-            return v
-        return str(v).strip().lower() in ("1", "true", "yes", "on")
-
-    use_mmap = _runtime_value(settings, "use_mmap", default=True)
-    use_mlock = _runtime_value(settings, "use_mlock", default=False)
-    cache_k, cache_v = _cache_types(settings)
-
-    # Multi-GPU split (optional). Lets ONE large model span multiple GPUs via llama.cpp
-    # tensor_split. Only set when configured (env or settings / gpu_profiles.json) — the
-    # single-GPU path is completely unaffected. Hardware-agnostic: no GPU count assumed.
-    _ts_raw = (os.environ.get("ELI_GGUF_TENSOR_SPLIT") or "").strip() or str(
-        _runtime_value(settings, "tensor_split", default="") or "").strip()
-    _main_gpu_raw = os.environ.get("ELI_GGUF_MAIN_GPU")
-    if _main_gpu_raw in (None, ""):
-        _main_gpu_raw = _runtime_value(settings, "main_gpu", default=None)
-    _split_mode_raw = (os.environ.get("ELI_GGUF_SPLIT_MODE") or "").strip() or str(
-        _runtime_value(settings, "split_mode", default="") or "").strip()
-
-    # gpu_offload_supported was already detected above, before the smart-fit block.
-    requested_n_gpu_layers = int(n_gpu_layers)
-
-    effective_n_gpu_layers = int(n_gpu_layers)
-    if requested_n_gpu_layers > 0 and gpu_offload_supported is False:
-        log.debug(
-            "[GGUF][GPU] GPU offload unsupported on this runtime "
-            "(driver/CUDA/backend unavailable). Forcing CPU mode.",
-        )
-        effective_n_gpu_layers = 0
-
-    if effective_n_gpu_layers > 0:
-        if _moe_fit_applied and _moe:
-            # Already VRAM-verified above (moe_resident_gb-aware smart-fit) — trust it as-is,
-            # no forcing. n_gpu_layers already carries the real fitted count (partial, or the
-            # 99 "all layers" sentinel smart_fit_config already uses everywhere else).
-            pass
-        elif not _moe:
-            # Smart-fit was skipped/disabled/errored (ELI_GGUF_SMART_FIT=0, or an exception),
-            # so nothing verified a real fit. Fall back to the old unconditional behaviour
-            # rather than silently dropping MoE offload — but this path is now unverified by
-            # construction, not the default.
-            from eli.core import moe_offload as _moe_offload
-            _moe = _moe_offload.plan_for_load(str(model_path), gpu_offload_supported)
-            if _moe:
-                log.debug(f"[GGUF] MoE expert offload: experts (~{_moe['experts_gb']} GB) stay in "
-                          f"RAM, all {_moe['layers']} layers on the GPU (unverified — smart-fit "
-                          f"did not run)")
-                effective_n_gpu_layers = int(_moe['layers']) + 1 if _moe['layers'] else 999
-
-    if int(effective_n_gpu_layers) <= 0:
-        # Nothing is actually going to GPU (VRAM-starved even for core weights, or offload
-        # unsupported) — don't report MoE offload as active when it isn't.
-        _moe = None
-
-    kwargs = {
-        "model_path": str(model_path),
-        "n_ctx": int(n_ctx),
-        "n_threads": int(n_threads),
-        "n_gpu_layers": int(effective_n_gpu_layers),
-        "n_batch": int(n_batch),
-        "verbose": False,
-    }
-
-    kwargs["use_mmap"] = _boolish(use_mmap, True)
-    kwargs["use_mlock"] = _boolish(use_mlock, False)
-
-    from eli.core.gguf_sizes import llama_cache_args as _cache_args
-    _kv_args = _cache_args(cache_k, cache_v)
-    kwargs.update(_kv_args)
-
-    # Apply multi-GPU split only when offload is on AND a split is configured.
-    _tensor_split = None
-    if int(effective_n_gpu_layers) > 0 and _ts_raw:
-        try:
-            _tensor_split = [float(x.strip()) for x in str(_ts_raw).replace(";", ",").split(",") if x.strip()]
-        except Exception:
-            log.debug(f"[GGUF][GPU] invalid tensor_split {_ts_raw!r}; ignoring")
-            _tensor_split = None
-    if _tensor_split:
-        kwargs["tensor_split"] = _tensor_split
-        if _main_gpu_raw not in (None, ""):
-            try:
-                kwargs["main_gpu"] = int(_main_gpu_raw)
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-        if _split_mode_raw:
-            _sm = {"none": 0, "layer": 1, "row": 2}.get(str(_split_mode_raw).strip().lower())
-            if _sm is None:
-                try:
-                    _sm = int(_split_mode_raw)
-                except Exception:
-                    _sm = None
-            if _sm is not None:
-                kwargs["split_mode"] = _sm
-
-    log.debug(
-        "[GGUF] Params: "
-        f"ctx={n_ctx}, gpu_layers={effective_n_gpu_layers}, batch={n_batch}, threads={n_threads} "
-        f"(requested_gpu_layers={requested_n_gpu_layers}, gpu_offload_supported={gpu_offload_supported}"
-        + (f", tensor_split={_tensor_split} main_gpu={kwargs.get('main_gpu')}" if _tensor_split else "")
-        + ")"
-    )
-
-    # A failed load surfaced as "AttributeError: 'LlamaModel' has no attribute 'sampler'" (the
-    # destructor) while the real reason was silenced by verbose=False. Harden the destructor,
-    # capture llama.cpp's log during the load, and translate it. Nothing here knows a model by name.
-    from eli.cognition.model_load_diagnostics import (
-        ModelLoadError,
-        harden_llama_destructor as _harden,
-        capture_llama_log as _cap_log,
-        explain_load_failure as _explain,
-        is_retryable_load_failure as _retryable,
-    )
-
-    def _model_load_error(err, lines, layers):
-        """Build the error and record whether retrying could ever help, so the
-        adaptive ladder above can stop instead of repeating an identical
-        failure through every ctx/layer/batch combination it knows."""
-        msg = _explain(err, lines, model_path, gpu_layers=layers)
-        globals()["_last_load_error"] = msg
-        _e = ModelLoadError(msg)
-        _e.retryable = _retryable(lines)
-        return _e
-    _harden()
-    _load_log: list = []
     _pre_load_rss = 0
     try:
         from eli.runtime.inference_footprint import capture_process_rss_bytes as _cap_rss
@@ -1149,81 +991,11 @@ def load_model(force_reload: bool = False):
     except Exception:
         log.debug("[GGUF] pre-load RSS capture skipped", exc_info=True)
 
-    from eli.cognition.model_load_diagnostics import (
-        llama_accepts as _accepts,
-        kv_cache_refused as _kv_refused,
-    )
-
-    def _new_llama(kw):
-        if not _moe or int(effective_n_gpu_layers) <= 0:
-            return Llama(**_accepts(Llama, kw))
-        from eli.core import moe_offload as _moe_offload
-        kw = dict(kw, n_gpu_layers=_moe_offload.full_offload_layers(
-            kw.get("n_gpu_layers", effective_n_gpu_layers), kw.get("model_path")))
-        with _moe_offload.expert_offload_params():
-            return Llama(**_accepts(Llama, kw))
-
+    _llm, _load_log, plan, req = _build_with_plan(plan, req, model_path)
     try:
-        with _cap_log() as _load_log:
-            _llm = _new_llama(kwargs)
-    except TypeError as e:
-        _msg = str(e)
-        _popped = False
-        if any(tok in _msg for tok in ("type_k", "type_v", "flash_attn")):
-            for _name in _kv_args:
-                kwargs.pop(_name, None)
-            _popped = True
-        if any(tok in _msg for tok in ("tensor_split", "main_gpu", "split_mode")):
-            # Older llama-cpp without multi-GPU kwargs — drop them and load single-GPU.
-            kwargs.pop("tensor_split", None)
-            kwargs.pop("main_gpu", None)
-            kwargs.pop("split_mode", None)
-            log.debug("[GGUF][GPU] llama-cpp build lacks multi-GPU kwargs; loading single-GPU")
-            _popped = True
-        if _popped:
-            try:
-                with _cap_log() as _load_log:
-                    _llm = _new_llama(kwargs)
-            except Exception as _retry_err:
-                raise _model_load_error(
-                    _retry_err, _load_log, effective_n_gpu_layers) from _retry_err
-        else:
-            raise
-    except Exception as _load_err:
-        # llama.cpp refused the quantized KV cache (no flash attention on this backend or build).
-        # The fit above was made for that cache, so the whole load is done again for the default
-        # one, which is larger: context and layers are fitted to it.
-        if _kv_args and _kv_refused(_load_log) and not _kv_cache_refused:
-            globals()["_kv_cache_refused"] = True
-            log.warning("[GGUF] llama.cpp refused a %s KV cache here (it needs flash attention); "
-                        "loading with the default cache instead", cache_k or cache_v)
-            return load_model(force_reload=True)
-        # A GPU pack that can't read this model must not end the attempt. If the failure is "this
-        # build doesn't understand the file" and the pack is in the way, drop the pack and load on
-        # the bundled runtime; users won't set an env var by hand.
-        from eli.cognition.model_load_diagnostics import (
-            gpu_pack_is_too_old as _pack_old,
-            deactivate_gpu_pack as _drop_pack,
-        )
-        if not _retryable(_load_log) and _pack_old() and _drop_pack():
-            import importlib as _il
-            globals()["Llama"] = _il.import_module("llama_cpp").Llama
-            try:
-                with _cap_log() as _load_log:
-                    _llm = _new_llama(kwargs)
-                log.warning(
-                    "[GGUF] loaded on the bundled runtime after the GPU pack "
-                    "could not read this model. Generation will be slower; "
-                    "reinstall the pack (ELI --install-gpu-pack --force) once a "
-                    "build supporting this architecture is published."
-                )
-            except Exception as _bundle_err:
-                raise _model_load_error(
-                    _bundle_err, _load_log, effective_n_gpu_layers) from _bundle_err
-        else:
-            # Everything else: OOM, truncated download, genuinely unsupported.
-            raise _model_load_error(
-                _load_err, _load_log, effective_n_gpu_layers) from _load_err
+        load_plan.watch_headroom(plan)       # what llama.cpp takes on each card from here is measured
+    except Exception:
+        log.debug("[LOAD_PLAN] headroom watch not started", exc_info=True)
 
     _kv_loaded = None
     try:
@@ -1233,83 +1005,92 @@ def load_model(force_reload: bool = False):
         _kv_loaded = loaded_cache_types(_load_log)
     except Exception:
         log.debug("[GGUF] KV report not recorded", exc_info=True)
-    if _kv_loaded and (cache_k or "f16").lower() != _kv_loaded[0]:
-        log.warning("[GGUF] KV cache asked for as %s, loaded as %s", cache_k or "f16", _kv_loaded[0])
 
-    # Keep get_last_load_params() truthful: same values, same moment.
-    globals()["_last_params"] = {
-        "n_ctx": int(n_ctx),
-        "n_gpu_layers": int(effective_n_gpu_layers),
-        "n_threads": int(n_threads),
-        "n_batch": int(n_batch),
-        "model_path": str(model_path),
-        "load_mode": "GPU" if int(effective_n_gpu_layers) > 0 else "CPU",
-        "moe_expert_offload": bool(_moe),
-        "moe_resident_gb": (_moe or {}).get("resident_gb") if _moe else None,
-        "moe_experts_gb": (_moe or {}).get("experts_gb") if _moe else None,
-    }
-    _vram_at_load = dict(globals().get("_vram_at_load") or {})
-    globals()["_live_runtime_params"] = {
-        "vram_free_mb_at_load": _vram_at_load.get("free_mb"),
-        "vram_held_by_others": _vram_at_load.get("held", ""),
+    _held = ""
+    if plan.notes and not any("fit as asked" in n for n in plan.notes):
+        try:
+            from eli.core.hardware_profile import describe_vram_holders, vram_holders
+            _held = describe_vram_holders(vram_holders(), total_mb=sum(d.total_mb for d in plan.devices) or None)
+        except Exception:
+            log.debug("[GGUF] VRAM holders unavailable", exc_info=True)
+        if _held:
+            log.warning(f"[LOAD_PLAN] other programs are using GPU memory: {_held}. Close them or have "
+                        f"them release the GPU, then reload the model to get the rest of your settings.")
+
+    requested, effective = _requested_and_effective(plan, _llm)
+    gpu_supported = bool(plan.devices)
+    payload = {
         "provider": "gguf",
         "model_path": str(model_path),
         "model_name": model_path.name,
-        "n_ctx": int(n_ctx),
-        "n_gpu_layers": int(effective_n_gpu_layers),
-        "n_threads": int(n_threads),
-        "n_batch": int(n_batch),
-        "requested_n_gpu_layers": int(requested_n_gpu_layers),
-        # the cache llama.cpp says it made; what was asked for when it did not say
-        "cache_type_k": (_kv_loaded[0] if _kv_loaded else (cache_k or "f16")),
-        "cache_type_v": (_kv_loaded[1] if _kv_loaded else (cache_v or cache_k or "f16")),
-        "gpu_offload_supported": gpu_offload_supported,
-        "tensor_split": kwargs.get("tensor_split"),
-        "main_gpu": kwargs.get("main_gpu"),
-        "load_mode": "GPU" if int(effective_n_gpu_layers) > 0 else "CPU",
-        "moe_expert_offload": bool(_moe),
-        "moe_resident_gb": (_moe or {}).get("resident_gb") if _moe else None,
-        "moe_experts_gb": (_moe or {}).get("experts_gb") if _moe else None,
         "loaded": True,
         "pid": os.getpid(),
         "ts": _time.time(),
+        "runtime_contract": "requested_effective_split",
+        "runtime_source": "load_model_effective",
+        "requested": requested,
+        "effective": effective,
+        "load_plan": {"text": plan.describe(), "notes": list(plan.notes), "measured": bool(plan.measured),
+                      "devices": [{"index": d.index, "name": d.name, "description": d.description,
+                                   "free_mb": d.free_mb, "total_mb": d.total_mb,
+                                   "planned_mb": round(plan.use_mb.get(d.index, 0.0))} for d in plan.devices]},
+        "gpu_offload_supported": gpu_supported,
+        "load_mode": "GPU" if plan.n_gpu_layers != 0 else "CPU",          # -1: every layer
+        "n_ctx": effective["n_ctx"],
+        "n_gpu_layers": effective["n_gpu_layers"],
+        "n_threads": effective["n_threads"],
+        "n_batch": effective["n_batch"],
+        "batch_size": effective["n_batch"],
+        "requested_n_ctx": requested["n_ctx"],
+        "requested_n_gpu_layers": requested["n_gpu_layers"],
+        "requested_n_threads": requested["n_threads"],
+        "requested_n_batch": requested["n_batch"],
+        # the cache llama.cpp says it made; what was asked for when it did not say
+        "cache_type_k": (_kv_loaded[0] if _kv_loaded else (plan.cache_type_k or "f16")),
+        "cache_type_v": (_kv_loaded[1] if _kv_loaded else (plan.cache_type_v or plan.cache_type_k or "f16")),
+        "flash_attn": bool(plan.flash_attn),
+        "tensor_split": plan.tensor_split,
+        "split_mode": plan.split_mode,
+        "main_gpu": plan.main_gpu,
+        "moe_expert_offload": plan.experts_in_ram is not None,
+        "moe_experts_in_ram_layers": plan.experts_in_ram,
+        "vram_free_mb_at_load": int(sum(d.free_mb for d in plan.devices)) if plan.devices else None,
+        "vram_held_by_others": _held,
     }
-    globals()["_last_load_error"] = None
-
+    globals()["_last_params"] = {
+        "n_ctx": effective["n_ctx"], "n_gpu_layers": effective["n_gpu_layers"],
+        "n_threads": effective["n_threads"], "n_batch": effective["n_batch"],
+        "model_path": str(model_path), "load_mode": payload["load_mode"],
+        "moe_expert_offload": payload["moe_expert_offload"],
+    }
     try:
         from eli.runtime.inference_footprint import record_load_memory as _rec_mem
-        globals()["_live_runtime_params"]["live_inference_memory"] = _rec_mem(
-            _llm, pre_load_rss_bytes=_pre_load_rss
-        )
+        payload["live_inference_memory"] = _rec_mem(_llm, pre_load_rss_bytes=_pre_load_rss)
     except Exception:
         log.debug("[GGUF] live inference memory record skipped", exc_info=True)
-
-    try:
-        snap_path = _Path(_gp().artifacts_dir) / "runtime_snapshot.json"
-        snap_path.write_text(_json.dumps(globals()["_live_runtime_params"], indent=2), encoding="utf-8")
-        _sync_world_model_runtime(globals()["_live_runtime_params"])
-        print(f"✅ shared runtime snapshot written: {snap_path}")
-    except Exception as e:
-        log.debug(f"[GGUF] shared runtime snapshot write failed: {e}")
-
+    globals()["_live_runtime_params"] = dict(payload)
+    globals()["_last_load_error"] = None
+    _ELI_EFFECTIVE_RUNTIME_REPORT = dict(payload)
+    _write_shared_runtime_snapshot(payload)
     _install_llama_abort_callback(_llm)
     return _llm
 
 
-def _format_prompt(system: Optional[str], user: str) -> str:
-    """Format a prompt using the model-appropriate chat template.
+def _format_prompt(system: Optional[str], user: str, *, think: Optional[bool] = None) -> str:
+    """Format a prompt in the loaded model's own chat format.
 
-    Family resolution is model-agnostic: embedded ``tokenizer.chat_template``
-    → ``general.architecture`` → filename last resort.
+    The model's own template (`tokenizer.chat_template`, rendered by chat_template) first; the
+    family formats only for a file without one. `think` switches reasoning through that
+    template; None leaves the template's own default.
 
     Also notes where the part that does not depend on the message ends (_stable_prefix_var):
     the model state there is kept and reused by the next prompt that starts the same way.
     """
-    text = _format_chat(system, user)
+    text = _format_chat(system, user, think=think)
     fixed = ""
     if str(system or "").strip():
         try:
-            a, b = _format_chat(system, "A"), _format_chat(system, "B")
+            a, b = _format_chat(system, "A", think=think), _format_chat(system, "B", think=think)
             fixed = os.path.commonprefix([a, b])
             fixed = fixed if text.startswith(fixed) else ""
         except Exception:
@@ -1318,10 +1099,39 @@ def _format_prompt(system: Optional[str], user: str) -> str:
     return text
 
 
-def _format_chat(system: Optional[str], user: str) -> str:
-    """The chat template for the loaded model's family, filled in."""
+def _model_template():
+    """The loaded model's own chat template (chat_template.Template), or None for a file that
+    carries none that renders."""
+    try:
+        from eli.cognition import chat_template
+        return chat_template.for_model(globals().get("_llm"), _gguf_model_metadata())
+    except Exception:
+        _SWLOG.debug("model template unavailable", exc_info=True)
+        return None
+
+
+def _prompt_for_call(system: Optional[str], prompt: str, *, structured: bool, max_tokens) -> str:
+    """The prompt for one call, with reasoning on or off as the call needs (_thinking_wanted):
+    through the model's own template when it has one, else the family format and a prefill."""
+    think = _thinking_wanted(structured=structured, max_tokens=max_tokens)
+    tpl = _model_template()
+    if tpl is not None:
+        from eli.cognition.chat_template import render_prompt
+        if render_prompt(tpl, str(system or "").strip(), str(prompt or "").strip(), think=think) is not None:
+            return _format_prompt(system, prompt, think=think)
+    return _format_prompt(system, prompt) + _no_think_prefill(structured=structured, max_tokens=max_tokens)
+
+
+def _format_chat(system: Optional[str], user: str, *, think: Optional[bool] = None) -> str:
+    """The loaded model's own template filled in; the family format when it has none."""
     system = (system or "").strip()
     user = (user or "").strip()
+    tpl = _model_template()
+    if tpl is not None:
+        from eli.cognition.chat_template import render_prompt
+        rendered = render_prompt(tpl, system, user, think=think)
+        if rendered is not None:
+            return rendered
     model_path = get_model_path()
     fam = _resolve_family_for_loaded(path=model_path)
 
@@ -1927,7 +1737,7 @@ def _generate_legacy(
     if llm is None:
         raise RuntimeError("GGUF model not available")
 
-    full_prompt = _format_prompt(system, prompt) + _no_think_prefill(structured=False, max_tokens=max_tokens)
+    full_prompt = _prompt_for_call(system, prompt, structured=False, max_tokens=max_tokens)
 
     available_tokens = _ctx_max_tokens(llm, full_prompt)
     if available_tokens <= 0:
@@ -1981,6 +1791,9 @@ def _generate_legacy(
             stop += ["<|end|>", "<|eot_id|>"]
         if _is_chatml_model(_mp):
             stop += ["<|im_end|>"]
+    # the end of the model's turn as its own template writes it
+    from eli.cognition.chat_template import stop_markers
+    stop += stop_markers()
 
     # Deduplicate while preserving order
     seen = set()
@@ -2019,9 +1832,7 @@ def _generate_legacy(
             log.debug("[GGUF] empty stream — one no-think retry")
             try:
                 with force_no_think():
-                    _rp = _format_prompt(system, prompt) + _no_think_prefill(
-                        structured=False, max_tokens=max_tokens
-                    )
+                    _rp = _prompt_for_call(system, prompt, structured=False, max_tokens=max_tokens)
                     _r = _safe_invoke_llm(
                         llm, _rp, temperature=temperature, max_tokens=min(int(max_tokens or 512), 512),
                         top_p=top_p, top_k=top_k, repeat_penalty=repeat_penalty, stop=stop,
@@ -2032,6 +1843,7 @@ def _generate_legacy(
             except Exception:
                 log.debug("[GGUF] stream no-think retry failed", exc_info=True)
         log.debug(f"[GGUF][TIMING] stream_call_total={time.perf_counter()-started:.3f}s")
+        _note_headroom()
     else:
         prompt_tokens = _estimate_prompt_tokens(llm, full_prompt)
         log.debug(f"[GGUF][TIMING] prompt_tokens={prompt_tokens} prompt_chars={len(full_prompt)} max_tokens={max_tokens}")
@@ -2050,6 +1862,7 @@ def _generate_legacy(
         )
         _elapsed = time.perf_counter() - started
         log.debug(f"[GGUF][TIMING] nonstream_call_total={_elapsed:.3f}s")
+        _note_headroom()
         _raw_text = response["choices"][0]["text"]
         log.debug(f"[GGUF][RAW_TEXT] {_raw_text[:400]!r}")
         # Record live decode speed (tokens/sec) so the speed-aware tier can cap multi-pass modes
@@ -2115,7 +1928,7 @@ def _generate_json_legacy_1(
     from eli.core import config
     if temperature is None:
         temperature = config.get_temperature()
-    _full_prompt = _format_prompt(system, prompt) + _no_think_prefill(structured=True, max_tokens=max_tokens)
+    _full_prompt = _prompt_for_call(system, prompt, structured=True, max_tokens=max_tokens)
     _available_tokens = _ctx_max_tokens(llm, _full_prompt)
     if _available_tokens <= 0:
         # Truncate head+tail to fit rather than fail the call (same as the chat path).
@@ -2480,7 +2293,14 @@ def set_runtime_override(payload: Dict[str, Any] | None) -> Dict[str, Any]:
 def clear_runtime_override() -> None:
     globals().pop("_live_runtime_override", None)
 
+def get_effective_runtime_report() -> Dict[str, Any]:
+    """What the loaded model was asked for and loaded with; the snapshot below when nothing loaded here."""
+    return dict(_ELI_EFFECTIVE_RUNTIME_REPORT) if _ELI_EFFECTIVE_RUNTIME_REPORT else get_runtime_snapshot()
+
+
 def get_runtime_snapshot() -> Dict[str, Any]:
+    if _ELI_EFFECTIVE_RUNTIME_REPORT and _llm is not None:
+        return dict(_ELI_EFFECTIVE_RUNTIME_REPORT)
     settings = _load_runtime_settings()
     model_path = get_model_path()
 
@@ -2768,838 +2588,3 @@ def _wrap_generate(fn):
 # rebind double-wraps each retry → RecursionError). Idempotent stream/text-normalise.
 if callable(globals().get("generate")):
     globals()["generate"] = _wrap_generate(globals()["generate"])
-
-
-# Adaptive cold load: a cold CognitiveEngine() load uses the same machine-adaptive behaviour as the
-# launcher. A requested runtime either succeeds here or degrades to a lower candidate.
-try:
-    import inspect as _eli_adapt_inspect
-    import os as _eli_adapt_os
-    import subprocess as _eli_adapt_subprocess
-    import time as _eli_adapt_time
-
-    if "load_model" in globals() and not getattr(load_model, "_eli_adaptive_cold_loader", False):
-        _ELI_RAW_GGUF_LOAD_MODEL = load_model
-        _ELI_ADAPTIVE_LOAD_REPORT = {}
-
-        def _eli_adapt_int(value, default):
-            try:
-                if value is None or value == "":
-                    return int(default)
-                return int(value)
-            except Exception:
-                return int(default)
-
-        def _eli_probe_gpu_vram():
-            """
-            Return observed GPU VRAM without assuming a specific machine or
-            vendor. Shape: {ok, name, total_mib, free_mib}.
-
-            nvidia-smi first (unchanged path for NVIDIA machines); on failure,
-            fall back to hardware_profile.detect_hardware(), which already
-            has cross-vendor detection (AMD via rocm-smi/amdgpu sysfs, Intel
-            Arc, integrated/unified memory). Used to return an all-zero
-            "probe failed" result on every AMD/Intel/Apple machine, which
-            skipped the VRAM-aware intermediate rungs of the adaptive load
-            ladder below and jumped straight toward the CPU-only end of it
-            regardless of how much VRAM the machine actually had.
-            """
-            try:
-                proc = _eli_adapt_subprocess.run(
-                    [
-                        "nvidia-smi",
-                        "--query-gpu=name,memory.total,memory.free",
-                        "--format=csv,noheader,nounits",
-                    ],
-                    text=True,
-                    capture_output=True,
-                    timeout=3,
-                    check=True,
-                )
-                line = (proc.stdout or "").strip().splitlines()[0]
-                parts = [p.strip() for p in line.split(",")]
-                return {
-                    "ok": True,
-                    "name": parts[0] if len(parts) > 0 else "",
-                    "total_mib": _eli_adapt_int(parts[1] if len(parts) > 1 else 0, 0),
-                    "free_mib": _eli_adapt_int(parts[2] if len(parts) > 2 else 0, 0),
-                }
-            except Exception as e:
-                try:
-                    from eli.core.hardware_profile import detect_hardware
-                    hw = detect_hardware()
-                except Exception:
-                    hw = None
-                if hw is not None and hw.has_gpu and hw.total_vram_mb:
-                    return {
-                        "ok": True,
-                        "name": hw.gpu_name,
-                        "total_mib": int(hw.total_vram_mb),
-                        "free_mib": int(hw.free_vram_mb or hw.total_vram_mb),
-                    }
-                return {
-                    "ok": False,
-                    "name": "",
-                    "total_mib": 0,
-                    "free_mib": 0,
-                    "error": str(e),
-                }
-
-
-        # Back-compat alias -- some call sites/tests may still reference the
-        # old NVIDIA-specific name.
-        _eli_probe_nvidia_vram = _eli_probe_gpu_vram
-        globals()["_eli_probe_gpu_vram"] = _eli_probe_gpu_vram
-
-        def _eli_requested_runtime_from_kwargs(kwargs):
-            """
-            Pull requested runtime from the same source priority as raw load_model():
-            explicit kwargs -> GGUF env -> hw_profile settings -> canonical settings -> config defaults.
-
-            hw_profile_* values are preferred over canonical values when they exist —
-            they are the hardware-calibrated baseline that is known to work on this
-            machine without OOM.  Canonical values (user spinbox) may be larger
-            sentinel values (e.g. n_gpu_layers=9999) that the GPU cannot satisfy.
-            """
-            try:
-                _settings = _load_runtime_settings()
-            except Exception:
-                _settings = {}
-
-            try:
-                from eli.core import config as _eli_cfg
-            except Exception:
-                _eli_cfg = None
-
-            def cfg_value(name, fallback):
-                if _eli_cfg is None:
-                    return fallback
-                try:
-                    fn = getattr(_eli_cfg, name, None)
-                    if callable(fn):
-                        return fn()
-                except Exception:
-                    _SWLOG.debug("suppressed exception", exc_info=True)
-                return fallback
-
-            # hw_profile_* values are the hardware-calibrated baseline.
-            # Prefer them over canonical settings when the canonical looks like
-            # a sentinel (>= 9000 for gpu_layers, very large for ctx).
-            _hw_ctx   = _eli_adapt_int(_settings.get("hw_profile_n_ctx"), 0)
-            _hw_gpu   = _eli_adapt_int(_settings.get("hw_profile_n_gpu_layers"), 0)
-            _hw_batch = _eli_adapt_int(_settings.get("hw_profile_batch_size"), 0)
-
-            _raw_ctx = _eli_adapt_int(
-                kwargs.get("n_ctx")
-                or kwargs.get("ctx")
-                or _eli_adapt_os.environ.get("ELI_GGUF_N_CTX")
-                or _runtime_value(_settings, "n_ctx", "context_size")
-                or cfg_value("get_gguf_n_ctx", 0),
-                0,
-            ) or _requested_ctx(_settings, get_model_path())
-            _raw_gpu = _eli_adapt_int(
-                kwargs.get("n_gpu_layers")
-                or kwargs.get("gpu_layers")
-                or _eli_adapt_os.environ.get("ELI_GGUF_N_GPU_LAYERS")
-                or _runtime_value(_settings, "gpu_layers", "n_gpu_layers")
-                or cfg_value("get_gguf_n_gpu_layers", 0),
-                0,
-            )
-            _raw_batch = _eli_adapt_int(
-                kwargs.get("n_batch")
-                or kwargs.get("batch_size")
-                or kwargs.get("batch")
-                or _eli_adapt_os.environ.get("ELI_GGUF_N_BATCH")
-                or _runtime_value(_settings, "batch_size", "n_batch")
-                or cfg_value("get_gguf_n_batch", 512),
-                512,
-            )
-
-            # hw_profile_n_gpu_layers is the VRAM-calibrated ceiling for this model on this machine.
-            # Clamp any resolved value above it or the first load OOMs. 99 ("all layers fit") is
-            # never exceeded by a real count, so a smaller real request is left alone.
-            if _hw_gpu > 0 and _raw_gpu > _hw_gpu:
-                _raw_gpu = _hw_gpu
-            if _hw_ctx > 0 and _raw_ctx > _hw_ctx * 1.5:
-                # Canonical ctx is significantly larger than hw-recommended —
-                # use hw_profile as base to avoid OOM on the first attempt.
-                _raw_ctx = _hw_ctx
-            if _hw_batch > 0 and _raw_batch > _hw_batch * 2:
-                _raw_batch = _hw_batch
-
-            return {
-                "n_ctx": _raw_ctx,
-                "n_gpu_layers": _raw_gpu,
-                "n_batch": _raw_batch,
-            }
-
-        def _eli_unique_candidates(candidates):
-            seen = set()
-            out = []
-            for c in candidates:
-                if not c.get("override"):
-                    key = ("raw",)
-                else:
-                    key = (int(c["n_ctx"]), int(c["n_gpu_layers"]), int(c["n_batch"]))
-                if key in seen:
-                    continue
-                seen.add(key)
-                out.append(c)
-            return out
-
-        def _eli_build_adaptive_candidates(requested, gpu):
-            """
-            Fallback ladder for a load that failed: the request, then the fit measured for this
-            model at the VRAM free now, then that fit with less of everything. Every size comes
-            from the request or the measurement; no card tiers, no fixed context sizes.
-            """
-            req_ctx = int(requested.get("n_ctx") or 0)
-            if req_ctx <= 0:
-                req_ctx = int(context_window() or 0)
-            req_gpu = max(0, int(requested.get("n_gpu_layers") or 0))
-            req_batch = max(32, int(requested.get("n_batch") or 0) or int(
-                _eli_adapt_os.environ.get("ELI_MIN_BATCH", "128") or "128"))
-
-            # Never more context than the model was trained for (stale config can ask for more
-            # than a small model attends, which garbles output).
-            _train_ctx = _model_train_ctx()
-            if _train_ctx > 0:
-                req_ctx = min(req_ctx, _train_ctx) if req_ctx > 0 else _train_ctx
-            _grain = 2048
-            _min_batch = max(32, int(_eli_adapt_os.environ.get("ELI_MIN_BATCH", "128") or "128"))
-
-            free = int(gpu.get("free_mib") or 0)
-
-            candidates = []
-
-            # Known-good first: if an earlier load published its effective config, try that before the raw
-            # request. It puts a reload (e.g. after a vision hot-swap) back on the profile that fit. The
-            # ladder below is the safety net.
-            try:
-                _ov = globals().get("_live_runtime_override") or {}
-                _ov_ctx = int(_ov.get("n_ctx") or 0)
-                _ov_gpu = _ov.get("n_gpu_layers")
-                if _ov_ctx >= 512 and _ov_gpu is not None:
-                    candidates.append({
-                        "label": "live-override (last known-good)",
-                        "override": True,
-                        "n_ctx": min(_ov_ctx, _train_ctx) if _train_ctx > 0 else _ov_ctx,
-                        "n_gpu_layers": max(0, int(_ov_gpu)),
-                        "n_batch": max(32, int(_ov.get("n_batch") or req_batch)),
-                    })
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-
-            # First real attempt. When the trained context is known, force an explicit
-            # capped override (never pass the stale-large raw config through, which would
-            # load past n_ctx_train); otherwise fall back to the raw requested config.
-            if _train_ctx > 0:
-                candidates.append({
-                    "label": "requested-ctx-capped-to-train",
-                    "override": True,
-                    "n_ctx": req_ctx,
-                    "n_gpu_layers": req_gpu,
-                    "n_batch": req_batch,
-                })
-            else:
-                candidates.append({
-                    "label": "requested/raw-no-override",
-                    "override": False,
-                })
-
-            # First real attempt. When the trained context is known, force an explicit
-            # capped override (never pass the stale-large raw config through, which would
-            # load past n_ctx_train); otherwise fall back to the raw requested config.
-            if _train_ctx > 0:
-                candidates.append({
-                    "label": "requested-ctx-capped-to-train",
-                    "override": True,
-                    "n_ctx": req_ctx,
-                    "n_gpu_layers": req_gpu,
-                    "n_batch": req_batch,
-                })
-            else:
-                candidates.append({
-                    "label": "requested/raw-no-override",
-                    "override": False,
-                })
-
-            # The fit for this model at the VRAM free now (its own tensor sizes and KV layout).
-            base = (req_ctx, req_gpu, req_batch)
-            try:
-                _mp = get_model_path()
-                if _mp and free > 0 and req_gpu > 0:
-                    from eli.core.hardware_profile import detect_hardware, unified_fit_config, vram_reserve_mb
-                    from eli.core.mem_units import file_size_gib
-                    _hw = detect_hardware()
-                    _kv_type = _cache_types(_load_runtime_settings())[0] or "f16"
-                    _fit = unified_fit_config(
-                        file_size_gib(_mp), free, _hw.available_ram_gb,
-                        user_ctx=max(_grain, req_ctx), user_batch=req_batch,
-                        reserve_mb=vram_reserve_mb(gpu_integrated=bool(getattr(_hw, "gpu_integrated", False))),
-                        kv_quantized=_kv_type.lower() not in ("f16", "bf16", "f32"), kv_cache_type=_kv_type,
-                        model_path=str(_mp), user_gpu_layers=req_gpu, min_batch=min(_min_batch, req_batch),
-                        gpu_integrated=bool(getattr(_hw, "gpu_integrated", False)))
-                    base = (int(_fit[0]), int(_fit[1]), int(_fit[2]))
-                    candidates.append({"label": "measured-fit", "override": True,
-                                       "n_ctx": base[0], "n_gpu_layers": base[1], "n_batch": base[2]})
-            except Exception:
-                _SWLOG.debug("measured fit unavailable for the fallback ladder", exc_info=True)
-
-            # Less of everything, relative to that fit: GPU layers and batch first, context last.
-            ctx, layers, batch = base
-            generic = []
-            step = 0
-            while True:
-                step += 1
-                layers = layers // 2
-                batch = max(min(batch, _min_batch), batch // 2)
-                if step % 2 == 0 or layers == 0:
-                    ctx = max(_grain, (ctx // 2 // _grain) * _grain) if ctx > _grain else ctx
-                generic.append((ctx, layers, batch, f"reduced-{step}"))
-                if layers == 0 and ctx <= _grain:
-                    break
-                if step > 24:
-                    break
-
-            for ctx, gpu_layers, batch, label in generic:
-                candidates.append({
-                    "label": label,
-                    "override": True,
-                    "n_ctx": max(512, int(ctx)),
-                    "n_gpu_layers": max(0, int(gpu_layers)),
-                    "n_batch": max(32, int(batch)),
-                })
-
-            return _eli_unique_candidates(candidates)
-
-        def _eli_apply_candidate_to_kwargs(raw_loader, kwargs, candidate):
-            if not candidate.get("override"):
-                return dict(kwargs)
-
-            sig = _eli_adapt_inspect.signature(raw_loader)
-            params = sig.parameters
-            accepts_kwargs = any(p.kind == p.VAR_KEYWORD for p in params.values())
-
-            def supported(name):
-                return accepts_kwargs or name in params
-
-            out = dict(kwargs)
-
-            if supported("n_ctx"):
-                out["n_ctx"] = int(candidate["n_ctx"])
-            elif supported("ctx"):
-                out["ctx"] = int(candidate["n_ctx"])
-
-            if supported("n_gpu_layers"):
-                out["n_gpu_layers"] = int(candidate["n_gpu_layers"])
-            elif supported("gpu_layers"):
-                out["gpu_layers"] = int(candidate["n_gpu_layers"])
-
-            if supported("n_batch"):
-                out["n_batch"] = int(candidate["n_batch"])
-            elif supported("batch_size"):
-                out["batch_size"] = int(candidate["n_batch"])
-            elif supported("batch"):
-                out["batch"] = int(candidate["n_batch"])
-
-            return out
-
-        def _eli_try_unload_after_failed_load():
-            try:
-                fn = globals().get("unload_model")
-                if callable(fn):
-                    fn()
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-
-        def _eli_candidate_env_overrides(candidate):
-            """
-            The raw GGUF load_model() reads runtime params from env/settings
-            internally and usually does not accept n_ctx/n_gpu_layers/n_batch
-            kwargs. Therefore fallback candidates must temporarily override the
-            GGUF env vars around the raw load call.
-            """
-            if not candidate.get("override"):
-                return {}
-
-            return {
-                "ELI_GGUF_N_CTX": str(int(candidate["n_ctx"])),
-                "ELI_GGUF_N_GPU_LAYERS": str(int(candidate["n_gpu_layers"])),
-                "ELI_GGUF_N_BATCH": str(int(candidate["n_batch"])),
-            }
-
-        def _eli_call_raw_load_with_candidate(args, kwargs, candidate):
-            overrides = _eli_candidate_env_overrides(candidate)
-            if not overrides:
-                return _ELI_RAW_GGUF_LOAD_MODEL(*args, **kwargs)
-
-            old_env = {k: _eli_adapt_os.environ.get(k) for k in overrides}
-
-            try:
-                for k, v in overrides.items():
-                    _eli_adapt_os.environ[k] = str(v)
-                return _ELI_RAW_GGUF_LOAD_MODEL(*args, **kwargs)
-            finally:
-                for k, old in old_env.items():
-                    if old is None:
-                        _eli_adapt_os.environ.pop(k, None)
-                    else:
-                        _eli_adapt_os.environ[k] = old
-
-        def get_adaptive_load_report():
-            return dict(_ELI_ADAPTIVE_LOAD_REPORT)
-
-        def load_model(*args, **kwargs):
-            """
-            Adaptive wrapper around the original GGUF load_model().
-
-            Contract:
-            - Try requested/raw config first.
-            - If llama_context creation fails, retry lower candidates.
-            - Never call a failed candidate impossible.
-            - Return the first successful load.
-            """
-            global _ELI_ADAPTIVE_LOAD_REPORT
-
-            if kwargs.pop("_eli_disable_adaptive_cold_loader", False):
-                return _ELI_RAW_GGUF_LOAD_MODEL(*args, **kwargs)
-
-            # Fast path: model already loaded and no force_reload, so return it without the VRAM
-            # probe or candidate loop.
-            _force = kwargs.get("force_reload", False) or (args and args[0])
-            if _llm is not None and not _force:
-                return _llm
-
-            # A missing model path isn't a VRAM problem and no candidate can fix it; retrying all of
-            # them tore the loaded model down each time. Fail once, immediately, without unloading
-            # anything.
-            try:
-                if get_model_path() is None:
-                    raise FileNotFoundError("No GGUF model path configured")
-            except FileNotFoundError:
-                raise
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-
-            requested = _eli_requested_runtime_from_kwargs(kwargs)
-            gpu = _eli_probe_gpu_vram()
-            candidates = _eli_build_adaptive_candidates(requested, gpu)
-
-            _ELI_ADAPTIVE_LOAD_REPORT = {
-                "ok": False,
-                "requested": requested,
-                "gpu_probe": gpu,
-                "attempts": [],
-                "selected": None,
-                "started_at": _eli_adapt_time.time(),
-            }
-
-            last_error = None
-
-            for idx, candidate in enumerate(candidates, start=1):
-                call_kwargs = _eli_apply_candidate_to_kwargs(
-                    _ELI_RAW_GGUF_LOAD_MODEL,
-                    kwargs,
-                    candidate,
-                )
-
-                attempt = {
-                    "attempt": idx,
-                    "label": candidate.get("label", ""),
-                    "override": bool(candidate.get("override")),
-                    "n_ctx": candidate.get("n_ctx"),
-                    "n_gpu_layers": candidate.get("n_gpu_layers"),
-                    "n_batch": candidate.get("n_batch"),
-                    "ok": False,
-                    "error": "",
-                }
-
-                try:
-                    if candidate.get("override"):
-                        log.debug(
-                            "[GGUF][ADAPTIVE] load attempt "
-                            f"{idx}: ctx={candidate.get('n_ctx')} "
-                            f"gpu_layers={candidate.get('n_gpu_layers')} "
-                            f"batch={candidate.get('n_batch')} "
-                            f"label={candidate.get('label')}",
-                        )
-                    else:
-                        log.debug(
-                            "[GGUF][ADAPTIVE] load attempt "
-                            f"{idx}: requested/raw config label={candidate.get('label')}",
-                        )
-
-                    result = _eli_call_raw_load_with_candidate(args, call_kwargs, candidate)
-
-                    attempt["ok"] = True
-                    _ELI_ADAPTIVE_LOAD_REPORT["ok"] = True
-                    _ELI_ADAPTIVE_LOAD_REPORT["selected"] = attempt
-                    _ELI_ADAPTIVE_LOAD_REPORT["attempts"].append(attempt)
-                    _ELI_ADAPTIVE_LOAD_REPORT["finished_at"] = _eli_adapt_time.time()
-
-                    log.debug(
-                        "[GGUF][ADAPTIVE] load OK "
-                        f"attempt={idx} label={candidate.get('label')}",
-                    )
-                    return result
-
-                except Exception as e:
-                    last_error = e
-                    attempt["error"] = str(e)
-                    _ELI_ADAPTIVE_LOAD_REPORT["attempts"].append(attempt)
-
-                    log.debug(
-                        "[GGUF][ADAPTIVE] load failed on current runtime "
-                        f"attempt={idx} label={candidate.get('label')} error={e}",
-                    )
-
-                    _eli_try_unload_after_failed_load()
-
-                    if not getattr(e, "retryable", True):
-                        # A missing tensor, unknown architecture or corrupt file is a property of
-                        # the model and this build; every remaining candidate would fail the same
-                        # way, so stop.
-                        log.warning(
-                            "[GGUF][ADAPTIVE] unrecoverable on attempt %d; "
-                            "skipping the remaining %d candidate(s): %s",
-                            idx, max(0, len(candidates) - idx), e,
-                        )
-                        break
-
-            _ELI_ADAPTIVE_LOAD_REPORT["finished_at"] = _eli_adapt_time.time()
-
-            if last_error is not None:
-                raise last_error
-
-            return _ELI_RAW_GGUF_LOAD_MODEL(*args, **kwargs)
-
-        load_model._eli_adaptive_cold_loader = True
-
-        log.debug("[GGUF][ADAPTIVE] cold load fallback wrapper installed")
-
-except Exception as _eli_adaptive_loader_err:
-    log.debug(f"[GGUF][ADAPTIVE] cold load fallback wrapper failed: {_eli_adaptive_loader_err}")
-
-# Effective runtime snapshot: separates the requested config from the effective loaded one. No
-# GPU/VRAM config is treated as impossible.
-try:
-    if "load_model" in globals() and not getattr(load_model, "_eli_effective_runtime_snapshot_contract", False):
-        import json as _eli_eff_json
-        import os as _eli_eff_os
-        import time as _eli_eff_time
-        from pathlib import Path as _eli_eff_Path
-
-        _ELI_EFFECTIVE_PREV_LOAD_MODEL = load_model
-        _ELI_EFFECTIVE_PREV_GET_RUNTIME_SNAPSHOT = globals().get("get_runtime_snapshot")
-        _ELI_EFFECTIVE_RUNTIME_REPORT = {}
-
-        def _eli_eff_int(value, default=0):
-            try:
-                if value is None or value == "":
-                    return int(default)
-                return int(value)
-            except Exception:
-                return int(default)
-
-        def _eli_eff_snapshot_path():
-            from eli.core.paths import get_paths
-            return _eli_eff_Path(get_paths().artifacts_dir) / "runtime_snapshot.json"
-
-        def _eli_eff_read_json(path):
-            try:
-                p = _eli_eff_Path(path)
-                if p.exists():
-                    return _eli_eff_json.loads(p.read_text(encoding="utf-8"))
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-            return {}
-
-        def _eli_eff_write_json(path, payload):
-            try:
-                p = _eli_eff_Path(path)
-                p.parent.mkdir(parents=True, exist_ok=True)
-                p.write_text(_eli_eff_json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
-            except Exception as e:
-                try:
-                    log.debug(f"[GGUF][EFFECTIVE] runtime snapshot write failed: {e}")
-                except Exception:
-                    _SWLOG.debug("suppressed exception", exc_info=True)
-
-        def _eli_eff_call_or_attr(obj, name):
-            try:
-                val = getattr(obj, name, None)
-                if callable(val):
-                    return val()
-                return val
-            except Exception:
-                return None
-
-        def _eli_eff_nested_int(obj, containers):
-            for container_name, names in containers:
-                try:
-                    container = getattr(obj, container_name, None)
-                    if container is None:
-                        continue
-                    for name in names:
-                        val = _eli_eff_call_or_attr(container, name)
-                        if val not in (None, ""):
-                            return _eli_eff_int(val, 0)
-                except Exception:
-                    continue
-            return 0
-
-        def _eli_eff_llm_int(llm, key):
-            if llm is None:
-                return 0
-
-            direct_names = {
-                "n_ctx": ("n_ctx", "ctx", "context_size"),
-                "n_gpu_layers": ("n_gpu_layers", "gpu_layers"),
-                "n_threads": ("n_threads", "threads"),
-                "n_batch": ("n_batch", "batch_size", "batch"),
-            }.get(key, (key,))
-
-            for name in direct_names:
-                val = _eli_eff_call_or_attr(llm, name)
-                if val not in (None, ""):
-                    return _eli_eff_int(val, 0)
-
-            nested = {
-                "n_ctx": (
-                    ("context_params", ("n_ctx",)),
-                    ("params", ("n_ctx",)),
-                ),
-                "n_gpu_layers": (
-                    ("model_params", ("n_gpu_layers", "gpu_layers")),
-                    ("params", ("n_gpu_layers", "gpu_layers")),
-                ),
-                "n_threads": (
-                    ("context_params", ("n_threads", "threads")),
-                    ("params", ("n_threads", "threads")),
-                ),
-                "n_batch": (
-                    ("context_params", ("n_batch", "batch_size", "batch")),
-                    ("params", ("n_batch", "batch_size", "batch")),
-                ),
-            }.get(key, ())
-
-            return _eli_eff_nested_int(llm, nested)
-
-        def _eli_eff_current_model_path(existing=None):
-            existing = existing or {}
-            for key in ("model_path", "path"):
-                val = existing.get(key)
-                if val:
-                    return str(val)
-            try:
-                val = globals().get("MODEL_PATH") or globals().get("model_path")
-                if val:
-                    return str(val)
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-            try:
-                from eli.core import config
-                val = config.get_gguf_model_path()
-                if val:
-                    return str(val)
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-            return ""
-
-        def _eli_eff_requested(existing=None, adaptive=None):
-            existing = existing or {}
-            adaptive = adaptive or {}
-
-            previous_requested = existing.get("requested") if isinstance(existing.get("requested"), dict) else {}
-            adaptive_requested = adaptive.get("requested") if isinstance(adaptive.get("requested"), dict) else {}
-
-            # The raw loader writes its resolved parameters to runtime_snapshot.json before this wrapper
-            # rewrites it, so those values are the best evidence of what was requested. Legacy aliases like
-            # ELI_N_GPU_LAYERS can be stale, last resort only.
-            raw_snapshot_requested = {
-                "n_ctx": existing.get("requested_n_ctx") or existing.get("n_ctx"),
-                "n_gpu_layers": existing.get("requested_n_gpu_layers") or existing.get("n_gpu_layers"),
-                "n_threads": existing.get("requested_n_threads") or existing.get("n_threads"),
-                "n_batch": existing.get("requested_n_batch") or existing.get("n_batch") or existing.get("batch_size"),
-            }
-
-            def pick(key, gguf_env, *legacy_envs):
-                return _eli_eff_int(
-                    raw_snapshot_requested.get(key)
-                    or adaptive_requested.get(key)
-                    or previous_requested.get(key)
-                    or _eli_eff_os.environ.get(gguf_env)
-                    or next((_eli_eff_os.environ.get(k) for k in legacy_envs if _eli_eff_os.environ.get(k)), None)
-                    or 0
-                )
-
-            return {
-                "n_ctx": pick("n_ctx", "ELI_GGUF_N_CTX", "ELI_N_CTX"),
-                "n_gpu_layers": pick("n_gpu_layers", "ELI_GGUF_N_GPU_LAYERS", "ELI_N_GPU_LAYERS", "ELI_GPU_LAYERS"),
-                "n_threads": pick("n_threads", "ELI_GGUF_N_THREADS", "ELI_N_THREADS"),
-                "n_batch": pick("n_batch", "ELI_GGUF_N_BATCH", "ELI_BATCH_SIZE"),
-            }
-
-        def _eli_eff_adaptive_report():
-            try:
-                fn = globals().get("get_adaptive_load_report")
-                if callable(fn):
-                    rep = fn()
-                    if isinstance(rep, dict):
-                        return dict(rep)
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-            return {}
-
-        def _eli_eff_effective(llm=None, existing=None, adaptive=None):
-            existing = existing or {}
-            adaptive = adaptive or {}
-            selected = adaptive.get("selected") if isinstance(adaptive.get("selected"), dict) else {}
-            previous_effective = existing.get("effective") if isinstance(existing.get("effective"), dict) else {}
-
-            effective = {}
-            for key in ("n_ctx", "n_gpu_layers", "n_threads", "n_batch"):
-                selected_value = selected.get(key)
-                live_value = _eli_eff_llm_int(llm, key)
-                previous_value = previous_effective.get(key)
-                legacy_value = existing.get(key)
-
-                # The live object outranks the selected candidate: `selected` is the plan, `live` is
-                # what llama.cpp was built with. Reporting the plan contradicted llama.cpp's own
-                # "offloaded 16/66". Effective means real.
-                effective[key] = _eli_eff_int(
-                    live_value if live_value not in (None, "") else
-                    selected_value if selected_value not in (None, "") else
-                    previous_value if previous_value not in (None, "") else
-                    legacy_value if legacy_value not in (None, "") else
-                    0
-                )
-
-            # If the runtime explicitly reports that GPU offload is unsupported,
-            # effective GPU layers must be 0 even if requested settings were >0.
-            _gpu_supported = existing.get("gpu_offload_supported")
-            if isinstance(_gpu_supported, str):
-                _low = _gpu_supported.strip().lower()
-                if _low in ("false", "0", "no", "off"):
-                    _gpu_supported = False
-                elif _low in ("true", "1", "yes", "on"):
-                    _gpu_supported = True
-            if _gpu_supported is False and _eli_eff_int(effective.get("n_gpu_layers"), 0) > 0:
-                effective["n_gpu_layers"] = 0
-
-            return effective
-
-        def _eli_eff_build_runtime_report(llm=None, *, source="unknown", existing=None):
-            existing = existing or _eli_eff_read_json(_eli_eff_snapshot_path())
-            adaptive = _eli_eff_adaptive_report()
-            requested = _eli_eff_requested(existing, adaptive)
-            effective = _eli_eff_effective(llm, existing, adaptive)
-
-            # If a value truly cannot be read from live/runtime evidence, preserve
-            # requested value as fallback. IMPORTANT: effective `0` is valid for
-            # n_gpu_layers when GPU offload is unavailable; do not overwrite it.
-            for key in ("n_ctx", "n_gpu_layers", "n_threads", "n_batch"):
-                val = effective.get(key, None)
-                if val in (None, ""):
-                    effective[key] = requested.get(key, 0)
-
-            model_path = _eli_eff_current_model_path(existing)
-            model_name = ""
-            try:
-                model_name = _eli_eff_Path(model_path).name if model_path else str(existing.get("model_name") or "")
-            except Exception:
-                model_name = str(existing.get("model_name") or "")
-
-            payload = dict(existing)
-            payload.update({
-                "provider": "gguf",
-                "model_path": model_path,
-                "model_name": model_name,
-                "loaded": llm is not None or bool(existing.get("loaded")),
-                "pid": _eli_eff_os.getpid(),
-                "ts": _eli_eff_time.time(),
-                "runtime_contract": "requested_effective_split",
-                "runtime_source": source,
-                "requested": requested,
-                "effective": effective,
-                "adaptive_load_report": adaptive,
-                "gpu_offload_supported": existing.get("gpu_offload_supported"),
-                "load_mode": "GPU" if int(effective.get("n_gpu_layers") or 0) > 0 else "CPU",
-                # Legacy compatibility: top-level runtime values now mean effective.
-                "n_ctx": int(effective.get("n_ctx") or 0),
-                "n_gpu_layers": int(effective.get("n_gpu_layers") or 0),
-                "n_threads": int(effective.get("n_threads") or 0),
-                "n_batch": int(effective.get("n_batch") or 0),
-                "batch_size": int(effective.get("n_batch") or 0),
-                # Explicit requested aliases for old renderers/tests.
-                "requested_n_ctx": int(requested.get("n_ctx") or 0),
-                "requested_n_gpu_layers": int(requested.get("n_gpu_layers") or 0),
-                "requested_n_threads": int(requested.get("n_threads") or 0),
-                "requested_n_batch": int(requested.get("n_batch") or 0),
-            })
-            if payload.get("loaded"):
-                try:
-                    from eli.runtime.inference_footprint import read_live_inference_memory
-                    live = read_live_inference_memory(llm=llm, snap=payload)
-                    if live.get("measured_at_load"):
-                        payload["live_inference_memory"] = live["measured_at_load"]
-                    else:
-                        payload["live_inference_memory"] = {
-                            k: v for k, v in live.items()
-                            if k in (
-                                "source", "ts", "pid", "model_bytes", "rss_bytes",
-                                "uss_bytes", "kv_state_bytes", "tokens_in_context",
-                                "inference_rss_bytes", "gpu_vram_bytes", "n_ctx_live",
-                            ) and v not in (None, "", 0)
-                        }
-                except Exception:
-                    _SWLOG.debug("suppressed exception", exc_info=True)
-            return payload
-
-        def get_effective_runtime_report():
-            return dict(_ELI_EFFECTIVE_RUNTIME_REPORT or _eli_eff_build_runtime_report(globals().get("_llm"), source="report_read"))
-
-        def get_runtime_snapshot():
-            global _ELI_EFFECTIVE_RUNTIME_REPORT
-            llm = globals().get("_llm")
-            existing = _eli_eff_read_json(_eli_eff_snapshot_path())
-            payload = _eli_eff_build_runtime_report(llm, source="get_runtime_snapshot", existing=existing)
-            _ELI_EFFECTIVE_RUNTIME_REPORT = dict(payload)
-            return dict(payload)
-
-        def load_model(*args, **kwargs):
-            global _ELI_EFFECTIVE_RUNTIME_REPORT
-            llm = _ELI_EFFECTIVE_PREV_LOAD_MODEL(*args, **kwargs)
-            payload = _eli_eff_build_runtime_report(llm, source="load_model_effective")
-            _ELI_EFFECTIVE_RUNTIME_REPORT = dict(payload)
-            _eli_eff_write_json(_eli_eff_snapshot_path(), payload)
-            try:
-                log.debug(
-                    "[GGUF][EFFECTIVE] "
-                    f"requested ctx={payload['requested'].get('n_ctx')} "
-                    f"gpu_layers={payload['requested'].get('n_gpu_layers')} "
-                    f"batch={payload['requested'].get('n_batch')} -> "
-                    f"effective ctx={payload['effective'].get('n_ctx')} "
-                    f"gpu_layers={payload['effective'].get('n_gpu_layers')} "
-                    f"batch={payload['effective'].get('n_batch')}",
-                )
-            except Exception:
-                _SWLOG.debug("suppressed exception", exc_info=True)
-            return llm
-
-        load_model._eli_effective_runtime_snapshot_contract = True
-        globals()["get_runtime_snapshot"] = get_runtime_snapshot
-        globals()["get_effective_runtime_report"] = get_effective_runtime_report
-        globals()["load_model"] = load_model
-
-        try:
-            log.debug("[GGUF][EFFECTIVE] requested/effective runtime snapshot contract installed")
-        except Exception:
-            _SWLOG.debug("suppressed exception", exc_info=True)
-
-except Exception as _eli_effective_runtime_err:
-    try:
-        log.debug(f"[GGUF][EFFECTIVE] runtime snapshot contract failed: {_eli_effective_runtime_err}")
-    except Exception:
-        _SWLOG.debug("suppressed exception", exc_info=True)

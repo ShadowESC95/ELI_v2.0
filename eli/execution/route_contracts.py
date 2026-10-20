@@ -124,6 +124,11 @@ __all__ = [
 ]
 
 
+# The arguments that name one thing a command acts on: an app, a site, a file, a search, a song. A
+# text argument (a note, a message) may hold several sentences; these may not.
+TARGET_ARGS = ("name", "target", "app", "url", "path", "query", "title", "song", "artist", "device")
+
+
 def is_command(intent: Any) -> bool:
     """Whether the router's answer for a message is an action to carry out: a rule matched
     (not the chat fallback) and what it names is neither conversation nor nothing."""

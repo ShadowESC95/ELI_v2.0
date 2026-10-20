@@ -18,18 +18,6 @@ def test_tier_from_env_override(monkeypatch):
     assert MT.tier_scale() == 2.5
 
 
-def test_embedded_template_family_detection():
-    cases = {"<|im_start|>": "chatml", "[gMASK]<|user|>": "glm",
-             "<|observation|>": "glm",
-             "<|start_header_id|>": "llama",
-             "<start_of_turn>": "gemma", "[INST]": "mistral",
-             "<|assistant|>": "phi", "novel{{x}}": None}
-    for tmpl, expect in cases.items():
-        GI._TEMPLATE_FAMILY_CACHE.clear()
-        with patch.object(GI, "_gguf_model_metadata", return_value={"tokenizer.chat_template": tmpl}):
-            assert GI._gguf_template_family() == expect
-
-
 def test_format_prompt_routes_by_family():
     from pathlib import Path
     # Filename last-resort (no template/arch) → chatml for openhermes-style name

@@ -696,8 +696,14 @@ class _Check:
                         + "I won't guess at a cause or promise a change a reply can't make. This is what the "
                           "audit ledger holds for the last turns:\n" + "\n".join(f"- {x}" for x in lines[-4:]))
             return "" if self.kept_words else "".join(self.dropped)  # never an empty reply
-        # A complaint is owed what the record holds as soon as anything was left out.
-        complaint = complains_about_eli(self._facts.get("user_input") or "")
+        # A complaint is owed what the record holds as soon as anything was left out. One that also
+        # tells ELI to do something ("...look it up!") is owed that being done, not an account of
+        # past turns pasted under the reply.
+        said = self._facts.get("user_input") or ""
+        from eli.runtime.command_splitter import tells_eli_to_do
+        if tells_eli_to_do(said):
+            return ""
+        complaint = complains_about_eli(said)
         if self._fault and lines and len(self.dropped) >= (1 if complaint else 3):
             return ("\n\nI've left out what I can't back from my own records. What the audit ledger holds "
                     "for the last turns:\n" + "\n".join(f"- {x}" for x in lines[-3:]))

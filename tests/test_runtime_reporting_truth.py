@@ -27,16 +27,7 @@ from eli.cognition import gguf_inference as gi
 
 
 # ── 1. "effective" means what the runtime really did ───────────────────────
-def test_effective_prefers_the_live_object_over_the_plan():
-    src = inspect.getsource(gi)
-    start = src.index("effective[key] = _eli_eff_int(")
-    window = src[start:start + 400]
-    live_at = window.index("live_value")
-    sel_at = window.index("selected_value")
-    assert live_at < sel_at, (
-        "the selected candidate outranks the live model again; a reduced load "
-        "will report the number it intended, not the one it used"
-    )
+# tests/test_runtime_snapshot_requested_ctx_batch.py: what loaded is read from the live model.
 
 
 # ── 2. the load parameters must actually be recorded ───────────────────────

@@ -759,45 +759,33 @@ def _gpu_status_report() -> Dict[str, Any]:
                             "higher than GPU mode.")
 
     if free is not None and total:
-        _free_pct = (float(free) / float(total)) * 100.0
-        # "Free" from nvidia-smi isn't spare: llama.cpp allocates its compute buffer lazily at first
-        # decode, so the reserve the loader held back still reads as free. Reporting it as headroom told
-        # the operator to raise settings into committed memory (the mid-generation CUDA aborts). Subtract
-        # what generation will take and report what's genuinely spare.
-        _committed = 0.0
+        # What reads free is spare except what llama.cpp still takes as it works: its compute buffers are
+        # allocated with the model, and what it adds on the first prompts was measured on this machine
+        # (eli/core/load_plan.py, headroom). The spare memory is turned into context this model's cache holds.
         try:
-            from eli.core.hardware_profile import (_compute_graph_reserve_mb,
-                                                   _CUDA_OVERHEAD_MB, vram_reserve_mb)
+            from eli.core.hardware_profile import model_cost, vram_reserve_mb
+            _lazy = float(vram_reserve_mb())
+        except Exception:
+            model_cost, _lazy = None, 0.0
+        _spare = max(0.0, float(free) - _lazy)
+        _reading.append(f"- {free:.0f} MiB of {total:.0f} MiB VRAM free"
+                        + (f", {_lazy:.0f} MiB of it what llama.cpp was measured to add as it works" if _lazy else "")
+                        + ".")
+        _more = None
+        try:
             _eff_r = (runtime_snapshot or {}).get("effective") or runtime_snapshot or {}
             _c = int(_eff_r.get("n_ctx") or 0)
-            _b = int(_eff_r.get("n_batch") or 0)
-            if _c > 0 and _b > 0:
-                _committed = (float(_compute_graph_reserve_mb(_c, _b))
-                              + float(_CUDA_OVERHEAD_MB) + float(vram_reserve_mb()))
+            _cost = model_cost((runtime_snapshot or {}).get("model_path"),
+                               kv_cache_type=str((runtime_snapshot or {}).get("cache_type_k") or "") or None) \
+                if model_cost and _c > 0 else None
+            if _cost is not None:
+                _per_token = (_cost.kv_mb(_c + 1024) - _cost.kv_mb(_c)) / 1024.0
+                _more = int(_spare / _per_token) if _per_token > 0 else None
         except Exception:
-            _committed = 0.0
-        _spare = float(free) - _committed
-        if _committed > 0:
-            _reading.append(
-                f"- {free:.0f} MiB of {total:.0f} MiB VRAM reads free ({_free_pct:.1f}%), but "
-                f"{_committed:.0f} MiB is already committed to generation (compute buffer, "
-                f"CUDA overhead and the kept reserve) — llama.cpp allocates it lazily at the "
-                f"first decode.")
-            if _spare >= 512:
-                _reading.append(
-                    f"- Genuinely spare: {_spare:.0f} MiB — room to raise context or batch.")
-            else:
-                _reading.append(
-                    "- Genuinely spare: none to speak of. Raising context, batch or GPU "
-                    "layers from here is what aborts mid-generation.")
-        elif _free_pct < 10:
-            _reading.append(
-                f"- {free:.0f} MiB of {total:.0f} MiB VRAM free ({_free_pct:.1f}%): no headroom "
-                "to raise context or batch without lowering GPU layers.")
-        else:
-            _reading.append(
-                f"- {free:.0f} MiB of {total:.0f} MiB VRAM free ({_free_pct:.1f}%): headroom "
-                "available for a larger context or batch.")
+            _more = None
+        _reading.append(f"- Spare: {_spare:.0f} MiB"
+                        + (f", room for about {_more} more tokens of context for this model." if _more is not None
+                           else "."))
 
     if _reading:
         lines.extend(["", "Performance reading:"] + _reading)
@@ -7755,19 +7743,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     depth = "standard"
             # 1. Take screenshot
             from eli.perception.os_controller import take_screenshot
-            ss_result = take_screenshot(region=str(args.get("area") or args.get("region") or "full"))
+            ss_result = take_screenshot(region=str(args.get("area") or args.get("region") or "full"), keep=False)
             ss_path = ss_result.get("path") or ss_result.get("file") or ""
-            if not ss_path or not Path(ss_path).exists():
-                try:
-                    import subprocess as _sp
-                    tmp = tempfile.NamedTemporaryFile(suffix=".png", delete=False)
-                    tmp.close()
-                    _sp.run(["scrot", tmp.name], check=True)
-                    ss_path = tmp.name
-                except Exception:
-                    return {"ok": False, "action": a,
-                            "error": "Screenshot failed — no screenshot path returned.",
-                            "content": "Screenshot failed.", "response": "Screenshot failed."}
+            if not ss_result.get("ok") or not ss_path or not Path(ss_path).exists():
+                why = str(ss_result.get("error") or "no picture of the screen came back")
+                return {"ok": False, "action": a, "error": why,
+                        "content": f"I couldn't see the screen: {why}", "response": f"I couldn't see the screen: {why}"}
             _sra_prompt = build_screen_analysis_prompt(
                 user_q,
                 explicit_prompt=str(args.get("prompt") or args.get("instruction") or "").strip(),
@@ -11700,6 +11681,37 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "content": msg, "response": msg, "web_grounded": True}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- WEB_FETCH — read a linked page so ELI can answer about it ----
+    if a == "WEB_FETCH":
+        url = str(args.get("url") or "").strip()
+        if not url:
+            return {"ok": False, "action": a, "error": "No link given", "content": "Give me the link to read.",
+                    "response": "Give me the link to read."}
+        try:
+            from eli.core.config import network_allowed
+            _net = network_allowed()
+        except Exception:
+            _net = False
+        if not _net:
+            msg = (f"I can't read {url} right now: network access is off. Turn on the Net toggle and ask "
+                   "again. I won't guess at what the page says.")
+            return {"ok": False, "action": a, "url": url, "offline": True, "content": msg, "response": msg}
+        try:
+            from eli.plugins.web.plugin import read_page
+            page = read_page(url)
+        except Exception as e:
+            msg = f"I couldn't read {url}: {e}. I won't guess at what it says."
+            return {"ok": False, "action": a, "url": url, "error": str(e), "content": msg, "response": msg}
+        if not page["text"].strip():
+            msg = f"{url} came back with no readable text (it may need a browser to run its scripts)."
+            return {"ok": False, "action": a, "url": url, "content": msg, "response": msg}
+        head = f"The page {page['title'] or url} ({url})"
+        msg = (f"{head}, as fetched just now (authoritative — answer from it, not prior knowledge)"
+               f"{'; its first part only' if page['truncated'] else ''}:\n{page['text']}")
+        return {"ok": True, "action": a, "url": url, "title": page["title"],
+                "results": [{"title": page["title"] or url, "href": url, "body": page["text"][:220]}],
+                "content": msg, "response": msg, "web_grounded": True}
 
     # ---- SPEAK ----
     if a == "SPEAK":

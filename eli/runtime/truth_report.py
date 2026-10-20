@@ -150,53 +150,25 @@ def _git_info(root: Path) -> Dict[str, Any]:
     }
 
 
-def _gpu_hardware_fallback() -> Dict[str, Any]:
-    # Cross-vendor: ELI ships to AMD/Intel/Apple/Qualcomm machines too. This reported {"available":
-    # False} on all of them as soon as nvidia-smi wasn't found, the same class of bug fixed in
-    # self_status.py and executor_enhanced.py's GPU_STATUS.
+def _gpu_info() -> Dict[str, Any]:
+    """Every GPU, from the one telemetry reader (hardware_profile.get_live_gpu_telemetry)."""
     try:
-        from eli.core.hardware_profile import detect_hardware
-        hw = detect_hardware()
+        from eli.core.hardware_profile import get_live_gpu_telemetry
+        t = get_live_gpu_telemetry()
     except Exception as exc:
         return {"available": False, "error": type(exc).__name__ + ": " + str(exc)}
-    if not hw.has_gpu:
+    if not t.get("ok"):
         return {"available": False}
     return {
         "available": True,
-        "name": hw.gpu_name,
-        "vendor": hw.gpu_vendor,
-        "memory_total_mib": int(hw.total_vram_mb) if hw.total_vram_mb else None,
-        "estimated": bool(hw.gpu_detection_uncertain),
+        "name": t.get("name") or "",
+        "vendor": t.get("vendor") or "",
+        "memory_total_mib": t.get("total_mb"),
+        "memory_free_mib": t.get("free_mb"),
+        "driver": t.get("driver") or "",
+        "estimated": bool(t.get("estimated") or t.get("live_probe_failed")),
+        "devices": list(t.get("devices") or []),
     }
-
-
-def _nvidia_info() -> Dict[str, Any]:
-    try:
-        out = subprocess.check_output(
-            [
-                "nvidia-smi",
-                "--query-gpu=name,memory.total,memory.free,driver_version",
-                "--format=csv,noheader,nounits",
-            ],
-            text=True,
-            stderr=subprocess.DEVNULL,
-            timeout=3,
-        ).strip()
-        if not out:
-            return _gpu_hardware_fallback()
-        first = out.splitlines()[0]
-        parts = [p.strip() for p in first.split(",")]
-        return {
-            "available": True,
-            "name": parts[0] if len(parts) > 0 else "",
-            "memory_total_mib": int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else parts[1] if len(parts) > 1 else None,
-            "memory_free_mib": int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else parts[2] if len(parts) > 2 else None,
-            "driver": parts[3] if len(parts) > 3 else "",
-        }
-    except Exception as exc:
-        rep = _gpu_hardware_fallback()
-        rep.setdefault("nvidia_smi_error", type(exc).__name__ + ": " + str(exc))
-        return rep
 
 
 def _safe_getattr(obj: Any, names: list[str]) -> Any:
@@ -363,7 +335,7 @@ def runtime_truth_report(engine: Any = None) -> Dict[str, Any]:
         "runtime_snapshot": snapshot,
         "load_facts": runtime_load_facts(snapshot, settings),
         "environment": {k: os.environ.get(k) for k in env_keys if os.environ.get(k) is not None},
-        "gpu": _nvidia_info(),
+        "gpu": _gpu_info(),
         "gguf": _gguf_runtime(),
         "engine": engine_info,
         "import_health": import_health(),

@@ -226,7 +226,7 @@ def test_the_fit_uses_the_files_sizes(tmp_path):
     from_file = hp.unified_fit_config(size_gb, 6000, 32.0, model_path=path, **kw)
     by_size = hp.unified_fit_config(size_gb, 6000, 32.0, model_path=str(tmp_path / "missing.gguf"),
                                     total_layers=32, **kw)
-    assert from_file[1] > by_size[1]
+    assert from_file[1] == -1 and 0 < by_size[1] < 32      # -1: every layer
 
 
 def test_an_unreadable_file_falls_back_to_the_estimate(tmp_path):

@@ -207,7 +207,7 @@ _FAMILIES = (
     (r"\b(?:apps?|applications?|programs?|open(?:ed)?|launch\w*|closed?)\b",
      lambda a: a.startswith(("OPEN_", "CLOSE_", "FOCUS_"))),
     (r"\b(?:search\w*|web|google\w*|looked?\s+up|news|websites?|sites?)\b",
-     lambda a: a in ("WEB_SEARCH", "NEWS_FETCH", "OPEN_URL", "OPEN_BROWSER", "MORNING_REPORT")),
+     lambda a: a in ("WEB_SEARCH", "WEB_FETCH", "NEWS_FETCH", "OPEN_URL", "OPEN_BROWSER", "MORNING_REPORT")),
     (r"\b(?:timers?|alarms?|remind\w*|schedul\w*)\b",
      lambda a: a in ("SET_TIMER", "SET_ALARM", "SCHEDULE_TASK") or a.startswith("POMODORO")),
     (r"\b(?:files?|documents?|pdfs?|notes?|scripts?)\b",

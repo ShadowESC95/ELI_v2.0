@@ -50,9 +50,15 @@ def test_defaults_has_temperature():
 def test_defaults_has_n_gpu_layers():
     assert "n_gpu_layers" in DEFAULTS
 
-def test_defaults_has_n_threads():
-    assert "n_threads" in DEFAULTS
-    assert DEFAULTS["n_threads"] >= 1
+def test_defaults_has_n_threads(monkeypatch):
+    """0 is auto: one thread per physical core, worked out on the machine at every load."""
+    from eli.core import config
+    from eli.core.hardware_profile import recommend_cpu_threads
+    assert DEFAULTS["n_threads"] == 0
+    for var in ("ELI_GGUF_THREADS", "ELI_N_THREADS", "ELI_CPU_THREADS"):
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setattr(config, "get", lambda key, default=None: 0 if key == "n_threads" else default)
+    assert config.get_n_threads() == recommend_cpu_threads()
 
 def test_defaults_has_batch_size():
     assert "batch_size" in DEFAULTS

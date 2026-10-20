@@ -67,6 +67,13 @@ def test_a_clamp_is_detected_without_any_flag():
     assert gap["reduced"]["n_gpu_layers"] == {"requested": 99, "effective": 49}
 
 
+def test_every_layer_asked_and_none_loaded_is_a_clamp():
+    """-1 is llama.cpp's every layer; a load that fell to the processor is the largest reduction."""
+    snap = dict(AS_REQUESTED, requested=dict(AS_REQUESTED["requested"], n_gpu_layers=-1),
+                effective=dict(AS_REQUESTED["effective"], n_gpu_layers=0))
+    assert runtime_load_gap(snap)["reduced"]["n_gpu_layers"] == {"requested": -1, "effective": 0}
+
+
 def test_an_explicit_flag_still_wins_when_a_writer_provides_one():
     """eli/gui/app.py does set it; that writer must not be second-guessed."""
     assert runtime_load_gap(dict(AS_REQUESTED, clamped=True))["clamped"] is True
@@ -137,28 +144,22 @@ def test_a_clamped_load_names_what_was_reduced(gpu_report):
 
 
 def test_headroom_is_read_from_the_measured_vram(gpu_report):
-    """Still read from measured VRAM — and now net of what generation will take.
-
-    nvidia-smi "free" is not spare: llama.cpp allocates the compute/graph buffer
-    LAZILY at the first decode, so the reserve the loader kept back still reads
-    as free. Reporting it as headroom told the operator to raise settings into
-    memory already committed — the over-commit that aborted the process at
-    2.2.7 and 2.2.9. The measured figure is unchanged; the advice is now honest.
-    """
+    """Read from measured VRAM, net of what llama.cpp still takes as it works. Its compute buffers
+    are allocated with the model (measured 2026-10-19: the free figure after a load matched the plan
+    within 16 MB on both cards), so what reads free is spare except that measured remainder."""
     tight = gpu_report(AS_REQUESTED, SMI_TIGHT)
-    assert "260 MiB of 8192 MiB VRAM reads free (3.2%)" in tight
-    assert "none to speak of" in tight
-
+    assert "260 MiB of 8192 MiB VRAM free" in tight and "Spare: 260 MiB" in tight
     roomy = gpu_report(AS_REQUESTED, SMI_ROOMY)
-    assert "6144 MiB of 8192 MiB VRAM reads free (75.0%)" in roomy
-    assert "Genuinely spare:" in roomy
+    assert "6144 MiB of 8192 MiB VRAM free" in roomy and "Spare: 6144 MiB" in roomy
 
 
-def test_committed_memory_is_named_not_hidden(gpu_report):
-    """The operator should be able to see WHY the free figure is not spare."""
+def test_what_llamacpp_still_takes_is_named_not_hidden(gpu_report, monkeypatch):
+    """The operator should be able to see WHY part of the free figure is not spare."""
+    import eli.core.hardware_profile as hp
+    monkeypatch.setattr(hp, "vram_reserve_mb", lambda **k: 60)
     txt = gpu_report(AS_REQUESTED, SMI_ROOMY)
-    assert "already committed to generation" in txt
-    assert "allocates it lazily at the first decode" in txt
+    assert "60 MiB of it what llama.cpp was measured to add as it works" in txt
+    assert "Spare: 6084 MiB" in txt
 
 
 def test_cpu_only_is_called_out(gpu_report):

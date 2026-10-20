@@ -28,6 +28,7 @@ writes mode_profiles or active_mode.
 from __future__ import annotations
 
 import copy
+import functools
 import os
 import re
 import sys
@@ -41,6 +42,7 @@ from pathlib import Path
 
 from eli.utils.log import get_logger
 from eli.core import mem_units
+from eli.core.runtime_settings import ALL_GPU_LAYERS
 
 log = get_logger(__name__)
 from typing import Any, Dict, List, Optional
@@ -50,48 +52,25 @@ from typing import Any, Dict, List, Optional
 _KV_BYTES_PER_TOKEN_PER_LAYER = 6_000
 _CUDA_OVERHEAD_MB = 350
 
-# GPU headroom we leave unallocated, one default (700MB, ELI_VRAM_RESERVE_MB). 250 looked fine
-# on paper but sat on a cliff: a 2060 SUPER with 6,346MB free said "all 99 layers fit" and
-# llama.cpp then refused to make the context. Lower it in the spin box if you want layers back.
-DEFAULT_VRAM_RESERVE_MB = 700
-# Integrated / unified-memory GPUs (Iris Xe, AMD APU, Adreno) share RAM and don't hit the CUDA
-# lazy-allocation cliff. A 700MB reserve on a ~1.4GB budget left no room for partial offload, so
-# every iGPU machine reported gpu_layers=0.
-DEFAULT_IGPU_VRAM_RESERVE_MB = 400
-
 
 def vram_reserve_mb(*, gpu_integrated: Optional[bool] = None) -> int:
-    """The VRAM headroom to keep free, honouring ELI_VRAM_RESERVE_MB.
-
-    Single source of truth: the startup spin box, the startup optimizer and both
-    loader paths all resolve through here, so they cannot disagree again.
-
-    Integrated GPUs use a lower default reserve unless ELI_IGPU_VRAM_RESERVE_MB or
-    ELI_VRAM_RESERVE_MB overrides it.
-    """
-    import os as _os
-    raw = (_os.environ.get("ELI_VRAM_RESERVE_MB") or "").strip()
+    """GPU memory to keep free beyond what a load itself takes, in MiB: the operator's own figure
+    (ELI_VRAM_RESERVE_MB), else the most llama.cpp was measured taking after a load on any GPU of this
+    machine (eli/core/load_plan.py, headroom), else 0 until something has been measured. The planner
+    asks per card (load_plan.headroom_mb); this is for the checks that look at the machine as a whole
+    (Whisper's place, the status report). It was a fixed 700 MB (400 on integrated GPUs), measured once
+    on one card: 34-82 MB is what two RTX 2060 SUPER needed. `gpu_integrated` is accepted for older
+    callers and changes nothing: integrated GPUs are measured the same way."""
+    raw = (os.environ.get("ELI_VRAM_RESERVE_MB") or "").strip()
+    if raw.isdigit() and int(raw) > 0:
+        return int(raw)
     try:
-        value = int(raw) if raw else DEFAULT_VRAM_RESERVE_MB
-    except ValueError:
-        value = DEFAULT_VRAM_RESERVE_MB
-    if value <= 0:
-        value = DEFAULT_VRAM_RESERVE_MB
-
-    if gpu_integrated is None:
-        try:
-            gpu_integrated = bool(getattr(detect_hardware(), "gpu_integrated", False))
-        except Exception:
-            gpu_integrated = False
-
-    if gpu_integrated and not raw:
-        igpu_raw = (_os.environ.get("ELI_IGPU_VRAM_RESERVE_MB") or "").strip()
-        try:
-            igpu_val = int(igpu_raw) if igpu_raw else DEFAULT_IGPU_VRAM_RESERVE_MB
-        except ValueError:
-            igpu_val = DEFAULT_IGPU_VRAM_RESERVE_MB
-        return min(value, igpu_val) if igpu_val > 0 else min(value, DEFAULT_IGPU_VRAM_RESERVE_MB)
-    return value
+        from eli.core import load_plan
+        seen = [load_plan.measured_headroom(d) for d in load_plan.devices()]
+        return int(round(max([h for h in seen if h is not None], default=0.0)))
+    except Exception:
+        log.debug("measured GPU headroom unavailable", exc_info=True)
+        return 0
 
 
 def _kv_cache_mb(n_ctx: int, n_layers: int = 32, quant: bool = False, *,
@@ -206,6 +185,7 @@ def layers_for_model(model_path: Optional[str] = None, size_gb: Optional[float] 
 @dataclass
 class HardwareProfile:
     cpu_threads: int = 1
+    cpu_cores: int = 0            # physical performance cores; 0 when not read
     ram_gb: float = 8.0
     available_ram_gb: float = 8.0
     has_gpu: bool = False
@@ -220,10 +200,15 @@ class HardwareProfile:
     # read (timeout, missing tool, permissions), as opposed to no GPU at all. has_gpu stays False
     # either way; reporting code uses this to say which.
     gpu_detection_uncertain: bool = False
+    # Each GPU on its own, as the vendor's tool or the driver reports it: {index, name, vendor,
+    # free_mb, total_mb, integrated}. free_vram_mb / total_vram_mb are their sums. llama.cpp's own
+    # device list (load_plan.devices) is what loads use; this is the view before it is loaded.
+    gpus: List[Dict[str, Any]] = field(default_factory=list)
 
     def to_dict(self) -> Dict[str, Any]:
         return {
             "cpu_threads": self.cpu_threads,
+            "cpu_cores": self.cpu_cores,
             "ram_gb": round(self.ram_gb, 1),
             "available_ram_gb": round(self.available_ram_gb, 1),
             "has_gpu": self.has_gpu,
@@ -235,6 +220,7 @@ class HardwareProfile:
             "total_vram_mb": self.total_vram_mb,
             "vram_gb": round(self.vram_gb, 1),
             "gpu_detection_uncertain": self.gpu_detection_uncertain,
+            "gpus": [dict(g) for g in self.gpus],
         }
 
 
@@ -437,54 +423,6 @@ def nvidia_smi_path() -> Optional[str]:
     return None
 
 
-def _windows_gpus() -> List[tuple]:
-    """[(name, vram_mb)] for every adapter on Windows, any vendor.
-
-    Uses CIM for the names and the driver registry for VRAM: WMI's AdapterRAM
-    is a signed 32-bit value and saturates at 4 GB, so an 8 GB card reports
-    4095 MB and the loader then under-provisions it. qwMemorySize in
-    HardwareInformation is 64-bit and correct.
-    """
-    if os.name != "nt":
-        return []
-    ps = shutil.which("powershell") or shutil.which("pwsh")
-    if not ps:
-        return []
-    script = (
-        "$ErrorActionPreference='SilentlyContinue';"
-        "Get-CimInstance Win32_VideoController | ForEach-Object {"
-        "  $n=$_.Name; $ram=0;"
-        "  $k=Get-ItemProperty -Path ('HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Class\\'"
-        "    +'{4d36e968-e325-11ce-bfc1-08002be10318}\\*') |"
-        "    Where-Object { $_.'HardwareInformation.qwMemorySize' -and $_.DriverDesc -eq $n } |"
-        "    Select-Object -First 1;"
-        "  if($k){ $ram=[int64]$k.'HardwareInformation.qwMemorySize' }"
-        "  elseif($_.AdapterRAM){ $ram=[int64]$_.AdapterRAM }"
-        "  '{0}|{1}' -f $n, $ram }"
-    )
-    try:
-        out = subprocess.check_output([ps, "-NoProfile", "-Command", script],
-                                      stderr=subprocess.DEVNULL, timeout=25)
-        text = out.decode("utf-8", "replace")
-    except Exception:
-        log.debug("windows GPU enumeration failed", exc_info=True)
-        return []
-    gpus = []
-    for line in text.splitlines():
-        if "|" not in line:
-            continue
-        name, _, ram = line.rpartition("|")
-        name = name.strip()
-        if not name or "microsoft basic display" in name.lower():
-            continue
-        try:
-            mb = int(int(ram.strip()) / (1024 * 1024))
-        except Exception:
-            mb = 0
-        gpus.append((name, mb))
-    return gpus
-
-
 def _macos_gpus() -> List[tuple]:
     """[(name, vram_mb)] on macOS. Apple Silicon reports unified memory."""
     if sys.platform != "darwin":
@@ -522,54 +460,145 @@ def _macos_gpus() -> List[tuple]:
     return gpus
 
 
-# Known factory VRAM for common NVIDIA cards, most specific name first. Used only when
-# nvidia-smi/NVML can't be queried (e.g. kernel module out of sync after an update, name still
-# readable from /proc). Multi-SKU cards list the smaller config; reduce-to-fit fixes an underestimate.
-_NVIDIA_VRAM_MB_BY_MODEL: tuple[tuple[str, int], ...] = (
-    ("rtx 4090", 24576), ("rtx 4080 super", 16384), ("rtx 4080", 16384),
-    ("rtx 4070 ti super", 16384), ("rtx 4070 ti", 12288), ("rtx 4070 super", 12288),
-    ("rtx 4070", 12288), ("rtx 4060 ti", 8192), ("rtx 4060", 8192),
-    ("rtx 3090 ti", 24576), ("rtx 3090", 24576), ("rtx 3080 ti", 12288),
-    ("rtx 3080", 10240), ("rtx 3070 ti", 8192), ("rtx 3070", 8192),
-    ("rtx 3060 ti", 8192), ("rtx 3060", 12288), ("rtx 3050", 8192),
-    ("rtx 2080 ti", 11264), ("rtx 2080 super", 8192), ("rtx 2080", 8192),
-    ("rtx 2070 super", 8192), ("rtx 2070", 8192),
-    ("rtx 2060 super", 8192), ("rtx 2060", 6144),
-    ("gtx 1660 ti", 6144), ("gtx 1660 super", 6144), ("gtx 1660", 6144),
-    ("gtx 1650 super", 4096), ("gtx 1650", 4096),
-    ("gtx 1080 ti", 11264), ("gtx 1080", 8192), ("gtx 1070 ti", 8192),
-    ("gtx 1070", 8192), ("gtx 1060", 3072), ("gtx 1050 ti", 4096), ("gtx 1050", 2048),
-    ("rtx a6000", 49152), ("rtx a5000", 24576), ("rtx a4000", 16384),
-    ("quadro rtx 8000", 49152), ("quadro rtx 6000", 24576),
-)
+def _windows_dxgi_adapters(software: bool = False) -> Optional[List[Dict[str, Any]]]:
+    """Every graphics adapter on Windows, any vendor, from DXGI (the API every Windows GPU driver
+    implements): name, vendor, dedicated memory, and — IDXGIAdapter3.QueryVideoMemoryInfo, Windows 10
+    and later — the memory budget Windows gives this process on that adapter and how much of it is
+    in use, so free memory is the driver's figure, not a guess. The software renderer is left out
+    unless `software` (a machine without a GPU, such as a CI runner, has only that one). None off
+    Windows or when DXGI cannot be asked."""
+    if os.name != "nt":
+        return None
+    import ctypes
+    from ctypes import wintypes
+
+    class _LUID(ctypes.Structure):
+        _fields_ = [("LowPart", wintypes.DWORD), ("HighPart", wintypes.LONG)]
+
+    class _DESC1(ctypes.Structure):
+        _fields_ = [("Description", wintypes.WCHAR * 128), ("VendorId", wintypes.UINT),
+                    ("DeviceId", wintypes.UINT), ("SubSysId", wintypes.UINT), ("Revision", wintypes.UINT),
+                    ("DedicatedVideoMemory", ctypes.c_size_t), ("DedicatedSystemMemory", ctypes.c_size_t),
+                    ("SharedSystemMemory", ctypes.c_size_t), ("AdapterLuid", _LUID), ("Flags", wintypes.UINT)]
+
+    class _MEMINFO(ctypes.Structure):
+        _fields_ = [("Budget", ctypes.c_uint64), ("CurrentUsage", ctypes.c_uint64),
+                    ("AvailableForReservation", ctypes.c_uint64), ("CurrentReservation", ctypes.c_uint64)]
+
+    class _GUID(ctypes.Structure):
+        _fields_ = [("Data1", wintypes.DWORD), ("Data2", wintypes.WORD), ("Data3", wintypes.WORD),
+                    ("Data4", ctypes.c_ubyte * 8)]
+
+    def _guid(text: str) -> "_GUID":
+        h = text.replace("-", "")
+        return _GUID(int(h[0:8], 16), int(h[8:12], 16), int(h[12:16], 16),
+                     (ctypes.c_ubyte * 8)(*bytes.fromhex(h[16:32])))
+
+    def _call(obj, index, restype, *types):
+        vtable = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
+        return ctypes.WINFUNCTYPE(restype, ctypes.c_void_p, *types)(vtable[index])
+
+    iid_factory1 = _guid("770aae78-f26f-4dba-a829-253c83d1b387")
+    iid_adapter3 = _guid("645967a4-1392-4310-a798-8053ce3e93fd")
+    try:
+        dxgi = ctypes.WinDLL("dxgi")
+        factory = ctypes.c_void_p()
+        if dxgi.CreateDXGIFactory1(ctypes.byref(iid_factory1), ctypes.byref(factory)) != 0 or not factory:
+            return None
+    except Exception:
+        log.debug("DXGI unavailable", exc_info=True)
+        return None
+    adapters: List[Dict[str, Any]] = []
+    try:
+        index = 0
+        while index < 64:
+            adapter = ctypes.c_void_p()
+            # IDXGIFactory1::EnumAdapters1 (vtable 12); DXGI_ERROR_NOT_FOUND ends the list
+            if _call(factory, 12, ctypes.c_long, wintypes.UINT, ctypes.POINTER(ctypes.c_void_p))(
+                    factory, index, ctypes.byref(adapter)) != 0 or not adapter:
+                break
+            index += 1
+            try:
+                desc = _DESC1()
+                # IDXGIAdapter1::GetDesc1 (vtable 10); flag 2 is the software renderer
+                if _call(adapter, 10, ctypes.c_long, ctypes.POINTER(_DESC1))(adapter, ctypes.byref(desc)) != 0 \
+                        or (desc.Flags & 2 and not software):
+                    continue
+                dedicated = int(desc.DedicatedVideoMemory) // 1_048_576
+                shared = int(desc.SharedSystemMemory) // 1_048_576
+                entry: Dict[str, Any] = {
+                    "index": len(adapters), "name": desc.Description.strip(),
+                    "vendor": _PCI_VENDORS.get(int(desc.VendorId), "unknown"),
+                    # an integrated GPU keeps a small carve-out (or none) and works from shared memory
+                    "integrated": dedicated < 512 and shared > dedicated,
+                    "total_mb": dedicated if dedicated >= 512 else shared,
+                    "free_mb": None, "used_mb": None}
+                a3 = ctypes.c_void_p()
+                # IUnknown::QueryInterface (vtable 0) for IDXGIAdapter3
+                if _call(adapter, 0, ctypes.c_long, ctypes.POINTER(_GUID), ctypes.POINTER(ctypes.c_void_p))(
+                        adapter, ctypes.byref(iid_adapter3), ctypes.byref(a3)) == 0 and a3:
+                    try:
+                        info = _MEMINFO()
+                        # QueryVideoMemoryInfo (vtable 14): node 0, local segment (the adapter's own
+                        # memory; on an integrated GPU, the share of system memory it may use)
+                        if _call(a3, 14, ctypes.c_long, wintypes.UINT, ctypes.c_int, ctypes.POINTER(_MEMINFO))(
+                                a3, 0, 0, ctypes.byref(info)) == 0 and info.Budget:
+                            budget = int(info.Budget) // 1_048_576
+                            used = int(info.CurrentUsage) // 1_048_576
+                            entry["free_mb"] = max(0, budget - used)
+                            entry["used_mb"] = max(0, int(entry["total_mb"]) - entry["free_mb"])
+                    finally:
+                        _call(a3, 2, ctypes.c_ulong)(a3)
+                adapters.append(entry)
+            finally:
+                _call(adapter, 2, ctypes.c_ulong)(adapter)
+    except Exception:
+        log.debug("DXGI adapter enumeration failed", exc_info=True)
+    finally:
+        _call(factory, 2, ctypes.c_ulong)(factory)
+    return adapters
 
 
-def _nvidia_vram_mb_from_model_name(name: str) -> int:
-    """Known factory VRAM for a recognized NVIDIA model name; 0 if unrecognized."""
-    n = (name or "").lower()
-    for needle, mb in _NVIDIA_VRAM_MB_BY_MODEL:
-        if needle in n:
-            return mb
-    return 0
+def _macos_accelerators() -> Optional[List[Dict[str, Any]]]:
+    """Every GPU on macOS from the IOAccelerator registry (no root needed): name, use and the memory
+    the driver reports in use or free — Apple Silicon and Intel Macs with AMD cards alike. None off
+    macOS or when ioreg cannot be read."""
+    if sys.platform != "darwin":
+        return None
+    import plistlib
+    try:
+        raw = subprocess.run([shutil.which("ioreg") or "/usr/sbin/ioreg", "-r", "-d", "1", "-c", "IOAccelerator",
+                              "-a"], capture_output=True, timeout=10, check=False, env=_external_tool_env()).stdout
+        entries = plistlib.loads(raw) if raw else []
+    except Exception:
+        log.debug("ioreg IOAccelerator query failed", exc_info=True)
+        return None
+    cards: List[Dict[str, Any]] = []
+    for item in entries if isinstance(entries, list) else [entries]:
+        if not isinstance(item, dict):
+            continue
+        stats = item.get("PerformanceStatistics") or {}
 
+        def _stat(*names):
+            for key, value in stats.items():
+                if any(n.lower() in str(key).lower() for n in names) and isinstance(value, (int, float)):
+                    return float(value)
+            return None
 
-# Discrete Intel Arc (Alchemist + Battlemage) factory VRAM. "a770 16" before
-# "a770" so the 16GB variant (its lspci string usually says so) is not
-# swallowed by the plain 8GB match.
-_INTEL_ARC_VRAM_MB_BY_MODEL: tuple[tuple[str, int], ...] = (
-    ("a770 16", 16384), ("a770", 8192), ("a750", 8192), ("a580", 8192),
-    ("a380", 6144), ("a310", 4096),
-    ("b580", 12288), ("b570", 10240),
-)
-
-
-def _intel_arc_vram_mb_from_name(name: str) -> int:
-    """Known factory VRAM for a recognized Intel Arc model name; 0 if unrecognized."""
-    n = (name or "").lower()
-    for needle, mb in _INTEL_ARC_VRAM_MB_BY_MODEL:
-        if needle in n:
-            return mb
-    return 0
+        free_b, used_b = _stat("vramFreeBytes"), _stat("vramUsedBytes", "In use system memory")
+        name = item.get("model") or item.get("IOGLBundleName") or item.get("IOClass") or "GPU"
+        name = (name.decode("utf-8", "replace") if isinstance(name, bytes) else str(name)).strip("\x00 ")
+        apple = "apple" in name.lower() or "AGX" in str(item.get("IOClass") or "")
+        cards.append({
+            "index": len(cards), "name": name, "vendor": "apple" if apple else (
+                "amd" if "amd" in str(item.get("IOClass") or "").lower() else "unknown"),
+            "integrated": apple,
+            "total_mb": None if free_b is None or used_b is None else (free_b + used_b) / 1_048_576,
+            "free_mb": None if free_b is None else free_b / 1_048_576,
+            "used_mb": None if used_b is None else used_b / 1_048_576,
+            "util_pct": _stat("Device Utilization %", "GPU Activity"),
+            "temp_c": _stat("Temperature"), "power_w": None, "power_limit_w": None})
+    return cards
 
 
 def _nvidia_gpu_model_from_proc() -> str:
@@ -607,27 +636,43 @@ def _nvidia_driver_loaded() -> bool:
     return False
 
 
-_PCI_VENDOR_INTEL = "0x8086"
-_KNOWN_GPU_VENDOR_IDS = {"0x10de", "0x1002", _PCI_VENDOR_INTEL}  # nvidia, amd, intel
+_PCI_VENDORS = {0x10DE: "nvidia", 0x1002: "amd", 0x8086: "intel", 0x5143: "qualcomm", 0x106B: "apple"}
+# GPUs that are not PCI devices, by their kernel driver: Qualcomm Adreno on Snapdragon laptops,
+# Apple's GPU under Asahi Linux
+_DRM_DRIVER_VENDORS = {"msm": "qualcomm", "asahi": "apple"}
+_DRM_ROOT = Path("/sys/class/drm")
 
 
-def _linux_gpu_pci_device_present() -> bool:
-    """True when the kernel sees ANY known-vendor GPU PCI device, regardless of
-    whether a vendor probe above could characterize it. Vendor-agnostic on
-    purpose — tells "no GPU" apart from "a GPU is here but unreadable"."""
-    try:
-        for vendor_file in Path("/sys/class/drm").glob("card[0-9]*/device/vendor"):
+def _linux_drm_gpus() -> List[tuple]:
+    """(vendor, device directory) for each GPU the Linux kernel's display layer has, once per device:
+    PCI cards by vendor id, system-on-chip GPUs by driver. Empty off Linux."""
+    if not sys.platform.startswith("linux"):
+        return []
+    found: List[tuple] = []
+    seen: set = set()
+    for card in sorted(_DRM_ROOT.glob("card[0-9]*")):
+        if "-" in card.name:            # a connector (card0-DP-1), not a device
+            continue
+        dev = card / "device"
+        try:
+            real = dev.resolve()
+        except OSError:
+            continue
+        if real in seen:
+            continue
+        try:
+            vendor = _PCI_VENDORS.get(int((dev / "vendor").read_text().strip(), 16))
+        except (OSError, ValueError):
             try:
-                if vendor_file.read_text().strip().lower() in _KNOWN_GPU_VENDOR_IDS:
-                    return True
-            except Exception:
-                continue
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    return False
+                vendor = _DRM_DRIVER_VENDORS.get((dev / "driver").resolve().name)
+            except OSError:
+                vendor = None
+        if vendor:
+            seen.add(real)
+            found.append((vendor, dev))
+    return found
 
 
-_PCI_VENDOR_QUALCOMM = "0x5143"
 _INTEL_ARC_DEVICE_RANGES = ((0x4F80, 0x4F8F), (0x5690, 0x56BF), (0xE200, 0xE21F))
 
 
@@ -664,20 +709,71 @@ RAM_BUDGET_PERCENT_MAX = 75
 RAM_BUDGET_PERCENT_DEFAULT = 60
 
 
-def recommend_cpu_threads(cpu_threads: int, *, cpu_bound: bool = False) -> int:
-    """Inference thread count with OS/UI headroom.
+def _cpu_list(text: str) -> List[int]:
+    """A kernel CPU list ("0-3,8,10-11") as numbers."""
+    out: List[int] = []
+    for part in str(text or "").strip().split(","):
+        if "-" in part:
+            a, b = part.split("-", 1)
+            out.extend(range(int(a), int(b) + 1))
+        elif part.strip():
+            out.append(int(part))
+    return out
 
-    On CPU-bound hosts (no discrete GPU offload) leave one core free so the
-    desktop stays responsive while still using most of the machine. Tiny CPUs
-    (≤4) also leave only one spare. Discrete-GPU hosts keep two cores free —
-    the GPU does the heavy work.
-    """
-    n = max(1, int(cpu_threads or 1))
-    if n <= 4 or cpu_bound:
-        reserve = 1
+
+def physical_performance_cores() -> int:
+    """The cores llama.cpp's arithmetic runs best on: physical cores, and on a hybrid processor its
+    performance cores only (llama.cpp's own default). Two threads on one core share its vector units."""
+    logical = os.cpu_count() or 1
+    try:
+        # hybrid Intel on Linux: the kernel lists the performance cores' logical CPUs here
+        p_cpus = _cpu_list(Path("/sys/devices/cpu_core/cpus").read_text(encoding="utf-8"))
+        cores = set()
+        for n in p_cpus:
+            topo = Path(f"/sys/devices/system/cpu/cpu{n}/topology")
+            cores.add(((topo / "physical_package_id").read_text().strip(), (topo / "core_id").read_text().strip()))
+        if cores:
+            return len(cores)
+    except (OSError, ValueError):
+        log.debug("no performance-core list", exc_info=True)
+    if sys.platform == "darwin":
+        try:
+            out = subprocess.run(["sysctl", "-n", "hw.perflevel0.physicalcpu"], capture_output=True,
+                                 text=True, timeout=5, check=False).stdout.strip()
+            if out.isdigit() and int(out) > 0:
+                return int(out)
+        except Exception:
+            log.debug("performance core count unavailable", exc_info=True)
+    try:
+        import psutil
+        physical = psutil.cpu_count(logical=False)
+        if physical:
+            return int(physical)
+    except Exception:
+        log.debug("physical core count unavailable", exc_info=True)
+    return logical
+
+
+def recommend_cpu_threads(cpu_threads: Optional[int] = None, *, physical: Optional[int] = None) -> int:
+    """Threads for llama.cpp: the physical performance cores.
+
+    A core running two threads shares its vector units between them, so threads beyond the cores
+    slow llama.cpp down; measured on an i7-8700 (6 cores, 12 threads), the processor wrote 4.37
+    tokens/s at 6 threads, 4.31 at 10 and 3.99 at 12, and with layers on a GPU the count made no
+    difference. With hyper-threads the desktop keeps the second thread of every core; without them
+    one core is left for it.
+
+    `cpu_threads` is the logical CPU count and `physical` the core count; a caller that passes the
+    first without the second has no core count, and the logical count stands for it. With neither,
+    both are read from this machine."""
+    if cpu_threads is None:
+        logical = os.cpu_count() or 1
+        cores = int(physical or physical_performance_cores())
     else:
-        reserve = 2
-    return max(1, n - reserve)
+        logical = max(1, int(cpu_threads))
+        cores = int(physical) if physical else logical
+    cores = max(1, min(cores, logical))
+    return cores if logical > cores else max(1, cores - 1)
 
 
 def ram_budget_fraction() -> float:
@@ -772,10 +868,25 @@ def _estimate_integrated_vram_mb(ram_gb: float, available_ram_gb: float) -> tupl
     """
     frac = ram_budget_fraction()
     # Budget from AVAILABLE RAM (same basis as cpu_ram_budget_mb), not installed RAM.
-    avail_gb = max(float(available_ram_gb or 0), 1.0)
-    free_mb = int(max(512, avail_gb * 1024.0 * frac))
-    total_mb = max(2048, free_mb)
-    return free_mb, total_mb
+    free_mb = int(max(0.0, float(available_ram_gb or 0)) * 1024.0 * frac)
+    return free_mb, free_mb
+
+
+# llama.cpp backends that run on one maker's cards only; Vulkan and others are told by the card's name
+_BACKEND_VENDORS = {"cuda": "nvidia", "rocm": "amd", "hip": "amd", "mtl": "apple", "metal": "apple",
+                    "sycl": "intel"}
+_NAME_VENDORS = (("nvidia", ("nvidia", "geforce", "quadro", "tesla")), ("amd", ("amd", "radeon")),
+                 ("intel", ("intel",)), ("qualcomm", ("qualcomm", "adreno", "snapdragon")),
+                 ("apple", ("apple",)))
+
+
+def _vendor_of(name: str, backend: str = "") -> str:
+    """The card's maker, from its llama.cpp backend ("CUDA0") or its name; "" when neither says."""
+    kind = re.sub(r"\d+$", "", (backend or "").strip()).lower()
+    if kind in _BACKEND_VENDORS:
+        return _BACKEND_VENDORS[kind]
+    low = (name or "").lower()
+    return next((v for v, words in _NAME_VENDORS if any(w in low for w in words)), "")
 
 
 def _is_discrete_gpu_name(name: str) -> bool:
@@ -904,6 +1015,7 @@ def _pci_addr_from_drm_device(dev: Path) -> str:
         return ""
 
 
+@functools.lru_cache(maxsize=None)
 def _lspci_name_for_pci_addr(addr: str) -> str:
     if not addr or not shutil.which("lspci"):
         return ""
@@ -926,45 +1038,29 @@ def _lspci_name_for_pci_addr(addr: str) -> str:
 def _linux_intel_display_adapters() -> List[tuple[str, bool]]:
     """Return (human_name, is_discrete_arc) for each Intel DRM adapter."""
     out: List[tuple[str, bool]] = []
-    seen: set[str] = set()
-    for vendor_file in Path("/sys/class/drm").glob("card[0-9]*/device/vendor"):
-        try:
-            if vendor_file.read_text().strip().lower() != _PCI_VENDOR_INTEL:
-                continue
-            dev = vendor_file.parent
-            card = vendor_file.parents[1].name
-            if card in seen:
-                continue
-            seen.add(card)
-            is_arc = _intel_pci_device_is_discrete_arc(dev)
-            name = _lspci_name_for_pci_addr(_pci_addr_from_drm_device(dev))
-            if not name:
-                name = "Intel Arc" if is_arc else "Intel integrated graphics (Iris Xe / UHD)"
-            out.append((name, is_arc))
-        except Exception:
+    for vendor, dev in _linux_drm_gpus():
+        if vendor != "intel":
             continue
+        is_arc = _intel_pci_device_is_discrete_arc(dev)
+        name = _lspci_name_for_pci_addr(_pci_addr_from_drm_device(dev))
+        out.append((name or ("Intel Arc" if is_arc else "Intel integrated graphics (Iris Xe / UHD)"), is_arc))
     return out
 
 
-def _linux_qualcomm_display_adapters() -> List[str]:
-    """Return human-readable names for Qualcomm Adreno DRM adapters (Linux ARM)."""
-    out: List[str] = []
-    seen: set[str] = set()
-    for vendor_file in Path("/sys/class/drm").glob("card[0-9]*/device/vendor"):
-        try:
-            if vendor_file.read_text().strip().lower() != _PCI_VENDOR_QUALCOMM:
-                continue
-            dev = vendor_file.parent
-            card = vendor_file.parents[1].name
-            if card in seen:
-                continue
-            seen.add(card)
-            name = _lspci_name_for_pci_addr(_pci_addr_from_drm_device(dev))
-            if not name:
-                name = "Qualcomm Adreno (Snapdragon)"
-            out.append(name)
-        except Exception:
+def _linux_soc_display_adapters() -> List[tuple[str, str]]:
+    """(name, vendor) for each system-on-chip GPU on Linux: Qualcomm Adreno (Snapdragon), Apple
+    (Asahi Linux). Unified memory, like an integrated GPU."""
+    out: List[tuple[str, str]] = []
+    for vendor, dev in _linux_drm_gpus():
+        if vendor not in ("qualcomm", "apple"):
             continue
+        name = _lspci_name_for_pci_addr(_pci_addr_from_drm_device(dev))
+        if not name:
+            try:      # device-tree name, e.g. "qcom,adreno-43050c01"
+                name = (dev / "of_node" / "compatible").read_bytes().split(b"\0")[0].decode("ascii", "replace")
+            except OSError:
+                name = ""
+        out.append((name or ("Qualcomm Adreno (Snapdragon)" if vendor == "qualcomm" else "Apple GPU"), vendor))
     return out
 
 
@@ -1010,13 +1106,14 @@ def effective_use_gpu_layers(hw: HardwareProfile, *, force_cpu: bool = False) ->
             return False
     except Exception:
         log.debug("suppressed exception", exc_info=True)
-    return bool(hw.has_gpu and hw.free_vram_mb > 0 and _llama_gpu_offload_available())
+    return bool(hw.has_gpu and (hw.free_vram_mb > 0 or hw.gpu_detection_uncertain)
+                and _llama_gpu_offload_available())
 
 
 def cpu_ram_budget_mb(available_ram_gb: float, *, fraction: float | None = None) -> int:
     """RAM budget (MB) for cpu_ram_fit — same shape as free VRAM for smart_fit_config."""
     frac = ram_budget_fraction() if fraction is None else float(fraction)
-    return int(max(512.0, float(available_ram_gb) * 1024.0 * frac))
+    return int(max(0.0, float(available_ram_gb)) * 1024.0 * frac)
 
 
 def cpu_ram_fit_config(
@@ -1038,9 +1135,9 @@ def cpu_ram_fit_config(
     ctx, _layers, batch = smart_fit_config(
         model_size_gb,
         budget,
-        user_ctx=max(2048, int(user_ctx)),
+        user_ctx=max(1, int(user_ctx)),
         user_batch=max(min_batch, int(user_batch)),
-        reserve_mb=512,
+        reserve_mb=0,                    # the budget is already a fraction of the free RAM
         kv_quantized=kv_quantized,
         model_path=model_path,
         min_batch=min_batch,
@@ -1145,35 +1242,209 @@ def describe_vram_holders(holders: List[Dict[str, Any]], *, total_mb: Optional[i
     return ", ".join(shown)
 
 
+def _nvidia_cards(timeout: float = 6.0) -> Optional[List[Dict[str, Any]]]:
+    """Every NVIDIA card from nvidia-smi (any OS), or None when the tool is absent or fails. The first
+    call after boot can take seconds while the driver initialises, hence detection's longer timeout."""
+    smi = nvidia_smi_path()
+    if not smi:
+        return None
+    try:
+        proc = subprocess.run(
+            [smi, "--query-gpu=name,memory.total,memory.used,memory.free,"
+                  "utilization.gpu,temperature.gpu,power.draw,power.limit,driver_version",
+             "--format=csv,noheader,nounits"],
+            timeout=timeout, capture_output=True, text=True, check=False, env=_external_tool_env())
+    except Exception:
+        log.debug("nvidia-smi query failed", exc_info=True)
+        return None
+    if proc.returncode != 0 or not (proc.stdout or "").strip():
+        return None
+
+    def _num(row, i):
+        try:
+            return float(row[i]) if i < len(row) and row[i] not in ("", "[N/A]", "N/A") else None
+        except ValueError:
+            return None
+
+    cards = []
+    for line in proc.stdout.strip().splitlines():
+        row = [c.strip() for c in line.split(",")]
+        if _num(row, 1) is None:     # a message, not a card
+            continue
+        cards.append({"index": len(cards), "name": row[0] or "NVIDIA GPU", "vendor": "nvidia",
+                      "total_mb": _num(row, 1), "used_mb": _num(row, 2), "free_mb": _num(row, 3),
+                      "util_pct": _num(row, 4), "temp_c": _num(row, 5), "power_w": _num(row, 6),
+                      "power_limit_w": _num(row, 7), "integrated": False,
+                      "driver": row[8] if len(row) > 8 and row[8] else None})
+    return cards or None
+
+
+# An AMD APU's amdgpu "VRAM" is the firmware carve-out from system memory (none, or a few dozen MB, when
+# the firmware leaves it to the driver); a discrete card has its own. Firmware can also set a carve-out
+# of 512 MB or more, which this cannot tell from a small discrete card; llama.cpp's own device type
+# decides at load (eli/core/load_plan.py).
+_AMD_APU_CARVEOUT_MAX_BYTES = 64 * 1_048_576
+
+
+def _amd_cards() -> Optional[List[Dict[str, Any]]]:
+    """Every AMD GPU, live: the amdgpu kernel driver's own counters on Linux (no ROCm needed; APUs are
+    included and marked integrated, with no memory of their own), else rocm-smi. None when neither
+    can be read; a card whose counters cannot be read is left to detection's "a GPU is here but
+    could not be characterised"."""
+    cards: List[Dict[str, Any]] = []
+    if sys.platform.startswith("linux"):
+        for vendor, dev in _linux_drm_gpus():
+            if vendor != "amd":
+                continue
+
+            def _read(name):
+                try:
+                    return int((dev / name).read_text().strip())
+                except (OSError, ValueError):
+                    return None
+
+            total, used = _read("mem_info_vram_total"), _read("mem_info_vram_used")
+            if total is None:        # unreadable (permissions, an old driver): not characterised here
+                continue
+            integrated = total <= _AMD_APU_CARVEOUT_MAX_BYTES
+            card: Dict[str, Any] = {
+                "index": len(cards),
+                "name": _lspci_name_for_pci_addr(_pci_addr_from_drm_device(dev))
+                or ("AMD integrated graphics (APU)" if integrated else "AMD GPU"),
+                "vendor": "amd", "integrated": integrated,
+                "total_mb": None if integrated else total / 1_048_576,
+                "used_mb": None if integrated or used is None else used / 1_048_576,
+                "free_mb": None if integrated or used is None else max(0, total - used) / 1_048_576,
+                "util_pct": _read("gpu_busy_percent"), "temp_c": None, "power_w": None, "power_limit_w": None}
+            for hwmon in sorted(dev.glob("hwmon/hwmon*")):
+                def _hw(name, scale):
+                    try:
+                        return int((hwmon / name).read_text().strip()) / scale
+                    except (OSError, ValueError):
+                        return None
+                card["temp_c"] = _hw("temp1_input", 1000.0)
+                card["power_w"] = _hw("power1_average", 1_000_000.0) or _hw("power1_input", 1_000_000.0)
+                card["power_limit_w"] = _hw("power1_cap", 1_000_000.0)
+            cards.append(card)
+        if cards:
+            return cards
+    if not shutil.which("rocm-smi"):
+        return None
+    try:
+        proc = subprocess.run(["rocm-smi", "--showmeminfo", "vram", "--json"], timeout=6,
+                              capture_output=True, text=True, check=False, env=_external_tool_env())
+        data = json.loads(proc.stdout or "{}") if proc.returncode == 0 else {}
+    except Exception:
+        log.debug("rocm-smi query failed", exc_info=True)
+        return None
+    for card_name, info in sorted((data or {}).items()):
+        if not isinstance(info, dict):
+            continue
+        total = used = None
+        for k, v in info.items():
+            kl = str(k).lower()
+            try:
+                if all(n in kl for n in ("vram", "total", "memory")) and "used" not in kl:
+                    total = int(v)
+                elif all(n in kl for n in ("vram", "used", "memory")):
+                    used = int(v)
+            except (TypeError, ValueError):
+                continue
+        if total:
+            cards.append({"index": len(cards), "name": f"AMD GPU ({card_name})", "vendor": "amd",
+                          "total_mb": total / 1_048_576,
+                          "used_mb": None if used is None else used / 1_048_576,
+                          "free_mb": None if used is None else max(0, total - used) / 1_048_576,
+                          "util_pct": None, "temp_c": None, "power_w": None, "power_limit_w": None,
+                          "integrated": False})
+    return cards or None
+
+
+def _llama_cpp_cards() -> Optional[List[Dict[str, Any]]]:
+    """The GPUs llama.cpp itself sees, with their free memory, on whatever backend it was built for
+    (CUDA, Vulkan, Metal, HIP, SYCL) and on any OS. Only when llama.cpp is already loaded in this
+    process: importing it here would load the bundled runtime before a GPU pack could."""
+    if "llama_cpp" not in sys.modules:
+        return None
+    try:
+        from eli.core.load_plan import devices
+        found = devices()
+    except Exception:
+        log.debug("llama.cpp device list unavailable", exc_info=True)
+        return None
+    return [{"index": d.index, "name": d.description or d.name, "vendor": _vendor_of(d.description, d.name),
+             "total_mb": d.total_mb,
+             "used_mb": max(0, d.total_mb - d.free_mb), "free_mb": d.free_mb, "util_pct": None,
+             "temp_c": None, "power_w": None, "power_limit_w": None, "integrated": d.integrated,
+             "backend": d.name} for d in found] or None
+
+
+def _cards_in_use(cards: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """The cards llama.cpp loads onto: the discrete ones, or the integrated ones when there is no
+    discrete one."""
+    return [c for c in cards if not c.get("integrated")] or [c for c in cards if c.get("integrated")]
+
+
+def _card_names(cards: List[Dict[str, Any]]) -> str:
+    names = [str(c.get("name") or "GPU") for c in cards]
+    if len(set(names)) == 1:
+        return names[0] + (f" ×{len(names)}" if len(names) > 1 else "")
+    return " + ".join(names)
+
+
+def _apply_cards(hw: HardwareProfile, cards: List[Dict[str, Any]]) -> bool:
+    """Record every card on the profile and size it from the cards a model would use. False when
+    there are none."""
+    use = _cards_in_use(cards)
+    if not use:
+        return False
+    first = use[0]
+    if first.get("integrated"):
+        _apply_integrated_gpu_profile(hw, str(first.get("name") or "GPU"), str(first.get("vendor") or "unknown"))
+        if first.get("free_mb") is not None:      # the OS's own figure for its share of system memory
+            hw.free_vram_mb = int(first["free_mb"])
+            hw.total_vram_mb = int(first.get("total_mb") or hw.free_vram_mb)
+            hw.vram_gb = hw.free_vram_mb / 1024.0
+    else:
+        hw.has_gpu = True
+        hw.gpu_vendor = str(first.get("vendor") or "unknown")
+        hw.gpu_integrated = False
+        hw.gpu_name = _card_names(use)
+        hw.total_vram_mb = int(sum(float(c.get("total_mb") or 0) for c in use))
+        # no free figure (Windows before 10, Arc on Linux): total, flagged uncertain until llama.cpp reads it
+        hw.free_vram_mb = int(sum(float(c["free_mb"]) if c.get("free_mb") is not None
+                                  else float(c.get("total_mb") or 0) for c in use))
+        if any(c.get("free_mb") is None for c in use):
+            hw.gpu_detection_uncertain = True
+        hw.vram_gb = hw.free_vram_mb / 1024.0
+    hw.gpus = [{"index": i, "name": str(c.get("name") or "GPU"), "vendor": str(c.get("vendor") or "unknown"),
+                "free_mb": None if c.get("free_mb") is None else int(c["free_mb"]),
+                "total_mb": None if c.get("total_mb") is None else int(c["total_mb"]),
+                "integrated": bool(c.get("integrated"))} for i, c in enumerate(cards)]
+    return True
+
+
 def get_live_gpu_telemetry() -> Dict[str, Any]:
-    """THE single place every caller asks "what is my GPU doing right now" —
-    name, VRAM, and (vendor permitting) live utilization/temperature/power.
+    """The one place every caller asks "what are my GPUs doing right now": names, memory and, where
+    the vendor's tool or driver says, use, temperature and power — for every card, every vendor and
+    every OS. Eight call sites used to run nvidia-smi themselves and read its first line.
 
-    Confirmed in the field: at least eight separate call sites
-    (executor_enhanced.GPU_STATUS, self_status, truth_report,
-    deterministic_grounding_gate x2, user_visible_response_surface,
-    contracts.runtime_status, gguf_inference's adaptive loader) each
-    independently shelled out to nvidia-smi with their own parsing and their
-    own (each slightly different, each separately buggy) handling of a
-    failed/absent driver. Patching each site's failure handling one at a
-    time treats the symptom; this is the fix for the actual disease — ONE
-    implementation every caller uses, so a fix here is a fix everywhere, and
-    a new caller gets vendor-agnostic behavior for free instead of writing
-    an nvidia-smi call of their own.
+    Sources, per vendor: nvidia-smi (NVIDIA, any OS); the amdgpu kernel driver's counters (AMD on
+    Linux, no ROCm needed), else rocm-smi; and for every other GPU — Intel, Apple, AMD on Windows,
+    anything llama.cpp drives through Vulkan, Metal, HIP or SYCL — llama.cpp's own device list
+    when it is loaded, else the adapters detect_hardware() found (memory only, estimated where the
+    OS gives no free figure).
 
-    Always returns a dict (never raises): {ok, name, vendor, estimated,
-    total_mb, free_mb, used_mb, util_pct, temp_c, power_w, power_limit_w,
-    driver}. Fields the vendor/tool can't supply are None, not fabricated.
-    live_probe_failed is True when a live per-process tool (nvidia-smi,
-    rocm-smi) exists for this vendor but its call itself failed -- the
-    identity/VRAM figures below are then detect_hardware()'s own fallback
-    estimate, not a live reading.
-    """
+    Always returns a dict (never raises): {ok, name, vendor, estimated, total_mb, free_mb, used_mb,
+    util_pct, temp_c, power_w, power_limit_w, driver, devices, live_probe_failed}. Several GPUs:
+    memory and power are their sums, use and temperature the busiest card's, `devices` each card.
+    What no source supplies is None, not made up. live_probe_failed: the vendor's live tool exists
+    but its call failed, so the figures are detect_hardware()'s."""
     out: Dict[str, Any] = {
         "ok": False, "name": "", "vendor": "", "estimated": False,
         "total_mb": None, "free_mb": None, "used_mb": None,
         "util_pct": None, "temp_c": None, "power_w": None, "power_limit_w": None,
-        "driver": None, "live_probe_failed": False,
+        "driver": None, "live_probe_failed": False, "devices": [],
     }
     try:
         hw = detect_hardware()
@@ -1181,82 +1452,84 @@ def get_live_gpu_telemetry() -> Dict[str, Any]:
         hw = None
     if hw is None or not hw.has_gpu:
         return out
+    vendor = (hw.gpu_vendor or "").lower()
+    out.update({"ok": True, "name": hw.gpu_name, "vendor": vendor,
+                "estimated": bool(hw.gpu_detection_uncertain),
+                "total_mb": int(hw.total_vram_mb) if hw.total_vram_mb else None,
+                "free_mb": int(hw.free_vram_mb) if hw.free_vram_mb else None,
+                "devices": [dict(g) for g in (hw.gpus or [])]})
+
+    cards = None
+    if vendor == "nvidia":
+        cards = _nvidia_cards()
+        out["live_probe_failed"] = cards is None and nvidia_smi_path() is not None
+    elif vendor == "amd" and sys.platform.startswith("linux") and not hw.gpu_integrated:
+        cards = _cards_in_use(_amd_cards() or []) or None
+        out["live_probe_failed"] = cards is None and shutil.which("rocm-smi") is not None
+    if not cards and os.name == "nt":
+        cards = _cards_in_use(_windows_dxgi_adapters() or []) or None
+    if not cards and sys.platform == "darwin":
+        cards = _macos_accelerators() or None
+    llama = _llama_cpp_cards()
+    if not cards:
+        cards = llama
+    elif llama and len(llama) == len(cards):
+        # what a vendor tool leaves out (Apple's total, an old Windows' free) llama.cpp knows
+        for card, seen in zip(cards, llama):
+            for key in ("total_mb", "free_mb", "used_mb"):
+                if card.get(key) is None:
+                    card[key] = seen.get(key)
+    if not cards:
+        return out
+
+    def _sum(key):
+        vals = [float(c[key]) for c in cards if c.get(key) is not None]
+        return sum(vals) if vals else None
+
+    def _max(key):
+        vals = [float(c[key]) for c in cards if c.get(key) is not None]
+        return max(vals) if vals else None
 
     out.update({
-        "ok": True, "name": hw.gpu_name, "vendor": (hw.gpu_vendor or "").lower(),
-        "estimated": bool(hw.gpu_detection_uncertain),
-        "total_mb": int(hw.total_vram_mb) if hw.total_vram_mb else None,
-        "free_mb": int(hw.free_vram_mb) if hw.free_vram_mb else None,
+        "name": _card_names(cards),
+        "estimated": False,
+        "total_mb": int(_sum("total_mb")) if _sum("total_mb") is not None else out["total_mb"],
+        "used_mb": int(_sum("used_mb")) if _sum("used_mb") is not None else None,
+        "free_mb": int(_sum("free_mb")) if _sum("free_mb") is not None else out["free_mb"],
+        "util_pct": int(_max("util_pct")) if _max("util_pct") is not None else None,
+        "temp_c": int(_max("temp_c")) if _max("temp_c") is not None else None,
+        "power_w": _sum("power_w"),
+        "power_limit_w": _sum("power_limit_w"),
+        "driver": next((c.get("driver") for c in cards if c.get("driver")), None),
+        "devices": [{k: (int(v) if k.endswith(("_mb", "_pct", "_c")) and v is not None else v)
+                     for k, v in c.items() if k != "driver"} for c in cards],
     })
-    vendor = out["vendor"]
-
-    if vendor == "nvidia" and shutil.which("nvidia-smi"):
-        try:
-            proc = subprocess.run(
-                ["nvidia-smi",
-                 "--query-gpu=name,memory.total,memory.used,memory.free,"
-                 "utilization.gpu,temperature.gpu,power.draw,power.limit,driver_version",
-                 "--format=csv,noheader,nounits"],
-                timeout=6, capture_output=True, text=True, check=False,
-                env=_external_tool_env(),
-            )
-            if proc.returncode == 0 and (proc.stdout or "").strip():
-                row = [c.strip() for c in proc.stdout.strip().splitlines()[0].split(",")]
-                def _f(i):
-                    try:
-                        return float(row[i]) if i < len(row) and row[i] not in ("", "[N/A]") else None
-                    except Exception:
-                        return None
-                out.update({
-                    "name": row[0] if row and row[0] else out["name"],
-                    "estimated": False,
-                    "total_mb": int(_f(1)) if _f(1) is not None else out["total_mb"],
-                    "used_mb": int(_f(2)) if _f(2) is not None else None,
-                    "free_mb": int(_f(3)) if _f(3) is not None else out["free_mb"],
-                    "util_pct": int(_f(4)) if _f(4) is not None else None,
-                    "temp_c": int(_f(5)) if _f(5) is not None else None,
-                    "power_w": _f(6),
-                    "power_limit_w": _f(7),
-                    "driver": row[8] if len(row) > 8 and row[8] else None,
-                })
-            else:
-                out["live_probe_failed"] = True
-        except Exception:
-            out["live_probe_failed"] = True
-    elif vendor == "amd" and shutil.which("rocm-smi"):
-        try:
-            proc = subprocess.run(
-                ["rocm-smi", "--showmeminfo", "vram", "--json"],
-                timeout=6, capture_output=True, text=True, check=False,
-                env=_external_tool_env(),
-            )
-            data = json.loads(proc.stdout or "{}") if proc.returncode == 0 else {}
-        except Exception:
-            data = {}
-        found = False
-        for _card, info in (data or {}).items():
-            if not isinstance(info, dict):
-                continue
-            for k, v in info.items():
-                kl = str(k).lower()
-                try:
-                    if all(n in kl for n in ("vram", "total", "memory")) and "used" not in kl:
-                        out["total_mb"] = int(v) // (1024 * 1024)
-                        found = True
-                    elif all(n in kl for n in ("vram", "used", "memory")):
-                        out["used_mb"] = int(v) // (1024 * 1024)
-                except Exception:
-                    continue
-            if found:
-                if out["total_mb"] and out["used_mb"] is not None:
-                    out["free_mb"] = max(0, out["total_mb"] - out["used_mb"])
-                break
-        if not found:
-            out["live_probe_failed"] = True
-        # utilization/temperature/power on AMD need rocm-smi flags nothing in
-        # this codebase has exercised or tested -- left None rather than guessed.
-
     return out
+
+
+def gpu_label(telemetry: Dict[str, Any]) -> str:
+    """The GPU name for a status line, marked when it is detect_hardware()'s estimate rather than a
+    live reading."""
+    name = str(telemetry.get("name") or "")
+    return name + (" (estimated)" if telemetry.get("estimated") or telemetry.get("live_probe_failed") else "")
+
+
+def describe_gpus(telemetry: Optional[Dict[str, Any]] = None) -> str:
+    """Each GPU's name and memory in one line, for evidence and replies (get_live_gpu_telemetry);
+    "unavailable" when no GPU is known."""
+    t = telemetry if telemetry is not None else get_live_gpu_telemetry()
+    if not t.get("ok"):
+        return "unavailable"
+    note = " (estimated)" if t.get("estimated") or t.get("live_probe_failed") else ""
+    driver = f", driver {t['driver']}" if t.get("driver") else ""
+    devices = list(t.get("devices") or [])
+    if len(devices) > 1:
+        parts = [f"GPU {d.get('index', i)} {d.get('name', '')}: {d.get('total_mb')} MiB total, "
+                 f"{d.get('free_mb')} MiB free" for i, d in enumerate(devices)]
+        return f"{len(devices)} GPUs{note}: " + "; ".join(parts) + driver
+    used = f", {t['used_mb']} MiB used" if t.get("used_mb") is not None else ""
+    free = f", {t['free_mb']} MiB free" if t.get("free_mb") is not None else ""
+    return f"{t.get('name') or 'GPU'}{note}: {t.get('total_mb')} MiB total{used}{free}{driver}"
 
 
 def gpu_offload_unavailable_message(
@@ -1307,6 +1580,7 @@ def _detect_hardware_impl() -> HardwareProfile:
     """Uncached hardware probe — use detect_hardware() instead."""
     hw = HardwareProfile()
     hw.cpu_threads = multiprocessing.cpu_count()
+    hw.cpu_cores = physical_performance_cores()
 
     # RAM total + available — binary GiB, matching free_vram_mb/total_vram_mb below and
     # every model-size figure (mem_units.py): the psutil path used to divide by decimal
@@ -1347,317 +1621,74 @@ def _detect_hardware_impl() -> HardwareProfile:
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
-    # FREE VRAM — critical for GPU layer counts. Display server, browser,
-    # games, etc all consume VRAM before ELI launches. Total VRAM
-    # oversubscribes and OOMs.
-    _smi = nvidia_smi_path()
-    if _smi:
-        try:
-            proc = subprocess.run(
-                [_smi,
-                 "--query-gpu=memory.free,memory.total,name",
-                 "--format=csv,noheader,nounits"],
-                capture_output=True, text=True, timeout=15,
-                env=_external_tool_env(),
-            )
-            if proc.returncode == 0:
-                out = (proc.stdout or "").strip().splitlines()
-            else:
-                out = []
-            if out:
-                # Sum across all GPUs (multi-GPU was under-counted by reading only the first card).
-                # llama.cpp splits across visible CUDA devices and the fallback reduces layers on
-                # any OOM, so provisioning against total capacity is safe.
-                free_sum = total_sum = 0
-                names: list = []
-                for line in out:
-                    p = [x.strip() for x in line.split(",")]
-                    try:
-                        free_sum += int(p[0])
-                        total_sum += int(p[1])
-                        if len(p) > 2:
-                            names.append(p[2])
-                    except Exception:
-                        continue
-                n = max(1, len(names) or len(out))
-                hw.free_vram_mb = free_sum
-                hw.total_vram_mb = total_sum
-                hw.gpu_name = (names[0] if names else "NVIDIA GPU") + (f" ×{n}" if n > 1 else "")
-                hw.vram_gb = hw.free_vram_mb / 1024.0
-                hw.has_gpu = True
-                hw.gpu_vendor = "nvidia"
-        except Exception:
-            log.debug("nvidia-smi query unavailable", exc_info=True)
+    # Every GPU, any vendor, any OS. Each source is read by one function that get_live_gpu_telemetry()
+    # shares, and a model uses the discrete cards, or the integrated ones when there is no discrete
+    # one (llama.cpp's rule). Free memory, not total: the desktop, a browser or another model's
+    # server already hold some of it.
+    _apply_cards(hw, _nvidia_cards(timeout=15) or [])
 
-    # NVIDIA driver-loaded fallback: nvidia-smi is missing or failed (broken userspace, Optimus, a
-    # module out of sync) but the kernel driver is loaded, so still report the GPU and let the
-    # loader and GPU pack engage. Look up factory VRAM from the name in /proc; a flat 4GB guess
-    # (unrecognised models only) cut layers on bigger cards.
+    # nvidia-smi missing or broken but the driver loaded: name from /proc, memory left to llama.cpp
     if not hw.has_gpu and sys.platform.startswith("linux") and _nvidia_driver_loaded():
         _model = _nvidia_gpu_model_from_proc()
-        _known_mb = _nvidia_vram_mb_from_model_name(_model) if _model else 0
-        hw.total_vram_mb = _known_mb or 4096
-        hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
+        hw.total_vram_mb = 0
+        hw.free_vram_mb = 0
         hw.gpu_name = _model or "NVIDIA GPU"
         hw.vram_gb = hw.free_vram_mb / 1024.0
         hw.has_gpu = True
         hw.gpu_vendor = "nvidia"
         hw.gpu_detection_uncertain = True
 
-    # Windows / macOS fallback. This was Linux-only, so a Windows machine with nvidia-smi off PATH
-    # reported no GPU and loaded with 0 layers.
+    # Windows, any vendor: DXGI lists every adapter with its memory and the budget Windows gives this
+    # process on it.
+    if not hw.has_gpu and os.name == "nt":
+        _apply_cards(hw, _windows_dxgi_adapters() or [])
+
+    # macOS: Apple Silicon (unified memory) and Intel Macs with an AMD card.
+    if not hw.has_gpu and sys.platform == "darwin":
+        _mac = []
+        for _name, _mb in _macos_gpus():
+            _vendor = _vendor_of(_name) or "apple"
+            _integrated = _vendor == "apple" or _is_integrated_gpu_name(_name, _vendor)
+            _mac.append({"name": _name, "vendor": _vendor, "integrated": _integrated,
+                         "total_mb": None if _integrated else (_mb or None), "free_mb": None})
+        if _apply_cards(hw, _mac):
+            log.info("[HW] GPU: %s (%d MB usable)", hw.gpu_name, hw.free_vram_mb)
+
+    # AMD on Linux: the amdgpu driver's counters (no ROCm needed; what the Vulkan pack targets), else
+    # rocm-smi. APUs are kept for the integrated step below.
+    _amd = None if hw.has_gpu else (_amd_cards() or [])
+    if _amd:
+        _apply_cards(hw, [c for c in _amd if not c["integrated"]])
+
+    # Intel on Linux: Arc before Iris Xe / UHD; no memory counter, so llama.cpp measures it
     if not hw.has_gpu:
-        _native = _windows_gpus() or _macos_gpus()
-        if _native:
-            # Prefer a discrete card over an integrated one when both exist.
-            def _rank(g):
-                n = g[0].lower()
-                disc = any(k in n for k in ("nvidia", "geforce", "rtx", "gtx", "quadro",
-                                            "tesla", "radeon", "rx ", "arc"))
-                return (disc, g[1])
-            name, vram_mb = sorted(_native, key=_rank, reverse=True)[0]
-            hw.gpu_name = name
-            name_l = name.lower()
-            if any(k in name_l for k in ("nvidia", "geforce", "rtx", "gtx", "quadro", "tesla")):
-                hw.gpu_vendor = "nvidia"
-            elif any(k in name_l for k in ("amd", "radeon", "rx ", "ati", "vega")):
-                hw.gpu_vendor = "amd"
-                if _is_integrated_gpu_name(name, "amd"):
-                    hw.gpu_integrated = True
-                    hw.vulkan_available = _vulkan_loader_present()
-            elif "intel" in name_l or "iris" in name_l or "uhd" in name_l:
-                hw.gpu_vendor = "intel"
-                if _is_integrated_gpu_name(name, "intel"):
-                    hw.gpu_integrated = True
-                    hw.vulkan_available = _vulkan_loader_present()
-            elif any(k in name_l for k in ("qualcomm", "adreno", "snapdragon")):
-                hw.gpu_vendor = "qualcomm"
-                hw.gpu_integrated = True
-                hw.vulkan_available = _vulkan_loader_present()
-            elif sys.platform == "darwin":
-                hw.gpu_vendor = "apple"
-                hw.gpu_integrated = True
-            if vram_mb > 0 and not hw.gpu_integrated:
-                hw.total_vram_mb = vram_mb
-                # No free-VRAM API here, so assume the desktop already holds
-                # some. The smart loader's reduce-to-fit corrects downward on
-                # OOM; over-reporting is the only unsafe direction.
-                hw.free_vram_mb = int(vram_mb * 0.80)
-            elif hw.gpu_integrated or sys.platform == "darwin":
-                # iGPU / APU / Apple unified memory share system RAM with the GPU.
-                free_mb, total_mb = _estimate_integrated_vram_mb(hw.ram_gb, hw.available_ram_gb)
-                hw.total_vram_mb = total_mb
-                hw.free_vram_mb = free_mb
-            else:
-                hw.total_vram_mb = 4096
-                hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
-            hw.vram_gb = hw.free_vram_mb / 1024.0
-            hw.has_gpu = True
-            log.info("[HW] GPU detected without nvidia-smi: %s (%d MB usable)",
-                     hw.gpu_name, hw.free_vram_mb)
+        _intel = [{"name": _name, "vendor": "intel", "integrated": not _is_arc, "total_mb": None,
+                   "free_mb": None} for _name, _is_arc in _linux_intel_display_adapters()]
+        if _apply_cards(hw, _intel):
+            log.info("[HW] Intel GPU: %s (~%d MB, Vulkan=%s)", hw.gpu_name, hw.free_vram_mb, hw.vulkan_available)
 
-    # AMD ROCm fallback: nvidia-smi doesn't exist on AMD, so read free/total VRAM from rocm-smi and
-    # let the loader size layers on AMD too. Non-fatal: without rocm-smi it falls through to CPU.
-    if not hw.has_gpu:
-        try:
-            import json as _json
-            import shutil as _shutil
-            proc = None
-            if _shutil.which("rocm-smi"):
-                proc = subprocess.run(
-                    ["rocm-smi", "--showmeminfo", "vram", "--json"],
-                    capture_output=True, text=True, timeout=5,
-                    env=_external_tool_env(),
-                )
-            _out = (proc.stdout or "").strip() if proc and proc.returncode == 0 else ""
-            _data = _json.loads(_out) if _out else {}
+    if not hw.has_gpu and _amd and _apply_cards(hw, [c for c in _amd if c["integrated"]]):
+        log.info("[HW] AMD iGPU/APU detected: %s (~%d MB shared-memory budget, Vulkan=%s)",
+                 hw.gpu_name, hw.free_vram_mb, hw.vulkan_available)
 
-            def _amd_mb(info: dict, must: tuple, mustnot: tuple = ()) -> int:
-                # rocm-smi field names drift across versions ("VRAM Total Memory (B)" etc.),
-                # so match by keyword instead of an exact key.
-                for k, v in info.items():
-                    kl = str(k).lower()
-                    if all(n in kl for n in must) and not any(n in kl for n in mustnot):
-                        try:
-                            return int(v)
-                        except Exception:
-                            continue
-                return 0
-
-            free_sum = total_sum = cards = 0
-            for _card, _info in _data.items():
-                if not isinstance(_info, dict):
-                    continue
-                tot = _amd_mb(_info, ("vram", "total", "memory"), mustnot=("used",))
-                used = _amd_mb(_info, ("vram", "used", "memory"))
-                if tot <= 0:
-                    continue
-                total_sum += tot // (1024 * 1024)
-                free_sum += max(0, tot - used) // (1024 * 1024)
-                cards += 1
-            if total_sum > 0:
-                hw.free_vram_mb = free_sum
-                hw.total_vram_mb = total_sum
-                hw.gpu_name = "AMD GPU" + (f" ×{cards}" if cards > 1 else "")
-                hw.vram_gb = hw.free_vram_mb / 1024.0
-                hw.has_gpu = True
-                hw.gpu_vendor = "amd"
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    # AMD without ROCm (the common desktop case, and what the Vulkan pack targets): read VRAM from
-    # the amdgpu driver's sysfs so AMD uses the same HardwareProfile fields and smart-fit as NVIDIA.
-    if not hw.has_gpu and sys.platform.startswith("linux"):
-        try:
-            free_sum = total_sum = cards = 0
-            for vendor_file in Path("/sys/class/drm").glob("card[0-9]*/device/vendor"):
-                try:
-                    if vendor_file.read_text().strip().lower() != "0x1002":  # AMD
-                        continue
-                    dev = vendor_file.parent
-                    total = int((dev / "mem_info_vram_total").read_text().strip())
-                    used = int((dev / "mem_info_vram_used").read_text().strip())
-                except Exception:
-                    continue
-                if total <= 0:
-                    continue
-                total_sum += total // (1024 * 1024)
-                free_sum += max(0, total - used) // (1024 * 1024)
-                cards += 1
-            if total_sum > 0:
-                hw.free_vram_mb = free_sum
-                hw.total_vram_mb = total_sum
-                hw.gpu_name = "AMD GPU (amdgpu)" + (f" ×{cards}" if cards > 1 else "")
-                hw.vram_gb = hw.free_vram_mb / 1024.0
-                hw.has_gpu = True
-                hw.gpu_vendor = "amd"
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    # Discrete Intel Arc (Linux) through the same HardwareProfile pipeline. Only the `xe` driver or
-    # an Arc PCI id; Iris/UHD iGPUs stay on CPU because Vulkan offload to shared memory rarely
-    # wins. Intel exposes no free-VRAM sysfs, so look up factory VRAM from lspci's model string.
-    if not hw.has_gpu and sys.platform.startswith("linux"):
-        try:
-            _INTEL = _PCI_VENDOR_INTEL
-            for dev in Path("/sys/class/drm").glob("card*/device"):
-                try:
-                    if (dev / "vendor").read_text().strip().lower() != _INTEL:
-                        continue
-                    if not _intel_pci_device_is_discrete_arc(dev):
-                        continue
-                    _name = _lspci_name_for_pci_addr(_pci_addr_from_drm_device(dev))
-                    _known_mb = _intel_arc_vram_mb_from_name(_name) if _name else 0
-                    hw.total_vram_mb = _known_mb or 8192   # unrecognized -> conservative guess
-                    hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
-                    hw.gpu_name = _name or "Intel Arc"
-                    hw.vram_gb = hw.free_vram_mb / 1024.0
-                    hw.has_gpu = True
-                    hw.gpu_vendor = "intel"
-                    if not _known_mb:
-                        hw.gpu_detection_uncertain = True
-                    break
-                except Exception:
-                    continue
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    # AMD and discrete Intel Arc on Windows: no CLI ships with the driver, so total VRAM and name
-    # come from the display-class registry keys. Free VRAM isn't exposed, so estimate 85% of total;
-    # reduce-to-fit and the live tuner correct optimism. Iris/UHD are skipped.
-    if not hw.has_gpu and sys.platform == "win32":
-        try:
-            import winreg
-            base = r"SYSTEM\CurrentControlSet\Control\Class\{4d36e968-e325-11ce-bfc1-08002be10318}"
-            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, base) as cls:
-                i = 0
-                while True:
-                    try:
-                        sub = winreg.EnumKey(cls, i)
-                    except OSError:
-                        break
-                    i += 1
-                    if not sub.isdigit():
-                        continue
-                    try:
-                        with winreg.OpenKey(cls, sub) as k:
-                            desc = str(winreg.QueryValueEx(k, "DriverDesc")[0])
-                            _dl = desc.lower()
-                            if not (("amd" in _dl or "radeon" in _dl) or "arc" in _dl):
-                                continue
-                            qw = int(winreg.QueryValueEx(k, "HardwareInformation.qwMemorySize")[0])
-                    except OSError:
-                        continue
-                    if qw > 0:
-                        hw.total_vram_mb = qw // (1024 * 1024)
-                        hw.free_vram_mb = int(hw.total_vram_mb * 0.85)
-                        hw.gpu_name = desc
-                        hw.vram_gb = hw.free_vram_mb / 1024.0
-                        hw.has_gpu = True
-                        hw.gpu_vendor = "amd" if ("amd" in _dl or "radeon" in _dl) else "intel"
-                        break
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    # Integrated graphics (Intel iGPU, AMD APU) — shared system RAM, no nvidia-smi.
-    if not hw.has_gpu and sys.platform.startswith("linux"):
-        try:
-            integrated = [name for name, is_arc in _linux_intel_display_adapters() if not is_arc]
-            if integrated:
-                _apply_integrated_gpu_profile(hw, integrated[0], "intel")
-                log.info(
-                    "[HW] Intel iGPU detected: %s (~%d MB shared-memory budget, Vulkan=%s)",
-                    hw.gpu_name, hw.free_vram_mb, hw.vulkan_available,
-                )
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-    if not hw.has_gpu and sys.platform.startswith("linux"):
-        try:
-            _AMD = "0x1002"
-            for vendor_file in Path("/sys/class/drm").glob("card[0-9]*/device/vendor"):
-                if vendor_file.read_text().strip().lower() != _AMD:
-                    continue
-                dev = vendor_file.parent
-                dedicated = 0
-                try:
-                    dedicated = int((dev / "mem_info_vram_total").read_text().strip())
-                except Exception:
-                    pass
-                if dedicated > 64 * 1024 * 1024:
-                    continue
-                name = _lspci_name_for_pci_addr(_pci_addr_from_drm_device(dev))
-                if not name:
-                    name = "AMD integrated graphics (APU)"
-                _apply_integrated_gpu_profile(hw, name, "amd")
-                log.info(
-                    "[HW] AMD iGPU/APU detected: %s (~%d MB shared-memory budget, Vulkan=%s)",
-                    hw.gpu_name, hw.free_vram_mb, hw.vulkan_available,
-                )
-                break
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    # Qualcomm Adreno (Snapdragon X Elite laptops, Linux ARM) — unified memory.
-    if not hw.has_gpu and sys.platform.startswith("linux"):
-        try:
-            qualcomm = _linux_qualcomm_display_adapters()
-            if qualcomm:
-                _apply_integrated_gpu_profile(hw, qualcomm[0], "qualcomm")
-                log.info(
-                    "[HW] Qualcomm Adreno detected: %s (~%d MB shared-memory budget, Vulkan=%s)",
-                    hw.gpu_name, hw.free_vram_mb, hw.vulkan_available,
-                )
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
+    # System-on-chip GPUs on Linux (Qualcomm Adreno, Apple under Asahi Linux): unified memory.
+    if not hw.has_gpu and _apply_cards(hw, [{"name": n, "vendor": v, "integrated": True}
+                                            for n, v in _linux_soc_display_adapters()]):
+        log.info("[HW] %s GPU: %s (~%d MB shared-memory budget, Vulkan=%s)",
+                 hw.gpu_vendor, hw.gpu_name, hw.free_vram_mb, hw.vulkan_available)
 
     # Last resort before concluding "no GPU": a real GPU PCI device may be in /sys/class/drm that
     # every vendor probe failed to characterise (unrecognised subvendor, a driver not exposing the
     # sysfs files, permissions).
-    if not hw.has_gpu and sys.platform.startswith("linux") and _linux_gpu_pci_device_present():
+    if not hw.has_gpu and _linux_drm_gpus():
         hw.gpu_detection_uncertain = True
 
     if not hw.has_gpu and not hw.gpu_name:
         hw.gpu_name = "CPU detection uncertain" if hw.gpu_detection_uncertain else "CPU only"
+    if hw.has_gpu and not hw.gpus:
+        hw.gpus.append({"index": 0, "name": hw.gpu_name, "vendor": hw.gpu_vendor or "unknown",
+                        "free_mb": int(hw.free_vram_mb), "total_mb": int(hw.total_vram_mb),
+                        "integrated": bool(hw.gpu_integrated)})
 
     return hw
 
@@ -1696,8 +1727,10 @@ def discover_models(models_dir: Optional[Path] = None,
     out: List[Dict[str, Any]] = []
     if not models_dir.is_dir():
         return out
+    from eli.cognition.model_load_diagnostics import not_a_chat_model
     for f in sorted(models_dir.rglob("*.gguf")):
-        if not include_embedders and _is_embedder_path(f):
+        # a vision projector or a draft head is not a model to talk to either (by its metadata)
+        if not include_embedders and (_is_embedder_path(f) or not_a_chat_model(f)):
             continue
         size = f.stat().st_size
         out.append({
@@ -1717,8 +1750,8 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
     When kv_quantized=True, the KV cache is the quantized type ELI loads (q8_0, about half of
     fp16), letting a longer n_ctx fit on the same GPU.
 
-    Returns 99 sentinel if the entire model fits (llama.cpp loads all layers
-    when n_gpu_layers exceeds actual layer count; 99 is always above any
+    Returns ALL_GPU_LAYERS (-1, llama.cpp's every layer) if the entire model fits (it used to return
+    99, which is not above every
     real-world 7–70B model's layer count and avoids the 9999 sentinel that
     _eli_requested_runtime_from_kwargs() treats as an uncalibrated user value).
     Returns 0 if no GPU or insufficient VRAM, or a partial layer count otherwise.
@@ -1733,11 +1766,11 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
         while n <= blocks and (cost.gpu_weights_mb(n + 1) + cost.kv_mb(n_ctx, gpu_layers=min(n + 1, blocks))
                                + fixed) <= free_vram_mb:
             n += 1
-        return 99 if n > blocks else n
+        return ALL_GPU_LAYERS if n > blocks else n
     total_layers = layers_for_model(model_path, size_gb)
     kv_mb = _kv_cache_mb(n_ctx, total_layers, quant=kv_quantized)
     # Reserve the decode-time compute/graph buffer too, not just model+KV+overhead.
-    # Without this, full offload (99) gets chosen at max ctx, loads fine, then
+    # Without this, full offload (every layer) gets chosen at max ctx, loads fine, then
     # OOMs on the first decode when the compute buffer is allocated.
     compute_mb = _compute_graph_reserve_mb(n_ctx)
     available_for_model = free_vram_mb - kv_mb - _CUDA_OVERHEAD_MB - compute_mb
@@ -1746,15 +1779,15 @@ def _gpu_layers_for_model(size_gb: float, free_vram_mb: int, n_ctx: int,
         return 0
     n = int(available_for_model / mb_per_layer)
     if n >= total_layers:
-        return 99  # all layers fit — llama.cpp handles any value > actual layer count
+        return ALL_GPU_LAYERS  # all layers fit
     return max(0, n)
 
 
 def describe_gpu_layers(n_gpu_layers: Optional[int], total_layers: Optional[int] = None) -> str:
     """Render a gpu_layers value for a human to read.
 
-    99 (or anything >= the model's real layer count) is llama.cpp's own
-    convention for "offload every layer there is" — not a literal count of 99
+    -1 (or anything >= the model's real layer count) is llama.cpp's own
+    convention for "offload every layer there is" — not a literal count
     layers. Printed raw next to the actual, usually much lower, layer count
     used elsewhere in the same panel (e.g. a 40-layer MoE fit), it reads as a
     conflicting, higher number rather than the same "everything that fits"
@@ -1764,10 +1797,10 @@ def describe_gpu_layers(n_gpu_layers: Optional[int], total_layers: Optional[int]
     if n_gpu_layers is None:
         return "unset"
     n = int(n_gpu_layers)
-    if total_layers and n >= int(total_layers):
+    if total_layers and (n < 0 or n >= int(total_layers)):
         return f"all {int(total_layers)} layers"
     # No total on hand, but still never print the raw sentinel itself.
-    if n >= 99:
+    if n < 0:
         return "all layers"
     return str(n)
 
@@ -1794,8 +1827,15 @@ def _fit_needed_mb(
     return gpu_model + kv + compute + _CUDA_OVERHEAD_MB
 
 
+def _layer_ceiling(total: int, user_gpu_layers: Optional[int]) -> int:
+    """The most layers a fit may put on the GPU: every one when nothing or -1 was asked."""
+    if user_gpu_layers is None or int(user_gpu_layers) < 0:
+        return int(total)
+    return min(int(total), int(user_gpu_layers))
+
+
 def _fit_layers_real(layers: int, total_layers: int) -> int:
-    if int(layers) >= 99:
+    if int(layers) < 0 or int(layers) >= int(total_layers):
         return int(total_layers)
     return max(0, min(int(layers), int(total_layers)))
 
@@ -1846,7 +1886,7 @@ def _smart_fit_balanced(
     _target_ctx = int(ctx)
     batch = max(min_batch, int(user_batch))
     # The operator's layer count is a ceiling: never return more layers than asked, even if headroom opens up.
-    ceiling = total if user_gpu_layers is None else max(0, min(total, int(user_gpu_layers)))
+    ceiling = _layer_ceiling(total, user_gpu_layers)
     layers = ceiling
 
     if budget <= 0:
@@ -1881,7 +1921,7 @@ def _smart_fit_balanced(
         if probe_layers > 0:
             ctx, batch, layers = min_ctx, min_batch, probe_layers
 
-    n_layers = 99 if layers >= total else layers
+    n_layers = ALL_GPU_LAYERS if layers >= total else layers
     return ctx, n_layers, batch
 
 
@@ -1904,7 +1944,7 @@ def _smart_fit_max_gpu(
     batch = max(min_batch, int(user_batch))
     # See _smart_fit_balanced: the operator's layer count is a ceiling the
     # backfill loop below must not exceed, same reasoning as ctx/batch above.
-    ceiling = total if user_gpu_layers is None else max(0, min(total, int(user_gpu_layers)))
+    ceiling = _layer_ceiling(total, user_gpu_layers)
     layers = ceiling
 
     if budget <= 0:
@@ -1929,7 +1969,7 @@ def _smart_fit_max_gpu(
             model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized, cost=cost) <= budget:
         layers += 1
 
-    n_layers = 99 if layers >= total else layers
+    n_layers = ALL_GPU_LAYERS if layers >= total else layers
     return ctx, n_layers, batch
 
 
@@ -1952,7 +1992,7 @@ def _smart_fit_max_ctx(
     batch = max(min_batch, int(user_batch))
     # See _smart_fit_balanced: the operator's layer count is a ceiling the
     # backfill loop below must not exceed, same reasoning as ctx/batch above.
-    ceiling = total if user_gpu_layers is None else max(0, min(total, int(user_gpu_layers)))
+    ceiling = _layer_ceiling(total, user_gpu_layers)
     layers = ceiling
 
     if budget <= 0:
@@ -1971,7 +2011,7 @@ def _smart_fit_max_ctx(
             model_size_gb, total, ctx, layers + 1, batch, kv_quantized=kv_quantized, cost=cost) <= budget:
         layers += 1
 
-    n_layers = 99 if layers >= total else layers
+    n_layers = ALL_GPU_LAYERS if layers >= total else layers
     return ctx, n_layers, batch
 
 
@@ -2001,7 +2041,7 @@ def _clamp_fit_to_ram_budget(
     step = max(1, total // 10)
     # Same ceiling as the VRAM-only fit functions: never grow layers past what
     # the operator asked for just because RAM/VRAM headroom allows it.
-    ceiling = total if user_gpu_layers is None else max(0, min(total, int(user_gpu_layers)))
+    ceiling = _layer_ceiling(total, user_gpu_layers)
 
     for _ in range(128):
         real = _fit_layers_real(layers, total)
@@ -2014,7 +2054,7 @@ def _clamp_fit_to_ram_budget(
                 model_size_gb, total, ctx, real + 1, batch,
                 kv_quantized=kv_quantized, cost=cost) <= vram_budget:
             real += 1
-            layers = 99 if real >= total else real
+            layers = ALL_GPU_LAYERS if real >= total else real
             continue
 
         # With any layer on the GPU the spill is weights only, so ctx and batch cannot change it,
@@ -2053,7 +2093,7 @@ def _clamp_fit_to_ram_budget(
                     break
                 ctx = probe
 
-    n_layers = 99 if _fit_layers_real(layers, total) >= total else _fit_layers_real(layers, total)
+    n_layers = ALL_GPU_LAYERS if _fit_layers_real(layers, total) >= total else _fit_layers_real(layers, total)
     return ctx, n_layers, batch
 
 
@@ -2355,20 +2395,6 @@ def mlock_holds(model_size_gb: float, available_ram_gb: float) -> bool:
     return model_bytes / 1_048_576 <= cpu_ram_budget_mb(available_ram_gb)
 
 
-def gpu_weights_beyond_free(model_path: Optional[str], n_gpu_layers: int, free_vram_mb: Optional[int],
-                            *, experts_in_ram: bool = False) -> Optional[float]:
-    """MB of GPU weights these layers need when that alone exceeds the free VRAM, else None.
-    A load like that cannot succeed whatever the context or batch, so there is nothing to probe.
-    None also when the model file cannot be read: then nothing is certain."""
-    if not model_path or free_vram_mb is None or int(n_gpu_layers) <= 0:
-        return None
-    cost = model_cost(model_path, experts_in_ram=experts_in_ram)
-    if cost is None:
-        return None
-    need = cost.gpu_weights_mb(int(n_gpu_layers))
-    return need if need > int(free_vram_mb) else None
-
-
 def auto_ctx_for(model_path: Optional[str]) -> int:
     """auto_ctx_target for this model on this machine as measured now; 0 without a readable model."""
     try:
@@ -2418,7 +2444,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
     Picks the largest model that fits within free VRAM (after KV cache +
     CUDA overhead) OR within available RAM if no GPU.
 
-    ``user_ctx`` (when >= 2048) is the user's EXPLICITLY chosen context window —
+    ``user_ctx`` (when > 0) is the user's EXPLICITLY chosen context window —
     it anchors n_ctx instead of the auto target, and the VRAM refinement
     below only ever REDUCES it to fit (never inflates, never silently replaces).
     This is what makes "what you type is what loads" hold: the chosen value wins,
@@ -2432,13 +2458,10 @@ def recommend(hw: Optional[HardwareProfile] = None,
     rec = ModelRecommendation()
     rec.reasoning = []
 
-    # Thread count must follow the same GPU-offload decision as layer fit:
-    # CPU-bound (no discrete offload) → leave 1 core free; else leave 2.
-    _cpu_bound = not effective_use_gpu_layers(hw)
-    rec.n_threads = recommend_cpu_threads(hw.cpu_threads, cpu_bound=_cpu_bound)
+    rec.n_threads = recommend_cpu_threads(hw.cpu_threads, physical=hw.cpu_cores)
     rec.reasoning.append(
-        f"CPU: {hw.cpu_threads} threads → using {rec.n_threads}"
-        + (" (CPU-bound — leave 1 core free)" if _cpu_bound else " (leave 2 cores free)")
+        f"CPU: {hw.cpu_cores or hw.cpu_threads} cores, {hw.cpu_threads} threads → using {rec.n_threads} "
+        f"(one per core: a core's second thread shares its vector units)"
     )
     rec.reasoning.append(
         f"RAM: {hw.ram_gb:.1f}GB total, {hw.available_ram_gb:.1f}GB available"
@@ -2498,6 +2521,11 @@ def recommend(hw: Optional[HardwareProfile] = None,
         rec.reasoning.append("No GGUF models found: download one, or choose an Ollama model as the provider.")
         return rec
 
+    # One model to tune for (the startup window's choice): the plan the loader will use, so the
+    # recommendation and the load are the same numbers.
+    if len(models) == 1 and use_gpu_layers and _recommend_from_plan(rec, hw, models[0], user_ctx):
+        return rec
+
     # KV-cache quantization: only when memory, not the model, limits the context. q8_0 holds
     # nearly twice the context of fp16 in the same memory and answers the same; q4_0 does not
     # (gguf_sizes.QUANTIZED_CACHE).
@@ -2507,7 +2535,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
         _kv_m["path"], _kv_m["size_gb"],
         free_vram_mb=hw.free_vram_mb if use_gpu_layers else 0,
         available_ram_gb=hw.available_ram_gb, use_gpu=bool(use_gpu_layers),
-        target_ctx=int(user_ctx) if user_ctx and int(user_ctx) >= 2048 else None,
+        target_ctx=int(user_ctx) if user_ctx and int(user_ctx) > 0 else None,
     )) else ""
     rec.cache_type_v = rec.cache_type_k  # match K and V quantization
     kv_q = bool(rec.cache_type_k)
@@ -2520,8 +2548,8 @@ def recommend(hw: Optional[HardwareProfile] = None,
     # fluctuates and gave ctx=2048 on a machine that handles 18K+). Start from the model's full
     # training window and let the VRAM refinement below set the ceiling. CPU-only is RAM-bound.
     _ctx_grain = 2048
-    if user_ctx and int(user_ctx) >= 2048:
-        rec.n_ctx = max(2048, (int(user_ctx) // _ctx_grain) * _ctx_grain)
+    if user_ctx and int(user_ctx) > 0:
+        rec.n_ctx = int(user_ctx)                  # what was typed, not rounded to the auto grain
         _ctx_note = "user-pinned — reduced to fit only if memory is tight"
     else:
         _auto_m = max(models, key=lambda m: m["size_gb"]) if models else None
@@ -2549,10 +2577,10 @@ def recommend(hw: Optional[HardwareProfile] = None,
     chosen_layers = 0
     for m in reversed(models_sorted):
         if use_gpu_layers:
-            layers = _gpu_layers_for_model(
+            layers = _fit_layers_real(_gpu_layers_for_model(
                 m["size_gb"], hw.free_vram_mb, rec.n_ctx, kv_quantized=kv_q,
                 model_path=m["path"],
-            )
+            ), layers_for_model(m["path"], m["size_gb"]))
             if hw.gpu_integrated:
                 layers = min(layers, max(4, int(layers_for_model(m["path"], m["size_gb"]) * 0.25)))
             if layers > 0:
@@ -2567,10 +2595,10 @@ def recommend(hw: Optional[HardwareProfile] = None,
 
     if chosen is None:
         chosen = models_sorted[0]
-        chosen_layers = (_gpu_layers_for_model(
+        chosen_layers = (_fit_layers_real(_gpu_layers_for_model(
             chosen["size_gb"], hw.free_vram_mb, rec.n_ctx, kv_quantized=kv_q,
             model_path=chosen["path"],
-        ) if use_gpu_layers else 0)
+        ), layers_for_model(chosen["path"], chosen["size_gb"])) if use_gpu_layers else 0)
         if use_gpu_layers and hw.gpu_integrated and chosen_layers > 0:
             chosen_layers = min(
                 chosen_layers,
@@ -2602,8 +2630,6 @@ def recommend(hw: Optional[HardwareProfile] = None,
     _igpu_min_batch = 32 if hw.gpu_integrated else 128
     if hw.gpu_integrated:
         _fit_batch_in = min(_fit_batch_in, _igpu_min_batch)
-    if not _fit_batch_in:
-        _fit_batch_in = max(128, recommend_cpu_threads(hw.cpu_threads, cpu_bound=True) * 32)
 
     _pre_fit_ctx = rec.n_ctx  # the MoE re-fit below must start from this, not the naive
                                # fit's (possibly needlessly shrunk) result — captured
@@ -2621,12 +2647,12 @@ def recommend(hw: Optional[HardwareProfile] = None,
             min_batch=_igpu_min_batch,
             gpu_integrated=hw.gpu_integrated,
         )
-        _fit_layers_real = _total_layers_est if int(_fit_layers) >= 99 else int(_fit_layers)
+        _fit_count = _fit_layers_real(_fit_layers, _total_layers_est)
         _old_ctx, _old_layers = rec.n_ctx, rec.n_gpu_layers
         rec.n_ctx = int(_fit_ctx)
-        rec.n_gpu_layers = _fit_layers_real
+        rec.n_gpu_layers = _fit_count
         rec.batch_size = max(rec.batch_size, int(_fit_batch))
-        chosen_layers = _fit_layers_real
+        chosen_layers = _fit_count
         _fp = fit_priority()
         _dense_fit_line = len(rec.reasoning)
         rec.reasoning.append(
@@ -2672,7 +2698,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
             )
 
     total_layers = layers_for_model(chosen["path"], chosen["size_gb"])
-    _full_offload = chosen_layers >= total_layers  # 99 >= actual layer count → all layers on GPU
+    _full_offload = chosen_layers >= total_layers
 
     # The loader (and the GUI's own loader) may push a mixture-of-experts model onto more layers
     # than a naive split would, since expert tensors stay in RAM regardless of layer count and the
@@ -2705,7 +2731,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
                 min_batch=_igpu_min_batch, gpu_integrated=hw.gpu_integrated,
                 moe_resident_gb=_moe_plan["resident_gb"],
             )
-            chosen_layers = total_layers if int(_mf_layers) >= 99 else int(_mf_layers)
+            chosen_layers = total_layers if int(_mf_layers) < 0 else int(_mf_layers)
             rec.n_ctx = int(_mf_ctx)
             rec.n_gpu_layers = chosen_layers
             rec.batch_size = max(rec.batch_size, int(_mf_batch))
@@ -2829,6 +2855,13 @@ def recommend(hw: Optional[HardwareProfile] = None,
         rec.reasoning.append(f"batch capped {rec.batch_size}→32 — Adreno Vulkan stability limit")
         rec.batch_size = 32
 
+    _finish_recommendation(rec, chosen, hw)
+    return rec
+
+
+def _finish_recommendation(rec: ModelRecommendation, chosen: Dict[str, Any], hw: HardwareProfile) -> None:
+    """What every recommendation ends with: memory mapping, the reply ceiling and the reasoning-mode
+    budgets, from the context it settled on."""
     # mmap lets the OS page weights from disk. mlock pins the whole model in RAM: only when this
     # model fits the RAM ELI may use and the OS lock limit allows it (it was "16 GB or more").
     rec.use_mmap = True
@@ -2853,7 +2886,43 @@ def recommend(hw: Optional[HardwareProfile] = None,
         f"time from the ctx actually loaded, which may be higher than this estimate"
     )
 
-    return rec
+
+def _recommend_from_plan(rec: ModelRecommendation, hw: HardwareProfile, chosen: Dict[str, Any],
+                         user_ctx: Optional[int]) -> bool:
+    """Fill the recommendation from the load planner (eli/core/load_plan.py): the plan the loader
+    will load with, measured by llama.cpp on every GPU it sees. False when the planner cannot run
+    here (no GPU device llama.cpp can use, or a runtime without load simulation)."""
+    try:
+        from eli.core import load_plan
+        if not load_plan.devices() or not load_plan.simulation_supported():
+            return False
+        from eli.cognition.gguf_inference import load_request
+        req = load_request(chosen["path"])
+        req.n_gpu_layers = None          # the recommendation is the most that fits, not a pin
+        req.n_ctx = int(user_ctx) if user_ctx and int(user_ctx) > 0 else 0
+        _target_batch = int(os.environ.get("ELI_TARGET_BATCH", "0") or "0")
+        if _target_batch > 0:
+            req.n_batch = _target_batch
+        plan = load_plan.plan(req)
+    except Exception:
+        log.debug("load plan unavailable for the recommendation", exc_info=True)
+        return False
+    if plan is None or not plan.measured:      # an estimate is what the tuner below already makes
+        return False
+    rec.model_path = chosen["path"]
+    rec.model_name = chosen["name"]
+    rec.model_size_gb = chosen["size_gb"]
+    rec.n_ctx = int(plan.n_ctx)
+    rec.n_gpu_layers = int(plan.n_gpu_layers)
+    rec.batch_size = int(plan.n_batch)
+    rec.n_threads = int(plan.n_threads)
+    rec.cache_type_k = plan.cache_type_k
+    rec.cache_type_v = plan.cache_type_v
+    rec.reasoning.append(f"Plan, as the model will load ({'measured by llama.cpp' if plan.measured else 'estimated'}): "
+                         f"{plan.describe()}")
+    rec.reasoning.extend(plan.notes)
+    _finish_recommendation(rec, chosen, hw)
+    return True
 
 
 def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
@@ -2875,7 +2944,6 @@ def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
         settings["hw_profile_n_gpu_layers"] = rec.n_gpu_layers
         settings["hw_profile_n_ctx"] = rec.n_ctx
         settings["hw_profile_batch_size"] = rec.batch_size
-        settings["n_threads"] = rec.n_threads
         settings["max_tokens"] = rec.max_tokens
         settings["temperature"] = rec.temperature
         settings["use_mmap"] = rec.use_mmap
@@ -2886,27 +2954,6 @@ def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
         settings["mode_presets"] = dict(rec.mode_presets)
         save_settings(settings)
 
-        # Keep the GUI's hw-profile artifact in sync: eli_pro_audio_gui_v2_0.py reads
-        # artifacts/runtime_hardware_profile.json (n_ctx, n_gpu_layers, batch_size) as its fallback,
-        # and would show stale values without this write.
-        try:
-            import json as _json
-            from eli.core.paths import artifacts_dir as _artifacts_dir
-            _art_path = _artifacts_dir() / "runtime_hardware_profile.json"
-            _art_path.parent.mkdir(parents=True, exist_ok=True)
-            _art_path.write_text(
-                _json.dumps(
-                    {
-                        "n_ctx": rec.n_ctx,
-                        "n_gpu_layers": rec.n_gpu_layers,
-                        "batch_size": rec.batch_size,
-                    },
-                    indent=2,
-                ),
-                encoding="utf-8",
-            )
-        except Exception:
-            pass  # non-fatal — settings.json is the source of truth
 
         return {"ok": True, "settings_updated": True}
     except Exception as exc:
@@ -2964,12 +3011,12 @@ def _settings_out_of_bounds(settings: Dict[str, Any],
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     try:
-        # n_gpu_layers: -1 / 99 / 9999 sentinels mean "all layers". Compare raw.
+        # n_gpu_layers: -1 means every layer. Compare raw.
         s_layers = int(settings.get("n_gpu_layers", 0))
         r_layers = int(rec.n_gpu_layers)
-        # Treat 99+ (full offload sentinel) as a legitimate ceiling on either side.
-        if 0 < r_layers < 99 and s_layers > r_layers:
-            reasons.append(f"n_gpu_layers {s_layers} > recommended {r_layers}")
+        # every layer (-1) asked where the recommendation is a partial count is more than it found room for
+        if r_layers > 0 and (s_layers < 0 or s_layers > r_layers):
+            reasons.append(f"n_gpu_layers {describe_gpu_layers(s_layers)} > recommended {r_layers}")
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     try:
@@ -3112,7 +3159,6 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
     new_settings["hw_profile_n_ctx"] = int(rec.n_ctx)
     new_settings["hw_profile_n_gpu_layers"] = int(rec.n_gpu_layers)
     new_settings["hw_profile_batch_size"] = int(rec.batch_size)
-    new_settings["n_threads"] = int(rec.n_threads)
     new_settings["cache_type_k"] = rec.cache_type_k
     new_settings["cache_type_v"] = rec.cache_type_v
     new_settings["use_mmap"] = bool(rec.use_mmap)

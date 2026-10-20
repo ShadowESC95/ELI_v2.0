@@ -24,7 +24,7 @@ on:
         # ssm_conv1d tensor. The packs built here are what NVIDIA falls back to
         # when the abetlen CUDA index is too old (it stops at 0.3.19), so a
         # stale default here silently caps what the shipped app can load.
-        default: "0.3.35"
+        default: "0.3.36"
         required: true
   push:
     tags: ["v*"]
@@ -34,7 +34,7 @@ permissions:
 
 env:
   PYTHON_VERSION: "3.12"   # must match the frozen app's interpreter (release.yml)
-  LLAMA_VERSION: ${{ github.event.inputs.llama_version || '0.3.35' }}
+  LLAMA_VERSION: ${{ github.event.inputs.llama_version || '0.3.36' }}
 
 jobs:
   build:

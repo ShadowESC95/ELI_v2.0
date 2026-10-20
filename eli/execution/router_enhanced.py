@@ -1683,6 +1683,30 @@ def _eli_react_to_content_prepass(original_text: str, raw: str, low: str):
     )
 
 
+_LINK_RE = re.compile(r"https?://[^\s<>\"')\]]+", re.I)
+_OPEN_LINK_RE = re.compile(r"^\s*(?:open|launch|visit|browse|go\s+to|navigate\s+to|show)\b", re.I)
+
+
+def _eli_linked_page_prepass(raw: str):
+    """A link with a question or request about it ("<link> --> what do you think?", "summarise
+    this <link>"): the page is read (WEB_FETCH) and the reply answers from it. Answered as pasted
+    text, ELI said it could not browse the web. A link on its own, or with "open"/"go to", is left
+    to the rules that open it."""
+    m = _LINK_RE.search(raw or "")
+    if not m:
+        return None
+    url = m.group(0).rstrip(".,;:!?")
+    rest = re.sub(r"[-=]+>|<[-=]+|[\s,;:]+", " ", (raw[:m.start()] + " " + raw[m.end():])).strip()
+    if not rest or _OPEN_LINK_RE.match(rest) or len(rest.split()) > 40:
+        return None
+    from eli.runtime.command_splitter import is_request, starts_with_command
+    asks = "?" in rest or bool(re.match(r"(?:what|how|why|who|which|is|are|does|do|can|could|would|should)\b",
+                                        rest, re.I))
+    if not (asks or starts_with_command(rest, after_lead=True) or is_request(rest)):
+        return None
+    return _mk("WEB_FETCH", {"url": url}, 0.95, matched_by="web.read_linked_page", entities={"url": url})
+
+
 def _eli_web_lookup_prepass(raw: str, low: str):
     """Route real-time factual lookups and explicit web searches to WEB_SEARCH
     when networking is enabled.
@@ -3909,7 +3933,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                    matched_by="timer.set_duration", entities={"seconds": val})
 
     m = re.search(
-        r"\b(?:(?:set|create)\s+(?:a\s+)?)?(?:alarm|reminder)\s+(?:for\s+)?(\d{1,2}[:.]\d{2})\b",
+        r"\b(?:(?:set|create)\s+(?:an?\s+)?)?(?:alarm|reminder)\s+(?:for\s+)?(\d{1,2}[:.]\d{2})\b",
         low)
     if m:
         alarm_time = m.group(1).replace(".", ":")
@@ -3917,7 +3941,8 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                    matched_by="timer.set_alarm", entities={"time": alarm_time})
 
     m = re.search(
-        r"\b(?:set|create)\s+(?:a\s+)?(?:alarm|timer|reminder)\b",
+        # "an": "set an alarm for 30 minutes" matched nothing and went to chat
+        r"\b(?:set|create)\s+(?:an?\s+)?(?:alarm|timer|reminder)\b",
         low)
     if m:
         # Try to find a time anywhere in the string
@@ -8634,6 +8659,8 @@ try:
                 ("pending_remediation_confirm", _stage_pending_remediation_confirm),
                 ("timestamp_and_shell_followup", _stage_timestamp_and_shell_followup),
                 ("pending_proposal_confirm", _stage_pending_proposal_confirm),
+                # before pasted text: a link to read is not text to react to
+                ("read_linked_page", lambda t, *a, **k: _eli_linked_page_prepass(str(t or ""))),
                 ("react_to_pasted_content", _stage_react_to_pasted_content),
                 ("precedence", _stage_precedence),
                 ("identity_audit", _stage_identity_audit),
@@ -8731,9 +8758,29 @@ try:
                 _SWLOG.debug("fits check failed", exc_info=True)
                 return True
 
+        def _eli_target_took_the_rest(whole) -> bool:
+            """Whether a command took the rest of the message as its target: "open steam, set an
+            alarm for 30 minutes, and tell me the meaning of life" opened an app by that whole
+            name, and "look up RAIMS and tell me what you can see" searched for the instruction."""
+            from eli.execution.route_contracts import TARGET_ARGS
+            from eli.runtime.command_splitter import holds_more_than_one
+            args = (whole or {}).get("args") or {}
+            return any(isinstance(args.get(k), str) and holds_more_than_one(args[k]) for k in TARGET_ARGS)
+
+        def _eli_carried_by(tells, told, whole) -> bool:
+            """Whether the command the whole message routed to carries this instruction: it is that
+            command ("write a note saying buy milk"), or the instruction is inside what it was given
+            ("call mom" in the note's text). "open steam, set an alarm for 30 minutes" set the timer
+            and left "open steam" out."""
+            if str((told or {}).get("action") or "").upper() == str((whole or {}).get("action") or "").upper():
+                return True
+            given = " ".join(str(v) for v in ((whole or {}).get("args") or {}).values() if isinstance(v, str))
+            words = lambda t: " ".join(re.findall(r"[a-z0-9']+", str(t).lower()))   # noqa: E731
+            return bool(words(tells)) and words(tells) in words(given)
+
         def _eli_instructions_and_talk(text, whole, *args, **kwargs):
-            """A message of several sentences that is not one command: the sentences that tell
-            ELI to do something are carried out, and the rest is talk to be answered.
+            """A message of several sentences or instructions that is not one command: the ones that
+            tell ELI to do something are carried out, and the rest is talk to be answered.
 
             "see, you can do it! open spotify" was answered by the model alone, which wrote that
             it had opened Spotify. A complaint ending in "open nasa website" stopped the film and
@@ -8741,24 +8788,40 @@ try:
             try:
                 from eli.execution.route_contracts import is_command
                 from eli.runtime.command_splitter import read_message
-                if is_command(whole):
-                    return None
-                parts = read_message(text)
+                # chained instructions are looked for when one command took the message, or a
+                # command rule matched it and was turned down for the other words it holds
+                chained = is_command(whole) or bool(((whole or {}).get("meta") or {}).get("not_told"))
+                parts = read_message(text, chains=chained)
                 if not (2 <= len(parts) <= 12):
                     return None
-                steps, talk = [], []
+                steps, talk, told_parts = [], [], []
                 for part in parts:
                     tells = part["tells"]
                     told = _eli_route_with_courtesy(tells, *args, **kwargs) if tells else None
                     if tells and is_command(told):
                         steps.append(tells.rstrip(" .!"))
+                        told_parts.append((tells, told))
                     else:
                         talk.append(part["said"])
                 if not steps or len(steps) > 5:
                     return None
+                if (is_command(whole) and not _eli_target_took_the_rest(whole)
+                        and all(_eli_carried_by(tells, told, whole) for tells, told in told_parts)):
+                    return None                    # one command that carries every instruction in it
                 rest = " ".join(talk).strip()
                 if len(re.findall(r"[A-Za-z0-9']+", _without_courtesy(rest) if rest else "")) < 3:
                     rest = ""                      # "well done." before a command is not a second subject
+                # One thing to read and something to say about it ("look up RAIMS and tell me what
+                # you can see"): the read, with its own words as its target, answered against the
+                # whole message, as "look up RAIMS" alone is. Shown first as a result and then
+                # replied to, the search was a list of links and the reply saw 600 characters of it.
+                # A read that points back at the rest ("explain whether you recalled this") needs it.
+                from eli.execution.route_contracts import changes_something
+                if (rest and len(told_parts) == 1 and not changes_something(told_parts[0][1].get("action"))
+                        and not re.search(r"\b(?:this|that|these|those|it|them)\b", told_parts[0][0], re.I)):
+                    out = dict(told_parts[0][1])
+                    out["meta"] = dict(out.get("meta") or {}, read_as="message.read_and_answer")
+                    return out
                 if not rest:
                     if len(steps) == 1:
                         out = _eli_route_with_courtesy(steps[0], *args, **kwargs)
@@ -8786,9 +8849,37 @@ try:
                     return out
             return _eli_priority_route_core(text, *args, **kwargs)
 
+        def _eli_misspelt_command(text, whole, *args, **kwargs):
+            """A short message that is a command with a letter wrong ("vol don"): the one reading
+            with a word corrected that routes to a command. It went to chat, which wrote "Volume
+            down again." while nothing ran."""
+            try:
+                from eli.execution.route_contracts import TARGET_ARGS, is_command
+                from eli.runtime.command_splitter import misspelt_commands
+                if is_command(whole):
+                    return None
+                found = []
+                for reading, corrected in misspelt_commands(text):
+                    out = _eli_route_with_courtesy(reading, *args, **kwargs)
+                    given = " ".join(str(v) for k, v in (out.get("args") or {}).items()
+                                     if k in TARGET_ARGS + ("text", "message", "content") and isinstance(v, str))
+                    if is_command(out) and corrected not in re.findall(r"[a-z]+", given.lower()):
+                        found.append((reading, out))
+                if len({str(o.get("action")) for _r, o in found}) != 1:
+                    return None                      # nothing, or two different commands: not a guess to act on
+                reading, out = found[0]
+                out = dict(out)
+                out["meta"] = dict(out.get("meta") or {}, read_as=f"misspelt: {reading}")
+                return out
+            except Exception:
+                _SWLOG.debug("misspelling check failed", exc_info=True)
+                return None
+
         def _eli_priority_route(raw="", *args, **kwargs):
             whole = _eli_route_with_courtesy(raw, *args, **kwargs)
-            return _eli_instructions_and_talk(str(raw or ""), whole, *args, **kwargs) or whole
+            return (_eli_instructions_and_talk(str(raw or ""), whole, *args, **kwargs)
+                    or _eli_misspelt_command(str(raw or ""), whole, *args, **kwargs)
+                    or whole)
 
         def _eli_priority_route_core(raw="", *args, **kwargs):
             text = str(raw or "")

@@ -235,6 +235,10 @@ def strip_special_tokens(text: str, *, strip_edges: bool = True) -> str:
         t = t.split("<|assistant|>")[-1]
     for tok in SPECIAL_OUTPUT_TOKENS:
         t = t.replace(tok, "")
+    # the loaded model's own markers, from its template (Gemma 4 `<turn|>`, `<channel|>`, ...)
+    from eli.cognition.chat_template import scaffold_markers
+    for tok in scaffold_markers():
+        t = t.replace(tok, "")
     for rx in _SPECIAL_OUTPUT_RES:
         t = rx.sub("", t)
     # Mistral echo: keep content after last [/INST]

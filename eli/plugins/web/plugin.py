@@ -607,6 +607,34 @@ def _web_search_results(query: str, max_results: int = 5) -> List[Dict[str, Any]
     return []
 
 
+_PAGE_BYTES = 5 * 1024 * 1024
+
+
+def read_page(url: str, *, max_chars: int = 16000) -> Dict[str, Any]:
+    """A web page's readable text: {url, title, text, truncated}. Fetched through
+    netguard.safe_fetch (the network switch, public addresses only, every redirect checked, size
+    capped); the markup reduced to its text by the document reader's HTML reader. Raises what
+    safe_fetch raises (offline, unsafe address, too large, HTTP errors)."""
+    import html as _html
+    import re as _re
+    from eli.core.netguard import safe_fetch
+    from eli.plugins.document_reader.plugin import html_to_text
+    raw = safe_fetch(url, headers={
+        "User-Agent": "Mozilla/5.0 (X11; Linux x86_64; rv:124.0) Gecko/20100101 Firefox/124.0",
+        "Accept": "text/html,text/plain;q=0.9,*/*;q=0.5", "Accept-Language": "en-US,en;q=0.9",
+    }, timeout=20, max_bytes=_PAGE_BYTES)
+    m = _re.search(rb"""charset=["']?([A-Za-z0-9_-]+)""", raw[:4096])
+    try:
+        markup = raw.decode(m.group(1).decode("ascii") if m else "utf-8", errors="replace")
+    except LookupError:
+        markup = raw.decode("utf-8", errors="replace")
+    title_m = _re.search(r"<title[^>]*>(.*?)</title>", markup, _re.S | _re.I)
+    is_html = bool(_re.search(r"<(?:html|body|head|div|p)\b", markup[:20000], _re.I))
+    text = html_to_text(markup) if is_html else markup.strip()
+    return {"url": url, "title": _html.unescape(title_m.group(1)).strip() if title_m else "",
+            "text": text[:max_chars], "truncated": len(text) > max_chars}
+
+
 def execute(action: str, args: Dict[str, Any] | None = None) -> Dict[str, Any]:
     plugin = WebSearchPlugin()
     normalized = str(action or "").strip()

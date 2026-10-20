@@ -85,11 +85,15 @@ if getattr(sys, "frozen", False):
     _force_utf8_streams()
     _suppress_child_console_windows()
     _pin_ssl_ca_bundle()
+    # GPUs numbered in PCI bus order, as nvidia-smi and ELI's settings number them (eli/__init__.py):
+    # set before the GPU pack below starts CUDA.
+    os.environ.setdefault("CUDA_DEVICE_ORDER", "PCI_BUS_ID")
 
 # Directories/files seeded into the per-user root. eli/ and api/ are the
 # source trees (introspection + plugin discovery read them from disk); the
 # rest are runtime data the app resolves via PROJECT_ROOT.
-_SEED_TREES = ("eli", "api", "config", "blueprints", "docs", "packaging/desktop", "tts_piper")
+# Voices (tts_piper) are not copied: they are read from the bundle (eli/perception/tts_router.py).
+_SEED_TREES = ("eli", "api", "config", "blueprints", "docs", "packaging/desktop")
 _SEED_FILES = (
     "pyproject.toml",
     "capability_manifest.json",
@@ -308,7 +312,11 @@ def _pin_frozen_root() -> None:
     # never brick the app (v2.1.4 crashed at every boot when a CUDA pack
     # missing its runtime libs shadowed the working CPU copy).
     gpu_dir = root / "runtime" / "gpu"
-    if not (gpu_dir / ".gpu_pack_ok").is_file():
+    # A helper ELI starts with itself (-c / -m: probes, sandboxes, tests) never installs or verifies a
+    # pack: verifying starts a -c helper of its own, which ran this hook, which started another --
+    # without end while a pack was unverified. Helpers still take an already verified pack below.
+    _helper = len(sys.argv) >= 2 and sys.argv[1] in ("-c", "-m")
+    if not _helper and not (gpu_dir / ".gpu_pack_ok").is_file():
         try:
             import eli_gpu_pack
             eli_gpu_pack.ensure_gpu_pack_for_hardware(bundle_only=True)

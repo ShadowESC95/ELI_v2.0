@@ -57,39 +57,55 @@ def _odt_paragraph_text(el) -> str:
 
 
 class _TextExtractor(HTMLParser):
-    """Minimal XHTML -> text. stdlib only; ebooklib/bs4 are not on the shipped stack."""
+    """Minimal XHTML -> text. stdlib only; ebooklib/bs4 are not on the shipped stack. A page's menus
+    and footers are left out, and when it marks its content (<main>, <article>) only that is kept:
+    a web page read whole began with sixty lines of site navigation."""
 
-    _SKIP = {"script", "style", "head"}
-    _BREAK = {"p", "div", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr"}
+    _SKIP = {"script", "style", "head", "nav", "footer", "aside", "noscript", "template", "svg"}
+    _BREAK = {"p", "div", "br", "li", "h1", "h2", "h3", "h4", "h5", "h6", "tr", "pre", "section", "article"}
+    _CONTENT = {"main", "article"}
 
     def __init__(self):
         super().__init__(convert_charrefs=True)
         self._parts: list[str] = []
+        self._content: list[str] = []
         self._depth = 0
+        self._in_content = 0
 
     def handle_starttag(self, tag, attrs):
         if tag in self._SKIP:
             self._depth += 1
-        elif tag in self._BREAK:
-            self._parts.append("\n")
+        elif tag in self._CONTENT:
+            self._in_content += 1
+        if tag in self._BREAK:
+            self._add("\n")
 
     def handle_endtag(self, tag):
         if tag in self._SKIP and self._depth:
             self._depth -= 1
-        elif tag in self._BREAK:
-            self._parts.append("\n")
+        elif tag in self._CONTENT and self._in_content:
+            self._in_content -= 1
+        if tag in self._BREAK:
+            self._add("\n")
 
     def handle_data(self, data):
         if not self._depth:
-            self._parts.append(data)
+            self._add(data)
+
+    def _add(self, piece: str) -> None:
+        self._parts.append(piece)
+        if self._in_content:
+            self._content.append(piece)
 
     def text(self) -> str:
-        joined = "".join(self._parts)
+        content = "".join(self._content)
+        joined = content if content.strip() else "".join(self._parts)
         lines = [ln.strip() for ln in joined.splitlines()]
         return "\n".join(ln for ln in lines if ln)
 
 
-def _html_to_text(markup: str) -> str:
+def html_to_text(markup: str) -> str:
+    """The readable text of an HTML document (a file here, a web page in eli/plugins/web)."""
     parser = _TextExtractor()
     try:
         parser.feed(markup)
@@ -265,7 +281,7 @@ class DocumentReaderPlugin(Plugin):
                         raw = z.read(name)
                     except KeyError:
                         continue
-                    chunk = _html_to_text(raw.decode("utf-8", errors="ignore"))
+                    chunk = html_to_text(raw.decode("utf-8", errors="ignore"))
                     if chunk:
                         parts.append(chunk)
                         if sum(len(x) for x in parts) > self._max_chars:

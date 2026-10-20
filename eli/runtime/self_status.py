@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 import time
 from pathlib import Path
 from typing import Any, Optional
@@ -25,109 +24,23 @@ log = logging.getLogger(__name__)
 _PROC_START = time.time()
 
 
-def _run(cmd: list[str], timeout: float = 2.0) -> str:
+def _gpu() -> Optional[dict[str, Any]]:
+    """Real GPU telemetry for every card, vendor-agnostic (hardware_profile.get_live_gpu_telemetry).
+    None only when no GPU is known at all."""
     try:
-        out = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
-        if out.returncode == 0:
-            return (out.stdout or "").strip()
+        from eli.core.hardware_profile import get_live_gpu_telemetry, gpu_label
+        t = get_live_gpu_telemetry()
     except Exception:
-        log.debug("self-status command failed: %s", cmd[:1], exc_info=True)
-    return ""
-
-
-def _gpu_nvidia() -> Optional[dict[str, Any]]:
-    """Real GPU telemetry via nvidia-smi. None when no NVIDIA GPU / no smi /
-    a broken driver (matches detect_hardware()'s own returncode-first check —
-    a version-mismatch failure still prints two lines of text on stdout that
-    must never be parsed as real numbers)."""
-    out = _run([
-        "nvidia-smi",
-        "--query-gpu=name,temperature.gpu,utilization.gpu,memory.used,memory.total",
-        "--format=csv,noheader,nounits",
-    ])
-    if not out:
+        log.debug("GPU telemetry unavailable", exc_info=True)
         return None
-    parts = [p.strip() for p in out.splitlines()[0].split(",")]
-    if len(parts) < 5:
-        return None
-    try:
-        return {
-            "name": parts[0],
-            "temp_c": int(float(parts[1])),
-            "util_pct": int(float(parts[2])),
-            "vram_used_mb": int(float(parts[3])),
-            "vram_total_mb": int(float(parts[4])),
-        }
-    except Exception:
-        return None
-
-
-def _gpu_amd() -> Optional[dict[str, Any]]:
-    """Real AMD VRAM via rocm-smi (the same --showmeminfo vram --json pattern
-    hardware_profile.py already uses). No temperature/utilization here --
-    those need rocm-smi flags nothing else in this codebase has exercised or
-    tested; report what is genuinely known rather than guess."""
-    import shutil
-    if not shutil.which("rocm-smi"):
-        return None
-    out = _run(["rocm-smi", "--showmeminfo", "vram", "--json"], timeout=4.0)
-    if not out:
-        return None
-    try:
-        data = json.loads(out)
-    except Exception:
-        return None
-    for _card, info in (data or {}).items():
-        if not isinstance(info, dict):
-            continue
-        total = used = None
-        for k, v in info.items():
-            kl = str(k).lower()
-            if all(n in kl for n in ("vram", "total", "memory")) and "used" not in kl:
-                try:
-                    total = int(v)
-                except Exception:
-                    log.debug("suppressed exception", exc_info=True)
-            elif all(n in kl for n in ("vram", "used", "memory")):
-                try:
-                    used = int(v)
-                except Exception:
-                    log.debug("suppressed exception", exc_info=True)
-        if total:
-            return {
-                "name": "AMD GPU", "temp_c": None, "util_pct": None,
-                "vram_used_mb": (used // (1024 * 1024)) if used is not None else None,
-                "vram_total_mb": total // (1024 * 1024),
-            }
-    return None
-
-
-def _gpu_identity_fallback() -> Optional[dict[str, Any]]:
-    """Last resort for any vendor with no live per-process telemetry tool in
-    this build (Intel Arc/iGPU, Apple unified memory, Qualcomm, or an NVIDIA/
-    AMD card whose live tool just failed) -- name + best-known VRAM from the
-    SAME cross-vendor detection used at load time, rather than pretending
-    nothing is known just because no *live* number is available."""
-    try:
-        from eli.core.hardware_profile import detect_hardware
-        hw = detect_hardware()
-    except Exception:
-        return None
-    if not hw.has_gpu:
+    if not t.get("ok"):
         return None
     return {
-        "name": hw.gpu_name + (" (estimated)" if hw.gpu_detection_uncertain else ""),
-        "temp_c": None, "util_pct": None, "vram_used_mb": None,
-        "vram_total_mb": int(hw.total_vram_mb) if hw.total_vram_mb else None,
+        "name": gpu_label(t),
+        "temp_c": t.get("temp_c"), "util_pct": t.get("util_pct"),
+        "vram_used_mb": t.get("used_mb"), "vram_total_mb": t.get("total_mb"),
+        "devices": list(t.get("devices") or []),
     }
-
-
-def _gpu() -> Optional[dict[str, Any]]:
-    """Real GPU telemetry, vendor-agnostic. None only when no GPU is known at
-    all -- ELI ships to AMD/Intel/Apple/Qualcomm machines too, not only
-    NVIDIA ones, and this used to unconditionally return None on every one
-    of them the moment nvidia-smi wasn't found."""
-    return _gpu_nvidia() or _gpu_amd() or _gpu_identity_fallback()
 
 
 def _cpu() -> dict[str, Any]:

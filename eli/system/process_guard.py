@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import logging
 import os
+import time
 import re
 import shutil
 import subprocess
@@ -387,6 +388,22 @@ def check_kill_pattern(pattern: str, *, full_cmdline: bool = False) -> KillPlan:
     return plan
 
 
+def _parent_pid(pid: int) -> Optional[int]:
+    try:
+        import psutil
+        return int(psutil.Process(int(pid)).ppid())
+    except Exception:
+        return None
+
+
+def _alive(pid: int) -> bool:
+    try:
+        import psutil
+        return psutil.pid_exists(int(pid)) and psutil.Process(int(pid)).status() != psutil.STATUS_ZOMBIE
+    except Exception:
+        return False
+
+
 def safe_pkill(pattern: str, *, full_cmdline: bool = False, timeout: float = 8.0) -> dict:
     """Kill `pattern` only if `check_kill_pattern` clears it.
 
@@ -418,25 +435,34 @@ def safe_pkill(pattern: str, *, full_cmdline: bool = False, timeout: float = 8.0
                 "reason": plan.reason if killed else "matched processes could not be closed"}
 
     kill = shutil.which("kill")
-    killed = 0
-    for pid in plan.pids:
+
+    def _term(pid: int) -> bool:
         try:
             os.kill(int(pid), 15)  # SIGTERM — signal the verified pids only,
-            killed += 1            # never re-run a pattern that could re-match.
+            return True            # never re-run a pattern that could re-match.
         except ProcessLookupError:
-            continue
+            return False
         except PermissionError:
             if kill:
                 try:
-                    cp = subprocess.run([kill, "-15", str(int(pid))], timeout=timeout,
-                                        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
-                                        check=False)
-                    if cp.returncode == 0:
-                        killed += 1
+                    return subprocess.run([kill, "-15", str(int(pid))], timeout=timeout, stdout=subprocess.DEVNULL,
+                                          stderr=subprocess.DEVNULL, check=False).returncode == 0
                 except Exception:
-                    continue
+                    return False
         except Exception:
-            continue
+            return False
+        return False
+
+    # The app's top processes first, so it closes its own helpers: signalled all at once, Spotify's
+    # main process saw its nine helpers die under it and left a crash dump. Whatever is still there
+    # after a few seconds is signalled then.
+    pids = [int(p) for p in plan.pids]
+    roots = [p for p in pids if _parent_pid(p) not in pids] or pids
+    killed = sum(1 for pid in roots if _term(pid))
+    deadline = time.monotonic() + min(float(timeout), 5.0)
+    while time.monotonic() < deadline and any(_alive(p) for p in pids):
+        time.sleep(0.2)
+    killed += sum(1 for pid in pids if pid not in roots and _alive(pid) and _term(pid))
 
     return {
         "ok": killed > 0,
