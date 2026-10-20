@@ -1007,7 +1007,10 @@ def _eli_runtime_sanitize_path_string(key: str, value: str):
     model_key = "model" in key_l
 
     if model_key:
-        if allow_external_models:
+        # A model the user chose outside ELI's folder (a download, another drive) is theirs to keep:
+        # only a path that no longer exists here is stale. Clearing every outside path wiped a
+        # browsed-to model from the settings at the next load.
+        if allow_external_models or resolved.is_file() or resolved.is_dir():
             return str(resolved)
 
         mapped = _eli_runtime_external_path_to_current_install(resolved, root)
@@ -1101,7 +1104,7 @@ def _eli_runtime_clear_stale_env_paths():
         if _eli_runtime_is_relative_to(resolved, root):
             continue
 
-        if "MODEL" in env_key and allow_external_models:
+        if "MODEL" in env_key and (allow_external_models or resolved.exists()):
             continue
 
         os.environ.pop(env_key, None)

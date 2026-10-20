@@ -104,3 +104,18 @@ def test_draft_only_gguf_preflight(tmp_path):
     assert "chat" in msg.lower()
     # preflight needs a real readable header for arch; filename markers still work
     assert is_draft_only_gguf(p)
+
+
+def test_a_model_outside_elis_folder_that_exists_is_kept(tmp_path, monkeypatch):
+    """A browsed-to model (~/Downloads, another drive) was wiped from the settings at the next load
+    unless ELI_ALLOW_EXTERNAL_MODEL_PATHS was set; only a path that no longer exists is stale."""
+    from eli.core import runtime_settings as rs
+    monkeypatch.delenv("ELI_ALLOW_EXTERNAL_MODEL_PATHS", raising=False)
+    root, downloads = tmp_path / "ELI_v2", tmp_path / "Downloads"
+    root.mkdir()
+    downloads.mkdir()
+    model = downloads / "chosen.gguf"
+    model.write_bytes(b"GGUF")
+    monkeypatch.setattr(rs, "_eli_runtime_physical_project_root", lambda: root)
+    assert rs._eli_runtime_sanitize_path_string("model_path", str(model)) == str(model.resolve())
+    assert rs._eli_runtime_sanitize_path_string("model_path", str(downloads / "gone.gguf")) == ""
