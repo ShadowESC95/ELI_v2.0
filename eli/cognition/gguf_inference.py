@@ -2355,7 +2355,7 @@ def get_runtime_snapshot() -> Dict[str, Any]:
 
     if not snap["n_batch"]:
         try:
-            snap["n_batch"] = int(_runtime_value(settings, "n_batch", "batch", default=0) or 0)
+            snap["n_batch"] = int(_runtime_value(settings, "batch_size", "n_batch", default=0) or 0)
         except Exception:
             snap["n_batch"] = 0
 

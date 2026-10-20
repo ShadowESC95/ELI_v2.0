@@ -1421,6 +1421,13 @@ def _route_grounded_runtime_intent(
         return _mk("CHAT", {"message": raw}, 0.95, matched_by="identity.chat_classified")
 
 
+_JOB_PROGRESS = re.compile(
+    r"\b(?:eta(?!\s+(?:on|for|of)\s+(?!(?:it|that|this|the\s+job)\b))|how\s+much\s+longer|how\s+far\s+along|time\s+(?:left|remaining)|any\s+progress|"
+    r"how\s+long\s+(?:left|to\s+go|(?:will|does|is|should)\s+(?:it|that|this)(?:\s+(?:take|be))?)|"
+    r"(?:is\s+(?:it|that)|it'?s)\s+(?:done|finished|ready)(?:\s+yet)?|"
+    r"how'?s\s+(?:it|that)\s+(?:going|coming\s+along))\b")
+
+
 def _route_plugin_bridge_prepass(raw: str, low: str):
     """
     High-priority plugin routing prepass.
@@ -3430,6 +3437,12 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                        0.95, matched_by="dev.check_job")
     if re.search(r"\b(?:background\s+jobs|list\s+(?:background\s+|running\s+)?jobs|running\s+jobs|what\s+jobs)\b", low):
         return _mk("BACKGROUND_JOBS", {}, 0.9, matched_by="dev.background_jobs")
+    # "do you have an eta?" while a job runs: the job's own progress, not a guess ("several hours" for a
+    # ten-minute read of 349 PDFs, after a 19 s detour through the intent model)
+    if _JOB_PROGRESS.search(low):
+        from eli.runtime.background_tasks import get_background_tasks as _bt_running
+        if _bt_running().list(limit=1, status="running"):
+            return _mk("CHECK_JOB", {"job_id": None, "text": raw}, 0.9, matched_by="dev.running_job_progress")
 
     # CODE_SOLVE — the verified coding agent (plan → DAG/tree search → execute →
     # repair). Takes precedence over GENERATE_SCRIPT for requests that ask for
@@ -4391,9 +4404,6 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if "clipboard" in low and "show" in low:
         return _mk("GET_CLIPBOARD", {}, 0.9, matched_by="clipboard.show")
 
-    # Exclude habit queries from file-read
-    if re.match(r"^(?:show|list|read)\s+habits?", low):
-        return _mk("HABIT_STATUS", {}, 0.95, matched_by="habits.show")
     # Exclude habit queries from file-read
     if re.match(r"^(?:show|list|read)\s+habits?$", low):
         return _mk("HABIT_STATUS", {}, 0.95, matched_by="habits.show")

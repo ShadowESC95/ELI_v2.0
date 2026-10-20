@@ -710,3 +710,25 @@ def reset_knowledge_graph() -> None:
     global _INSTANCE
     with _LOCK:
         _INSTANCE = None
+
+
+def feeds_graph(origin: str) -> bool:
+    """Only what the user said becomes graph facts about them. The extractor reads text as the
+    user's own words, so a physics book filed from a folder became "User prefers screening"."""
+    from eli.memory import policy
+    return policy.counts_as_evidence_about_user(origin)
+
+
+def rebuild_from_memories(conn) -> int:
+    """Extract the graph again from the stored memories. Returns how many were read."""
+    from eli.memory import policy
+    kg = get_knowledge_graph()
+    n = 0
+    for text, source, kind, tags in conn.execute(
+            "SELECT COALESCE(text, content, ''), COALESCE(source, 'user'), COALESCE(kind, 'memory'), "
+            "COALESCE(tags, '') FROM memories ORDER BY id").fetchall():
+        t = (text or "").strip()
+        if t and feeds_graph(policy.classify_origin(source, kind, tags, t)):
+            kg.extract_from_memory(t, source=source)
+            n += 1
+    return n

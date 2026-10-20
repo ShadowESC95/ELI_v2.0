@@ -5104,6 +5104,8 @@ class CognitiveEngine:
         try:
             from eli.memory import vector_store as _vs_mod
             vs = getattr(_vs_mod, "_store", None)
+            if vs is not None:
+                vs.flush(pending_only=True)   # memories added since the last batched save
             embedder = getattr(vs, "_embedder", None) if vs is not None else None
             if embedder is not None:
                 _emb_close = getattr(embedder, "close", None)
@@ -15815,6 +15817,12 @@ Answer:"""
             if not _followthrough_may_run(_ft_action, user_input, _query):
                 log.debug(f"[FOLLOWTHROUGH] '{commit.get('matched')}' not run "
                           f"({_ft_action or 'no action'}: not a read, and not what the user asked for)")
+                # The promise is already on screen; it must not stand as if kept ("I am going to check the
+                # current load…", and nothing checked anything).
+                _not_done = (f"(I haven't done that: nothing ran for “{str(commit['clause']).strip().rstrip('.')}”. "
+                             "Ask and I'll do it.)")
+                yield "\n\n" + _not_done
+                self._store_followthrough_reply(full, _not_done)
                 return
             if _ft_action in _FOLLOWTHROUGH_REPORTS and not _FT_PROMISED_REPORT.search(
                     str(commit.get("clause") or "") + " " + str(full or "")):

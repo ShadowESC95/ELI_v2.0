@@ -45,3 +45,15 @@ def test_the_engine_prints_dates_on_ranked_hits_and_turns():
     from eli.kernel import engine as eng
     src = inspect.getsource(eng.CognitiveEngine.assemble_precise_context)
     assert "when_label" in src
+
+
+def test_an_older_summary_says_which_night_it_meant():
+    """A 15 October summary said "zero hours last night"; read on 20 October ELI said the user had
+    mentioned zero sleep last night, and after the correction that they were running on fumes."""
+    from eli.cognition.evidence_format import as_of, dated
+    then, now = _ts("2026-10-15 18:24"), _ts("2026-10-20 11:02")
+    out = dated("The user's severe sleep deprivation (zero hours last night); today they are currently tired.", then, now)
+    assert out.startswith("[Thu 15 Oct 18:24, 5 days ago]")
+    assert "last night" not in out and "the night before Thu 15 Oct" in out
+    assert "today" not in out and "currently" not in out
+    assert as_of("today I feel fine", now - 60, now) == "today I feel fine"     # today's words are right as they are

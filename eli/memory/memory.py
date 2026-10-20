@@ -318,21 +318,21 @@ def _add_column_if_missing(conn, table, name, decl):
 
 
 def _migrate_memory_provenance(conn) -> None:
-    """One-time alignment: auto_extracted rows are hypothesis tier, not grounding."""
+    """One-time alignment: auto_extracted rows are hypothesis tier, not grounding.
+
+    Runs on every connection, so it reads first: the UPDATE took the write lock each time and failed
+    with "database is locked" whenever another writer held it."""
+    match = """WHERE LOWER(COALESCE(tags, '')) LIKE '%auto_extracted%'
+              AND COALESCE(verification_status, 'verified') = 'verified'
+              AND COALESCE(provenance_kind, 'user_verbatim') = 'user_verbatim'"""
     try:
         cols = _table_columns(conn, "memories")
-        if "verification_status" not in cols:
+        if "verification_status" not in cols or not conn.execute(
+                f"SELECT EXISTS(SELECT 1 FROM memories {match})").fetchone()[0]:
             return
-        conn.execute(
-            """
-            UPDATE memories
-            SET verification_status = 'hypothesis',
-                provenance_kind = 'auto_extract'
-            WHERE LOWER(COALESCE(tags, '')) LIKE '%auto_extracted%'
-              AND COALESCE(verification_status, 'verified') = 'verified'
-              AND COALESCE(provenance_kind, 'user_verbatim') = 'user_verbatim'
-            """
-        )
+        conn.execute(f"UPDATE memories SET verification_status = 'hypothesis', provenance_kind = 'auto_extract' {match}")
+    except sqlite3.OperationalError as e:
+        log.debug("provenance alignment waits for the next connection: %s", e)
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
@@ -2165,9 +2165,10 @@ class Memory(metaclass=_MemoryMeta):
                         "provenance_kind": provenance_kind,
                     },
                 ))
-                if vector_indexed and hasattr(vs, "flush"):
-                    vs.flush()
-                elif not vector_indexed:
+                # No save here: each save rewrites the whole index (18 MB at 2,900 memories), and a
+                # 349-PDF read stored 2,399 rows, 24 GB of writes in 50 minutes that stalled the
+                # machine. add() saves in batches; shutdown saves the rest.
+                if not vector_indexed:
                     # Ran without raising but declined the write (the embedder returned no vector):
                     # a real failed write, not "no vector store configured". Feeds the World tab's
                     # memory_uncertainty bar.
@@ -2197,8 +2198,8 @@ class Memory(metaclass=_MemoryMeta):
 
         # Extract entity-relation triples into knowledge graph (fire-and-forget)
         try:
-            if origin != _policy.ORIGIN_TELEMETRY:
-                from eli.memory.knowledge_graph import get_knowledge_graph
+            from eli.memory.knowledge_graph import feeds_graph, get_knowledge_graph
+            if feeds_graph(origin):
                 kg = get_knowledge_graph()
                 kg.extract_from_memory(t, source=source)
         except Exception:
@@ -3193,6 +3194,53 @@ class Memory(metaclass=_MemoryMeta):
         return [{"id": h["id"], "text": str(h.get("text") or h.get("content") or "")[:160]}
                 for h in hits if str(h.get("id", "")).isdigit()]
 
+    # Document text the old folder reader filed as memories: kind "pdf:<id>", from a tool.
+    _FILED_DOCUMENTS = "kind LIKE 'pdf:%' AND COALESCE(source, '') = 'tool'"
+
+    def refile_documents(self, dry_run: bool = False) -> Dict[str, Any]:
+        """Documents filed as memories go to the document index, where documents are searched; the
+        rows leave memory, and so do the graph relations made from tool text, which the extractor read
+        as the user's own words. One 349-PDF folder had made 2,399 of 2,929 memories and 969 relations
+        such as "User prefers screening". Not forget(): it matches words against the whole profile,
+        and book text shares words with everything."""
+        conn = self._get_connection()
+        try:
+            rows = [{"id": r[0], "text": r[1], "tags": r[2]} for r in conn.execute(
+                f"SELECT id, COALESCE(text, content, ''), COALESCE(tags, '') FROM memories WHERE {self._FILED_DOCUMENTS}")]
+            paths = sorted({m.group(1).strip() for r in rows for m in [re.match(r"PDF (.+)\nPages read:", r["text"])] if m})
+            report: Dict[str, Any] = {"memories": len(rows), "documents": len(paths), "relations": 0, "entities": 0}
+            has_graph = _eli_table_exists(conn, "kg_relations") and _eli_table_exists(conn, "kg_entities")
+            if has_graph:
+                report["relations"] = conn.execute("SELECT COUNT(*) FROM kg_relations WHERE source = 'tool'").fetchone()[0]
+            if dry_run or not (rows or report["relations"]):
+                return report
+            self._remove_rows(conn, rows)
+            if has_graph:
+                ends = {e for pair in conn.execute("SELECT subject_id, object_id FROM kg_relations WHERE source = 'tool'")
+                        for e in pair}
+                conn.execute("DELETE FROM kg_relations WHERE source = 'tool'")
+                for eid in ends:
+                    if not conn.execute("SELECT EXISTS(SELECT 1 FROM kg_relations WHERE subject_id = ? OR object_id = ?)",
+                                        (eid, eid)).fetchone()[0] and conn.execute(
+                            "SELECT LOWER(name) != 'user' FROM kg_entities WHERE id = ?", (eid,)).fetchone() == (1,):
+                        conn.execute("DELETE FROM kg_entities WHERE id = ?", (eid,))
+                        report["entities"] += 1
+            conn.commit()
+        finally:
+            conn.close()
+        self._drop_turn_cache()
+        try:
+            from eli.memory.document_index import note_document
+            for path in paths:
+                if os.path.isfile(path):
+                    note_document(path, source="folder analysis")
+        except Exception:
+            log.debug("filed documents not queued for the index", exc_info=True)
+        log.info("[MEMORY] moved %d document passages out of memory (%d files to the document index), "
+                 "%d graph relations and %d entities made from them", report["memories"], report["documents"],
+                 report["relations"], report["entities"])
+        return report
+
     def forget(self, ids, *, include_turns: bool = True) -> Dict[str, int]:
         """Delete memories and everything derived from them: index entries, claims, summaries, profile items, stances, graph."""
         report: Dict[str, int] = {k: 0 for k in (
@@ -3778,7 +3826,8 @@ class Memory(metaclass=_MemoryMeta):
         try:
             # A history read pending after an update runs on this start, not tomorrow.
             from eli.memory import claims as _claims
-            pending = self._meta_get(conn, "claims_extract_version") != _claims.EXTRACT_VERSION
+            pending = self._meta_get(conn, "claims_extract_version") != _claims.EXTRACT_VERSION or bool(
+                conn.execute(f"SELECT EXISTS(SELECT 1 FROM memories WHERE {self._FILED_DOCUMENTS})").fetchone()[0])
             if self._meta_get(conn, "last_upkeep_day") == time.strftime("%Y-%m-%d") and not pending:
                 return False
             try:
@@ -3805,6 +3854,7 @@ class Memory(metaclass=_MemoryMeta):
             ("identity", lambda: self.merge_user_ids() if not dry_run else {}),
             ("learning", lambda: self.tidy_learning_tables(dry_run=dry_run)),
             ("semantic", lambda: self.consolidate_semantic(dry_run=dry_run)),
+            ("documents", lambda: self.refile_documents(dry_run=dry_run)),
         )
         for name, fn in steps:
             try:

@@ -63,6 +63,33 @@ def turn_stamp(ts: Any, now: Optional[float] = None) -> str:
     return f"{stamp}, {age}" if age else stamp
 
 
+def as_of(text: Any, ts: Any, now: Optional[float] = None) -> str:
+    """Text written on an earlier day, with its relative day words made that day's dates.
+
+    A summary from 15 October said "zero hours last night"; read on 20 October, ELI told the user
+    they had mentioned zero sleep last night, and after the correction that they were running on
+    fumes. A dated line alone did not stop it: the words inside still said last night."""
+    import re
+    text = str(text or "")
+    t = _ts(ts)
+    if t is None or age_label(t, now) == "today":
+        return text
+    day = lambda x: time.strftime("%a %d %b", time.localtime(x))
+    on, before = day(t), day(t - 86400)
+    for pattern, said in ((r"last night", f"the night before {on}"), (r"yesterday", f"on {before}"),
+                          (r"tonight", f"on the night of {on}"), (r"this (morning|afternoon|evening)", rf"on the \1 of {on}"),
+                          (r"today", f"on {on}"), (r"(?:right now|currently|at the moment)", f"at the time ({on})")):
+        text = re.sub(rf"\b{pattern}\b", said, text, flags=re.I)
+    return text
+
+
+def dated(text: Any, ts: Any, now: Optional[float] = None) -> str:
+    """'[Thu 15 Oct 18:24, 5 days ago] text', with the text's own day words resolved."""
+    stamp = turn_stamp(ts, now)
+    body = as_of(text, ts, now)
+    return f"[{stamp}] {body}" if stamp else body
+
+
 def row_time(row: Any) -> Optional[float]:
     """When a row's content happened: event_ts, else ts, else timestamp."""
     if not isinstance(row, dict):

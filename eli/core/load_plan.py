@@ -839,6 +839,17 @@ def plan(req: Request) -> Optional[Plan]:
              use_mb={int(k): float(v) for k, v in chosen["use"].items()}, host_mb=float(chosen["host"]),
              measured=s.measure, use_mmap=req.use_mmap, use_mlock=req.use_mlock, notes=s.notes)
     p.asked = {"n_ctx": ctx, "n_gpu_layers": ceiling, "n_batch": batch}
+    if s.fixed and p.experts_in_ram:
+        # A manual split shares layers, and the experts kept in RAM are the first layers': on two cards at
+        # 50/50 the first card held 1.4 GB of 6 GB free while the experts of 29 layers sat in RAM.
+        costs = s.costs(p.n_ctx, p.n_batch, chosen["kv"], p.experts_in_ram)
+        room = s.room(costs, p.n_batch) if costs is not None else []
+        one_layer = max(weights.expert_bytes or [0]) / MIB
+        idle = [devs[d].name for d in range(min(len(room), len(devs)))
+                if counts[d] > 0 and one_layer and room[d] - p.use_mb.get(devs[d].index, 0.0) >= one_layer]
+        if idle:
+            p.notes.append(f"the manual split leaves room on {', '.join(idle)} while the experts of "
+                           f"{p.experts_in_ram} layers stay in RAM; Auto split fills each card")
     asked = (ctx, ceiling, batch, kv0[0])
     if (p.n_ctx, p.n_gpu_layers, p.n_batch, p.cache_type_k) == asked and p.experts_in_ram is None:
         p.notes.append("your settings fit as asked")

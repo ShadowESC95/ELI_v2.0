@@ -95,8 +95,9 @@ def refresh_insight(memory: Any = None, force: bool = False) -> str:
             obs = []
         obs = [o for o in obs if o][:10]
         try:
-            sums = [str((r or {}).get("summary") or "").strip()
-                    for r in (memory.get_session_summaries(limit=3) or [])]
+            from eli.cognition.evidence_format import dated
+            sums = [dated(str(r.get("summary")).strip(), r.get("ended_at") or r.get("started_at"))
+                    for r in (memory.get_session_summaries(limit=3) or []) if str((r or {}).get("summary") or "").strip()]
         except Exception:
             sums = []
         sums = [s for s in sums if s][:3]

@@ -143,7 +143,7 @@ class TasksTab(QWidget):
                 whenc = "@ " + datetime.fromtimestamp(float(t["scheduled_for"])).strftime("%H:%M %d %b")
             else:
                 whenc = f"{t.get('elapsed_s', 0)}s"
-            vals = [str(jid), str(t.get("kind") or ""), status, whenc, str(t.get("note") or "")]
+            vals = [str(jid), str(t.get("kind") or ""), status, whenc, _note(t)]
             for c, v in enumerate(vals):
                 item = QTableWidgetItem(v)
                 if c == 2:
@@ -168,15 +168,24 @@ class TasksTab(QWidget):
             return
         d = bt.get(jid, include_result=True) or {}
         res = d.get("result")
-        body = []
-        body.append(f"Task #{jid} — {d.get('kind')} — {d.get('status')}")
+        body = [f"**Task #{jid}**: {d.get('name') or d.get('kind')} ({d.get('status')})"]
         if d.get("error"):
-            body.append("\nERROR:\n" + str(d["error"]))
+            body.append("ERROR:\n\n```\n" + str(d["error"]) + "\n```")
         if res is not None:
-            body.append("\nResult:\n" + _format_result(res))
-        elif d.get("note"):
-            body.append("\n" + str(d["note"]))
-        self.result.setPlainText("\n".join(body))
+            body.append(_format_result(res))
+        elif _note(d):
+            body.append(_note(d))
+        text = "\n\n".join(body)
+        try:
+            from eli.runtime.rich_document import add_images, to_html
+            html, images = to_html(text, color=self.result.palette().text().color().name(),
+                                   size_pt=self.result.font().pointSizeF(),
+                                   scale=self.result.devicePixelRatioF())
+            add_images(self.result.document(), images)
+            self.result.setHtml(html)
+        except Exception:
+            log.debug("task result shown as plain text", exc_info=True)
+            self.result.setPlainText(text)
 
     def _forget_persisted(self, jid):
         """Drop the durable record so a cancelled task doesn't re-arm on restart."""
@@ -271,14 +280,28 @@ class TasksTab(QWidget):
         self._refresh()
 
 
+def _note(t) -> str:
+    """What the job is, and while it runs how far it has got."""
+    note = str(t.get("note") or "") if t.get("status") != "running" else ""
+    if not note:
+        note = str(t.get("name") or "")
+    p = t.get("progress") or {}
+    if t.get("status") == "running" and p.get("total"):
+        note += f" · {p.get('stage') or 'working'} {p.get('done', 0)}/{p['total']}"
+        if t.get("eta_s"):
+            note += f" · about {max(1, round(float(t['eta_s']) / 60))} min left"
+    return note
+
+
 def _format_result(res) -> str:
+    """The whole result: the task view is where it is read in full."""
     try:
         if isinstance(res, dict):
             for k in ("answer", "report", "reflection", "script_path", "path", "content", "response"):
                 if res.get(k):
-                    return str(res[k])[:4000]
+                    return str(res[k])
             import json
-            return json.dumps(res, indent=2, default=str)[:4000]
-        return str(res)[:4000]
+            return "```\n" + json.dumps(res, indent=2, default=str) + "\n```"
+        return str(res)
     except Exception:
-        return str(res)[:1000]
+        return repr(res)

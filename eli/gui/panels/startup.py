@@ -518,6 +518,9 @@ class StartupModelSelectionDialog(QDialog):
         browse_btn = QPushButton("Browse…")
         browse_btn.clicked.connect(self._browse_gguf_file)
         form.addRow("", browse_btn)
+        self.model_path_input.editingFinished.connect(
+            lambda: self._select_model_path(self.model_path_input.text())
+            if self.selected_provider() != "ollama" and self.model_path_input.text().strip() else None)
 
         self.ollama_host_input = QLineEdit(ollama_host or "http://localhost:11434")
         self.ollama_host_input.setToolTip(
@@ -1079,10 +1082,10 @@ class StartupModelSelectionDialog(QDialog):
             "GGUF Files (*.gguf);;All Files (*)",
         )
         if file_path:
-            self.model_path_input.setText(file_path)
             idx = self.provider_combo.findData("custom_gguf")
             if idx >= 0:
                 self.provider_combo.setCurrentIndex(idx)
+            self._select_model_path(file_path)    # the list shows what will load, not the last pick
 
     def _populate_compute_mode_combo(self) -> None:
         self.compute_mode_combo.clear()

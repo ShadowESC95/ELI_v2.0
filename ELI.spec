@@ -216,10 +216,11 @@ hiddenimports += collect_submodules("numpy")
 # Dynamic-dispatch third-party packages PyInstaller cannot trace statically.
 # segno + cryptography are lazy-imported for LAN QR / HTTPS phone mic — without
 # an explicit collect the frozen Windows GUI shows "QR unavailable" / no certs.
+# markdown loads its extensions (tables, fenced code) by name when a reply or document is laid out.
 for pkg in (
     "pyttsx3", "plyer.platforms", "uvicorn",
     "fastapi", "starlette", "segno", "cryptography",
-    "websockets", "httptools", "anyio", "sniffio",
+    "websockets", "httptools", "anyio", "sniffio", "markdown",
 ):
     hiddenimports += _optional_collect(pkg)
 try:
@@ -362,7 +363,8 @@ if sys.platform.startswith("linux"):
         binaries.append((str(_path), _qt_lib_dest))
         print(f"[ELI.spec] bundling Qt xcb dependency: {_path} -> {_qt_lib_dest}")
 
-for pkg in ("llama_cpp", "faster_whisper", "openwakeword", "piper"):
+# docx: the blank document python-docx starts every saved .docx from
+for pkg in ("llama_cpp", "faster_whisper", "openwakeword", "piper", "docx"):
     datas += _optional_collect(pkg, data=True)
 # coqui-tts ships model/config JSON inside the package; submodules alone leave the
 # engine importable but unable to build a model.

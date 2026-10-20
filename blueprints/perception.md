@@ -310,6 +310,15 @@ capability isn't available (e.g. area screenshots on some Windows installs).
 `analyze_pdfs`, `analyze_image`, `analyze_csv` — typed handlers behind the `ANALYZE_*` actions, feeding
 extracted content (text/OCR/structure) into the grounded pipeline.
 
+A folder (`ANALYZE_PDF_FOLDER`, `eli/runtime/folder_analysis.py`) is read through the document
+index: every PDF is stored whole there, one summary covers all of them (in parts of what one call
+has always read, then joined), a reply cut at its limit ends at its last finished line, and the
+result, with the document list and any unreadable files, is saved as a PDF
+(`eli/runtime/rich_document.py`: matplotlib typesets the formulas, Qt lays out the page, .docx
+where there is no window). The same rendering lays out chat replies and task results, so
+`$\Xi$` reads as Ξ. It used to file each piece of every PDF as a personal memory and summarise
+from the first 17 documents.
+
 ## Honest assessment
 
 - **Strong:** this is the layer that makes ELI genuinely multimodal and local —

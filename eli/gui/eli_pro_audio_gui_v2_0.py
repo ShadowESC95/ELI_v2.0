@@ -764,9 +764,10 @@ class LocalModelManager:
         self.fitted_gpu_layers = self.n_gpu_layers
         self.requested_n_gpu_layers = int(requested.get("n_gpu_layers") or 0)
         self.gpu_offload_supported = bool(report.get("gpu_offload_supported"))
-        devices = list(plan.get("devices") or [])
-        names = sorted({d.get("description") or d.get("name") for d in devices if d.get("planned_mb")})
-        self.gpu_name = " + ".join(n for n in names if n)
+        from eli.core.hardware_profile import _card_names
+        used = [{"name": d.get("description") or d.get("name")}
+                for d in (plan.get("devices") or []) if d.get("planned_mb")]
+        self.gpu_name = _card_names(used) if used else ""
         self.experts_in_ram = report.get("moe_experts_in_ram_layers")
         self.plan_text = str(plan.get("text") or "")
         self.is_loaded = True
@@ -9822,7 +9823,9 @@ class EliMainWindow(QMainWindow):
                 _eff = (_live.get("effective") or _live) if isinstance(_live, dict) else {}
                 _lc, _lg = _eff.get("n_ctx"), _eff.get("n_gpu_layers")
                 _loaded_plan = str(((_live.get("load_plan") or {}) if isinstance(_live, dict) else {}).get("text") or "")
-                if _loaded_plan:
+                if not _live.get("loaded"):
+                    pass                                          # settings are not a load
+                elif _loaded_plan:
                     summary += f"  |  loaded: {_loaded_plan}"      # every card, experts in RAM, cache type
                 elif _lc and _lg is not None:
                     summary += (f"  |  loaded: ctx={int(_lc)} gpu_layers={_describe_gpu_rec(_lg)}"
@@ -12202,11 +12205,13 @@ class EliMainWindow(QMainWindow):
             body_fmt.setForeground(QColor(_ELI_BODY_COLOR))
             cursor.setCharFormat(body_fmt)
             self.chat_display.setTextCursor(cursor)
+            self._stream_body_start = cursor.position()
             return
 
         if text == "__STREAM_END__":
             self._streaming = False
             self._stream_buffer = []
+            self._render_rich_reply(getattr(self, "_stream_body_start", None), _ELI_BODY_COLOR)
             cursor = self.chat_display.textCursor()
             cursor.movePosition(cursor.MoveOperation.End)
             cursor.insertBlock()
@@ -12283,10 +12288,35 @@ class EliMainWindow(QMainWindow):
         body_fmt.setFontWeight(QFont.Weight.Normal)
         body_fmt.setForeground(QColor(_ELI_BODY_COLOR))
         cursor.setCharFormat(body_fmt)
+        _start = cursor.position()
         cursor.insertText(_r)
+        self._render_rich_reply(_start, _ELI_BODY_COLOR)
+        cursor = self.chat_display.textCursor()
+        cursor.movePosition(cursor.MoveOperation.End)
         cursor.insertBlock()
         self.chat_display.setTextCursor(cursor)
         self.chat_display.ensureCursorVisible()
+
+    def _render_rich_reply(self, start, color: str) -> None:
+        """A finished reply from `start` to the end, with its Markdown and formulas laid out
+        (the reply streams in as plain text: "**bold**" and "$\\Xi$" showed as typed)."""
+        if start is None:
+            return
+        try:
+            from eli.runtime.rich_document import add_images, has_markup, to_html
+            cursor = self.chat_display.textCursor()
+            cursor.setPosition(int(start))
+            cursor.movePosition(cursor.MoveOperation.End, cursor.MoveMode.KeepAnchor)
+            text = cursor.selectedText().replace("\u2029", "\n")
+            if not has_markup(text):
+                return
+            body, images = to_html(text, color=color, size_pt=self.chat_display.font().pointSizeF(),
+                                   scale=self.chat_display.devicePixelRatioF())
+            add_images(self.chat_display.document(), images)
+            cursor.removeSelectedText()
+            cursor.insertHtml(f'<div style="color:{color}">{body}</div>')
+        except Exception:
+            log.debug("reply left as plain text", exc_info=True)
 
     def closeEvent(self, event):
         if getattr(self, "_eli_shutdown_started", False):

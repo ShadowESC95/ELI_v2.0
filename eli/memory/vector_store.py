@@ -183,35 +183,9 @@ class VectorStore:
         self._load()
         self._load_tombstones()
         self._init_embedder()
-        # Check for divergence between loaded index and SQLite memories count.
-        # If >20% of memories are missing from FAISS, schedule a rebuild so
-        # semantic search is accurate even after unclean shutdowns.
-        if not self._needs_rebuild:
-            try:
-                import sqlite3 as _sq
-                from eli.core.paths import user_db_path as _udb
-                _db = str(_udb())
-                if _db and os.path.exists(_db):
-                    _con = _sq.connect(_db)
-                    try:
-                        _sqlite_count = _con.execute(
-                            "SELECT COUNT(*) FROM memories "
-                            "WHERE length(COALESCE(text, content, '')) > 10" + _embeddable_sql(_con)
-                        ).fetchone()[0]
-                    except Exception:
-                        _sqlite_count = 0
-                    finally:
-                        _con.close()
-                    _vec_count = self._index.ntotal if self._index is not None else 0
-                    if _sqlite_count > 0 and _vec_count < _sqlite_count * 0.8:
-                        log.debug(
-                            f"[VECTOR_STORE] Index divergence detected: "
-                            f"{_vec_count} vectors vs {_sqlite_count} DB memories — scheduling rebuild"
-                        )
-                        self._needs_rebuild = True
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
-        if self._needs_rebuild and self._embedder is not None:
+        # Saves are batched (SAVE_EVERY, and at shutdown), so an unclean exit can leave the newest
+        # memories out of the saved index: the catch-up embeds whatever the index is missing.
+        if self._embedder is not None:
             threading.Thread(target=self._auto_rebuild, daemon=True, name="eli-vs-rebuild").start()
 
     def add(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
@@ -385,7 +359,8 @@ class VectorStore:
             log.debug('[VECTOR_STORE] Embedder unavailable, keyword fallback: ' + str(e))
 
     def _auto_rebuild(self) -> None:
-        """Background rebuild triggered on startup when saved index is empty but DB has memories."""
+        """At startup: rebuild an empty or unreadable index from the database, or add the memories a
+        saved index is missing."""
         import sqlite3 as _sq
         try:
             from eli.core.paths import user_db_path
@@ -414,6 +389,16 @@ class VectorStore:
              "memory_id": row[4], "id": row[4]}
             for row in raw if row[0].strip()
         ]
+        with self._lock:
+            have = {_entry_id(m) for m in self._meta}
+        if not self._needs_rebuild and None not in have:   # entries from before ids were kept: rebuild
+            missing = [e for e in entries if e["memory_id"] not in have]
+            for e in missing:
+                self.add(e["text"], {k: v for k, v in e.items() if k != "text"})
+            self.flush(pending_only=True)
+            if missing:
+                log.debug(f"[VECTOR_STORE] added {len(missing)} memories the saved index was missing")
+            return
         log.debug(f"[VECTOR_STORE] Auto-rebuilding index from {len(entries)} memories…")
         self.rebuild_full(entries)
         log.debug(f"[VECTOR_STORE] Auto-rebuild complete: {self.ntotal} vectors")
@@ -536,9 +521,12 @@ class VectorStore:
         else:
             log.debug(f"[VECTOR_STORE] Pruned to {len(new_meta)} entries")
 
-    def flush(self) -> None:
-        """Force-save index and metadata to disk."""
+    def flush(self, *, pending_only: bool = False) -> None:
+        """Save index and metadata to disk; with pending_only, only when there are unsaved adds.
+        Each save rewrites both files whole, so callers batch (add() saves every SAVE_EVERY)."""
         with self._lock, FAISS_IO_LOCK:
+            if pending_only and not self._adds_since_save:
+                return
             try:
                 self._save_generation += 1
                 faiss.write_index(self._index, self._index_path)

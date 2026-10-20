@@ -53,7 +53,13 @@ Kill switch: `ELI_CODEGEN_BACKGROUND=0`.
 
 - Actions **`CHECK_JOB`** (`{job_id}` or parsed from "check job 3") and
   **`BACKGROUND_JOBS`** (list), both in `SUPPORTED_ACTIONS`.
-- Router triggers: "check job N" / "job N", "background jobs" / "list jobs".
+- Router triggers: "check job N" / "job N", "background jobs" / "list jobs", and while a job runs a
+  question about its progress or time left ("do you have an eta?", "is it done yet?"), which goes to
+  the running job (`_JOB_PROGRESS`); "how long is the Eiffel Tower" does not.
+- **Progress.** A job reports `background_tasks.report(done, total, stage)` from its own thread;
+  `CHECK_JOB` and the Tasks tab show the stage, how far it has got and the time left in that stage
+  at the rate measured so far (`Task.eta_s`). The folder analysis reports reading and summarising.
+  Without this an ETA question got "several hours" for a ten-minute job.
 
 ## Control summary
 

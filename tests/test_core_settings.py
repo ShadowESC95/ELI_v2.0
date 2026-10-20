@@ -197,6 +197,16 @@ def test_migrate_preserves_other_keys():
     assert out["provider"] == "custom_gguf"
 
 
+def test_a_thread_count_the_tuner_wrote_goes_back_to_auto_once(monkeypatch):
+    from eli.core.runtime_settings import _bring_up_to_date
+    monkeypatch.setattr("os.cpu_count", lambda: 12)
+    out, migrated = _bring_up_to_date({"n_threads": 10})
+    assert out["n_threads"] == 0 and "settings_revision" in migrated
+    out, migrated = _bring_up_to_date({**out, "n_threads": 10})    # chosen afterwards: kept
+    assert out["n_threads"] == 10 and migrated == []
+    assert _bring_up_to_date({"n_threads": 4})[0]["n_threads"] == 4  # not a figure the tuner wrote
+
+
 # ── _resolve_relative_model_paths ────────────────────────────────────────
 
 def test_relative_path_resolved_to_absolute():

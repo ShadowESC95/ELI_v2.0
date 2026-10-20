@@ -417,6 +417,24 @@ def _coerce_value(key: str, value: Any) -> Any:
     return value
 
 
+def _tuner_threads_to_auto(out: Dict[str, Any]) -> None:
+    """Until 2.5.18 the tuner saved its own thread count (logical threads less one or two); 0 now
+    means the physical cores, and a count the tuner wrote goes back to that. On a 6-core, 12-thread
+    processor the saved 10 measured no faster than 6 and kept every core busy while ELI answered."""
+    logical = os.cpu_count() or 0
+    try:
+        n = int(out.get("n_threads") or 0)
+    except (TypeError, ValueError):
+        return
+    if n and n in (logical - 1, logical - 2):
+        out["n_threads"] = 0
+
+
+# One-time changes to a saved file, in order; the file records how many it has had, so a value the
+# user sets afterwards is left alone.
+_REVISIONS = (_tuner_threads_to_auto,)
+
+
 def _migrate_legacy_keys(data: Dict[str, Any]) -> tuple[Dict[str, Any], list[str]]:
     """Fold legacy keys into canonical ones. Returns (migrated_data, list_of_migrated_keys)."""
     migrated: list[str] = []
@@ -429,6 +447,21 @@ def _migrate_legacy_keys(data: Dict[str, Any]) -> tuple[Dict[str, Any], list[str
                 out[new_key] = out[old_key]
             del out[old_key]
             migrated.append(old_key)
+    return out, migrated
+
+
+def _bring_up_to_date(data: Dict[str, Any]) -> tuple[Dict[str, Any], list[str]]:
+    """Legacy keys folded in, then the one-time revisions the file has not had yet."""
+    out, migrated = _migrate_legacy_keys(data)
+    try:
+        done = int(out.get("settings_revision") or 0)
+    except (TypeError, ValueError):
+        done = 0
+    for step in _REVISIONS[done:]:
+        step(out)
+    if done < len(_REVISIONS):
+        out["settings_revision"] = len(_REVISIONS)
+        migrated.append("settings_revision")
     return out, migrated
 
 
@@ -547,7 +580,7 @@ def _load_settings_unsanitized(*, apply_env_overlay: bool = True) -> Dict[str, A
             )
 
     # Migrate legacy keys in-memory AND persist the cleaned file
-    migrated_data, migrated_keys = _migrate_legacy_keys(raw)
+    migrated_data, migrated_keys = _bring_up_to_date(raw)
     if migrated_keys:
         try:
             settings_file.parent.mkdir(parents=True, exist_ok=True)
@@ -646,7 +679,7 @@ def save_settings(settings: Dict[str, Any]) -> None:
             log.debug("suppressed exception", exc_info=True)
 
     # Migrate anything legacy in existing first
-    existing, _ = _migrate_legacy_keys(existing)
+    existing, _ = _bring_up_to_date(existing)
 
     # Apply caller updates
     for k, v in settings.items():

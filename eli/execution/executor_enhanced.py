@@ -2323,6 +2323,15 @@ def _maybe_background_code_work(action, args):
         return None
 
 
+def _duration(seconds) -> str:
+    s = int(round(float(seconds or 0)))
+    if s < 90:
+        return f"{s} s"
+    if s < 5400:
+        return f"{round(s / 60)} min"
+    return f"{s // 3600} h {round(s % 3600 / 60)} min"
+
+
 def _maybe_background_file_analysis(action, args):
     """Heavy folder/PDF analysis (many PDFs → extract + summarise) is slow and
     would block the UI. Run it on a background thread and return a job-id message
@@ -2354,12 +2363,14 @@ def _maybe_background_file_analysis(action, args):
         _bg_args = dict(args)
         _bg_args["_no_background"] = True
         _bg_args["folder"] = folder
+        from eli.kernel import request_context as _rc_bg
+        _bg_args["_user_id"] = str(_rc_bg.user_id_var.get() or "")   # the job's thread has no request
         _label = os.path.basename(folder.rstrip("/")) or folder
         jid = bt.submit(f"Analyse {_n_pdfs} PDFs: {_label}",
                         lambda: execute("ANALYZE_PDF_FOLDER", _bg_args))
-        msg = (f"That folder has {_n_pdfs} PDFs — reading and summarising them properly takes time, "
-               f"so I've started it in the background as job #{jid}. Say “check job {jid}” for the "
-               f"summary when it's ready, or “background jobs” to see all running tasks.")
+        msg = (f"That folder has {_n_pdfs} PDFs, so I've started reading them in the background as job "
+               f"#{jid}: each one goes into the document index, then one summary covering all of them is "
+               f"saved as a PDF. Ask how it's going any time, or say “check job {jid}”.")
         return {"ok": True, "action": "ANALYZE_PDF_FOLDER", "background": True, "job_id": jid,
                 "content": msg, "response": msg}
     except Exception as _bg_e:
@@ -5457,7 +5468,7 @@ def _artifacts_dir() -> "Path":
 def _save_artifact(content: str, subdir: str, filename: str, fmt: str = "md") -> str:
     """
     Save content to artifacts/{subdir}/{filename}.{fmt}.
-    Supported fmt: md, docx, txt, py, sh, csv, html.
+    Supported fmt: md, docx, pdf, txt, py, sh, csv, html.
     Returns the absolute path string.
     """
     import re as _re
@@ -5474,31 +5485,13 @@ def _save_artifact(content: str, subdir: str, filename: str, fmt: str = "md") ->
         ts = _t.strftime("%Y%m%d_%H%M%S")
         out_path = root / f"{safe}_{ts}.{fmt}"
 
-    if fmt == "docx":
+    if fmt in ("docx", "pdf"):
+        # one writer for documents (eli/runtime/rich_document.py): headings, lists, typeset formulas
         try:
-            from docx import Document
-            from docx.shared import Pt
-            doc = Document()
-            # Style
-            style = doc.styles["Normal"]
-            style.font.name = "Calibri"
-            style.font.size = Pt(11)
-            for block in content.split("\n\n"):
-                block = block.strip()
-                if not block:
-                    continue
-                # Heading detection (markdown ## style)
-                if block.startswith("### "):
-                    p = doc.add_heading(block[4:].strip(), level=3)
-                elif block.startswith("## "):
-                    p = doc.add_heading(block[3:].strip(), level=2)
-                elif block.startswith("# "):
-                    p = doc.add_heading(block[2:].strip(), level=1)
-                else:
-                    p = doc.add_paragraph(block)
-            doc.save(str(out_path))
-        except Exception as _de:
-            # Fallback to txt if docx fails
+            from eli.runtime.rich_document import write_document
+            out_path = write_document(content, out_path)
+        except Exception:
+            log.debug("[ARTIFACT] document not written; saved as text", exc_info=True)
             out_path = out_path.with_suffix(".txt")
             out_path.write_text(content, encoding="utf-8")
     else:
@@ -9299,185 +9292,26 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- ANALYZE_PDF_FOLDER ----
     if a == "ANALYZE_PDF_FOLDER":
+        folder = str(args.get("folder") or args.get("path") or "").strip()
+        if not folder:
+            return {"ok": False, "action": a, "error": "Missing folder path",
+                    "content": "Missing folder path", "response": "Missing folder path"}
+        # Heavy folders → run async and hand back a job id (don't block).
+        _bg = _maybe_background_file_analysis(a, args)
+        if _bg is not None:
+            return _bg
         try:
-            import os as _ospdf
-            from eli.perception.analyze_pdfs import (
-                analyze_folder, store_analysis_to_memory, PDFAnalysis, PDFDoc)
-            folder = str(args.get("folder") or args.get("path") or "").strip()
-            if not folder:
-                return {"ok": False, "action": a, "error": "Missing folder path",
-                        "content": "Missing folder path", "response": "Missing folder path"}
-            # Heavy folders → run async and hand back a job id (don't block).
-            _bg = _maybe_background_file_analysis(a, args)
-            if _bg is not None:
-                return _bg
-            recursive = bool(args.get("recursive", True))
-            limit = args.get("limit")
-            result = analyze_folder(folder, recursive=recursive, limit=int(limit) if limit else None)
-            results = result.get("results", []) or []
-            count = result.get("count", 0)
-            errors = result.get("errors", []) or []
-            _fname = _ospdf.path.basename(folder.rstrip("/")) or folder
-            if count == 0:
-                msg = (f"No readable PDF text found in “{_fname}” ({len(errors)} unreadable). "
-                       f"The PDFs may be image-only/scanned (need OCR) or the folder has none.")
-                return {"ok": True, "action": a, "content": msg, "response": msg,
-                        "count": 0, "stored": 0, "errors": errors}
-
-            # Per-file mode ("summarise each file / put it in a document"): summarise every doc on its own,
-            # assemble a structured document and write a real .docx (md fallback). Also returned inline so
-            # `check job N` shows the full per-file breakdown, not one folder-level blurb.
-            if args.get("per_file") or args.get("each_file"):
-                from eli.cognition import gguf_inference as _gi
-                _model_ok = False
-                try:
-                    _model_ok = _gi.load_model() is not None
-                except Exception:
-                    _model_ok = False
-                _doc_blocks: list = []
-                _per_file_done = 0
-                for r in results:
-                    _doc = r.get("doc", {}) or {}
-                    _name = _ospdf.path.basename(str(_doc.get("path", ""))) or "document.pdf"
-                    _pages = _doc.get("pages", "?")
-                    # Use the richest text we extracted: chunks joined, capped.
-                    _chunks = r.get("chunks") or []
-                    _body = ("\n\n".join(_chunks) if _chunks else (r.get("preview") or "")).strip()
-                    _doc_summary = ""
-                    if _body and _model_ok:
-                        try:
-                            _ask = (f"Summarise this single research document titled “{_name}”. "
-                                    f"Cover: (1) the central topic/claim, (2) the methods/formalism used, "
-                                    f"(3) key findings or conclusions, and (4) any notable equations or "
-                                    f"results named in the text. Be specific and grounded ONLY in the text "
-                                    f"below — do not invent results or citations.\n\n")
-                            _sys = "You are a precise technical analyst summarising one research PDF."
-                            # the body gets the window left after the instruction and the reply
-                            from eli.cognition.context_budget import chars_per_token as _cpt_pdf
-                            _room = int(max(0, int(_gi.context_window() or 0) - 520) * float(_cpt_pdf())
-                                        ) - len(_ask) - len(_sys)
-                            _doc_summary = (_gi.chat_completion(
-                                _ask + _body[:max(0, _room)],
-                                system=_sys,
-                                max_tokens=520, temperature=0.3) or "").strip()
-                        except Exception as _pf_err:
-                            log.debug(f"[ANALYZE_PDF_FOLDER] per-file summary failed for {_name}: {_pf_err}")
-                            _doc_summary = ""
-                    if not _doc_summary:
-                        _prev = (r.get("preview") or "").strip()
-                        _doc_summary = (f"(No model summary available — extracted opening text:)\n\n{_prev[:800]}"
-                                        if _prev else "(No readable text extracted from this document.)")
-                    else:
-                        _per_file_done += 1
-                    _doc_blocks.append(f"## {_name}\n_({_pages} pages)_\n\n{_doc_summary}")
-
-                _doc_title = f"Per-file summaries — {_fname}"
-                _doc_md = (f"# {_doc_title}\n\n"
-                           f"{count} document(s) summarised individually.\n\n"
-                           + "\n\n".join(_doc_blocks))
-                if errors:
-                    _doc_md += f"\n\n## Unreadable files\n\n{len(errors)} file(s) could not be read."
-
-                _fmt = str(args.get("format") or "docx").strip().lower().lstrip(".")
-                if _fmt not in ("docx", "md", "txt"):
-                    _fmt = "docx"
-                try:
-                    _doc_path = _save_artifact(_doc_md, "documents",
-                                               f"{_fname}_per_file_summaries", fmt=_fmt)
-                except Exception as _save_err:
-                    log.debug(f"[ANALYZE_PDF_FOLDER] doc save failed ({_save_err}); md fallback")
-                    _doc_path = _save_artifact(_doc_md, "documents",
-                                               f"{_fname}_per_file_summaries", fmt="md")
-
-                # Persist each doc to memory as well (same as the folder path).
-                try:
-                    from eli.memory import resolve_db_paths as _rdb
-                    _db = _rdb().user_db
-                    if _db:
-                        for r in results:
-                            try:
-                                store_analysis_to_memory(_db, PDFAnalysis(
-                                    doc=PDFDoc(**(r.get("doc") or {})),
-                                    preview=r.get("preview", ""),
-                                    chunks=r.get("chunks", []) or [],
-                                    warnings=r.get("warnings", []) or []))
-                            except Exception:
-                                log.debug("suppressed exception", exc_info=True)
-                except Exception:
-                    log.debug("suppressed exception", exc_info=True)
-
-                _header = (f"Summarised {count} document(s) in “{_fname}” individually "
-                           f"({_per_file_done} via model). Saved to:\n{_doc_path}\n")
-                msg = _header + "\n" + "\n\n".join(_doc_blocks)
-                return {"ok": True, "action": a, "content": msg, "response": msg,
-                        "count": count, "per_file": True, "document_path": _doc_path,
-                        "errors": errors}
-
-            # Per-document index + aggregated opening-pages text for a REAL summary.
-            index_lines: list = []
-            preview_parts: list = []
-            for r in results:
-                _doc = r.get("doc", {}) or {}
-                _name = _ospdf.path.basename(str(_doc.get("path", "")))
-                _pages = _doc.get("pages", "?")
-                _chars = int(_doc.get("chars", 0) or 0)
-                _prev = (r.get("preview") or "").strip().replace("\n", " ")
-                index_lines.append(f"  {len(index_lines) + 1}. {_name} ({_pages}p, {_chars} chars)")
-                if _prev:
-                    preview_parts.append(f"### {_name}\n{_prev[:1400]}")
-
-            # Synthesize an actual content summary from the extracted text — not a
-            # bare count. Capped so the prompt fits n_ctx.
-            summary = ""
-            try:
-                from eli.cognition import gguf_inference as _gi
-                if preview_parts and _gi.load_model() is not None:
-                    _blob = "\n\n".join(preview_parts)[:14000]
-                    summary = (_gi.chat_completion(
-                        f"Below are the opening pages of {count} PDF documents from the folder "
-                        f"“{_fname}”. Write a concise, technical summary of what this body of work "
-                        f"covers: the central topics, methods/formalism, and how the documents relate. "
-                        f"Be specific and grounded ONLY in the text shown — do not invent results.\n\n{_blob}",
-                        system="You are a precise technical analyst summarising a collection of research PDFs.",
-                        max_tokens=700, temperature=0.3) or "").strip()
-            except Exception as _sum_err:
-                log.debug(f"[ANALYZE_PDF_FOLDER] summary synthesis failed: {_sum_err}")
-                summary = ""
-
-            # Persist each doc to memory (proper dataclass reconstruction; report honestly).
-            stored, store_failed = 0, 0
-            try:
-                from eli.memory import resolve_db_paths as _rdb
-                _db = _rdb().user_db
-            except Exception:
-                _db = None
-            if _db:
-                for r in results:
-                    try:
-                        pa = PDFAnalysis(
-                            doc=PDFDoc(**(r.get("doc") or {})),
-                            preview=r.get("preview", ""),
-                            chunks=r.get("chunks", []) or [],
-                            warnings=r.get("warnings", []) or [],
-                        )
-                        store_analysis_to_memory(_db, pa)
-                        stored += 1
-                    except Exception:
-                        store_failed += 1
-
-            parts = [f"Analysed {count} PDF(s) in “{_fname}”:", ""]
-            if summary:
-                parts += [summary, ""]
-            parts.append("Documents:")
-            parts += index_lines
-            if errors:
-                parts.append(f"\n({len(errors)} file(s) could not be read.)")
-            msg = "\n".join(parts)
-            return {"ok": True, "action": a, "content": msg, "response": msg,
-                    "count": count, "stored": stored, "store_failed": store_failed,
-                    "errors": errors, "summary": summary}
+            from eli.kernel import request_context as _rc_fa
+            from eli.runtime.folder_analysis import analyse
+            out = analyse(folder, recursive=bool(args.get("recursive", True)),
+                          limit=int(args["limit"]) if args.get("limit") else None,
+                          per_file=bool(args.get("per_file") or args.get("each_file")),
+                          fmt=str(args.get("format") or "pdf"),
+                          user_id=str(args.get("_user_id") or _rc_fa.user_id_var.get() or ""))
         except Exception as e:
+            log.warning("[ANALYZE_PDF_FOLDER] failed", exc_info=True)
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+        return {"action": a, **out, "response": out["content"]}
 
     # ---- LISTEN_FOR_COMMAND ----
     if a == "LISTEN_FOR_COMMAND":
@@ -10090,8 +9924,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if _jid is None:
             _m = _re_jb.search(r"\b(\d+)\b", str(args.get("text") or args.get("query") or args.get("description") or ""))
             _jid = _m.group(1) if _m else None
+        if _jid is None:        # "how's it going?": the job that is running, else the latest
+            _jobs = _bt.list(limit=1, status="running") or _bt.list(limit=1)
+            _jid = _jobs[0]["id"] if _jobs else None
         if _jid is None:
-            msg = "Which job? e.g. 'check job 3'."
+            msg = "No background jobs."
             return {"ok": False, "action": a, "content": msg, "response": msg}
         t = _bt.get(int(_jid))
         if not t:
@@ -10115,7 +9952,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         elif t["status"] == "failed":
             msg = f"Job #{_jid} failed: {(t.get('error') or '')[:200]}"
         else:
-            msg = f"Job #{_jid} ({t['name']}) is {t['status']} — {t['elapsed_s']}s elapsed."
+            msg = f"Job #{_jid} ({t['name']}) is {t['status']}, {_duration(t['elapsed_s'])} in."
+            _p = t.get("progress") or {}
+            if _p.get("total"):
+                msg += f" {str(_p.get('stage') or 'working').capitalize()}: {_p.get('done', 0)} of {_p['total']}"
+                msg += (f", about {_duration(t['eta_s'])} left for that at the rate so far." if t.get("eta_s")
+                        else ".")
         return {"ok": True, "action": a, "job": t, "content": msg, "response": msg}
 
     # ---- CODE_SOLVE — frontier coding agent (plan→search→verify→repair) ----

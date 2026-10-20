@@ -129,3 +129,33 @@ def test_executor_check_and_list_jobs():
 
     r3 = execute("CHECK_JOB", {"job_id": 999999})
     assert r3["ok"] is False and "no background job" in r3["content"].lower()
+
+
+def test_a_job_reports_how_far_it_has_got_and_what_is_left():
+    import threading
+    from eli.runtime import background_tasks as bgt
+    from eli.execution.executor_enhanced import execute
+    bt = bgt.get_background_tasks()
+    go, half = threading.Event(), threading.Event()
+
+    def work():
+        bgt.report(0, 4, "reading")
+        bgt.report(2, 4, "reading")
+        half.set()
+        go.wait(5)
+        return {"ok": True, "content": "read"}
+
+    jid = bt.submit("Analyse 4 PDFs: physics", work)
+    assert half.wait(5)
+    bt._tasks[jid].progress["since"] -= 60          # two of four took a minute: a minute to go
+    t = bt.get(jid)
+    assert 55 <= t["eta_s"] <= 65
+    assert t["progress"]["done"] == 2 and t["progress"]["total"] == 4 and t["eta_s"] is not None
+    msg = execute("CHECK_JOB", {})["content"]                 # no number: the running job
+    assert f"#{jid}" in msg and "Reading: 2 of 4" in msg and "left" in msg
+    from eli.execution.router_enhanced import route
+    assert route("cool, do you have an eta?")["action"] == "CHECK_JOB"
+    assert route("how long is the eiffel tower?")["action"] != "CHECK_JOB"
+    go.set()
+    bt.wait(jid, timeout=5)
+    assert bt.get(jid)["eta_s"] is None

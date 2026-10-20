@@ -781,23 +781,16 @@ class AdvancedSettingsDialog(QDialog):
         self._log_upgrade("Rebuilding knowledge graph from memories\u2026")
         def worker():
             try:
-                from eli.memory.knowledge_graph import get_knowledge_graph, reset_knowledge_graph
+                from eli.memory.knowledge_graph import get_knowledge_graph, rebuild_from_memories, reset_knowledge_graph
                 import sqlite3
                 from eli.core.paths import user_db_path
                 reset_knowledge_graph()
-                kg = get_knowledge_graph()
                 conn = sqlite3.connect(str(user_db_path()))
-                conn.row_factory = sqlite3.Row
-                rows = conn.execute(
-                    "SELECT COALESCE(text, content, '') AS text, COALESCE(source,'user') AS source "
-                    "FROM memories WHERE COALESCE(text,content,'') != ''"
-                ).fetchall()
-                conn.close()
-                ok = 0
-                for row in rows:
-                    kg.extract_from_memory(row["text"], source=row["source"])
-                    ok += 1
-                stats = kg.stats()
+                try:
+                    ok = rebuild_from_memories(conn)
+                finally:
+                    conn.close()
+                stats = get_knowledge_graph().stats()
                 self._log_upgrade(
                     f"\u2705 KG rebuilt from {ok} memories \u2192 {stats['entities']} entities, "
                     f"{stats['relations']} relations."

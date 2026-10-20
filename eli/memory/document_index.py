@@ -97,6 +97,26 @@ def named_paths(text: Any) -> List[Path]:
     return found
 
 
+def _not_documents(here: str, name: str) -> bool:
+    """A folder of installed software or tool state, not of documents: hidden, a Python environment
+    (pyvenv.cfg, conda-meta), packages, caches. A physics folder holding three virtualenvs gave
+    matplotlib's toolbar icons as "documents" (back.pdf, home.pdf, three times over)."""
+    if name.startswith(".") or name in ("__pycache__", "node_modules", "site-packages", "dist-packages"):
+        return True
+    at = Path(here) / name
+    return (at / "pyvenv.cfg").is_file() or (at / "conda-meta").is_dir()
+
+
+def document_files(folder: Any, suffixes: Sequence[str] = (".pdf",), recursive: bool = True) -> List[Path]:
+    """Every document with one of these suffixes under a folder, sorted, installed software left out."""
+    want = {s.lower() for s in suffixes}
+    out: List[Path] = []
+    for here, dirs, names in os.walk(str(folder)):
+        dirs[:] = sorted(d for d in dirs if recursive and not _not_documents(here, d))
+        out += [Path(here) / n for n in names if not n.startswith(".") and Path(n).suffix.lower() in want]
+    return sorted(out)
+
+
 @lru_cache(maxsize=16)
 def _folder_entries(folder: str, _stamp: int) -> tuple:
     """(changed, size, path) for the files under a folder, newest first, hidden ones left out.
@@ -104,7 +124,7 @@ def _folder_entries(folder: str, _stamp: int) -> tuple:
     for the same folder several times, and so do the turns that follow it."""
     out: List[tuple] = []
     for here, dirs, names in os.walk(folder):
-        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in ("__pycache__", "node_modules"))
+        dirs[:] = sorted(d for d in dirs if not _not_documents(here, d))
         for name in names:
             if name.startswith("."):
                 continue
@@ -704,6 +724,26 @@ class DocumentIndex:
                         f"WHERE {where} ORDER BY d.added_at DESC", args)]
         finally:
             con.close()
+
+    def outline(self, doc_id: int, max_chars: int) -> Dict[str, Any]:
+        """A stored document's title, pages, size and its opening passages up to max_chars."""
+        con = self._connect()
+        try:
+            row = con.execute("SELECT title, path, chars FROM documents WHERE id=?", (int(doc_id),)).fetchone()
+            if not row:
+                return {}
+            pages = con.execute("SELECT COUNT(DISTINCT place) FROM passages WHERE doc_id=? AND place LIKE 'p. %'",
+                                (int(doc_id),)).fetchone()[0]
+            opening, used = [], 0
+            for (text,) in con.execute("SELECT text FROM passages WHERE doc_id=? ORDER BY n", (int(doc_id),)):
+                if used >= max_chars:
+                    break
+                opening.append(text[:max_chars - used])
+                used += len(opening[-1])
+        finally:
+            con.close()
+        return {"id": int(doc_id), "title": row[0], "path": row[1], "chars": int(row[2] or 0),
+                "pages": int(pages or 0), "opening": "\n".join(opening)}
 
     def matching(self, query: str, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
         """Documents a request to forget something names: by title words or by file name."""

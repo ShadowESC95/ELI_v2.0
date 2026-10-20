@@ -244,3 +244,40 @@ def test_repeated_evidence_folds_into_one_dated_fact(mem):
     out = mem.consolidate_semantic()
     assert out["facts_before"] == 4 and out["facts_after"] == 2
     assert _rows(mem, "select fact, evidence_count from semantic where fact like 'User is%'") == [("User is a tester.", 3)]
+
+
+def test_documents_filed_as_memories_move_to_the_document_index(mem, monkeypatch):
+    """The old folder reader filed every 4,500-character piece of 349 PDFs as a memory (2,399 of 2,929),
+    and the graph read the book text as the user's words ("User prefers screening")."""
+    queued = []
+    monkeypatch.setattr("eli.memory.document_index.note_document", lambda path, **k: queued.append(path) or True)
+    fact = mem.store_memory("I have a dog called Shadow", source="user")["id"]
+    mem.store_memory("PDF /tmp/books/big.pdf\nPages read: 3\nChars: 9\n\nPreview:\nThe big picture",
+                     source="tool", kind="pdf:abc123")
+    mem.store_memory("Some readers prefer screening the light.", source="tool", kind="pdf:abc123:chunk:1")
+    from pathlib import Path
+    from eli.memory import knowledge_graph as kgm
+    monkeypatch.setattr(kgm, "_db_path", lambda: Path(mem.db_path))   # the graph lives beside the memories
+    kgm.reset_knowledge_graph()
+    kg = kgm.get_knowledge_graph()
+    kg.add_relation("User", "prefers", "screening", source="tool")
+    kg.add_relation("User", "owns", "Shadow", source="user")
+    assert mem.upkeep_due()
+    out = mem.refile_documents()
+    assert out["memories"] == 2 and out["relations"] == 1 and out["documents"] == 1
+    assert [r[0] for r in _rows(mem, "select id from memories")] == [fact]
+    names = {r[0] for r in _rows(mem, "select name from kg_entities")}
+    assert "screening" not in names and {"User", "Shadow"} <= names
+    import os
+    assert queued == [] or all(os.path.isfile(p) for p in queued)   # only files that still exist
+    kgm.reset_knowledge_graph()
+
+
+def test_only_what_the_user_said_becomes_graph_facts(mem, monkeypatch):
+    seen = []
+    monkeypatch.setattr("eli.memory.knowledge_graph.KnowledgeGraph.extract_from_memory",
+                        lambda self, text, source="memory": seen.append(text) or 0)
+    mem.store_memory("I prefer tea in the morning", source="user")
+    mem.store_memory("Physicists prefer the light-cone gauge for this.", source="tool", kind="pdf:x:chunk:1")
+    mem.store_memory("You said you prefer tea.", source="assistant")
+    assert seen == ["I prefer tea in the morning"]

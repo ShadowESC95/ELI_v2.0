@@ -153,7 +153,13 @@ engine start and after responses (`upkeep_async()`), and skipped under `ELI_TEST
    `memory_meta`); only UUID-shaped legacy ids are merged;
 6. **learning**: remove repeated identical belief revisions, cap corroboration at the number of
    days the owner has used ELI, and drop ledger copies of replay rows;
-7. **semantic**: fold repeated facts into one row with `evidence_count` and up to five quotes.
+7. **semantic**: fold repeated facts into one row with `evidence_count` and up to five quotes;
+8. **documents**: document text the old folder reader filed as memories (`kind` `pdf:<id>`, from a
+   tool) leaves memory and its files go to the document index; graph relations made from tool
+   text go with it (`refile_documents`). Rows like these make upkeep due on the next start. One
+   349-PDF folder had made 2,399 of 2,929 memories and 969 relations such as "User prefers
+   screening". Not `forget()`: that matches words across the whole profile, and book text shares
+   words with everything.
 
 A run only marks the day done when every step succeeded; otherwise `run_upkeep` reports
 `status: partial` with the failed steps, and upkeep retries after an hour.
@@ -316,6 +322,12 @@ FAISS `IndexFlat`, embeddings from a local nomic embedder (llama.cpp).
 - `_embed_lock` (RLock) serialises embedding: the embedder is not thread-safe, which is why
   orchestrator retrieval is sequential.
 - Metadata lives in `meta.json` (migrated from a legacy `meta.pkl`).
+- **Saves are batched.** Each save rewrites `index.faiss` and `meta.json` whole (18 MB at 2,900
+  memories), so `add()` saves every `SAVE_EVERY` adds on a background thread and shutdown saves
+  the rest (`flush(pending_only=True)`). `store_memory` used to save after every row: a 349-PDF
+  folder wrote 24 GB in 50 minutes and stalled the whole machine on disk. At start the index adds
+  whatever memories it is missing (an unclean exit), or rebuilds when it is empty or its entries
+  carry no memory ids.
 - Singleton via `get_vector_store()`; shutdown-aware; `reset_vector_store()` for rebuilds.
 - **Tombstones:** `mark_memory_deleted(id)` writes to `meta.tombstones.json` next to the
   metadata; search skips tombstoned rows without a rebuild; `compact_tombstones(live_ids)`
@@ -331,6 +343,10 @@ FAISS `IndexFlat`, embeddings from a local nomic embedder (llama.cpp).
 `kg_entities(name, type, aliases, description, confidence)` and
 `kg_relations(subject_id, predicate, object_id, weight, source)`: a subject-predicate-object
 graph. FTS5 over entities with insert, update and delete triggers for fuzzy `search_entities`.
+Only what the user said feeds it (`feeds_graph`, the memory policy's evidence about the user): the
+extractor reads text as the user's own words, so document and tool text made "User prefers
+screening". `rebuild_from_memories` is the one rebuild, used by the self-upgrade and settings
+buttons.
 `upsert_entity`; `context_for_prompt` gives lightweight SQLite-only prompt context with no
 embedding. Relations an older extractor stored that are not facts (an is_a that is a mood or an
 activity, a has_name that is not a name; `_junk_name_relation`) are left out from both sides,

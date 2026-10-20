@@ -721,9 +721,11 @@ def _cpu_list(text: str) -> List[int]:
     return out
 
 
+@functools.lru_cache(maxsize=None)
 def physical_performance_cores() -> int:
     """The cores llama.cpp's arithmetic runs best on: physical cores, and on a hybrid processor its
-    performance cores only (llama.cpp's own default). Two threads on one core share its vector units."""
+    performance cores only (llama.cpp's own default). Two threads on one core share its vector units.
+    Read once per process: every hardware check asked again and logged the answer each time."""
     logical = os.cpu_count() or 1
     try:
         # hybrid Intel on Linux: the kernel lists the performance cores' logical CPUs here

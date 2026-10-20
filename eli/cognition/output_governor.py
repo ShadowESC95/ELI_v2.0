@@ -287,11 +287,40 @@ _SELF_CHANGE_CLAIM = re.compile(
 )
 
 
+# What a part of this machine is doing now (idle, busy, a percentage, hot), said of a part ELI can measure:
+# "Your RTX 2060 Supers are sitting at idle" while a model filled both cards. Any phrasing of the class, not
+# a list of sentences; the cards' own model numbers count as naming them.
+_HARDWARE_PART = re.compile(
+    r"(?i)\b(?:gpus?|graphics\s+cards?|cards?|vram|video\s+memory|cpus?|processors?|cores?|ram|memory\s+usage|"
+    r"disks?|drives?|fans?)\b")
+_HARDWARE_STATE = re.compile(
+    r"(?i)\b(?:idl(?:e|ing)|unused|gathering\s+dust|doing\s+nothing|not\s+(?:being\s+)?used|"
+    r"under-?(?:used|utili[sz]ed)|maxed(?:\s+out)?|pegged|saturated|running\s+hot|overheat\w*|"
+    r"\d{1,3}\s?%\s+(?:load|usage|utili[sz]ation|busy|free|full))\b")
+
+
+def _card_model_numbers() -> List[str]:
+    try:
+        from eli.core.hardware_profile import detect_hardware
+        names = " ".join(str(g.get("name") or "") for g in (detect_hardware().gpus or []))
+    except Exception:
+        return []
+    return sorted({w for w in re.findall(r"[A-Za-z]*\d+[A-Za-z0-9]*", names) if len(w) >= 3})
+
+
+def _hardware_state_claim(sentence: str) -> bool:
+    if not _HARDWARE_STATE.search(sentence):
+        return False
+    return bool(_HARDWARE_PART.search(sentence)
+                or any(re.search(rf"(?i)\b{re.escape(m)}\b", sentence) for m in _card_model_numbers()))
+
+
 def claims_unverified_self_status(text: str) -> bool:
-    """True when the reply asserts ELI's own operational health or runtime state."""
+    """True when the reply asserts ELI's own operational health or runtime state, or the hardware's."""
     body = str(text or "")
     return bool(_SELF_STATUS_CLAIM.search(body) or _SELF_RUNTIME_CLAIM.search(body)
-                or _SELF_MECHANISM_CLAIM.search(body) or _SELF_CHANGE_CLAIM.search(body))
+                or _SELF_MECHANISM_CLAIM.search(body) or _SELF_CHANGE_CLAIM.search(body)
+                or any(_hardware_state_claim(x) for x in _SENTENCE_PARTS.findall(body)))
 
 
 def defers_own_diagnostic_to_user(text: str) -> bool:
@@ -314,7 +343,8 @@ def drop_unverified_self_status(text: str, *, is_grounded: bool = False) -> str:
     kept = [
         s for s in _SENTENCE_PARTS.findall(body)
         if not (_SELF_STATUS_CLAIM.search(s) or _SELF_DIAGNOSTIC_DEFLECTION.search(s)
-                or _SELF_RUNTIME_CLAIM.search(s) or _SELF_MECHANISM_CLAIM.search(s) or _SELF_CHANGE_CLAIM.search(s))
+                or _SELF_RUNTIME_CLAIM.search(s) or _SELF_MECHANISM_CLAIM.search(s) or _SELF_CHANGE_CLAIM.search(s)
+                or _hardware_state_claim(s))
     ]
     stripped = re.sub(r"\s{2,}", " ", "".join(kept))
     stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()

@@ -355,7 +355,11 @@ class DocumentReaderPlugin(Plugin):
 
     def _read_pdf(self, p: Path) -> dict:
         try:
+            import logging
             import pypdf
+            # a damaged file printed "invalid pdf header" / "EOF marker not found" per page read;
+            # the caller reports it as unreadable
+            logging.getLogger("pypdf").setLevel(logging.ERROR)
             reader = pypdf.PdfReader(str(p))
             pages = [page.extract_text() or "" for page in reader.pages[:self._max_pages]]
             text = "\n".join(pages)

@@ -335,6 +335,18 @@ def test_a_sentence_with_no_action_behind_it_costs_no_second_generation(monkeypa
     assert ran == [] and me._in_followthrough is False and out[0].startswith("Yes")
 
 
+def test_a_promise_that_did_not_run_does_not_stand_as_kept(monkeypatch):
+    """"I am going to check the current load…" stayed on screen though nothing checked anything."""
+    from eli.kernel.engine import CognitiveEngine
+    stored = []
+    me = SimpleNamespace(_in_followthrough=False, process=lambda *a, **k: "x", _agenda_offer=lambda *a, **k: "",
+                         _store_followthrough_reply=lambda main, extra: stored.append(extra))
+    monkeypatch.setattr("eli.kernel.engine.route_intent", lambda text: {"action": "CHAT"})
+    out = list(CognitiveEngine._stream_with_followthrough(
+        me, iter(["Point taken. I am going to check the current load before we start."]), "be proactive"))
+    assert "I haven't done that" in out[-1] and "check the current load" in out[-1] and stored == [out[-1].strip()]
+
+
 def test_an_action_run_from_the_dag_pool_is_recorded_on_the_turn():
     """The pool's threads started with an empty context: what ran there was missing from the
     audit row and carried no user id."""

@@ -180,3 +180,55 @@ def test_prune_does_not_hold_the_store_lock_while_embedding(store):
     assert all(free_when_embedding), (
         "another thread could not take the store lock while prune was embedding — "
         "memory reads and writes are blocked for the whole rebuild")
+
+
+def _user_db(tmp_path, monkeypatch, texts):
+    import sqlite3
+    db = tmp_path / "user.sqlite3"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE memories(id INTEGER PRIMARY KEY, text TEXT, content TEXT, source TEXT, "
+                "tags TEXT, kind TEXT, origin TEXT)")
+    con.executemany("INSERT INTO memories(id, text, origin) VALUES (?,?,?)",
+                    [(i, t, o) for i, (t, o) in enumerate(texts, 1)])
+    con.commit()
+    con.close()
+    monkeypatch.setattr("eli.core.paths.user_db_path", lambda: db)
+
+
+def test_startup_adds_only_the_memories_the_saved_index_is_missing(store, tmp_path, monkeypatch):
+    """Saves are batched, so an unclean exit can leave the newest memories out of the saved index."""
+    s, _ = store
+    saves = []
+    monkeypatch.setattr(s, "flush", lambda **k: saves.append(k), raising=False)
+    s._needs_rebuild = False
+    _user_db(tmp_path, monkeypatch, [("my cat is called Biscuit", "user_said"),
+                                     ("I drive to Cork on Saturdays", "user_said"),
+                                     ("Top topics: a, b, c, d", "telemetry"),
+                                     ("my sister lives in Galway", "user_said")])
+    for mid in (1, 2):
+        s._index.add(s._embed(f"row {mid}"))
+        s._meta.append({"text": f"row {mid}", "memory_id": mid})
+    s._auto_rebuild()
+    assert [m.get("memory_id") for m in s._meta] == [1, 2, 4]
+    assert s._index.ntotal == len(s._meta)
+    assert saves == [{"pending_only": True}]
+
+
+def test_storing_a_memory_does_not_rewrite_the_whole_index(monkeypatch, tmp_path):
+    """store_memory saved the index after every row: 18 MB per memory at 2,900 memories."""
+    from eli.memory.memory import Memory
+    calls = []
+
+    class VS:
+        def add(self, text, metadata=None):
+            calls.append("add")
+            return True
+
+        def flush(self, **k):
+            calls.append("flush")
+
+    monkeypatch.setattr("eli.memory.vector_store.get_vector_store", lambda: VS())
+    mem = Memory(db_path=str(tmp_path / "m.sqlite3"))
+    for i in range(3):
+        mem.store_memory(f"I visited place number {i} last spring")
+    assert calls == ["add", "add", "add"]

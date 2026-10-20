@@ -41,23 +41,45 @@ class Task:
     kind: str = "task"              # task | code | research | self_upgrade | reflection | action
     scheduled_for: Optional[float] = None  # unix ts when a scheduled task fires
     meta: Dict[str, Any] = field(default_factory=dict)  # display/edit metadata (request, when_spec…)
+    progress: Dict[str, Any] = field(default_factory=dict)  # done, total, stage, since (report())
 
     def elapsed(self) -> float:
         end = self.finished or time.time()
         start = self.started or self.created
         return max(0.0, end - start)
 
+    def eta_s(self) -> Optional[float]:
+        """Time left in the current stage at the rate measured so far in it; None before a first item."""
+        p = self.progress
+        done, total = int(p.get("done") or 0), int(p.get("total") or 0)
+        if self.status != "running" or not done or total <= done:
+            return None
+        return (time.time() - float(p.get("since") or time.time())) / done * (total - done)
+
     def to_dict(self, *, include_result: bool = False) -> Dict[str, Any]:
+        eta = self.eta_s()
         d = {
             "id": self.id, "name": self.name, "status": self.status,
             "kind": self.kind, "created": self.created, "meta": dict(self.meta or {}),
             "elapsed_s": round(self.elapsed(), 2),
             "scheduled_for": self.scheduled_for,
             "note": self.note, "error": self.error[:500],
+            "progress": dict(self.progress), "eta_s": None if eta is None else round(eta, 1),
         }
         if include_result:
             d["result"] = self.result
         return d
+
+
+_running = threading.local()      # the job this worker thread is running
+
+
+def report(done: int, total: int, stage: str = "") -> None:
+    """Progress of the job running on this thread ("reading", 120 of 354); nothing outside a job."""
+    job = getattr(_running, "job", None)
+    if job is not None:
+        runner, jid = job
+        runner.report(jid, done, total, stage)
 
 
 class BackgroundTasks:
@@ -87,6 +109,7 @@ class BackgroundTasks:
             _set_bg(True)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
+        _running.job = (self, jid)
         try:
             res = fn(*args, **kwargs)
             with self._lock:
@@ -104,11 +127,21 @@ class BackgroundTasks:
                 t.error = f"{exc}\n{traceback.format_exc()[-800:]}"
             log.debug(f"[BG] task {jid} ({name}) failed: {exc}")
         finally:
+            _running.job = None
             if on_done:
                 try:
                     on_done(self._tasks.get(jid))
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
+
+    def report(self, jid: int, done: int, total: int, stage: str = "") -> None:
+        with self._lock:
+            t = self._tasks.get(int(jid))
+            if t is None:
+                return
+            if t.progress.get("stage") != stage:
+                t.progress = {"stage": stage, "since": time.time()}
+            t.progress.update(done=int(done), total=int(total))
 
     def submit(self, name: str, fn: Callable[..., Any], *args,
                on_done: Optional[Callable[[Task], None]] = None,

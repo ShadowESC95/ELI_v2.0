@@ -995,7 +995,8 @@ class BusMemoryAgent(_BaseAgent):
                         continue
                     role = "User"
                     text = (t.get("content") or "")[:_tn["cog.mem_recent_chars"]]  # trim each turn
-                    line = f"{role}: {text}"
+                    from eli.cognition.evidence_format import dated
+                    line = f"{role}: " + dated(text, t.get("ts") or t.get("timestamp"))
                     char_count += len(line)
                     if char_count > 3500:
                         break
@@ -1025,7 +1026,8 @@ class BusMemoryAgent(_BaseAgent):
                             ts_str = str(raw_ts)
                         if ts_str:
                             line = line.replace("] ", f"] [{ts_str}] ", 1)
-                        hits_text.append(line)
+                        from eli.cognition.evidence_format import as_of
+                        hits_text.append(as_of(line, raw_ts))
                         continue
                     txt = (h.get("text") or h.get("content") or "")[:_tn["cog.mem_fact_chars"]]
                     raw_ts = h.get("ts") or h.get("timestamp") or 0
@@ -1034,6 +1036,8 @@ class BusMemoryAgent(_BaseAgent):
                     except Exception:
                         ts_str = str(raw_ts)
                     if txt:
+                        from eli.cognition.evidence_format import as_of
+                        txt = as_of(txt, raw_ts)
                         hits_text.append(f"  - [{ts_str}] {txt}")
                 if hits_text:
                     from eli.memory.unified_retrieval import VERIFIED_SCOPE_NOTE
@@ -1062,6 +1066,8 @@ class BusMemoryAgent(_BaseAgent):
                     except Exception:
                         _ts_str = str(_raw_ts or "")
                     if txt:
+                        from eli.cognition.evidence_format import as_of
+                        txt = as_of(txt, _raw_ts)
                         conv_text.append(f"  [{_ts_str}] {role}: {txt}" if _ts_str
                                          else f"  {role}: {txt}")
                 if conv_text:
@@ -1071,13 +1077,15 @@ class BusMemoryAgent(_BaseAgent):
                         "exchange):\n" + "\n".join(conv_text))
 
             if summaries:
+                from eli.cognition.evidence_format import dated
                 sum_text = []
                 for s in summaries[:_tn["cog.mem_summaries_shown"]]:
                     txt = (s.get("summary") or s.get("content") or "")[:_tn["cog.mem_summary_chars"]]
                     if txt:
-                        sum_text.append(f"  - {txt}")
+                        sum_text.append("  - " + dated(txt, s.get("ended_at") or s.get("started_at")))
                 if sum_text:
-                    context_parts.append("Session summaries:\n" + "\n".join(sum_text))
+                    context_parts.append("Summaries of earlier sessions (dated; what was true then, not now):\n"
+                                         + "\n".join(sum_text))
 
             memory_context = "\n\n".join(context_parts).strip()
             elapsed = (time.perf_counter() - t0) * 1000
@@ -3029,10 +3037,11 @@ class ReflectionAgent(_BaseAgent):
                 if text:
                     insights.append(text[:220])
 
+            from eli.cognition.evidence_format import dated
             for row in sums[:_n_sums]:
                 text = str(row.get("summary") or row.get("content") or "").strip()
                 if text:
-                    insights.append(text[:220])
+                    insights.append(dated(text[:220], row.get("ended_at") or row.get("started_at")))
 
             local_conf = conf_from_flag(bool(_synth), hi=0.78, lo=conf_from_flag(bool(insights), hi=0.68, lo=0.20))
             elapsed = (time.perf_counter() - t0) * 1000

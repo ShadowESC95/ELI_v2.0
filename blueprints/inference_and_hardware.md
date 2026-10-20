@@ -1,6 +1,6 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.5.19.** GGUF path is canonical (optional Ollama backend still
+> **Updated for v2.5.20.** GGUF path is canonical (optional Ollama backend still
 > exists as a secondary path). What a model loads with is planned by llama.cpp's own
 > load simulation on every GPU it sees (`core/load_plan.py`); the prompt format is
 > the model's own chat template. Token budgets scale by reasoning mode via
@@ -89,7 +89,10 @@ A model uses the discrete cards, or the integrated ones when there are none (lla
 - Subprocess calls to `nvidia-smi` / `rocm-smi` / `lspci` sanitize `LD_LIBRARY_PATH` first
   (`_external_tool_env()`): a frozen build points it at its own bundle.
 - **Threads**: `recommend_cpu_threads()` = the physical performance cores (measured on an
-  i7-8700: 4.37 tokens/s at 6 threads, 3.99 at 12). The setting's 0 means this rule.
+  i7-8700: 4.37 tokens/s at 6 threads, 3.99 at 12). The setting's 0 means this rule. A count the
+  old tuner saved (logical threads less one or two) goes back to 0 once (`runtime_settings`
+  revision 1, recorded as `settings_revision`, so a count set afterwards stays); read once per
+  process (`physical_performance_cores` is cached; it was logged on every hardware check).
 - **KV cache type** — the settings `cache_type_k` / `cache_type_v` are empty (fp16, the default)
   or `q8_0`. Any other quantized type stored there reads, sizes and loads as `q8_0`
   (`core/gguf_sizes.py`: `cache_setting`, `effective_cache_type`): measured on llama.cpp 0.3.35,
@@ -209,7 +212,12 @@ whose checks timed out (30 of 32 since September) and a one-card fit.
 - **Several GPUs**: layers are shared so each card fills the same share of what it holds after
   its compute buffers and headroom (`tensor_split`); the startup window chooses which cards and,
   optionally, manual shares (`gpu_devices`, `tensor_split`). `CUDA_DEVICE_ORDER=PCI_BUS_ID`
-  keeps llama.cpp, nvidia-smi and the settings numbering cards the same way.
+  keeps llama.cpp, nvidia-smi and the settings numbering cards the same way. A manual split shares
+  layers, and the experts kept in RAM are the first layers': when that leaves a card with room for
+  another layer's experts, the plan says so and that Auto fills each card (two cards at 50/50:
+  1.4 GB used of 6 GB free on the first while the experts of 29 layers were in RAM). The status
+  line names every card in use ("RTX 2060 SUPER ×2"), and the tuning panel shows "loaded" only
+  when a model is.
 - **Headroom**: what llama.cpp takes on a card after the load as it works through the first
   prompts, measured on this machine and kept per card and model in
   `data_dir/runtime/gpu_headroom.json` (`watch_headroom`, `note_headroom`). Until a card is
