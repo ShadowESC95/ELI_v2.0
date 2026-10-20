@@ -4,11 +4,8 @@ eli_tools.analyze_pdfs
 
 A robust, dependency-light PDF analysis helper.
 
-Goals:
-- Work on a folder of PDFs or a single PDF path.
-- Extract text safely with pypdf (preferred) or PyPDF2 fallback.
-- Chunk text and optionally store to ELI SQLite memory via MemoryDB (entries table).
-- Return machine-friendly results for GUI + executor.
+One PDF at a time (ANALYZE_PDF): text extracted with pypdf (or PyPDF2), cut into chunks. A folder is read
+through the document index instead (eli/runtime/folder_analysis.py).
 
 This module is intentionally "boring": predictable, testable, and doesn’t pretend
 to do OCR unless explicitly wired to an OCR backend.
@@ -16,9 +13,9 @@ to do OCR unless explicitly wired to an OCR backend.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import List, Optional, Tuple
 import re
 import time
 import hashlib
@@ -132,59 +129,3 @@ def analyze(path: str | Path, *,
     doc = PDFDoc(path=str(p), pages=pages_read, chars=len(text), sha1=sha1, extracted_at=time.time())
     preview = text[:preview_chars] if text else ""
     return PDFAnalysis(doc=doc, preview=preview, chunks=chunks, warnings=warnings)
-
-def analyze_folder(folder: str | Path, *,
-                   recursive: bool = True,
-                   limit: Optional[int] = None,
-                   **kwargs: Any) -> Dict[str, Any]:
-    """
-    Analyze all PDFs in a folder.
-
-    Returns dict with keys:
-      ok, folder, count, results (list), errors (list)
-    """
-    root = _norm_path(folder)
-    if not root.exists():
-        raise FileNotFoundError(str(root))
-    if not root.is_dir():
-        raise NotADirectoryError(str(root))
-
-    pdfs = sorted([p for p in (root.rglob("*.pdf") if recursive else root.glob("*.pdf"))])
-    if limit is not None:
-        pdfs = pdfs[: max(0, int(limit))]
-
-    results: List[Dict[str, Any]] = []
-    errors: List[Dict[str, Any]] = []
-    for p in pdfs:
-        try:
-            a = analyze(p, **kwargs)
-            results.append({
-                "doc": asdict(a.doc),
-                "preview": a.preview,
-                "chunks": a.chunks,
-                "warnings": a.warnings,
-            })
-        except Exception as e:
-            errors.append({"path": str(p), "error": f"{type(e).__name__}: {e}"})
-
-    return {"ok": True, "folder": str(root), "count": len(results), "results": results, "errors": errors}
-
-def store_analysis_to_memory(db_path: str | Path, analysis: PDFAnalysis, *,
-                             kind_prefix: str = "pdf",
-                             tags: Optional[List[str]] = None,
-                             meta: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
-    """Store a PDF's preview and text chunks as memories in the database at `db_path`."""
-    from eli.memory.memory import Memory
-
-    tags = list(tags or []) + ["pdf"]
-    meta = {**(meta or {}), "pdf": asdict(analysis.doc)}
-    mem = Memory(db_path=db_path)
-    doc_id = analysis.doc.sha1[:12]
-    base_kind = f"{kind_prefix}:{doc_id}"
-    mem.store_memory(
-        f"PDF {analysis.doc.path}\nPages read: {analysis.doc.pages}\nChars: {analysis.doc.chars}\n\nPreview:\n{analysis.preview}",
-        tags=tags + ["preview"], source="tool", kind=base_kind, metadata=meta)
-    for idx, ch in enumerate(analysis.chunks):
-        mem.store_memory(ch, tags=tags + ["chunk"], source="tool", kind=f"{base_kind}:chunk:{idx + 1}", metadata=meta)
-
-    return {"ok": True, "doc_id": doc_id, "chunks": len(analysis.chunks)}
