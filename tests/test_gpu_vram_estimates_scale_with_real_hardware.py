@@ -10,6 +10,8 @@ unknown and flagged uncertain, and llama.cpp measures it before a load
 (eli/core/load_plan.py). The unified-memory share scales with the RAM actually
 available, with no floor or ceiling of ELI's own.
 """
+import os
+
 from eli.core import hardware_profile as hwp
 
 
@@ -31,7 +33,7 @@ def test_a_card_whose_memory_is_unread_is_still_planned_for(monkeypatch):
 
 
 def test_nvidia_gpu_model_from_proc_reads_information_file(tmp_path, monkeypatch):
-    gpu_dir = tmp_path / "gpus" / "0000:01:00.0"
+    gpu_dir = tmp_path / "gpus" / ("0000_01_00.0" if os.name == "nt" else "0000:01:00.0")   # no ':' on Windows
     gpu_dir.mkdir(parents=True)
     (gpu_dir / "information").write_text(
         "Model: \t\t NVIDIA GeForce RTX 2060 SUPER\nIRQ: \t\t 133\n",

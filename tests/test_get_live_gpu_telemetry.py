@@ -96,7 +96,7 @@ def _symlink(link, target):
 
 
 def _pci(tmp_path, addr, vendor, **files):
-    dev = tmp_path / "pci" / addr
+    dev = tmp_path / "pci" / (addr.replace(":", "_") if os.name == "nt" else addr)   # Windows names have no ':'
     dev.mkdir(parents=True)
     if vendor:
         (dev / "vendor").write_text(vendor)
