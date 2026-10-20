@@ -141,9 +141,11 @@ def test_a_successful_install_records_the_gpu_choice(gp):
     assert "record_gpu_choice(dest.parent)" in src[ok:]
 
 
-@pytest.mark.parametrize("starter", ["def _start_gpu_pack_install(", "def _wiz_start_gpu_pack_install("])
-def test_install_buttons_enable_an_existing_pack_before_downloading(starter):
+def test_install_buttons_enable_an_existing_pack_before_downloading():
     src = STARTUP.read_text(encoding="utf-8")
-    i = src.index(starter)
-    body = src[i:src.index("\n    def ", i + 10)]
-    assert body.index("_enable_switched_off_pack(self)") < body.index("_GpuPackInstallThread(")
+    i = src.index("def _install_gpu_pack(")
+    body = src[i:src.index("\ndef ", i + 10)]
+    assert body.index("_enable_switched_off_pack(owner)") < body.index("_GpuPackInstallThread(")
+    for starter in ("def _start_gpu_pack_install(", "def _wiz_start_gpu_pack_install("):
+        j = src.index(starter)
+        assert "_install_gpu_pack(self" in src[j:src.index("\n    def ", j + 10)], starter

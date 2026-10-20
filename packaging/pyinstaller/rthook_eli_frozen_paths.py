@@ -353,8 +353,10 @@ def _pin_frozen_root() -> None:
                 pass
         elif (gpu_dir / ".gpu_pack_ok").is_file():
             _pack_live = False
+            _pack_old = None
             try:
                 import eli_gpu_pack
+                _pack_old = eli_gpu_pack.outdated_pack(gpu_dir)
                 _pack_live = eli_gpu_pack.activate_gpu_pack_runtime(gpu_dir, verify=True)
             except Exception:
                 _pack_live = False
@@ -366,7 +368,12 @@ def _pin_frozen_root() -> None:
                     pass
                 # Keep .gpu_pack_ok — the first-run chooser can retry activation
                 # without forcing a full re-download. Bundled CPU runtime stays active.
-                if _gpu_choice.startswith("gpu"):
+                if _pack_old:
+                    _warn(
+                        f"[ELI] GPU pack {_pack_old} came with an earlier ELI — the ELI window "
+                        "updates it at start, or run: ELI --install-gpu-pack\n"
+                    )
+                elif _gpu_choice.startswith("gpu"):
                     _warn(
                         "[ELI] GPU pack installed but not active this session — "
                         "using bundled CPU runtime. Retry from the app or: "

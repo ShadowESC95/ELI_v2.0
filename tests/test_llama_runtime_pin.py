@@ -173,3 +173,54 @@ def test_a_failed_activation_no_longer_deletes_the_marker():
     body = src[i:src.index("\ndef ", i + 10)]
     j = body.index("if not _gp.activate_gpu_pack_runtime(dest, verify=True):")
     assert ".unlink(" not in body[j:j + 400]
+
+
+def test_a_pack_from_an_earlier_version_is_named_as_such(gp, tmp_path):
+    dest = _pack(tmp_path, "0.3.35")
+    assert gp.outdated_pack(dest) == "0.3.35"
+    (dest / "llama_cpp" / "__init__.py").write_text('__version__ = "0.3.36"\n')
+    assert gp.outdated_pack(dest) is None
+
+
+_OFFER = """
+import importlib.util, json, sys
+s = importlib.util.spec_from_file_location("eli_entry", sys.argv[1])
+m = importlib.util.module_from_spec(s); s.loader.exec_module(m)
+sys.frozen, sys._MEIPASS = True, sys.argv[2]
+gp, calls = m._gpu_pack_module(), []
+def install(argv, progress=None):
+    progress("Downloading pack.whl: 1 / 2 MB", 50)
+    calls.append(argv)
+    return 1
+def dialog(*, title, label, work_fn):
+    state = {"pct": 0}
+    rc = work_fn(state)
+    calls.append([label, state["label"], state["pct"]])
+    return rc
+gp.install, m._run_progress_dialog = install, dialog
+m._message_box_ask = lambda **k: calls.append("asked")
+m._message_box_warning = lambda *a: None
+m._first_run_gpu_offer()
+print(json.dumps(calls))
+"""
+
+
+@pytest.mark.parametrize("backend, argv", [("cuda", ["--force"]), ("vulkan", ["--vulkan", "--force"])])
+def test_an_update_brings_the_pack_up_to_date_without_asking_again(gp, tmp_path, backend, argv):
+    """2.5.18 asked a 2.5.17 GPU user the first-install question again, sized from a guess."""
+    import os
+    import subprocess
+    if sys.platform == "darwin":
+        pytest.skip("macOS builds carry Metal, no pack")
+    dest = _pack(tmp_path, "0.3.35")
+    (dest / ".gpu_pack.json").write_text(json.dumps({"version": "0.3.35", "backend": backend}))
+    (dest.parent / ".gpu_choice").write_text("gpu-installed")
+    entry = ROOT / "packaging" / "pyinstaller" / "eli_entry.py"
+    out = subprocess.run([sys.executable, "-c", _OFFER, str(entry), sys._MEIPASS],
+                         env={**os.environ, "ELI_PROJECT_ROOT": str(tmp_path / "root")},
+                         capture_output=True, text=True, timeout=120, cwd=ROOT, check=True)
+    calls = json.loads(out.stdout.strip().splitlines()[-1])
+    assert "asked" not in calls
+    assert calls[0] == argv
+    label, shown, pct = calls[1]
+    assert "0.3.35 → 0.3.36" in label and shown == "Downloading pack.whl: 1 / 2 MB" and pct == 50

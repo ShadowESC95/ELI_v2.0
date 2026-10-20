@@ -130,6 +130,28 @@ def test_dedupe_removes_duplicate_top_level_natives(tmp_path):
     assert (dup / "keep_me.txt").is_file()
 
 
+def test_dedupe_links_soname_copies_to_the_versioned_file(tmp_path):
+    import os
+    import sys
+    import pytest
+    if sys.platform == "win32":
+        pytest.skip("DLLs carry no soname chains")
+    primary = tmp_path / "staging" / "llama_cpp" / "lib"
+    primary.mkdir(parents=True)
+    for name in ("libggml-cuda.so", "libggml-cuda.so.0", "libggml-cuda.so.0.25.3"):
+        (primary / name).write_bytes(b"cuda kernels")
+    (primary / "libcublas.so.12").write_bytes(b"blas")
+    (primary / "libllama.so").write_bytes(b"old build")
+    (primary / "libllama.so.0").write_bytes(b"new build")
+    eli_gpu_pack._dedupe_wheel_native_trees(tmp_path / "staging")
+    assert os.readlink(primary / "libggml-cuda.so") == "libggml-cuda.so.0.25.3"
+    assert os.readlink(primary / "libggml-cuda.so.0") == "libggml-cuda.so.0.25.3"
+    assert (primary / "libggml-cuda.so").read_bytes() == b"cuda kernels"
+    assert not (primary / "libcublas.so.12").is_symlink()
+    assert not (primary / "libllama.so").is_symlink()   # different content stays a file
+    assert eli_gpu_pack._libdir_has_cuda_natives(primary)
+
+
 def test_vulkan_picker_falls_back_when_api_fails(monkeypatch):
     def _boom(*a, **k):
         raise RuntimeError("API rate limit")

@@ -549,12 +549,17 @@ def _dedupe_wheel_native_trees(staging: Path) -> None:
 
     Keep ``llama_cpp/lib/`` (what Python loads) and drop duplicate top-level
     ``lib/*.so*`` / ``*.dll`` copies — saves ~1.3 GB on CUDA packs.
+
+    A wheel cannot hold links either, so each soname chain (libggml-cuda.so, .so.0, .so.0.25.3)
+    arrives as full copies, about 1 GB more on a CUDA pack: identical names become links to the
+    versioned file.
     """
+    import filecmp
     primary = staging / "llama_cpp" / "lib"
     duplicate = staging / "lib"
-    if not primary.is_dir() or not duplicate.is_dir():
+    if not primary.is_dir():
         return
-    for p in list(duplicate.iterdir()):
+    for p in list(duplicate.iterdir()) if duplicate.is_dir() else []:
         if not p.is_file():
             continue
         name = p.name
@@ -570,6 +575,21 @@ def _dedupe_wheel_native_trees(staging: Path) -> None:
                 p.unlink()
             except Exception:
                 pass
+    chains: dict[str, list[Path]] = {}
+    for p in primary.iterdir():
+        if ".so" in p.name and p.is_file() and not p.is_symlink():
+            chains.setdefault(p.name.split(".so", 1)[0], []).append(p)
+    for files in chains.values():
+        target = max(files, key=lambda f: len(f.name))
+        for p in files:
+            if p == target or p.stat().st_size != target.stat().st_size \
+                    or not filecmp.cmp(p, target, shallow=False):
+                continue
+            p.unlink()
+            try:
+                p.symlink_to(target.name)
+            except OSError:
+                shutil.copy2(target, p)
 
 
 def _bundled_gpu_dir() -> Path | None:
@@ -649,10 +669,12 @@ def _activate_staged_gpu_pack(
     version: str,
     source: str,
     cuda_idx: str = "cu124",
+    progress=None,
 ) -> int:
     """Vendor CUDA runtimes if needed, move into dest, verify, write markers."""
     if not (staging / "llama_cpp").is_dir():
         return _fail("wheel did not contain a llama_cpp package")
+    _dedupe_wheel_native_trees(staging)   # before the CUDA runtime download: the disk peak is here
 
     libdir = staging / "llama_cpp" / "lib"
     # Content-based: never skip cudart/cublas when libggml-cuda is in the wheel,
@@ -665,15 +687,13 @@ def _activate_staged_gpu_pack(
     if has_cuda or (backend not in ("", "vulkan") and not has_vk):
         try:
             with tempfile.TemporaryDirectory() as td:
-                _vendor_cuda_runtime(libdir, Path(td), _normalize_cuda_idx(cuda_idx))
+                _vendor_cuda_runtime(libdir, Path(td), _normalize_cuda_idx(cuda_idx), progress)
         except Exception as exc:
             return _fail(f"could not fetch the CUDA runtime libraries: {exc}")
         try:
             _assert_cuda_runtime_complete(libdir)
         except RuntimeError as exc:
             return _fail(str(exc))
-
-    _dedupe_wheel_native_trees(staging)
 
     if dest.exists():
         shutil.rmtree(dest, ignore_errors=True)
@@ -682,6 +702,8 @@ def _activate_staged_gpu_pack(
         shutil.move(str(item), str(dest / item.name))
 
     _say("verifying the GPU pack loads on this machine…")
+    if progress:
+        progress("Checking the GPU pack loads on this machine…", None)
     # Relax offload only for true Vulkan packs on shared-memory iGPU — never for
     # a CUDA pack that happened to be requested via --vulkan.
     relax_offload = (
@@ -860,6 +882,27 @@ def enable_installed_pack(root: Path | None = None) -> bool:
     return True
 
 
+def outdated_pack(dest: Path | None = None) -> str | None:
+    """The version of an installed pack that came with an earlier ELI whose llama.cpp this
+    build no longer runs; None when there is no such pack."""
+    try:
+        dest = dest or (_eli_root() / "runtime" / "gpu")
+    except RuntimeError:
+        return None
+    if not (dest / "llama_cpp").is_dir() or not (dest / ".gpu_pack.json").is_file():
+        return None
+    return None if pack_matches_runtime(dest) else pack_version(dest)
+
+
+def pack_backend_for(hp) -> str:
+    """The pack a detected machine takes: CUDA on an NVIDIA card, Vulkan on any other GPU,
+    "" without one."""
+    if not getattr(hp, "has_gpu", False):
+        return ""
+    nvidia = str(getattr(hp, "gpu_vendor", "") or "").lower() == "nvidia"
+    return "cuda" if nvidia and not getattr(hp, "gpu_integrated", False) else "vulkan"
+
+
 def gpu_pack_looks_installed(dest: Path | None = None) -> bool:
     """Cheap, non-invasive check: was this pack verified before, and are its
     files still there? Does NOT spawn a subprocess or touch the GPU/driver.
@@ -905,6 +948,7 @@ def _install_from_local_wheel(
     *,
     force: bool = False,
     cuda_idx: str = "cu124",
+    progress=None,
 ) -> int:
     """Install a GPU pack from a wheel already on disk (bundled asset)."""
     try:
@@ -932,10 +976,11 @@ def _install_from_local_wheel(
             version=version,
             source=str(whl_path),
             cuda_idx=cuda_idx,
+            progress=progress,
         )
 
 
-def ensure_gpu_pack_for_hardware(*, bundle_only: bool = False) -> int:
+def ensure_gpu_pack_for_hardware(*, bundle_only: bool = False, progress=None) -> int:
     """Detect hardware and install a verified GPU pack (bundled first, then network).
 
     Safe to call before llama_cpp is imported. Returns 0 when GPU offload is ready
@@ -980,13 +1025,12 @@ def ensure_gpu_pack_for_hardware(*, bundle_only: bool = False) -> int:
         if choice == "cpu-no-gpu-hardware":
             return 0
 
-    name_l = (hp.gpu_name or "").lower()
-    nvidia = "nvidia" in name_l or "geforce" in name_l or "rtx" in name_l or "gtx" in name_l
-    bundled = _pick_bundled_wheel(prefer_cuda=nvidia)
+    vulkan = pack_backend_for(hp) == "vulkan"
+    bundled = _pick_bundled_wheel(prefer_cuda=not vulkan)
     if bundled:
         bk, ver, path = bundled
         _say(f"hardware={hp.gpu_name!r} — installing bundled {bk} pack ({path.name})")
-        rc = _install_from_local_wheel(path, bk, ver)
+        rc = _install_from_local_wheel(path, bk, ver, progress=progress)
         if rc == 0:
             marker.write_text("gpu-bundled", encoding="utf-8")
         return rc
@@ -995,11 +1039,7 @@ def ensure_gpu_pack_for_hardware(*, bundle_only: bool = False) -> int:
         return 1
 
     _say(f"hardware={hp.gpu_name!r} — no bundled GPU pack; downloading for this machine…")
-    argv: list[str] = []
-    if not nvidia and ("amd" in name_l or "radeon" in name_l or "arc" in name_l
-                       or getattr(hp, "gpu_integrated", False)):
-        argv.append("--vulkan")
-    rc = install(argv)
+    rc = install(["--vulkan"] if vulkan else [], progress)
     if rc == 0:
         marker.write_text("gpu-download", encoding="utf-8")
     return rc
@@ -1073,7 +1113,7 @@ def _pick_vulkan_wheel(*, prefer_cuda: bool = False) -> tuple[str, str] | None:
     return None
 
 
-def install(argv: list[str] | None = None) -> int:
+def install(argv: list[str] | None = None, progress=None) -> int:
     """Install the GPU pack, recording any unexpected crash to the install log.
 
     Callers run this on a worker thread and only see the return code, so an
@@ -1084,20 +1124,22 @@ def install(argv: list[str] | None = None) -> int:
     gpu-packs, PyPI cudart/cublas). Without this, every index probe fails with
     ``network disabled (offline mode)`` and the UI shows a false
     ``no CUDA wheel found``.
+
+    ``progress(text, percent)`` follows each download (percent None when the size is unknown).
     """
     try:
         try:
             from eli.core.netguard import allow_network
         except Exception:
-            return _install(argv)
+            return _install(argv, progress)
         with allow_network("gpu-pack install"):
-            return _install(argv)
+            return _install(argv, progress)
     except Exception:
         import traceback
         return _fail(f"unexpected error:\n{traceback.format_exc()}")
 
 
-def _install(argv: list[str] | None = None) -> int:
+def _install(argv: list[str] | None = None, progress=None) -> int:
     argv = argv or []
     force = "--force" in argv
     want_vulkan = "--vulkan" in argv
@@ -1111,7 +1153,9 @@ def _install(argv: list[str] | None = None) -> int:
         if gpu_pack_operational(dest):
             _say(f"GPU pack already installed at {dest} (use --force to reinstall)")
             return 0
-        _say("GPU pack present but cannot offload — reinstalling…")
+        old = outdated_pack(dest)
+        _say(f"GPU pack {old} came with an earlier ELI — installing {bundled_runtime_version()}…"
+             if old else "GPU pack present but cannot offload — reinstalling…")
         force = True
 
     # Vendor presence — checked the SAME robust, presence-based way for every
@@ -1248,14 +1292,14 @@ def _install(argv: list[str] | None = None) -> int:
                 bk, bver, bpath = alt
         _say(f"using bundled GPU pack {bpath.name} ({bk})")
         return _install_from_local_wheel(
-            bpath, bk, bver, force=force, cuda_idx=_normalize_cuda_idx(backend),
+            bpath, bk, bver, force=force, cuda_idx=_normalize_cuda_idx(backend), progress=progress,
         )
 
-    _say(f"downloading llama-cpp-python {version} ({backend}, {_platform_tag()}) — several hundred MB…")
+    _say(f"downloading llama-cpp-python {version} ({backend}, {_platform_tag()})…")
     with tempfile.TemporaryDirectory() as td:
         whl = Path(td) / "pack.whl"
         try:
-            _download(url, whl)
+            _download(url, whl, progress)
         except Exception as exc:
             return _fail(f"download failed: {exc}")
 
@@ -1265,6 +1309,7 @@ def _install(argv: list[str] | None = None) -> int:
                 z.extractall(staging)
         except Exception as exc:
             return _fail(f"wheel unpack failed: {exc}")
+        whl.unlink()
 
         pack_backend = backend if backend in ("cuda", "vulkan") else pack_backend_from_url(url)
         return _activate_staged_gpu_pack(
@@ -1274,10 +1319,12 @@ def _install(argv: list[str] | None = None) -> int:
             version=version,
             source=url,
             cuda_idx=_normalize_cuda_idx(backend),
+            progress=progress,
         )
 
 
-def _download(url: str, path: Path) -> None:
+def _download(url: str, path: Path, progress=None) -> None:
+    name = url.rsplit("/", 1)[-1].split("?", 1)[0]
     with urllib.request.urlopen(url, timeout=60) as r, open(path, "wb") as f:
         total = int(r.headers.get("Content-Length") or 0)
         done = 0
@@ -1285,11 +1332,14 @@ def _download(url: str, path: Path) -> None:
             f.write(chunk)
             done += len(chunk)
             mb = lambda n: f"{n / (1 << 20):.1f}" if n < (10 << 20) else f"{n // (1 << 20)}"
-            print(f"\r[gpu-pack] {mb(done)} / {mb(total)} MB" if total else f"\r[gpu-pack] {mb(done)} MB", end="", flush=True)
+            shown = f"{mb(done)} / {mb(total)} MB" if total else f"{mb(done)} MB"
+            print(f"\r[gpu-pack] {shown}", end="", flush=True)
+            if progress:
+                progress(f"Downloading {name}: {shown}", done * 100 // total if total else None)
         print(flush=True)
 
 
-def _vendor_cuda_runtime(libdir: Path, tmp: Path, cuda_idx: str = "cu124") -> None:
+def _vendor_cuda_runtime(libdir: Path, tmp: Path, cuda_idx: str = "cu124", progress=None) -> None:
     """Fetch cudart + cublas from NVIDIA's official PyPI wheels into libdir.
 
     Prefer the CUDA minor the llama wheel was built against (cu126 → 12.6.x),
@@ -1340,13 +1390,14 @@ def _vendor_cuda_runtime(libdir: Path, tmp: Path, cuda_idx: str = "cu124") -> No
             raise RuntimeError(f"no x86_64 wheel for {pkg} (CUDA {minor_candidates[0]}+)")
         _say(f"fetching CUDA runtime component {pkg} {ver}…")
         whl = tmp / f"{pkg}.whl"
-        _download(hit["url"], whl)
+        _download(hit["url"], whl, progress)
         with zipfile.ZipFile(whl) as z:
             for name in z.namelist():
                 base = name.rsplit("/", 1)[-1]
                 if want_ext in base and ("/bin/" in name or "/lib/" in name):
                     with z.open(name) as src, open(libdir / base, "wb") as dst:
                         shutil.copyfileobj(src, dst)
+        whl.unlink()
 
 
 def _shared_memory_gpu() -> bool:

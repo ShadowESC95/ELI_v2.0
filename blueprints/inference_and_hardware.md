@@ -1,6 +1,6 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.5.18.** GGUF path is canonical (optional Ollama backend still
+> **Updated for v2.5.19.** GGUF path is canonical (optional Ollama backend still
 > exists as a secondary path). What a model loads with is planned by llama.cpp's own
 > load simulation on every GPU it sees (`core/load_plan.py`); the prompt format is
 > the model's own chat template. Token budgets scale by reasoning mode via
@@ -181,6 +181,21 @@ bundled copy via `sys.path`.
   whether the marker file already said the pack was good.
 - Writes `runtime/gpu/.gpu_pack_ok` + `.gpu_pack.json` (backend, version) on
   success; respects `runtime/.gpu_choice` for CPU opt-out.
+- **One llama.cpp per build**: a pack is used only at the bundled runtime's exact version
+  (`pack_matches_runtime`). When an update moves llama.cpp on, `outdated_pack()` names the old
+  pack and the first-run chooser (`eli_entry._first_run_gpu_offer`) replaces it with the matching
+  one, same backend, without asking again: the GPU was chosen already. Every download reports its
+  real size to the progress window (`install(argv, progress)`); the startup window and the
+  first-run wizard share one status reader (`startup._gpu_pack_state`) and offer "Update"; server
+  and helper starts print how to update.
+- **Backend** follows the detected vendor (`pack_backend_for`): CUDA on an NVIDIA card, Vulkan on
+  every other GPU.
+- **Size on disk**: a wheel cannot hold links, so every soname chain arrives as full copies
+  (`libggml-cuda.so`, `.so.0`, `.so.0.25.3`: three 498 MB files). `_dedupe_wheel_native_trees`
+  links identical names to the versioned file right after unpacking, before the CUDA runtime is
+  fetched, and each wheel is deleted once unpacked: the 0.3.36 CUDA pack takes 1.1 GB instead of
+  2.0 GB, and the install needs that much less free space (2.5.18 failed on a full disk at the
+  cuBLAS step).
 
 ## Load plan (`core/load_plan.py`)
 

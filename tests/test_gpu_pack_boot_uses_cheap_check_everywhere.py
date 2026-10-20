@@ -16,6 +16,7 @@ three still called the live probe unconditionally:
      to render one status label.
   3. `eli/gui/panels/startup.py::_wiz_refresh_gpu_pack_controls()` -- the
      first-run setup wizard's own separate copy of the same status check.
+     Both now read one `_gpu_pack_state()`.
 
 All three now try `gpu_pack_looks_installed()` first, matching the pattern
 `ensure_gpu_pack_for_hardware()` already established. The one live-probe call
@@ -70,20 +71,13 @@ def test_first_run_gpu_offer_tries_the_cheap_check_first():
         )
 
 
-def test_startup_dialog_status_tries_the_cheap_check_first():
-    body = _function_body(_code(STARTUP), "def _refresh_gpu_pack_controls(")
-    assert "gpu_pack_looks_installed(dest)" in body, (
-        "the Startup Model Selection dialog's GPU status label still forces "
-        "a live subprocess probe on every normal launch"
-    )
-
-
-def test_setup_wizard_status_tries_the_cheap_check_first():
-    body = _function_body(_code(STARTUP), "def _wiz_refresh_gpu_pack_controls(")
-    assert "gpu_pack_looks_installed(dest)" in body, (
-        "the first-run setup wizard's own copy of the GPU status check still "
-        "forces a live subprocess probe"
-    )
+def test_gpu_pack_status_tries_the_cheap_check_first():
+    code = _code(STARTUP)
+    body = _function_body(code, "def _gpu_pack_state(")
+    assert body.index("gpu_pack_looks_installed(dest)") < body.index("gpu_pack_operational(dest)")
+    for panel in ("def _refresh_gpu_pack_controls(", "def _wiz_refresh_gpu_pack_controls("):
+        assert "_show_gpu_pack_state(" in _function_body(code, panel), panel
+    assert "_gpu_pack_state()" in _function_body(code, "def _show_gpu_pack_state(")
 
 
 def test_post_install_verification_still_uses_the_live_probe():

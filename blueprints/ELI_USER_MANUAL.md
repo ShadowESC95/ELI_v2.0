@@ -156,8 +156,8 @@ Windows, macOS and Linux** before it can publish.
 flowchart TD
     A([Run the installer / AppImage]) --> B[First launch]
     B --> C{GPU detected?}
-    C -->|NVIDIA| D[Offer: CUDA engine<br/>one-time download, verified]
-    C -->|AMD / Intel Arc| E[Offer: Vulkan engine<br/>one-time download, verified]
+    C -->|NVIDIA| D[Offer: CUDA engine<br/>downloaded, verified, kept in step with ELI]
+    C -->|AMD / Intel / Qualcomm| E[Offer: Vulkan engine<br/>downloaded, verified, kept in step with ELI]
     C -->|Apple| F[Metal built in]
     C -->|None / decline| G[CPU engine - always works]
     D --> H{Chat model installed?}
@@ -176,7 +176,7 @@ flowchart TD
 | **Piper voices** (speech out) | already inside the installer | — |
 | **Nomic embedder** (memory/recall) | fetched automatically | ~80 MiB |
 | **Whisper** (speech in) | fetched on first voice use | ~460 MiB |
-| **GPU engine** (optional) | if you accept the GPU offer | ~90 MiB (AMD) · ~1–2 GiB (NVIDIA) |
+| **GPU engine** (optional) | if you accept the GPU offer; again by itself when an update moves llama.cpp on | depends on backend and OS, shown while it downloads |
 | **Chat model** | if you accept the model offer | sized to your hardware (e.g. ~4.7 GiB) |
 
 Everything ELI knows and downloads lives in **one per-user folder** that **survives upgrades**

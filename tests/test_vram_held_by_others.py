@@ -72,4 +72,4 @@ def test_the_reinstall_question_says_the_pack_already_works(monkeypatch):
     text = startup._install_question("CUDA", reinstall=True)
     assert "installed and was verified" in text and "does not change" in text
     assert "1039 MB of this card's 8192 MB is free" in text and "ollama.service" in text
-    assert "one-time download" in startup._install_question("CUDA", reinstall=False)
+    assert "downloaded again only when an ELI update" in startup._install_question("CUDA", reinstall=False)

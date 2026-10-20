@@ -110,6 +110,7 @@ class _PlanPreviewThread(QThread):
 
 class _GpuPackInstallThread(QThread):
     finished_result = pyqtSignal(int, str)
+    progress_text = pyqtSignal(str)
 
     def __init__(self, argv: Optional[List[str]] = None, parent=None):
         super().__init__(parent)
@@ -118,7 +119,7 @@ class _GpuPackInstallThread(QThread):
     def run(self):
         try:
             gp = _import_eli_gpu_pack()
-            rc = int(gp.install(self._argv) or 0)
+            rc = int(gp.install(self._argv, lambda text, _pct: self.progress_text.emit(text)) or 0)
             msg = ""
             if rc == 0:
                 dest = gp._eli_root() / "runtime" / "gpu"
@@ -145,8 +146,12 @@ class _GpuPackInstallThread(QThread):
 def _pack_off_label(default: str) -> str:
     """What to call an inactive GPU backend: installed-but-switched-off is not "not installed"."""
     try:
-        if _import_eli_gpu_pack().pack_switched_off_by_cpu_choice():
+        gp = _import_eli_gpu_pack()
+        if gp.pack_switched_off_by_cpu_choice():
             return "installed, switched off by a CPU-only choice"
+        old = gp.outdated_pack()
+        if old:
+            return f"pack {old} is from an earlier ELI, update it under GPU pack"
     except Exception:
         log.debug("gpu pack state lookup failed", exc_info=True)
     return default
@@ -165,13 +170,82 @@ def _pack_is_active() -> bool:
         return False
 
 
+def _gpu_pack_state() -> Dict[str, Any]:
+    """What the GPU pack controls show, for the startup window and the first-run wizard alike.
+    The cheap gpu_pack_looks_installed() check comes first: the live probe takes up to 180 s."""
+    from eli.core.hardware_profile import detect_hardware, _llama_gpu_offload_available
+    gp = _import_eli_gpu_pack()
+    backend = gp.pack_backend_for(detect_hardware())
+    dest = gp._eli_root() / "runtime" / "gpu"
+    old = gp.outdated_pack(dest)
+    if (gp.gpu_pack_looks_installed(dest) or gp.gpu_pack_operational(dest)) and _llama_gpu_offload_available():
+        text, verb = f"Active ({gp._pack_backend(dest) or 'GPU'}) — layer offload available.", "Reinstall"
+    elif gp.pack_switched_off_by_cpu_choice():
+        text, verb = ("Installed, but switched off by an earlier \"Use CPU only\" choice. "
+                      "Click Enable (no download), then restart ELI."), "Enable"
+    elif old:
+        text, verb = (f"Installed for an earlier ELI (llama.cpp {old}); this version runs "
+                      f"{gp.bundled_runtime_version()}. Click Update to download the matching pack."), "Update"
+    elif (dest / "llama_cpp").is_dir():
+        text, verb = ("Installed but CPU-only here — reinstall with the backend for this GPU "
+                      "(CUDA for NVIDIA, Vulkan for every other GPU)."), "Install"
+    else:
+        text, verb = "Not installed — optional; CPU inference works without it.", "Install"
+    return {"text": text, "verb": verb, "cuda": backend == "cuda", "vulkan": backend != "cuda"}
+
+
+def _show_gpu_pack_state(owner, status, vulkan_btn, cuda_btn, thread_attr: str) -> None:
+    try:
+        state = _gpu_pack_state()
+        status.setText(state["text"])
+        vulkan_btn.setText(f"{state['verb']} Vulkan GPU pack")
+        cuda_btn.setText(f"{state['verb']} CUDA GPU pack")
+        vulkan_btn.setVisible(state["vulkan"])
+        cuda_btn.setVisible(state["cuda"])
+        thread = getattr(owner, thread_attr, None)
+        busy = thread is not None and thread.isRunning()
+        vulkan_btn.setEnabled(not busy)
+        cuda_btn.setEnabled(not busy)
+    except Exception as exc:
+        status.setText(f"GPU pack status unknown ({exc})")
+
+
+def _install_gpu_pack(owner, *, vulkan: bool, status, buttons, thread_attr: str, refresh, on_done) -> None:
+    thread = getattr(owner, thread_attr, None)
+    if thread is not None and thread.isRunning():
+        return
+    if _enable_switched_off_pack(owner):
+        refresh()
+        return
+    _active = _pack_is_active()
+    argv: List[str] = ["--force"] if _active else []
+    if vulkan:
+        argv.append("--vulkan")
+    label = "Vulkan" if vulkan else "CUDA"
+    if QMessageBox.question(
+        owner,
+        f"{'Reinstall' if _active else 'Install'} {label} GPU pack",
+        _install_question(label, reinstall=_active),
+    ) != QMessageBox.StandardButton.Yes:
+        return
+    status.setText(f"Installing {label} GPU pack…")
+    for btn in buttons:
+        btn.setEnabled(False)
+    thread = _GpuPackInstallThread(argv, parent=owner)
+    thread.progress_text.connect(status.setText)
+    thread.finished_result.connect(on_done)
+    setattr(owner, thread_attr, thread)
+    thread.start()
+
+
 def _install_question(label: str, *, reinstall: bool) -> str:
     """What the confirm dialog says. For a pack that already works, that it works, and why the
     GPU may still look unused: live, a working pack was downloaded again while another program
     held most of the card."""
     if not reinstall:
         return (f"Download and install the {label} GPU acceleration pack now?\n\n"
-                "This is a one-time download. ELI stays on CPU if verification fails.")
+                "It is downloaded again only when an ELI update moves to a newer llama.cpp. "
+                "ELI stays on CPU if verification fails.")
     text = (f"The {label} GPU pack is installed and was verified on this machine. Reinstalling "
             "downloads it again and does not change how much of the GPU ELI can use.")
     try:
@@ -1149,88 +1223,14 @@ class StartupModelSelectionDialog(QDialog):
             self.plan_preview_label.setText(text)
 
     def _refresh_gpu_pack_controls(self) -> None:
-        """2026-09-19: used to call the live subprocess gpu_pack_operational()
-        probe (up to 180s) unconditionally every time this panel is built --
-        i.e. on every normal launch via the Startup Model Selection dialog,
-        independent of (and before) the already-fixed fast path in
-        try_activate_gpu_pack/ensure_gpu_pack_for_hardware. Same bug, a GUI
-        call site the earlier fix didn't cover. Now tries the cheap,
-        non-subprocess gpu_pack_looks_installed() first."""
-        try:
-            from eli.core.hardware_profile import detect_hardware, _llama_gpu_offload_available
-            _hw = detect_hardware()
-            name_l = (_hw.gpu_name or "").lower()
-            nvidia = any(k in name_l for k in ("nvidia", "geforce", "rtx", "gtx", "quadro"))
-            vulkan_machine = _hw.has_gpu and (
-                not nvidia or bool(getattr(_hw, "gpu_integrated", False)))
-            _backend = _llama_gpu_offload_available()
-            _pack_ok = False
-            _pack_backend = ""
-            _has_pack_dir = False
-            _switched_off = False
-            try:
-                gp = _import_eli_gpu_pack()
-                dest = gp._eli_root() / "runtime" / "gpu"
-                _has_pack_dir = (dest / "llama_cpp").is_dir()
-                _switched_off = bool(gp.pack_switched_off_by_cpu_choice())
-                _pack_ok = gp.gpu_pack_looks_installed(dest) or gp.gpu_pack_operational(dest)
-                if (dest / ".gpu_pack.json").is_file():
-                    import json as _json
-                    _pack_backend = str(
-                        _json.loads((dest / ".gpu_pack.json").read_text()).get("backend") or "")
-            except Exception:
-                log.debug("gpu pack status probe failed", exc_info=True)
-            if _pack_ok and _backend:
-                self.gpu_pack_status_label.setText(
-                    f"Active ({_pack_backend or 'GPU'}) — layer offload available.")
-            elif _switched_off:
-                self.gpu_pack_status_label.setText(
-                    "Installed, but switched off by an earlier \"Use CPU only\" choice. "
-                    "Click Enable (no download), then restart ELI.")
-            elif _has_pack_dir:
-                self.gpu_pack_status_label.setText(
-                    "Installed but CPU-only here — reinstall with the correct backend "
-                    "(Vulkan for Intel/AMD iGPU, CUDA for NVIDIA).")
-            else:
-                self.gpu_pack_status_label.setText(
-                    "Not installed — optional; CPU inference works without it.")
-            show_vulkan = vulkan_machine or not nvidia
-            show_cuda = nvidia and not bool(getattr(_hw, "gpu_integrated", False))
-            _verb = ("Enable" if _switched_off
-                     else "Reinstall" if (_pack_ok and _backend) else "Install")
-            self.gpu_pack_vulkan_btn.setText(f"{_verb} Vulkan GPU pack")
-            self.gpu_pack_cuda_btn.setText(f"{_verb} CUDA GPU pack")
-            self.gpu_pack_vulkan_btn.setVisible(show_vulkan)
-            self.gpu_pack_cuda_btn.setVisible(show_cuda)
-            busy = getattr(self, "_gpu_pack_thread", None) is not None and self._gpu_pack_thread.isRunning()
-            self.gpu_pack_vulkan_btn.setEnabled(not busy)
-            self.gpu_pack_cuda_btn.setEnabled(not busy)
-        except Exception as exc:
-            self.gpu_pack_status_label.setText(f"GPU pack status unknown ({exc})")
+        _show_gpu_pack_state(self, self.gpu_pack_status_label, self.gpu_pack_vulkan_btn,
+                             self.gpu_pack_cuda_btn, "_gpu_pack_thread")
 
     def _start_gpu_pack_install(self, *, vulkan: bool) -> None:
-        if getattr(self, "_gpu_pack_thread", None) is not None and self._gpu_pack_thread.isRunning():
-            return
-        if _enable_switched_off_pack(self):
-            self._refresh_gpu_pack_controls()
-            return
-        _active = _pack_is_active()
-        argv: List[str] = ["--force"] if _active else []
-        if vulkan:
-            argv.append("--vulkan")
-        label = "Vulkan" if vulkan else "CUDA"
-        if QMessageBox.question(
-            self,
-            f"{'Reinstall' if _active else 'Install'} {label} GPU pack",
-            _install_question(label, reinstall=_active),
-        ) != QMessageBox.StandardButton.Yes:
-            return
-        self.gpu_pack_status_label.setText(f"Installing {label} GPU pack…")
-        self.gpu_pack_vulkan_btn.setEnabled(False)
-        self.gpu_pack_cuda_btn.setEnabled(False)
-        self._gpu_pack_thread = _GpuPackInstallThread(argv, parent=self)
-        self._gpu_pack_thread.finished_result.connect(self._on_gpu_pack_install_done)
-        self._gpu_pack_thread.start()
+        _install_gpu_pack(self, vulkan=vulkan, status=self.gpu_pack_status_label,
+                          buttons=(self.gpu_pack_vulkan_btn, self.gpu_pack_cuda_btn),
+                          thread_attr="_gpu_pack_thread", refresh=self._refresh_gpu_pack_controls,
+                          on_done=self._on_gpu_pack_install_done)
 
     def _on_gpu_pack_install_done(self, rc: int, message: str) -> None:
         if rc == 0:
@@ -2062,64 +2062,14 @@ class FirstBootWizard(QDialog):
                                 f"{err}\n\nYou can retry, or browse to a .gguf you already have.")
 
     def _wiz_refresh_gpu_pack_controls(self) -> None:
-        """Same cheap-first fix as _refresh_gpu_pack_controls -- this is the
-        first-run setup wizard's own copy of the same status check, and ran
-        the live subprocess probe on first entry to this tab, independent of
-        the returning-user dialog's copy."""
-        try:
-            from eli.core.hardware_profile import detect_hardware, _llama_gpu_offload_available
-            _hw = detect_hardware()
-            name_l = (_hw.gpu_name or "").lower()
-            nvidia = any(k in name_l for k in ("nvidia", "geforce", "rtx", "gtx", "quadro"))
-            show_vulkan = _hw.has_gpu and (not nvidia or bool(getattr(_hw, "gpu_integrated", False)))
-            show_cuda = nvidia and not bool(getattr(_hw, "gpu_integrated", False))
-            self._wiz_gpu_vulkan_btn.setVisible(show_vulkan)
-            self._wiz_gpu_cuda_btn.setVisible(show_cuda)
-            _backend = _llama_gpu_offload_available()
-            try:
-                gp = _import_eli_gpu_pack()
-                dest = gp._eli_root() / "runtime" / "gpu"
-                if (gp.gpu_pack_looks_installed(dest) or gp.gpu_pack_operational(dest)) and _backend:
-                    self._wiz_gpu_status.setText("GPU pack active — Vulkan/CUDA offload available.")
-                elif gp.pack_switched_off_by_cpu_choice():
-                    self._wiz_gpu_status.setText(
-                        "GPU pack installed, but switched off by an earlier \"Use CPU only\" "
-                        "choice. Click Install to switch it back on (no download).")
-                elif (dest / "llama_cpp").is_dir():
-                    self._wiz_gpu_status.setText(
-                        "GPU pack installed but not offloading — try Vulkan on Intel/AMD iGPU.")
-                else:
-                    self._wiz_gpu_status.setText(
-                        "Optional GPU pack — install Vulkan (Intel/AMD) or CUDA (NVIDIA), or stay on CPU.")
-            except Exception:
-                self._wiz_gpu_status.setText(
-                    "Optional GPU pack — install from AppImage/portable builds, or stay on CPU.")
-        except Exception as exc:
-            self._wiz_gpu_status.setText(f"GPU pack status unknown ({exc})")
+        _show_gpu_pack_state(self, self._wiz_gpu_status, self._wiz_gpu_vulkan_btn,
+                             self._wiz_gpu_cuda_btn, "_wiz_gpu_thread")
 
     def _wiz_start_gpu_pack_install(self, *, vulkan: bool) -> None:
-        if getattr(self, "_wiz_gpu_thread", None) is not None and self._wiz_gpu_thread.isRunning():
-            return
-        if _enable_switched_off_pack(self):
-            self._wiz_refresh_gpu_pack_controls()
-            return
-        _active = _pack_is_active()
-        argv: List[str] = ["--force"] if _active else []
-        if vulkan:
-            argv.append("--vulkan")
-        label = "Vulkan" if vulkan else "CUDA"
-        if QMessageBox.question(
-            self,
-            f"{'Reinstall' if _active else 'Install'} {label} GPU pack",
-            _install_question(label, reinstall=_active),
-        ) != QMessageBox.StandardButton.Yes:
-            return
-        self._wiz_gpu_status.setText(f"Installing {label} GPU pack…")
-        self._wiz_gpu_vulkan_btn.setEnabled(False)
-        self._wiz_gpu_cuda_btn.setEnabled(False)
-        self._wiz_gpu_thread = _GpuPackInstallThread(argv, parent=self)
-        self._wiz_gpu_thread.finished_result.connect(self._wiz_on_gpu_pack_done)
-        self._wiz_gpu_thread.start()
+        _install_gpu_pack(self, vulkan=vulkan, status=self._wiz_gpu_status,
+                          buttons=(self._wiz_gpu_vulkan_btn, self._wiz_gpu_cuda_btn),
+                          thread_attr="_wiz_gpu_thread", refresh=self._wiz_refresh_gpu_pack_controls,
+                          on_done=self._wiz_on_gpu_pack_done)
 
     def _wiz_on_gpu_pack_done(self, rc: int, message: str) -> None:
         if rc == 0:

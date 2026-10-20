@@ -261,7 +261,6 @@ def _run_progress_dialog(
     title: str,
     label: str,
     work_fn,
-    indeterminate: bool = False,
 ) -> int:
     """Run work_fn(state) on a background thread with a modal progress dialog."""
     import threading
@@ -270,7 +269,7 @@ def _run_progress_dialog(
     from PySide6.QtCore import Qt, QTimer
 
     app = _qt_app()
-    dlg = QProgressDialog(label, None, 0, 0 if indeterminate else 100)
+    dlg = QProgressDialog(label, None, 0, 100)
     dlg.setWindowTitle(title)
     dlg.setCancelButton(None)
     dlg.setWindowModality(Qt.ApplicationModal)
@@ -291,8 +290,9 @@ def _run_progress_dialog(
     timer = QTimer()
 
     def _tick() -> None:
-        if not indeterminate:
-            dlg.setValue(state["pct"])
+        if state.get("label"):
+            dlg.setLabelText(state["label"])
+        dlg.setValue(state["pct"])
         if state["done"]:
             timer.stop()
             dlg.close()
@@ -731,16 +731,6 @@ def _gpu_pack_module():
     return eli_gpu_pack
 
 
-def _gpu_vendor_flags(hp) -> tuple[bool, bool, bool]:
-    """Return (nvidia_discrete, vulkan_recommended, intel_integrated)."""
-    name_l = (hp.gpu_name or "").lower()
-    nvidia = any(k in name_l for k in ("nvidia", "geforce", "rtx", "gtx", "quadro"))
-    intel_igpu = bool(getattr(hp, "gpu_integrated", False)) and "intel" in name_l and "arc" not in name_l
-    amd = (not nvidia) and any(k in name_l for k in ("amd", "radeon"))
-    vulkan = amd or intel_igpu or (hp.has_gpu and not nvidia)
-    return nvidia, vulkan, intel_igpu
-
-
 def _verify_cpu_runtime() -> None:
     """Prove llama-cpp STARTS on this CPU before the GUI imports it.
 
@@ -897,58 +887,65 @@ def _first_run_gpu_offer() -> None:
                       "running on the bundled runtime")
             return
 
-        from eli.core.hardware_profile import detect_hardware, integrated_gpu_label
-        hp = detect_hardware()
-        runtime.mkdir(parents=True, exist_ok=True)
-        if not hp.has_gpu:
-            marker.write_text("cpu-no-gpu-hardware", encoding="utf-8")
-            return
-
-        nvidia, vulkan, intel_igpu = _gpu_vendor_flags(hp)
-        backend = "NVIDIA CUDA" if nvidia else "Vulkan"
-        size = "roughly 400–500 MB" if nvidia else "roughly 90–200 MB"
-        if intel_igpu or hp.gpu_integrated:
-            gpu_line = (
-                f"{integrated_gpu_label(hp.gpu_name, getattr(hp, 'gpu_vendor', ''))} "
-                f"({hp.ram_gb:.1f} GB RAM, shared memory)"
-            )
+        old = _gp.outdated_pack(dest)
+        backend = _gp._pack_backend(dest) if old else ""
+        if backend:
+            # Chosen under an earlier ELI whose llama.cpp this one no longer runs: the pack follows
+            # the app, same backend, without asking again.
+            label = (f"Updating the GPU pack to match this version of ELI "
+                     f"(llama.cpp {old} → {_gp.bundled_runtime_version()})…")
         else:
-            vram_gb = max(hp.total_vram_mb, hp.free_vram_mb) / 1024.0
-            gpu_line = f"{hp.gpu_name} — {vram_gb:.0f} GB VRAM"
+            from eli.core.hardware_profile import detect_hardware, integrated_gpu_label
+            hp = detect_hardware()
+            runtime.mkdir(parents=True, exist_ok=True)
+            backend = _gp.pack_backend_for(hp)
+            if not backend:
+                marker.write_text("cpu-no-gpu-hardware", encoding="utf-8")
+                return
+            if hp.gpu_integrated:
+                gpu_line = (f"{integrated_gpu_label(hp.gpu_name, hp.gpu_vendor)} "
+                            f"({hp.ram_gb:.1f} GB RAM, shared memory)")
+            else:
+                vram_gb = max(hp.total_vram_mb, hp.free_vram_mb) / 1024.0
+                gpu_line = f"{hp.gpu_name} — {vram_gb:.0f} GB VRAM"
+            name = "NVIDIA CUDA" if backend == "cuda" else "Vulkan"
+            if not _message_box_ask(
+                title="ELI - GPU acceleration",
+                text=f"ELI detected: {gpu_line}",
+                informative=(
+                    f"Install the {name} GPU pack now? This downloads the GPU inference engine; "
+                    "the window shows its size as it downloads. CPU mode always works; you can "
+                    "install or change the pack later from the model load screen or with "
+                    "ELI --install-gpu-pack."
+                ),
+                yes_text=f"Install {name} GPU pack (recommended)",
+                no_text="Use CPU only",
+            ):
+                marker.write_text("cpu-user-choice", encoding="utf-8")
+                return
+            label = "Installing GPU acceleration pack…"
 
-        if not _message_box_ask(
-            title="ELI - GPU acceleration",
-            text=f"ELI detected: {gpu_line}",
-            informative=(
-                f"Install the {backend} GPU pack now? This downloads the GPU inference engine "
-                f"once ({size}). CPU mode always works; you can install or change the pack "
-                "later from the model load screen or with ELI --install-gpu-pack."
-            ),
-            yes_text=f"Install {backend} GPU pack (recommended)",
-            no_text="Use CPU only",
-        ):
-            marker.write_text("cpu-user-choice", encoding="utf-8")
-            return
-
-        install_argv: list[str] = []
-        if vulkan and not nvidia:
-            install_argv.append("--vulkan")
+        vulkan = backend == "vulkan"
+        install_argv: list[str] = ["--vulkan"] if vulkan else []
         if (dest / "llama_cpp").is_dir():
             install_argv.append("--force")
 
-        def _install_work(_state: dict) -> int:
+        def _install_work(state: dict) -> int:
+            def progress(text: str, pct) -> None:
+                state["label"] = text
+                if pct is not None:
+                    state["pct"] = pct
             if install_argv:
-                return int(_gp.install(install_argv) or 0)
-            return int(_gp.ensure_gpu_pack_for_hardware() or 0)
+                return int(_gp.install(install_argv, progress) or 0)
+            return int(_gp.ensure_gpu_pack_for_hardware(progress=progress) or 0)
 
         rc = _run_progress_dialog(
             title="ELI - GPU acceleration",
-            label="Installing GPU acceleration pack…",
+            label=label,
             work_fn=_install_work,
-            indeterminate=True,
         )
         if rc == 0 and _gp.gpu_pack_operational(dest):
-            marker.write_text("gpu-vulkan" if (vulkan and not nvidia) else "gpu", encoding="utf-8")
+            marker.write_text("gpu-vulkan" if vulkan else "gpu", encoding="utf-8")
             # Verified just now in its own process; if this one cannot switch to it (the bundled
             # runtime is already loaded), the next start will. Its marker stays.
             if not _gp.activate_gpu_pack_runtime(dest, verify=True):
@@ -962,7 +959,7 @@ def _first_run_gpu_offer() -> None:
                 reason, log_path = "", None
             retry = (
                 "ELI --install-gpu-pack --vulkan --force"
-                if (vulkan and not nvidia)
+                if vulkan
                 else "ELI --install-gpu-pack --force"
             )
             body = (

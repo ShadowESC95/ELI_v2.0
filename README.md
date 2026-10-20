@@ -179,14 +179,16 @@ paths, or the release is rejected.
 
 | Platform | Download | Notes |
 |---|---|---|
-| **Windows** | `ELI-Setup-<v>.exe` | Per-user install, no admin needed. Offers **NVIDIA GPU acceleration** at install and a **fresh-install** option when it finds existing data. Shortcuts: **ELI** (desktop + Start Menu), **ELI Server** (Start Menu only), Uninstall. Portable alternative: `ELI_v2-<v>-windows-x64.zip` → run `ELI\ELI.exe`. |
+| **Windows** | `ELI-Setup-<v>.exe` | Per-user install; asks for administrator rights only when the Microsoft VC++ runtime is missing. Offers a **fresh-install** option when it finds existing data; GPU acceleration is offered on first start, as on every build. Shortcuts: **ELI** (desktop + Start Menu), **ELI Server** (Start Menu only), Uninstall. Portable alternative: `ELI_v2-<v>-windows-x64.zip` → run `ELI\ELI.exe`. |
 | **macOS** (Apple Silicon) | `ELI_v2-<v>-macos-arm64.dmg` | Drag to Applications. **Metal GPU acceleration built in.** Unsigned: first launch is right-click → Open. |
 | **Linux** | `ELI_v2-<v>-x86_64.AppImage` | `chmod +x` and run. Offers **applications-menu integration** (ELI, ELI Server, and a working Uninstall). **Needs glibc 2.39 or newer** (check with `ldd --version`): Ubuntu 24.04+, Debian 13+, Fedora 40+, Linux Mint 22+, Pop!_OS 24.04+, RHEL / AlmaLinux / Rocky 10+, openSUSE Leap 16+ and Tumbleweed, Arch. On an older system (Ubuntu 22.04, Debian 12, Mint 21, RHEL 9) it does not start; install from source there (the `linux-portable` package below). Verified on Arch, Ubuntu, Debian, Fedora, and openSUSE. **Self-contained GUI** — bundles its own Qt + full xcb-util lib family, so it launches on a bare desktop with no extra packages. The graphics libraries (`libGL`) come from the system, as on every desktop. **Alpine/musl** needs the `gcompat` shim (see `docs/CROSS_PLATFORM.md`). |
 
 **First launch walks you through everything:**
 1. **GPU** — ELI detects your hardware and offers acceleration: **NVIDIA → CUDA**,
-   **AMD / Intel Arc → Vulkan** (a one-time download that is load-verified before it ever
-   activates; CPU inference always works regardless). Apple GPUs need nothing.
+   **every other GPU (AMD, Intel, Qualcomm) → Vulkan**. The pack is load-verified before it ever
+   activates and shows its real size as it downloads; when an ELI update moves to a newer
+   llama.cpp, ELI fetches the matching pack by itself. CPU inference always works regardless.
+   Apple GPUs need nothing.
 2. **Model** — no multi-gigabyte weights ship inside the installers; ELI offers the recommended
    starter model **sized to your VRAM** with a progress bar. Add or switch to any local GGUF
    any time in the app.
