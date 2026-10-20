@@ -735,7 +735,7 @@ def physical_performance_cores() -> int:
         if cores:
             return len(cores)
     except (OSError, ValueError):
-        log.debug("no performance-core list", exc_info=True)
+        log.debug("no performance-core list: not a hybrid Intel processor on Linux")
     if sys.platform == "darwin":
         try:
             out = subprocess.run(["sysctl", "-n", "hw.perflevel0.physicalcpu"], capture_output=True,
