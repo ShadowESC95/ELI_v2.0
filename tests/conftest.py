@@ -138,10 +138,13 @@ def _assert_db_isolated() -> None:
 _assert_db_isolated()
 
 @pytest.fixture(autouse=True)
-def _tests_never_launch_apps(monkeypatch):
+def _tests_never_launch_apps(monkeypatch, request):
     """A test that reached the real launcher started Spotify on the developer's machine and played
     a song, and an OPEN_APP test started Firefox; with no display they still spawn the process.
-    Tests that need a launch stub the launcher they are about."""
+    Tests that need a launch stub the launcher they are about; a test of the launcher itself, which
+    runs a harmless program, says so with the launches_apps marker."""
+    if request.node.get_closest_marker("launches_apps"):
+        return
     monkeypatch.setattr("eli.execution.media_runtime.open_spotify",
                         lambda: "Could not open Spotify: tests never launch it")
     monkeypatch.setattr("eli.execution.effectors.system_helpers.open_app_with_timeout",

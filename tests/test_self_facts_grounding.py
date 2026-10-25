@@ -94,8 +94,12 @@ def test_components_come_from_the_real_import_graph():
 
 
 def test_identity_canon_is_reachable_at_runtime():
-    """The reviewed canon shipped in the repo but was training-only."""
-    assert self_facts._canon_lines(), "self-model canon should now be readable at runtime"
+    """A reviewed self-model canon, where one is kept locally (training/ is private and not shipped),
+    is read at runtime, not only for training."""
+    from eli.core.paths import project_root
+    if not (project_root() / self_facts._CANON_REL).is_file():
+        pytest.skip("no local self-model canon on this machine")
+    assert self_facts._canon_lines(), "self-model canon should be readable at runtime"
 
 
 def test_block_never_invents_when_sources_are_missing(monkeypatch):

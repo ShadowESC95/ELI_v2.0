@@ -247,17 +247,9 @@ def test_spec_shims_transformers_before_probing_tts():
 
 
 def test_the_shim_actually_makes_tts_importable():
-    """Not a source assertion — run it. If this breaks, the spec fix is inert.
-
-    Skipped under the repo conftest, which replaces `transformers` with a MagicMock
-    for the fast unit suite: the shim then has nothing real to patch. The binding
-    check that matters happens on the build runner (release.yml asserts TTS/ was
-    collected) and can be run here directly with --noconftest.
-    """
-    import sys
-    from unittest.mock import MagicMock
-    if isinstance(sys.modules.get("transformers"), MagicMock):
-        pytest.skip("conftest mocks transformers; run with --noconftest for the real probe")
+    """Not a source assertion — run it. If this breaks, the spec fix is inert. The engine is the
+    optional `natural` extra (not bundled), so this runs where it is installed."""
+    pytest.importorskip("TTS")
     from eli.perception.tts_xtts import _patch_transformers_compat
     _patch_transformers_compat()
     import importlib
@@ -342,11 +334,9 @@ def test_voice_extras_pin_transformers_below_the_breaking_release():
 
 
 def test_the_pinned_transformers_still_provides_what_coqui_needs():
-    """Runs the actual symbol lookups coqui-tts performs at import time."""
-    import sys
-    from unittest.mock import MagicMock
-    if isinstance(sys.modules.get("transformers"), MagicMock):
-        pytest.skip("conftest mocks transformers; run with --noconftest")
+    """Runs the actual symbol lookups coqui-tts performs at import time (where the optional
+    `natural` extra is installed)."""
+    pytest.importorskip("transformers")
     from eli.perception.tts_xtts import _patch_transformers_compat
     _patch_transformers_compat()
     import transformers

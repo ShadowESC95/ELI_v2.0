@@ -82,6 +82,7 @@ def test_empty_key_is_rejected():
 
 
 # ── app launch: no warning, no zombies ─────────────────────────────────────
+@pytest.mark.launches_apps
 def test_launched_children_are_tracked_and_reaped():
     before = pac._reap_launched()
     assert pac._popen(["true"]) is True

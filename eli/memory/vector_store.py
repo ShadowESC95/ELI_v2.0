@@ -362,15 +362,15 @@ class VectorStore:
             self._embedder_error = str(e)
             log.debug('[VECTOR_STORE] Embedder unavailable, keyword fallback: ' + str(e))
 
-    def _auto_rebuild(self) -> None:
-        """At startup: rebuild an empty or unreadable index from the database, or add the memories a
-        saved index is missing."""
+    def _db_entries(self) -> Optional[List[Dict[str, Any]]]:
+        """The memories the index should hold: the rows the storage policy embeds, with their ids.
+        None when the database cannot be read."""
         import sqlite3 as _sq
         try:
             from eli.core.paths import user_db_path
             db_path = str(user_db_path())
         except Exception:
-            return
+            return None
         try:
             con = _sq.connect(db_path)
             try:
@@ -384,15 +384,17 @@ class VectorStore:
             finally:
                 con.close()
         except Exception as e:
-            log.debug(f"[VECTOR_STORE] Auto-rebuild DB read failed: {e}")
+            log.debug(f"[VECTOR_STORE] memory database read failed: {e}")
+            return None
+        return [{"text": row[0].strip(), "source": row[1], "tags": row[2], "kind": row[3],
+                 "memory_id": row[4], "id": row[4]} for row in raw if row[0].strip()]
+
+    def _auto_rebuild(self) -> None:
+        """At startup: rebuild an empty or unreadable index from the database, or add the memories a
+        saved index is missing."""
+        entries = self._db_entries()
+        if not entries:
             return
-        if not raw:
-            return
-        entries = [
-            {"text": row[0].strip(), "source": row[1], "tags": row[2], "kind": row[3],
-             "memory_id": row[4], "id": row[4]}
-            for row in raw if row[0].strip()
-        ]
         with self._lock:
             have = {_entry_id(m) for m in self._meta}
         if not self._needs_rebuild and None not in have:   # entries from before ids were kept: rebuild
@@ -406,6 +408,24 @@ class VectorStore:
         log.debug(f"[VECTOR_STORE] Auto-rebuilding index from {len(entries)} memories…")
         self.rebuild_full(entries)
         log.debug(f"[VECTOR_STORE] Auto-rebuild complete: {self.ntotal} vectors")
+
+    def rebuild_from_db(self) -> Dict[str, Any]:
+        """Re-embed every memory the storage policy indexes (the upgrade step and the settings button).
+        A second rebuild in memory.py emptied the live index before embedding, ignored the policy, and
+        wrote the first database rows as the metadata whenever the counts differed, pairing vectors
+        with the wrong texts."""
+        entries = self._db_entries()
+        if entries is None:
+            return {"ok": False, "indexed": 0, "source_count": 0, "error": "the memory database could not be read"}
+        if self._get_embedder() is None:
+            return {"ok": False, "indexed": 0, "source_count": len(entries),
+                    "error": getattr(self, "_embedder_error", "") or "no embedding model"}
+        done = self.rebuild_full(entries)
+        result = {"ok": done, "indexed": self.ntotal if done else 0, "source_count": len(entries),
+                  "faiss_index_path": self._index_path}
+        if not done:
+            result["error"] = "stopped before it finished; the saved index is kept"
+        return result
 
     def embed_text(self, text: str) -> Optional[List[float]]:
         """The embedding model's vector for `text`, or None. Every embed goes through here:
@@ -521,6 +541,8 @@ class VectorStore:
             new_index.add(vec)
             new_meta.append(entry)
 
+        if self._closed:
+            return              # closed part-way: keep the index, as rebuild_full does
         with self._lock:
             self._index = new_index
             self._meta = new_meta
@@ -547,22 +569,31 @@ class VectorStore:
             except Exception as e:
                 log.debug(f"[VECTOR_STORE] flush failed: {e}")
 
-    def rebuild_full(self, texts_and_meta: List[Dict[str, Any]]) -> None:
-        """Rebuild the entire FAISS index from a list of {text, ...metadata} dicts."""
+    def rebuild_full(self, texts_and_meta: List[Dict[str, Any]]) -> bool:
+        """Rebuild the entire FAISS index from a list of {text, ...metadata} dicts. The new index is built
+        off to the side and swapped in only when it is finished. A background rebuild cut short by
+        close() at shutdown replaced the index with the few entries it had reached and saved that: the
+        next start loaded 2 vectors. Returns whether the new index was swapped in."""
         new_index = faiss.IndexFlatL2(EMBED_DIM)
         new_meta: List[Dict[str, Any]] = []
         for entry in texts_and_meta:
-            text = entry.get("text", "")
-            vec = self._embed(text)
+            if self._closed:
+                break
+            vec = self._embed(entry.get("text", ""))
             if vec is not None:
                 new_index.add(vec)
                 new_meta.append(entry)
+        if self._closed or self._embedder is None or (texts_and_meta and not new_meta):
+            log.debug("[VECTOR_STORE] rebuild not finished (store closed or no embedding model); "
+                      "the index on disk is kept")
+            return False
         with self._lock:
             self._index = new_index
             self._meta = new_meta
             self._adds_since_save = 0
         self.flush()
         log.debug(f"[VECTOR_STORE] Rebuilt index with {new_index.ntotal} vectors")
+        return True
 
 
 

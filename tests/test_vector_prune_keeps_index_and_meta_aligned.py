@@ -65,6 +65,7 @@ def store(tmp_path, monkeypatch):
     s = vs.VectorStore.__new__(vs.VectorStore)
     s._lock = threading.RLock()
     s._embed_lock = threading.RLock()
+    s._closed = False
     s._index = _FakeIndex(vs.EMBED_DIM)
     s._meta = []
     s._adds_since_save = 0

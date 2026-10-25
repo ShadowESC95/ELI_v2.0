@@ -147,45 +147,9 @@ jobs:
           python -m eli.core.init_data
           python tools/bootstrap_claims_artifacts.py
 
-      - name: Bundle Piper voices (from the project's local-assets release)
+      - name: Shipped assets (Piper voices and the text embedder)
         shell: bash
-        run: |
-          mkdir -p tts_piper/piper
-          # GitHub release asset API occasionally 5xx mid-release (macOS job hit HTTP 500
-          # on a single .onnx asset). Retry with backoff — same pattern as vc_redist below.
-          _voice_ok=0
-          for _attempt in 1 2 3 4 5; do
-            if gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
-                --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper; then
-              _voice_ok=1
-              break
-            fi
-            echo "::warning::voice asset download attempt ${_attempt}/5 failed — retrying in $((_attempt * 5))s"
-            sleep $((_attempt * 5))
-          done
-          [ "$_voice_ok" -eq 1 ] || { echo "::error::could not download voices from the local-assets-v2.1 release after 5 attempts"; exit 1; }
-          count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
-          echo "voices downloaded: $count"
-          [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
-
-      - name: Bundle text embedder (nomic-embed, required for memory/RAG)
-        shell: bash
-        run: |
-          # Ship the ~84 MB embedder so the packaged app has semantic memory
-          # offline instead of degrading to keyword-only recall. Download straight
-          # to the repo-relative path ELI.spec bundles from — NOT via model_download,
-          # whose models_dir() resolves to a runtime data dir that differs per OS.
-          set -euo pipefail
-          dest="models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf"
-          url="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
-          mkdir -p models/embeddings
-          curl -fL --retry 3 --retry-delay 5 -o "$dest" "$url" \
-            || { echo "::error::embedder download failed from $url"; exit 1; }
-          # Guard against an HTML error page saved as the .gguf (size sanity: >50 MB).
-          bytes=$(wc -c < "$dest")
-          [ "$bytes" -gt 52428800 ] \
-            || { echo "::error::embedder is only $bytes bytes — download did not return the model"; exit 1; }
-          echo "embedder: $(( bytes / 1048576 )) MiB at $dest"
+        run: bash packaging/ci_fetch_assets.sh
 
       - name: PyInstaller build (ELI.spec)
         shell: bash
@@ -335,43 +299,9 @@ jobs:
           python -m eli.core.init_data
           python tools/bootstrap_claims_artifacts.py
 
-      - name: Bundle Piper voices (from the project's local-assets release)
-        run: |
-          mkdir -p tts_piper/piper
-          # GitHub release asset API occasionally 5xx mid-release (macOS job hit HTTP 500
-          # on a single .onnx asset). Retry with backoff — same pattern as vc_redist below.
-          _voice_ok=0
-          for _attempt in 1 2 3 4 5; do
-            if gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
-                --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper; then
-              _voice_ok=1
-              break
-            fi
-            echo "::warning::voice asset download attempt ${_attempt}/5 failed — retrying in $((_attempt * 5))s"
-            sleep $((_attempt * 5))
-          done
-          [ "$_voice_ok" -eq 1 ] || { echo "::error::could not download voices from the local-assets-v2.1 release after 5 attempts"; exit 1; }
-          count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
-          echo "voices downloaded: $count"
-          [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
-
-      - name: Bundle text embedder (nomic-embed, required for memory/RAG)
+      - name: Shipped assets (Piper voices and the text embedder)
         shell: bash
-        run: |
-          # Ship the ~84 MB embedder so the packaged app has semantic memory
-          # offline instead of degrading to keyword-only recall. Download straight
-          # to the repo-relative path ELI.spec bundles from — NOT via model_download,
-          # whose models_dir() resolves to a runtime data dir that differs per OS.
-          set -euo pipefail
-          dest="models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf"
-          url="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
-          mkdir -p models/embeddings
-          curl -fL --retry 3 --retry-delay 5 -o "$dest" "$url" \
-            || { echo "::error::embedder download failed from $url"; exit 1; }
-          bytes=$(wc -c < "$dest")
-          [ "$bytes" -gt 52428800 ] \
-            || { echo "::error::embedder is only $bytes bytes — download did not return the model"; exit 1; }
-          echo "embedder: $(( bytes / 1048576 )) MiB at $dest"
+        run: bash packaging/ci_fetch_assets.sh
 
       - name: PyInstaller build (ELI.spec)
         run: pyinstaller --noconfirm --clean ELI.spec
@@ -453,48 +383,14 @@ jobs:
           python -m eli.core.init_data
           python tools/bootstrap_claims_artifacts.py
 
-      - name: Bundle Piper voices (from the project's local-assets release)
-        run: |
-          mkdir -p tts_piper/piper
-          # GitHub release asset API occasionally 5xx mid-release (macOS job hit HTTP 500
-          # on a single .onnx asset). Retry with backoff — same pattern as vc_redist below.
-          _voice_ok=0
-          for _attempt in 1 2 3 4 5; do
-            if gh release download local-assets-v2.1 --repo "$GITHUB_REPOSITORY" --clobber \
-                --pattern "*.onnx" --pattern "*.onnx.json" --dir tts_piper/piper; then
-              _voice_ok=1
-              break
-            fi
-            echo "::warning::voice asset download attempt ${_attempt}/5 failed — retrying in $((_attempt * 5))s"
-            sleep $((_attempt * 5))
-          done
-          [ "$_voice_ok" -eq 1 ] || { echo "::error::could not download voices from the local-assets-v2.1 release after 5 attempts"; exit 1; }
-          count=$(ls tts_piper/piper/*.onnx 2>/dev/null | wc -l)
-          echo "voices downloaded: $count"
-          [ "$count" -ge 1 ] || { echo "::error::no .onnx voices present after download"; exit 1; }
+      - name: Shipped assets (Piper voices and the text embedder)
+        shell: bash
+        run: bash packaging/ci_fetch_assets.sh
 
       # GPU packs are NOT embedded in the AppImage — three linux_x86_64 wheels push
       # the frozen bundle past GitHub's 2 GiB per-asset limit (~2.26 GiB observed at
       # v2.4.6). ensure_gpu_pack_for_hardware() downloads the right pack at first
       # launch instead. The portable tarball below still bundles gpu-packs offline.
-
-      - name: Bundle text embedder (nomic-embed, required for memory/RAG)
-        shell: bash
-        run: |
-          # Ship the ~84 MB embedder so the packaged app has semantic memory
-          # offline instead of degrading to keyword-only recall. Download straight
-          # to the repo-relative path ELI.spec bundles from — NOT via model_download,
-          # whose models_dir() resolves to a runtime data dir that differs per OS.
-          set -euo pipefail
-          dest="models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf"
-          url="https://huggingface.co/nomic-ai/nomic-embed-text-v1.5-GGUF/resolve/main/nomic-embed-text-v1.5.Q4_K_M.gguf"
-          mkdir -p models/embeddings
-          curl -fL --retry 3 --retry-delay 5 -o "$dest" "$url" \
-            || { echo "::error::embedder download failed from $url"; exit 1; }
-          bytes=$(wc -c < "$dest")
-          [ "$bytes" -gt 52428800 ] \
-            || { echo "::error::embedder is only $bytes bytes — download did not return the model"; exit 1; }
-          echo "embedder: $(( bytes / 1048576 )) MiB at $dest"
 
       - name: PyInstaller build (ELI.spec)
         run: |
@@ -743,6 +639,12 @@ jobs:
 
       - name: Test tools (the project's test extra)
         run: pip install ".[test]"
+
+      - name: Shipped assets (Piper voices and the text embedder)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash packaging/ci_fetch_assets.sh
 
       - name: Data stores and capability manifests
         run: |

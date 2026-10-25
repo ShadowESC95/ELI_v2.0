@@ -33,6 +33,9 @@ def test_rejects_lora_adapter_dir_without_default_fallback(tmp_path):
 
 
 def test_resolves_downloaded_default_phi_base_when_available():
+    from eli.core.paths import project_root
+    if not (project_root() / "models" / "hf" / "Phi-3-mini-4k-instruct").is_dir():
+        pytest.skip("the default Phi base model is not downloaded on this machine")
     r = resolve_base_model_path()
 
     assert r["ok"] is True

@@ -58,15 +58,50 @@ DEFAULT_RLIMITS = {
 }
 
 
+_PROBE_CACHE: Dict[str, bool] = {}
+
+
+def _runs(argv: Sequence[str]) -> bool:
+    """True when argv runs and exits 0. Cached per command: used to verify a sandbox mechanism
+    actually works here, not just that its binary is on PATH."""
+    key = "\0".join(argv)
+    if key not in _PROBE_CACHE:
+        try:
+            r = subprocess.run(list(argv), stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
+                               stderr=subprocess.DEVNULL, timeout=15)
+            _PROBE_CACHE[key] = r.returncode == 0
+        except Exception:
+            _PROBE_CACHE[key] = False
+    return _PROBE_CACHE[key]
+
+
+def _bwrap_contains(bwrap: str) -> bool:
+    """bwrap is on PATH but needs user namespaces (or its setuid helper) to work; a container or a
+    hardened host can forbid them. Probe once."""
+    return _runs([bwrap, "--ro-bind", "/", "/", "--unshare-net", "--die-with-parent", "true"])
+
+
+def _unshare_isolates_net(unshare: str) -> bool:
+    """`unshare -n` needs CAP_SYS_ADMIN / unprivileged-userns; a CI runner refuses it with
+    'Operation not permitted', and the child then dies before the server starts. Probe once."""
+    return _runs([unshare, "-n", "--", "true"])
+
+
 def capabilities() -> Dict[str, Any]:
-    """What this machine can actually enforce. Never optimistic."""
+    """What this machine can actually enforce. Never optimistic: a sandbox mechanism counts only when
+    it has been probed to work here, not merely found on PATH (a runner that forbids namespaces has
+    `unshare` installed but cannot create one)."""
     system = platform.system()
-    bwrap = shutil.which("bwrap")
-    unshare = shutil.which("unshare")
+    bwrap = shutil.which("bwrap") if not (system == "Linux") else (
+        shutil.which("bwrap") if (shutil.which("bwrap") and _bwrap_contains(shutil.which("bwrap"))) else None)
+    unshare = shutil.which("unshare") if not (system == "Linux") else (
+        shutil.which("unshare") if (shutil.which("unshare") and _unshare_isolates_net(shutil.which("unshare"))) else None)
     caps = {
         "platform": system,
         "bubblewrap": bool(bwrap),
+        "bwrap_path": bwrap,
         "unshare": bool(unshare),
+        "unshare_path": unshare,
         "network_isolation": False,
         "filesystem_isolation": False,
         "no_new_privs": os.name == "posix",
@@ -82,6 +117,12 @@ def capabilities() -> Dict[str, Any]:
             caps["notes"].append(
                 "bubblewrap is not installed, so only network isolation is available. "
                 "Install bubblewrap (bwrap) for filesystem isolation too.")
+        elif shutil.which("bwrap") or shutil.which("unshare"):
+            caps["notes"].append(
+                "A sandbox tool is installed but cannot create a namespace here (this host or "
+                "container forbids unprivileged namespaces), so a child process cannot be contained. "
+                "Run on a host that allows user namespaces, or install bubblewrap (bwrap) with its "
+                "setuid helper.")
         else:
             caps["notes"].append(
                 "Neither bubblewrap nor unshare is installed, so a child process "
@@ -202,7 +243,7 @@ def build_command(argv: Sequence[str], *, allow_network: bool = False,
         notes.extend(caps["notes"])
         return {"argv": argv, "applied": applied, "notes": notes, "contained": False}
 
-    bwrap = shutil.which("bwrap")
+    bwrap = caps.get("bwrap_path")      # probed: present AND able to contain here
     if bwrap:
         cmd = [bwrap, "--die-with-parent", "--new-session", "--unshare-pid",
                "--unshare-uts", "--unshare-ipc", "--unshare-cgroup-try"]
@@ -250,7 +291,7 @@ def build_command(argv: Sequence[str], *, allow_network: bool = False,
         return {"argv": cmd + ["--"] + argv, "applied": applied, "notes": notes,
                 "contained": True}
 
-    unshare = shutil.which("unshare")
+    unshare = caps.get("unshare_path")  # probed: `unshare -n` actually works here
     if unshare and not allow_network:
         notes.append("bubblewrap is not installed; the network is isolated but the "
                      "filesystem is not. Install bubblewrap for full containment.")

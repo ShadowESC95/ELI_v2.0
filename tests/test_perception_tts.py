@@ -44,14 +44,26 @@ def test_list_voices_no_duplicates():
     voices = list_voices()
     assert len(voices) == len(set(voices))
 
-def test_list_voices_includes_lessac_high():
-    assert "en_US-lessac-high" in list_voices()
+def _installed_voices():
+    """The Piper voices on this machine (the shipped set on CI, any added ones here)."""
+    from eli.perception.tts_router import _voice_search_dirs
+    return sorted({f.stem for d in _voice_search_dirs() for f in Path(d).glob("*.onnx")
+                   if Path(str(f) + ".json").exists()})
 
-def test_list_voices_includes_ryan_high():
-    assert "en_US-ryan-high" in list_voices()
 
-def test_list_voices_includes_cori_high():
-    assert "en_GB-cori-high" in list_voices()
+def test_every_installed_voice_is_found_and_the_natural_ones_listed():
+    """These tests named three high-quality voices that were only ever on the developer's machine;
+    the release ships a smaller set. What holds anywhere: every installed voice is found, and every
+    one that is not a robotic low-quality voice is offered."""
+    installed = _installed_voices()
+    if not installed:
+        pytest.skip("no Piper voices installed")
+    listed = list_voices()
+    for name in installed:
+        found = find_voice_model(name)
+        assert found is not None and found.exists() and found.stem == name, name
+        if not name.endswith("low"):
+            assert name in listed, name
 
 
 # ── Voice model finding ───────────────────────────────────────────────────
@@ -59,21 +71,6 @@ def test_list_voices_includes_cori_high():
 def test_find_voice_model_returns_path_or_none():
     result = find_voice_model("en_US-lessac-high")
     assert result is None or isinstance(result, Path)
-
-def test_find_lessac_high_exists():
-    result = find_voice_model("en_US-lessac-high")
-    assert result is not None
-    assert result.exists()
-
-def test_find_ryan_high_exists():
-    result = find_voice_model("en_US-ryan-high")
-    assert result is not None
-    assert result.exists()
-
-def test_find_cori_high_exists():
-    result = find_voice_model("en_GB-cori-high")
-    assert result is not None
-    assert result.exists()
 
 def test_find_nonexistent_voice():
     result = find_voice_model("en_US-nonexistent-ultra")
