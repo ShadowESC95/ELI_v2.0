@@ -741,6 +741,9 @@ jobs:
       - name: Dependencies (the Linux build's own)
         run: bash packaging/ci_linux_deps.sh
 
+      - name: Test tools (the project's test extra)
+        run: pip install ".[test]"
+
       - name: Data stores and capability manifests
         run: |
           python -m eli.core.init_data
