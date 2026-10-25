@@ -1,3 +1,4 @@
+import pytest
 from eli.learning.base_model_resolver import resolve_base_model_path
 
 
