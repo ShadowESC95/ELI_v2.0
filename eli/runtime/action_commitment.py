@@ -148,9 +148,9 @@ _POINTS_BACK = frozenset(("the", "a", "an", "this", "that", "these", "those", "i
 
 def corrected_action(text: str, last_cmd: Optional[Dict[str, Any]],
                      now: Optional[float] = None) -> Optional[Dict[str, Any]]:
-    """"no dude, RAIMS and Orcawise" right after a search for the wrong thing: the last action again,
+    """"no dude, ORBIT and Northwind" right after a search for the wrong thing: the last action again,
     on what the correction names ({"action", "args"}). The search is redone, where the reply used
-    to be the model's guess about the new words ("Orcawise is a band"). None unless the message is
+    to be the model's guess about the new words ("Northwind is a band"). None unless the message is
     a correction naming something (not a question, not an instruction of its own) and the last
     action, recent, acted on one named thing (route_contracts.TARGET_ARGS)."""
     from eli.execution.route_contracts import TARGET_ARGS

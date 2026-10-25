@@ -558,8 +558,8 @@ def spotify_wait_running(timeout: float = 8.0) -> bool:
 
 
 # Words of a request that are not part of a name: articles and joining words, and the words that
-# say what kind of thing is wanted. "songs by diabolic and ill bill" started the right track
-# ("Diabolic — Order & Chaos (feat. Ill Bill)") and it was refused, "songs" and "and" not being in it.
+# say what kind of thing is wanted. "songs by veridian and red tamsin" started the right track
+# ("Veridian — North & South (feat. Red tamsin)") and it was refused, "songs" and "and" not being in it.
 _TRACK_MATCH_STOPWORDS = {
     "the", "a", "an", "by", "of", "feat", "ft", "featuring", "on", "spotify", "and", "with", "from", "some", "any",
     "song", "songs", "track", "tracks", "tune", "tunes", "music", "stuff", "something", "anything",
@@ -592,7 +592,7 @@ def query_matches_track(query: str, artist: str, title: str) -> bool:
     """Most of the words asked for are in the playing track, and some are in its title, unless
     only the artist was asked for.
 
-    One shared word was enough before, so "trouble eminem" accepted any Eminem track that
+    One shared word was enough before, so "trouble orlo" accepted any Orlo track that
     happened to be loaded.
     """
     if not f"{artist}{title}".strip():

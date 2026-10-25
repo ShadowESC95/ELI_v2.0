@@ -65,7 +65,7 @@ def test_hyde_still_matches():
 # ── a pasted message from someone else (2.5.16 log: ChatGPT's critique of ELI) ──
 
 CHATGPT_CRITIQUE = (
-    "Alright, tell ELI the SaaS landlord has received the letter. ELI has evidence about its own memory "
+    "Alright, tell ELI the review panel has its notes. ELI has evidence about its own memory "
     "architecture. Your runtime reported, live: Qwen3.6-35B-A3B Q4_K_M, ~16k effective context, eight "
     "physical SQLite stores, 507 memory entries, FTS5, FAISS and a knowledge graph. Show the receipt. "
     "You have an audit ledger. Use it. I am making it more precise: you need to enforce provenance. "
@@ -75,8 +75,8 @@ CHATGPT_CRITIQUE = (
 
 def test_the_users_own_words_are_split_from_what_they_pasted():
     from eli.cognition.correction_patterns import shortcut_text, split_pasted
-    own, pasted = split_pasted("here's ChatGPT's reply, you have to bring out the big guns now Eli ---> " + CHATGPT_CRITIQUE)
-    assert own == "here's ChatGPT's reply, you have to bring out the big guns now Eli"
+    own, pasted = split_pasted("here is the other assistant's reply, time to bring your best now Eli ---> " + CHATGPT_CRITIQUE)
+    assert own == "here is the other assistant's reply, time to bring your best now Eli"
     assert pasted.startswith("Alright, tell ELI")
     own, pasted = split_pasted("here's what it said:\n" + CHATGPT_CRITIQUE)
     assert own == "here's what it said" and pasted.startswith("Alright")
@@ -90,7 +90,7 @@ def test_a_paste_mentioning_elis_runtime_and_memory_is_no_report_request():
     """Four runtime and personal-memory dumps answered a pasted ChatGPT critique in one evening."""
     from eli.cognition.correction_patterns import shortcut_text
     from eli.runtime.control_contracts import route_control_text
-    for message in (CHATGPT_CRITIQUE, "Fuck hiroshima, go full Fallout on this smart-ass, here's its response --> " + CHATGPT_CRITIQUE):
+    for message in (CHATGPT_CRITIQUE, "Right, go all out on this know-it-all, here's its response --> " + CHATGPT_CRITIQUE):
         said = shortcut_text(message)
         assert not said or route_control_text(said, "CHAT") in (None, "", "CHAT")
 

@@ -50,7 +50,7 @@ def test_an_abandoned_task_falls_out_of_the_brief():
 
 
 def test_find_task_recovers_what_the_passive_brief_drops():
-    t = gs.open_task("RAIMS project", "build the RAIMS ingestion pipeline")
+    t = gs.open_task("ORBIT project", "build the ORBIT ingestion pipeline")
     gs.record_task_event(t.goal_id, "decision", "use SQLite for the staging store")
     goals = gs.load_goals()
     for g in goals:
@@ -62,11 +62,11 @@ def test_find_task_recovers_what_the_passive_brief_drops():
     assert gs.current_task() is None
     assert gs.task_brief() == ""
     # explicit lookup: still finds it, brief still has the real recorded content
-    found = gs.find_task("continue the raims project")
+    found = gs.find_task("continue the orbit project")
     assert found is not None and found.goal_id == t.goal_id
     assert "use SQLite" in gs.task_brief_for(found)
     # explicit lookup can also honor the idle gate when asked to
-    assert gs.find_task("continue the raims project", include_idle=False) is None
+    assert gs.find_task("continue the orbit project", include_idle=False) is None
 
 
 def test_find_task_returns_none_for_no_match():

@@ -72,7 +72,7 @@ def test_a_direct_correction_at_least_opens_the_question():
 
 
 def test_a_stale_belief_yields_to_a_fresh_one():
-    stale = _held(statement="User lives in Cork", corroboration=2,
+    stale = _held(statement="User lives in York", corroboration=2,
                   last_seen=NOW - 400 * 86400)
     fresh = _claim(statement="User lives in Dublin")
     assert assess_claim(stale, fresh, NOW).action == CONCEDE

@@ -1995,7 +1995,7 @@ class Memory(metaclass=_MemoryMeta):
         Decide whether a user turn is a durable self-fact worth promoting into the
         long-term store — identity, preference, relationship, commitment — rather
         than chit-chat or a question. This is what lets facts stated once in
-        passing ("Shadow (my dog)") survive, without the user saying "remember".
+        passing ("Biscuit (my dog)") survive, without the user saying "remember".
         """
         t = (text or "").strip()
         low = t.lower()
@@ -2372,19 +2372,25 @@ class Memory(metaclass=_MemoryMeta):
                 # The keyword channels filter out ELI's own records and unverified rows in SQL; vector
                 # hits skipped that, and the index still holds 372 telemetry rows embedded before the
                 # storage policy ("Top topics: days, past, memory" was the top recall). Same filters,
-                # one query; rows deleted since they were indexed drop out too.
+                # one query; rows deleted since they were indexed drop out too. The row is the record: an
+                # index entry whose text is not the row's (the id now belongs to another memory, as after
+                # a reset or a restore) is stale, and its own copy of the text was shown as a memory.
                 _vec_ids = [int(v['id']) for v in vector_results if str(v.get('id')).isdigit()]
                 if _vec_ids:
                     try:
+                        _row_text = "COALESCE(m.text, m.content, '')" if "content" in cols else "COALESCE(m.text, '')"
                         _ok_rows = conn.execute(
-                            f"SELECT m.id, COALESCE(m.timestamp, m.ts, 0) FROM memories m "
+                            f"SELECT m.id, COALESCE(m.timestamp, m.ts, 0), {_row_text} FROM memories m "
                             f"WHERE m.id IN ({','.join('?' * len(_vec_ids))}) {_kind_filter}{_verify_filter}",
                             (*_vec_ids, *_kind_params),
                         ).fetchall()
-                        _ok = {int(r[0]): r[1] for r in _ok_rows}
+                        _ok = {int(r[0]): (r[1], str(r[2] or "")) for r in _ok_rows}
+                        _same = lambda a, b: " ".join(str(a).split()) == " ".join(str(b).split())
                         vector_results = [
-                            dict(v, ts=v.get('ts') or _ok[int(v['id'])], timestamp=v.get('ts') or _ok[int(v['id'])])
+                            dict(v, ts=v.get('ts') or _ok[int(v['id'])][0], timestamp=v.get('ts') or _ok[int(v['id'])][0],
+                                 text=_ok[int(v['id'])][1])
                             for v in vector_results if str(v.get('id')).isdigit() and int(v['id']) in _ok
+                            and _same(v.get('text', ''), _ok[int(v['id'])][1])
                         ][:limit]
                     except Exception:
                         log.debug("vector hit filter skipped", exc_info=True)
@@ -2644,7 +2650,7 @@ class Memory(metaclass=_MemoryMeta):
                 try:
                     _q_low2 = q.lower()
                     # Key on distinctive content nouns, not the whole question. "what is my dog's name" must
-                    # surface a turn saying "...my dog Shadow", and a verbatim '%what is my dog's name%' LIKE never
+                    # surface a turn saying "...my dog Biscuit", and a verbatim '%what is my dog's name%' LIKE never
                     # matches. Drop interrogatives, possessives and generic-memory words so it keys on "dog", and
                     # de-pluralise so "dogs" finds "dog".
                     _fb_stop = {
@@ -3991,7 +3997,7 @@ class Memory(metaclass=_MemoryMeta):
                                           role=str(role or ""), text=content,
                                           tags=None)
 
-        # Promote facts stated in passing ("my dog Shadow") into durable memory so they're recallable,
+        # Promote facts stated in passing ("my dog Biscuit") into durable memory so they're recallable,
         # not buried in the raw turn log. User-authored turns only (identity-grade trust). Two captures:
         # (a) entity/relation triples into the knowledge graph, (b) salience-scored durable memory rows
         # for anything ELI judges memorable, so important statements survive without "remember this".
@@ -4270,7 +4276,10 @@ class Memory(metaclass=_MemoryMeta):
             conn.close()
 
     def search_conversations(self, query, user_id=None, limit=10, session_id=None,
-                             include_assistant=False):
+                             include_assistant=False, match_all=False):
+        """Turns whose text holds the query's keywords: any one of them, or every one with
+        match_all ("drive to the coast" must not match every message that says "drive"). limit=None
+        returns every match, oldest first."""
         q = str(query or "").strip()
         if not q:
             return []
@@ -4297,7 +4306,7 @@ class Memory(metaclass=_MemoryMeta):
         conn = self._get_connection()
         try:
             # Build OR conditions — a turn is relevant if ANY keyword appears in it.
-            conditions = " OR ".join(
+            conditions = (" AND " if match_all else " OR ").join(
                 "LOWER(COALESCE(content, '')) LIKE ?" for _ in keywords
             )
             params: list = [f"%{kw}%" for kw in keywords]
@@ -4317,8 +4326,10 @@ class Memory(metaclass=_MemoryMeta):
                 params.append(user_id)
             # Fetch DESC then reverse so caller gets chronological order,
             # consistent with get_recent_conversation().
-            sql += " ORDER BY COALESCE(timestamp, ts, 0) DESC LIMIT ?"
-            params.append(int(limit))
+            sql += " ORDER BY COALESCE(timestamp, ts, 0) DESC"
+            if limit is not None:
+                sql += " LIMIT ?"
+                params.append(int(limit))
             rows = conn.execute(sql, params).fetchall()
             rows = list(reversed(rows))  # chronological order
             result = [

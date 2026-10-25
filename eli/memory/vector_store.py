@@ -172,6 +172,7 @@ class VectorStore:
         # callers (e.g. add() -> _embed -> ... ) from self-deadlocking.
         self._embed_lock = threading.RLock()
         self._embedder: Any = None
+        self._closed = False
         self._embedder_error: Optional[str] = None
         self._index: Any = None
         self._meta: List[Dict[str, Any]] = []
@@ -189,14 +190,6 @@ class VectorStore:
             threading.Thread(target=self._auto_rebuild, daemon=True, name="eli-vs-rebuild").start()
 
     def add(self, text: str, metadata: Optional[Dict[str, Any]] = None) -> bool:
-        # === PHASE43_SKIP_VECTOR_EMBED_DURING_SHUTDOWN ===
-        try:
-            if os.environ.get('ELI_SHUTTING_DOWN') == '1':
-                log.debug('[VECTOR_STORE][PHASE43] skipping embedding during shutdown')
-                return False
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-        # === END PHASE43_SKIP_VECTOR_EMBED_DURING_SHUTDOWN ===
         vec = self._embed(text)
         if vec is None:
             return False
@@ -309,9 +302,20 @@ class VectorStore:
         return len(self._meta) - len(keep)
 
     def _get_embedder(self):
-        if self._embedder is None:
+        if self._embedder is None and not self._closed:
             self._init_embedder()
         return self._embedder
+
+    def close(self) -> None:
+        """Free the embedding model for good. Engine shutdown used to close the model underneath the
+        store and leave it in place: the next embed (a late memory, a search, the document indexer)
+        read freed native memory and the process died with a segmentation fault. Keyword search
+        still works without it."""
+        with self._embed_lock, hold_llama_lock(foreground=False):
+            embedder, self._embedder, self._closed = self._embedder, None, True
+            close = getattr(getattr(embedder, "_llm", None), "close", None)
+            if callable(close):
+                close()
 
     def _init_embedder(self) -> None:
         try:
@@ -403,22 +407,30 @@ class VectorStore:
         self.rebuild_full(entries)
         log.debug(f"[VECTOR_STORE] Auto-rebuild complete: {self.ntotal} vectors")
 
-    def _embed(self, text: str) -> Optional[Any]:
+    def embed_text(self, text: str) -> Optional[List[float]]:
+        """The embedding model's vector for `text`, or None. Every embed goes through here:
+        serialised (llama-cpp embedding models are not thread-safe and concurrent calls corrupt
+        their state) and never after close(). During the user's turn the wait makes a background
+        generation holding the lock yield."""
         if self._embedder is None:
             return None
-        # Serialise embed calls; llama-cpp embedding models are not
-        # thread-safe and concurrent calls can corrupt embedder state. During the user's turn the
-        # wait makes a background generation holding the lock yield.
         from eli.kernel.request_context import in_user_turn
         with self._embed_lock, hold_llama_lock(foreground=in_user_turn()):
+            if self._embedder is None:        # closed while this call waited
+                return None
             try:
-                vec = self._embedder.embed(text)
-                arr = np.array(vec, dtype="float32").reshape(1, -1)
-                faiss.normalize_L2(arr)
-                return arr
+                return self._embedder.embed(text)
             except Exception as e:
                 log.debug(f"[VECTOR_STORE] embed failed: {e}")
                 return None
+
+    def _embed(self, text: str) -> Optional[Any]:
+        vec = self.embed_text(text)
+        if vec is None:
+            return None
+        arr = np.array(vec, dtype="float32").reshape(1, -1)
+        faiss.normalize_L2(arr)
+        return arr
 
     def _keyword_fallback(self, query: str, top_k: int) -> List[Dict[str, Any]]:
         terms = query.lower().split()

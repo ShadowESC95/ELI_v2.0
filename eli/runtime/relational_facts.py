@@ -2,8 +2,8 @@
 
 ELI captured the user's OWN name ("my name is Sam") but nothing about the people and pets
 in their life — so "what's my dog's name?" had *nothing stored to recall*, even though the
-user had said "Shadow (my dog)" in an earlier chat. This closes that gap: it pulls facts
-like "my dog Shadow", "Shadow (my dog)", "my wife is Jane" so they can be stored + recalled.
+user had said "Biscuit (my dog)" in an earlier chat. This closes that gap: it pulls facts
+like "my dog Biscuit", "Biscuit (my dog)", "my wife is Jane" so they can be stored + recalled.
 
 Deterministic + conservative: names must be Capitalised (proper nouns), questions are
 ignored (they're recalls, not statements), and only a known set of relations is matched.
@@ -29,13 +29,13 @@ _REL_ALT = "|".join(re.escape(r) for r in sorted(_RELATIONS, key=len, reverse=Tr
 # (re.I would otherwise let [A-Z] match "is"/"happy"). (?-i:…) turns off i-flag for that char.
 _NAME = r"(?P<name>(?-i:[A-Z])[A-Za-z'À-ſ\-]{1,30})"
 
-# "my dog Shadow" · "my dog is Shadow" · "my dog's name is Shadow" · "my dog, Shadow"
+# "my dog Biscuit" · "my dog is Biscuit" · "my dog's name is Biscuit" · "my dog, Biscuit"
 _P_MY_REL_NAME = re.compile(
     rf"\bmy\s+(?P<rel>{_REL_ALT})(?:'s)?\s*"
     rf"(?:name\s+is|is\s+called|is\s+named|is|named|called|,|:|-)?\s*{_NAME}\b",
     re.I,
 )
-# "Shadow (my dog)" · "Shadow, my dog"
+# "Biscuit (my dog)" · "Biscuit, my dog"
 _P_NAME_MY_REL = re.compile(
     rf"\b{_NAME}\s*(?:\(\s*|,\s*)my\s+(?P<rel>{_REL_ALT})\b",
     re.I,
@@ -60,7 +60,7 @@ def _canon_rel(r: str) -> str:
 
 
 def extract_relational_facts(text: str) -> List[Dict[str, str]]:
-    """Return [{'relation': 'dog', 'name': 'Shadow'}, …] for facts stated in `text`.
+    """Return [{'relation': 'dog', 'name': 'Biscuit'}, …] for facts stated in `text`.
 
     Only *statements* — a question ("what is my dog's name?") returns nothing, since that's
     a recall, not a new fact. Last mention wins per relation within one message.

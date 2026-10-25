@@ -44,29 +44,28 @@ def main() -> int:
         action = str(cap.get("action") or "").upper()
         by_action[action].append(cap)
 
-        active = bool(cap.get("active"))
         routable = bool(cap.get("routable"))
         in_dispatch = bool(cap.get("in_dispatch"))
         in_supported = bool(cap.get("in_supported_list"))
         source = cap.get("source")
         plugin = cap.get("plugin")
 
-        if active and routable and not in_dispatch:
+        if routable and not in_dispatch:
             failures.append(
                 f"{action}: routable=true but in_dispatch=false. Router can select it, but executor cannot handle it."
             )
 
-        if active and routable and not in_supported:
+        if routable and not in_supported:
             warnings.append(
                 f"{action}: routable=true but in_supported_list=false. It works internally but may be hidden from help/capability output."
             )
 
-        if active and in_supported and not routable and plugin is not None:
+        if in_supported and not routable and plugin is not None:
             warnings.append(
                 f"{action}: plugin capability is supported/dispatchable but not router-routable. Natural language may not trigger it."
             )
 
-        if active and source == "executor" and not routable and not in_supported:
+        if source == "executor" and not routable and not in_supported:
             if action in INTENTIONAL_INTERNAL_ACTIONS:
                 info.append(
                     f"{action}: intentional internal executor/admin/diagnostic action."

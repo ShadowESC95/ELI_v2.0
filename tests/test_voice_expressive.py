@@ -81,8 +81,15 @@ def test_natural_synth_falls_back_gracefully_without_extra(monkeypatch):
 def test_device_selection_is_forceable(monkeypatch):
     monkeypatch.setenv("ELI_XTTS_DEVICE", "cpu")
     assert X._select_device() == "cpu"
+
+
+def test_a_forced_cuda_is_honoured_only_when_this_torch_has_it(monkeypatch):
+    torch = pytest.importorskip("torch")
     monkeypatch.setenv("ELI_XTTS_DEVICE", "cuda")
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
     assert X._select_device() == "cuda"
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: False)   # a CPU-only wheel
+    assert X._select_device() == "cpu"
 
 
 # ── Routing / resolver for the natural voice ──────────────────────────────────

@@ -17,19 +17,19 @@ def store(tmp_path, monkeypatch):
 
 
 @pytest.mark.parametrize("text", [
-    "continue the RAIMS project",
-    "resume the RAIMS project",
-    "let's pick back up the RAIMS project",
-    "go back to the RAIMS project",
+    "continue the ORBIT project",
+    "resume the ORBIT project",
+    "let's pick back up the ORBIT project",
+    "go back to the ORBIT project",
 ])
 def test_resume_phrasings_route_to_resume_task(text):
     r = route(text)
     assert r.get("action") == "RESUME_TASK", f"{text!r} -> {r!r}"
-    assert "raims" in (r.get("args") or {}).get("topic", "").lower()
+    assert "orbit" in (r.get("args") or {}).get("topic", "").lower()
 
 
 def test_full_round_trip_finds_a_stale_task_and_states_staleness():
-    g = gs.open_task("RAIMS project", "build the RAIMS ingestion pipeline", ["must stay offline-first"])
+    g = gs.open_task("ORBIT project", "build the ORBIT ingestion pipeline", ["must stay offline-first"])
     gs.record_task_event(g.goal_id, "decision", "use SQLite for the staging store")
     gs.record_task_event(g.goal_id, "question", "still need to figure out retry backoff")
     goals = gs.load_goals()
@@ -38,7 +38,7 @@ def test_full_round_trip_finds_a_stale_task_and_states_staleness():
             gg.updated_at -= 40 * 86400
     gs.save_goals(goals)
 
-    routed = route("continue the RAIMS project")
+    routed = route("continue the ORBIT project")
     assert routed["action"] == "RESUME_TASK"
     result = _execute_impl(routed["action"], routed["args"])
     assert result["ok"] is True

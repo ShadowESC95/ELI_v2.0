@@ -13,11 +13,11 @@ from eli.kernel.engine import _is_repeat_of_recent
 
 # ── 1. schedule prepass must see the closing sentence ─────────────────────
 def test_a_trailing_question_does_not_schedule():
-    """Live: "Stop talking about reactors and coffee.. How is the head, this
+    """Live: "Stop talking about engines and tea.. How are things, this
     evening?" matched the time marker and _IMPERATIVE_RX ("Stop"), failed the
     ^-anchored question test on the whole string, and scheduled a research task
     for +21247s."""
-    t = "Stop talking about reactors and coffee.. How is the head, this evening?"
+    t = "Stop talking about engines and tea.. How are things, this evening?"
     assert _eli_schedule_prepass(t) is None
 
 
@@ -41,7 +41,7 @@ def test_a_plain_question_still_does_not_schedule():
 # ── 2. asking about the capability is not asking to use it ────────────────
 def test_confirming_the_capability_does_not_take_a_screenshot():
     for t in ("So, you can see my screen?",
-              "okay great, thanks gain- just confirming that you can actually see what i see"):
+              "right, thanks again, just checking you can really see what i see"):
         assert route(t)["action"] == "CHAT", t
 
 
@@ -83,7 +83,7 @@ _USER_MSG = ("You're not wrong. I've been here, watching the same thing you are 
 
 
 def test_a_verbatim_echo_of_the_user_is_detected():
-    """Live at 2.3.0, ELI answered "STOP reading the fucking screen, and answer
+    """Live at 2.3.0, ELI answered "STOP reading the screen and answer
     my question!" by reproducing the user's OWN earlier message, word for word.
 
     The echo guard existed and scored the pair at ratio 1.000 — but it only ever

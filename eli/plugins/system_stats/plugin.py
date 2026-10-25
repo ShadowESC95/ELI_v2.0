@@ -72,5 +72,6 @@ class SystemStatsPlugin(Plugin):
             total_mb, used_mb = int(parts[1]), int(parts[2])
             msg = f"RAM: {used_mb} / {total_mb} MB  (psutil not installed — install for full stats)"
         except Exception:
-            msg = "System stats unavailable. Install psutil: pip install psutil"
+            msg = "System stats unavailable: psutil, which ELI needs, isn't installed (pip install psutil)."
+            return {"ok": False, "error": "psutil missing", "content": msg, "response": msg}
         return {"ok": True, "content": msg, "response": msg}

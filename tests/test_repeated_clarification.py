@@ -1,7 +1,7 @@
 """ELI must not ask a question the user has already answered.
 
-Live session, verbatim: the user said "I am making a list of things that need
-fixing in your codebase and testing edge cases", and over the following turns
+Live session: the user had said what they were doing (going through a list of
+things to check), and over the following turns
 ELI asked "what exactly are you trying to do here?" four separate times, until
 the user replied in capitals that they had already told it. The anti-repeat
 guard did fire on those turns -- but it only compares the OPENING of a reply,
@@ -18,12 +18,12 @@ from eli.cognition import output_governor as og
 
 
 REAL_HISTORY = [
-    ("user", "no, i do not trust you. I am making a list of things that need "
-             "fixing in your codebase and testing edge cases, we observe and "
-             "report for the moment"),
+    ("user", "no, not yet. I am going through a checklist of things to "
+             "look at in your settings and trying odd inputs, we watch and "
+             "note things for now"),
     ("assistant", "You're right - I'm not fighting. So what exactly are you "
                   "trying to do here?"),
-    ("user", "I have fucking told you what i am doing here, several times!"),
+    ("user", "I have already told you what i am doing here, more than once!"),
 ]
 
 
@@ -41,7 +41,7 @@ def test_intent_questions_are_detected(reply):
 
 @pytest.mark.parametrize("reply", [
     "I closed the file via wmctrl.",
-    "Playing the third world by immortal technique on Spotify.",
+    "Playing the first light by quiet machine on Spotify.",
     "What time would you like the alarm set for?",     # a specific detail, not intent
     "The model failed to load because a tensor is missing.",
 ])

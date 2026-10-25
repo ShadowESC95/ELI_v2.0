@@ -3,7 +3,7 @@
 This produced a self-sustaining loop in a live session, and a harmful one.
 
 ELI's proactive check-in said "you've been reading more sad lately". The user
-replied to it — "i am not sad eli, i am just trying to get your codebas correct".
+replied to it — "i am not sad eli, i am only trying to get this fixed".
 The router matched `tone.set` and returned SET_TONE(sad): denying the emotion set
 ELI to it. That reading was recorded, the counter climbed, and the check-in fired
 again with the same sentence. The log shows it escalating sad×3 -> sad×7 in a
@@ -32,8 +32,8 @@ def _tone(text: str):
 
 # ── the exact live failures ─────────────────────────────────────────────────
 @pytest.mark.parametrize("text", [
-    "i am not sad eli, i am just trying to get your codebas correct",
-    "yes, but how does that make me red more sad lately, as you stated ?",
+    "i am not sad eli, i am only trying to get this fixed",
+    "yes, but how does that make me sound more sad lately, as you put it ?",
 ])
 def test_the_live_misfires_are_chat(text):
     assert _action(text) != "SET_TONE"

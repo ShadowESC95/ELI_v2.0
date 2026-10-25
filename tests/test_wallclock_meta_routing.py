@@ -16,7 +16,7 @@ LIVE_META = (
     "day it is now?"
 )
 
-CHECK_IN = "hey buddy, you oaynow? feeling normal again?"
+CHECK_IN = "evening pal, you oaynow? feeling better again?"
 
 
 def _action(text: str) -> str:

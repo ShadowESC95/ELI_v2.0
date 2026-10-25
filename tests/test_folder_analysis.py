@@ -52,7 +52,7 @@ def test_a_folder_goes_to_the_document_index_and_a_saved_document(tmp_path, inde
     folder = tmp_path / "physics"
     folder.mkdir()
     for i in range(3):
-        (folder / f"chapter{i}.pdf").write_text(f"Chapter {i} entropy gradient field Xi")
+        (folder / f"chapter{i}.pdf").write_text(f"Chapter {i} the scalar field and its potential")
     for sub in ("a", "b"):          # the same name in two subfolders is shown by where it is
         (folder / sub).mkdir()
         (folder / sub / "notes.pdf").write_text(f"Notes on {sub}")
@@ -61,7 +61,7 @@ def test_a_folder_goes_to_the_document_index_and_a_saved_document(tmp_path, inde
     monkeypatch.setattr("eli.plugins.document_reader.plugin.document_sections",
                         lambda p: [("p. 1", p.read_text())] if p.stat().st_size else [])
     calls, seen = [], []
-    monkeypatch.setattr(fa, "_model", lambda: ((lambda text, n: calls.append(text) or "It covers $\\Xi$."), 100_000))
+    monkeypatch.setattr(fa, "_model", lambda: ((lambda text, n: calls.append(text) or "It covers $\\phi$."), 100_000))
     stored = []
     monkeypatch.setattr("eli.memory.memory.Memory.store_memory", lambda *a, **k: stored.append(a))
     out = fa.analyse(folder, progress=lambda done, total, stage: seen.append((stage, done, total)))
@@ -80,7 +80,7 @@ def test_installed_software_in_the_folder_is_not_read_as_documents(tmp_path):
     from eli.memory.document_index import document_files
     (tmp_path / "papers").mkdir()
     (tmp_path / "papers" / "thesis.pdf").write_bytes(b"x")
-    env = tmp_path / "sims" / "venv-xichi"
+    env = tmp_path / "sims" / "venv-sims"
     (env / "lib" / "site-packages" / "matplotlib").mkdir(parents=True)
     (env / "pyvenv.cfg").write_text("home = /usr/bin")
     (env / "lib" / "site-packages" / "matplotlib" / "back.pdf").write_bytes(b"x")

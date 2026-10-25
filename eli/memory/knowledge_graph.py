@@ -42,7 +42,7 @@ _STOPWORDS = frozenset({
 })
 
 # Family / pet relationship nouns for possessive-fact extraction
-# ("my dog Shadow", "Shadow (my dog)"). Maps surface word -> normalised relation.
+# ("my dog Biscuit", "Biscuit (my dog)"). Maps surface word -> normalised relation.
 _REL_NORMALISE = {
     "puppy": "dog", "pup": "dog", "kitten": "cat", "kitty": "cat",
     "mum": "mother", "mom": "mother", "mummy": "mother", "mommy": "mother",
@@ -160,6 +160,13 @@ def _junk_name_relation(rel: Dict[str, Any]) -> bool:
         return not normalize_identity_candidate(obj)
     except Exception:
         return False
+
+
+def _as_of_day(rel: Dict[str, Any]) -> str:
+    try:
+        return " (as of " + time.strftime("%d %b %Y", time.localtime(float(rel.get("ts")))) + ")"
+    except (TypeError, ValueError):
+        return ""
 
 
 class KnowledgeGraph:
@@ -320,13 +327,13 @@ class KnowledgeGraph:
             result = dict(ent)
 
             out_rows = conn.execute(
-                """SELECT r.predicate, e.name AS object, r.weight
+                """SELECT r.predicate, e.name AS object, r.weight, r.ts
                    FROM kg_relations r JOIN kg_entities e ON r.object_id=e.id
                    WHERE r.subject_id=? ORDER BY r.weight DESC""",
                 (eid,)
             ).fetchall()
             in_rows = conn.execute(
-                """SELECT e.name AS subject, r.predicate, r.weight
+                """SELECT e.name AS subject, r.predicate, r.weight, r.ts
                    FROM kg_relations r JOIN kg_entities e ON r.subject_id=e.id
                    WHERE r.object_id=? ORDER BY r.weight DESC""",
                 (eid,)
@@ -471,6 +478,9 @@ class KnowledgeGraph:
         if not hits:
             return ""
 
+        # Each relation says when the graph learned it. Undated, "User —[is]→ DRIVING FROM X TO Y" read
+        # as what the user is doing now, weeks after the trip.
+        from eli.cognition.evidence_format import as_of
         lines: List[str] = []
         seen_triples: set = set()
 
@@ -481,7 +491,7 @@ class KnowledgeGraph:
                 continue
             desc = ent_detail.get("description", "").strip()
             aliases = ent_detail.get("aliases", "").strip()
-            header = f"[{name}]"
+            header = f"[{as_of(name, ent_detail.get('ts'))}]"
             if ent_detail.get("type") and ent_detail["type"] != "concept":
                 header += f" ({ent_detail['type']})"
             if desc:
@@ -490,7 +500,7 @@ class KnowledgeGraph:
                 header += f" — also known as: {aliases}"
             # Query-aware ordering: float relations whose predicate/object match a
             # query token to the top, so "what is my dog's name" surfaces
-            # has_dog→Shadow instead of it being crowded out by the [:5] cap.
+            # has_dog→Biscuit instead of it being crowded out by the [:5] cap.
             _q_toks = {
                 t.lower() for t in re.split(r"[^a-zA-Z0-9]+", query)
                 if len(t) > 2 and t.lower() not in _STOPWORDS
@@ -521,12 +531,12 @@ class KnowledgeGraph:
                 triple = (name, rel["predicate"], rel["object"])
                 if triple not in seen_triples:
                     seen_triples.add(triple)
-                    lines.append(f"  {name} —[{rel['predicate']}]→ {rel['object']}")
+                    lines.append(f"  {name} —[{rel['predicate']}]→ {as_of(rel['object'], rel.get('ts'))}{_as_of_day(rel)}")
             for rel in _inbound[:max(3, max_relations // 2)]:
                 triple = (rel["subject"], rel["predicate"], name)
                 if triple not in seen_triples:
                     seen_triples.add(triple)
-                    lines.append(f"  {rel['subject']} —[{rel['predicate']}]→ {name}")
+                    lines.append(f"  {rel['subject']} —[{rel['predicate']}]→ {as_of(name, rel.get('ts'))}{_as_of_day(rel)}")
 
         text = "\n".join(lines)
         if len(text) > max_chars:
@@ -650,7 +660,7 @@ class KnowledgeGraph:
                         if self.add_relation(subj, predicate, obj, source=source):
                             added += 1
 
-        # Possessive relationships — "my dog Shadow", "Shadow (my dog)". These are
+        # Possessive relationships — "my dog Biscuit", "Biscuit (my dog)". These are
         # identity-grade user facts, so trust user-authored text only (same rule
         # as has_name) to keep hallucinated assistant turns out of the graph.
         if source in _trusted_sources:
@@ -660,10 +670,10 @@ class KnowledgeGraph:
     def _extract_relationships(self, text: str, source: str) -> int:
         """
         Extract "User —[has_<rel>]→ Name" triples from possessive phrases the
-        main pattern table misses: "my dog Shadow", "my dog is/named/called
-        Shadow", "my dog's name is Shadow", "Shadow (my dog)", "Shadow, my dog",
-        "Shadow is my dog". Names must be capitalised; noise is filtered via the
-        stopword set. This is the gap that dropped "Shadow (my dog)" on the floor.
+        main pattern table misses: "my dog Biscuit", "my dog is/named/called
+        Biscuit", "my dog's name is Biscuit", "Biscuit (my dog)", "Biscuit, my dog",
+        "Biscuit is my dog". Names must be capitalised; noise is filtered via the
+        stopword set. This is the gap that dropped "Biscuit (my dog)" on the floor.
         """
         added = 0
         rel_alt = "|".join(sorted(set(_REL_WORDS), key=len, reverse=True))

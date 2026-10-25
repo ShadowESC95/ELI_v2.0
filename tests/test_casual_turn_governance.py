@@ -17,7 +17,7 @@ CHAT with no evidence, so they were the one ungoverned surface.
      suppressed the whole thing. The promise to flag hiccups was broken by
      the machinery that found one.
   4. Asked what it was doing that evening it answered "the plan for the
-     evening is to chill out, get some weed, and maybe play Fallout 4" --
+     evening is to chill out, get some beer, and maybe play a board game" --
      the USER's life, read back out of memory in the first person. Two turns
      later it said "I'm not planning anything", contradicting itself.
 
@@ -64,7 +64,7 @@ def test_a_grounded_turn_keeps_its_status_report():
 
 
 @pytest.mark.parametrize("ordinary", [
-    "Playing the third world by immortal technique on Spotify.",
+    "Playing the first light by quiet machine on Spotify.",
     "You're stuck in a loop of pain and pop culture, buddy.",
     "The model failed to load because a tensor is missing.",
 ])
@@ -133,20 +133,20 @@ def test_the_gate_still_suppresses_unpromised_dumps():
 
 # ── 4. ELI claiming the user's life as its own ─────────────────────────────
 REAL_EVENING_REPLY = (
-    "Well, the plan for the evening is to chill out, get some weed, and maybe "
-    "play Fallout 4 while watching Severance. I'll be around, just "
+    "Well, the plan for the evening is to chill out, get some beer, and maybe "
+    "play a board game while watching a documentary. I'll be around, just "
     "don't expect me to do anything too complicated."
 )
 
 
 def test_the_users_evening_is_not_elis_plan():
     out = og.repair_embodied_self_claims(REAL_EVENING_REPLY)
-    assert "get some weed" not in out, "ELI still claims to be acquiring weed"
+    assert "get some beer" not in out, "ELI still claims to be buying beer"
     assert "I'll be around" in out, "the rest of the reply was destroyed"
 
 
 @pytest.mark.parametrize("claim", [
-    "I'm going to get some weed later",
+    "I'm going to get some beer later",
     "my plan for the evening is to eat and sleep",
     "I'll probably just crash out after this",
 ])

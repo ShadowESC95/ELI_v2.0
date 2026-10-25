@@ -115,13 +115,13 @@ def test_youtube_and_spotify_play_queries_are_preserved():
     _assert_arg("on spotify play tupac all eyez", "target", "spotify")
     _assert_arg("on spotify play tupac all eyez", "query", "tupac all eyez")
 
-    _assert_action("play the fourth branch by immortal technique on spotify", "PLAY_MEDIA")
-    _assert_arg("play the fourth branch by immortal technique on spotify", "target", "spotify")
-    _assert_arg("play the fourth branch by immortal technique on spotify", "query", "the fourth branch by immortal technique")
+    _assert_action("play the far shore by quiet machine on spotify", "PLAY_MEDIA")
+    _assert_arg("play the far shore by quiet machine on spotify", "target", "spotify")
+    _assert_arg("play the far shore by quiet machine on spotify", "query", "the far shore by quiet machine")
 
-    _assert_action("play the martyr by immortal technique on youtube", "PLAY_MEDIA")
-    _assert_arg("play the martyr by immortal technique on youtube", "target", "youtube")
-    _assert_arg("play the martyr by immortal technique on youtube", "query", "the martyr by immortal technique")
+    _assert_action("play the lighthouse by quiet machine on youtube", "PLAY_MEDIA")
+    _assert_arg("play the lighthouse by quiet machine on youtube", "target", "youtube")
+    _assert_arg("play the lighthouse by quiet machine on youtube", "query", "the lighthouse by quiet machine")
 
     _assert_action("play al jazeera on youtube.com", "PLAY_MEDIA")
     _assert_arg("play al jazeera on youtube.com", "target", "youtube website")
@@ -136,12 +136,12 @@ def test_implied_song_by_artist_defaults_to_spotify():
 
 # Punctuation between words is not part of the song.
 #
-# Live: "play evil; by eminem on spotify" searched "evil; eminem".
+# Live: "play evil; by orlo on spotify" searched "evil; orlo".
 @pytest.mark.parametrize("said,query", [
-    ("evil; by eminem", "evil by eminem"),
-    ('"lose yourself" by eminem', "lose yourself by eminem"),
+    ("evil; by orlo", "evil by orlo"),
+    ('"lose yourself" by orlo', "lose yourself by orlo"),
     ("hey, soul sister by train", "hey soul sister by train"),
-    ("evil... by eminem", "evil by eminem"),
+    ("evil... by orlo", "evil by orlo"),
     ("stan?", "stan"),
 ])
 def test_separating_punctuation_goes(said, query):

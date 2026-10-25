@@ -20,7 +20,7 @@ def test_the_observed_question_is_dropped():
 def test_date_questions_are_dropped_too():
     """Carriers are deliberately long enough to survive the never-empty rail."""
     for q, gone in (
-        ("Glad the headache has cleared up at last. What's the date today?", "date today"),
+        ("Glad the rain has cleared up at last. What's the date today?", "date today"),
         ("That film really does drag on forever, doesn't it. What day is it?", "what day is it"),
         ("I have lost track of things completely here. Do you know what the time it is?",
          "what the time it is"),

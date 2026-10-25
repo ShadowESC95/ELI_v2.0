@@ -202,9 +202,9 @@ def test_startup_adds_only_the_memories_the_saved_index_is_missing(store, tmp_pa
     monkeypatch.setattr(s, "flush", lambda **k: saves.append(k), raising=False)
     s._needs_rebuild = False
     _user_db(tmp_path, monkeypatch, [("my cat is called Biscuit", "user_said"),
-                                     ("I drive to Cork on Saturdays", "user_said"),
+                                     ("I drive to York on Saturdays", "user_said"),
                                      ("Top topics: a, b, c, d", "telemetry"),
-                                     ("my sister lives in Galway", "user_said")])
+                                     ("my sister lives in Bristol", "user_said")])
     for mid in (1, 2):
         s._index.add(s._embed(f"row {mid}"))
         s._meta.append({"text": f"row {mid}", "memory_id": mid})

@@ -1460,7 +1460,7 @@ def _is_brief_phatic_prompt(text: str) -> bool:
         return True
 
     # "feeling normal again" / typo-tolerant "you oaynow" after greeting strip —
-    # live: "hey buddy, you oaynow? feeling normal again?" must stay phatic so
+    # live: "evening pal, you oaynow? feeling better again?" must stay phatic so
     # continuity guards apply and stale GPU layer memory is not volunteered.
     if n <= 6 and re.match(
         r"^feeling (?:normal|better|ok|okay|fine|alright)(?: again| now| yet)?$",
@@ -1748,9 +1748,13 @@ def _eli_is_fragment_output(text) -> bool:
     a normal multi-word sentence; a leading-symbol stub under ~12 chars does not.
     """
     t = str(text or "").strip()
+    # A bare value is an answer: a time ("20:36" from GET_TIME was replaced by "my reply came out
+    # garbled"), a date, a count, a percentage.
+    if re.fullmatch(r"[-+]?\d[\d.,:/ -]*%?", t):
+        return False
     if len(t) < 3:
         return True
-    if not re.search(r"[A-Za-z]", t):            # only symbols/digits
+    if not re.search(r"[A-Za-z]", t):            # only symbols
         return True
     words = re.findall(r"[A-Za-z]{2,}", t)
     if not words:                                # e.g. '-G' (no 2+ letter run)
@@ -3887,7 +3891,7 @@ def _is_explicit_command_match(intent) -> bool:
         return False
     # A follow-up nudge ("go deeper", "tell me more") is the router saying "continue what ELI last
     # did" — which only the engine knows. It must not outrank the previous-turn rules (news
-    # deepen): "go deeper on the AI and Caine prize" after a briefing went to chat without the story.
+    # deepen): "go deeper on the sea wall vote" after a briefing went to chat without the story.
     return bool(via) and not via.startswith(("fallback.", "eli.followup.")) and conf >= 0.9
 
 
@@ -4529,8 +4533,8 @@ def _clarifier_is_usable(generated: str, *, user_input: str, context: str) -> bo
     Two failures in a single live turn, both from the same missing check.
 
     The generated text was accepted purely on length and then had a '?' *appended*
-    if it lacked one — so "What's the story bud! open spotify please" became
-    "What's the story bud! open spotify please?" and was shown to the user as
+    if it lacked one — so "Evening bud! open spotify please" became
+    "Evening bud! open spotify please?" and was shown to the user as
     ELI's reply. Punctuation cannot turn a command into a question: if the model
     was told to write only a follow-up question and returned something that does
     not end in one, it did not do the task, and inventing the mark hides that.
@@ -5098,24 +5102,15 @@ class CognitiveEngine:
         except Exception as _mem_err:
             log.debug(f"[COGNITIVE] Shutdown: memory close failed (non-fatal): {_mem_err}")
 
-        # 7. Close the vector-store embedder (also a llama_cpp Llama instance,
-        # so it needs the same explicit unload treatment as the main model).
-        # Read the module singleton directly — do NOT lazy-init during shutdown.
+        # 7. Close the vector-store embedder (also a llama_cpp Llama instance, so it needs the same
+        # explicit unload as the main model). Read the module singleton directly — do NOT lazy-init
+        # during shutdown.
         try:
             from eli.memory import vector_store as _vs_mod
             vs = getattr(_vs_mod, "_store", None)
             if vs is not None:
                 vs.flush(pending_only=True)   # memories added since the last batched save
-            embedder = getattr(vs, "_embedder", None) if vs is not None else None
-            if embedder is not None:
-                _emb_close = getattr(embedder, "close", None)
-                if callable(_emb_close):
-                    _emb_close()
-                else:
-                    _underlying = getattr(embedder, "_llm", None) or getattr(embedder, "llm", None)
-                    _u_close = getattr(_underlying, "close", None) if _underlying is not None else None
-                    if callable(_u_close):
-                        _u_close()
+                vs.close()
                 log.debug("[COGNITIVE] Shutdown: vector-store embedder closed")
         except Exception as _emb_err:
             log.debug(f"[COGNITIVE] Shutdown: embedder close failed (non-fatal): {_emb_err}")
@@ -12375,8 +12370,8 @@ Answer:"""
                 # isn't one of its own.
                 if any(re.match(r"(?i)(?:or|and|but|so)\b", seg) for seg in _mqs_segs[1:]):
                     _mqs_segs = []
-                # Only questions are split. "What the fuck happened to your memory?? Mos
-                # def was yesterday, and netflix is not open?!" is a complaint and a
+                # Only questions are split. "What happened to your memory?? The cooking
+                # show was yesterday, and the browser is not open?!" is a complaint and a
                 # correction; split, the complaint ran alone as a diagnostic and came back
                 # as a JSON envelope glued to the other half (live, 2026-10-03).
                 if not all(_MQS_QUESTION_START.match(seg) for seg in _mqs_segs):
@@ -13034,7 +13029,7 @@ Answer:"""
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        # Relational facts: the people/pets the user mentions in passing ("my dog Shadow", "my wife is
+        # Relational facts: the people/pets the user mentions in passing ("my dog Biscuit", "my wife is
         # Jane"). ELI stored the user's own name but not these, so "what's my dog's name?" had nothing
         # to recall. Store each as a pinned identity memory, like the name path.
         try:
@@ -13259,8 +13254,8 @@ Answer:"""
         except Exception as _redo_err:
             log.debug(f"[REDO] skipped: {_redo_err}")
 
-        # A correction naming what the last action should have been about ("no dude, RAIMS and
-        # Orcawise" after a search for the wrong thing): that action again, on what it names.
+        # A correction naming what the last action should have been about ("no dude, ORBIT and
+        # Northwind" after a search for the wrong thing): that action again, on what it names.
         try:
             if str(action).upper() == "CHAT" and not ((intent or {}).get("meta") or {}).get("redo_of_last_action"):
                 from eli.runtime.action_commitment import corrected_action as _corrected

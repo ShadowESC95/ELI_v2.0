@@ -16,6 +16,7 @@ about each action, closer to user_model's one-row-per-subject shape.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 import time
 from pathlib import Path
@@ -72,6 +73,14 @@ _BOOL_FIELDS = ("dependency_ready", "reachable", "device_available")
 _COLUMNS = ("action",) + _FIELDS
 
 
+def _row(row) -> Dict[str, Any]:
+    out = dict(zip(_COLUMNS, row))
+    for b in _BOOL_FIELDS:
+        if out[b] is not None:
+            out[b] = bool(out[b])
+    return out
+
+
 def get_state(action: str, *, db_path: Optional[str | Path] = None) -> Optional[Dict[str, Any]]:
     """The current known state for one action, or None if nothing has ever
     been recorded about it. Missing is not false — callers must not treat
@@ -85,13 +94,17 @@ def get_state(action: str, *, db_path: Optional[str | Path] = None) -> Optional[
         ).fetchone()
     finally:
         conn.close()
-    if not row:
-        return None
-    out = dict(zip(_COLUMNS, row))
-    for b in _BOOL_FIELDS:
-        if out[b] is not None:
-            out[b] = bool(out[b])
-    return out
+    return _row(row) if row else None
+
+
+def all_states(*, db_path: Optional[str | Path] = None) -> Dict[str, Dict[str, Any]]:
+    """Every action's known state, in one read."""
+    conn = _connect(db_path)
+    try:
+        rows = conn.execute(f"SELECT {', '.join(_COLUMNS)} FROM capability_state").fetchall()
+    finally:
+        conn.close()
+    return {r[0]: _row(r) for r in rows}
 
 
 def touch_discovered(action: str, *, now: Optional[float] = None,
@@ -191,6 +204,21 @@ _FRESHNESS_S: Dict[str, float] = {
 }
 
 
+# A failure that names something missing from this machine, not a mistake in the request: a module,
+# a program, an extra. A missing file is left out: that is usually the user's file, not ELI's part.
+_MISSING_PART_RE = re.compile(r"no module named|modulenotfounderror|\b(?:isn't|is not|not) installed\b|command not found",
+                              re.I)
+
+
+def observe_run(action: str, outcome: str, detail: str = "", *, db_path: Optional[str | Path] = None) -> None:
+    """What a real run says about whether an action can run here. A success: it can. A failure naming a
+    missing module or program: it can't, until what it needs is installed and it works again."""
+    if outcome == "ok":
+        upsert_state(action, db_path=db_path, dependency_ready=True)
+    elif outcome == "failed" and _MISSING_PART_RE.search(str(detail or "")):
+        upsert_state(action, db_path=db_path, dependency_ready=False)
+
+
 def is_stale(action: str, dimension: str, *, now: Optional[float] = None,
             db_path: Optional[str | Path] = None) -> bool:
     """Whether the given dimension's evidence is old enough to need
@@ -272,7 +300,7 @@ def select_cheapest_adapter(dimension: str) -> Optional[str]:
 
 
 __all__ = [
-    "ensure_schema", "get_state", "touch_discovered", "upsert_state",
-    "record_probe_result", "is_stale", "select_cheapest_adapter",
+    "ensure_schema", "get_state", "all_states", "touch_discovered", "upsert_state",
+    "record_probe_result", "observe_run", "is_stale", "select_cheapest_adapter",
     "_adapt_mic_probe", "_adapt_ble_probe", "_adapt_mqtt_probe",
 ]

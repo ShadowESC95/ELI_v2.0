@@ -1,7 +1,7 @@
 """The 2.4.99 session of 2026-10-03, 14:34-14:54, turn by turn. Every input here is
 the user's real message; every expectation is what should have happened.
 
-- "Afternoon Eli" was answered with yesterday's Netflix tab and Don Martin track as
+- "Afternoon Eli" was answered with yesterday's Netflix tab and Low Tide track as
   current: recent turns from earlier sessions reached the prompt undated, under
   "[Recent session]" / "live transcript of THIS session ... do not contradict".
 - A complaint plus a correction was split in two; the complaint ran alone as a
@@ -30,7 +30,7 @@ TODAY_1434 = time.mktime(time.strptime("2026-10-03 14:34:59", "%Y-%m-%d %H:%M:%S
 def _turns():
     return [{"role": "user", "content": "open netflix", "timestamp": YESTERDAY_1837},
             {"role": "assistant", "content": "Opened URL: https://netflix.com", "timestamp": YESTERDAY_1837},
-            {"role": "user", "content": "Afternoon Eli, you back to life yet?", "timestamp": TODAY_1434}]
+            {"role": "user", "content": "Afternoon Eli, are you awake yet?", "timestamp": TODAY_1434}]
 
 
 def test_turn_stamp_names_the_day():
@@ -86,8 +86,8 @@ class _ReachedPipeline(BaseException):
 
 
 @pytest.mark.parametrize("msg", [
-    "What the fuck has happened to your temporal memory, timestamps and general awareness of "
-    "what is fucking going on ?? Mos def was yesterday, not an hour ago, and netflix is not open ?!",
+    "What the hell has happened to your sense of time, your timestamps and your idea of "
+    "what is actually going on ?? The cooking show was yesterday, not an hour ago, and the browser is not open ?!",
 ])
 def test_a_complaint_with_question_marks_stays_one_turn(msg):
     from eli.kernel.engine import CognitiveEngine
@@ -109,16 +109,16 @@ def test_only_question_shaped_parts_count():
     from eli.kernel.engine import _MQS_QUESTION_START as q
     assert q.match("what is the capital of peru")
     assert q.match("and how many people live there")
-    assert not q.match("Mos def was yesterday, not an hour ago")
-    assert not q.match("Well we just need to get head on quantum encryption")
+    assert not q.match("the cooking show was yesterday, not an hour ago")
+    assert not q.match("Well we just need to get ahead on the garden fence")
 
 
 # ── the vector-search question is neither a browser complaint nor a web search ─
 
-LIVE_ANALYSE = ('Apologies i confused my dates above- but you should be the one that corrects me, '
-                'yesterday was friday te 2nd of October-- "want a deep dive into *why* the vector '
+LIVE_ANALYSE = ('Sorry, i mixed up my dates above, but you are meant to correct me, '
+                'yesterday was friday the 2nd of October -- "want a deep dive into *why* the vector '
                 'search is drifting (likely the embedding model’s decay on long-term context vs. '
-                'short-term urgency),"-> yes i want you to analyse that')
+                'short-term urgency),"-> yes, analyse that please')
 
 
 def test_the_analysis_request_reaches_neither_misroute():
@@ -140,9 +140,9 @@ def test_real_browser_complaints_and_searches_still_route():
 
 def test_the_live_question_searches_the_days_it_names():
     from eli.cognition.query_planner import plan_window
-    q = ("Why the fuck are your dates all wrong ? If today is saturday 3rd of Otober and i was "
-         "listening to MOS def on thursday (2 days ago on the 29thof sep) NOT 9 days ago- why are "
-         "you storing memories with incorrect timestamps")
+    q = ("Why are your dates all wrong ? If today is saturday 3rd of October and i was "
+         "baking bread on thursday (2 days ago on the 29th of sep) NOT 9 days ago, why are "
+         "you storing memories with the wrong timestamps")
     start, end = plan_window(q, NOW)
     day = lambda t: time.strftime("%m-%d", time.localtime(t))
     assert (day(start), day(end)) == ("09-29", "10-02")  # 29th, "2 days ago" and thursday; not "today", not the negated 9 days
@@ -157,7 +157,7 @@ def test_nth_of_month_is_a_date():
 def test_an_empty_window_keeps_the_nearest_dated_matches():
     from eli.memory.retrieval import invalidate_turn_cache, retrieve_for_turn
     invalidate_turn_cache()
-    hit = {"id": "m1", "text": "Playing Mos Def - Sunshine on spotify", "timestamp": YESTERDAY_1837}
+    hit = {"id": "m1", "text": "Playing Mirelo - Daybreak on spotify", "timestamp": YESTERDAY_1837}
 
     class _Mem:
         def recall_memory(self, q, limit=10, **k): return [hit]
@@ -168,7 +168,7 @@ def test_an_empty_window_keeps_the_nearest_dated_matches():
         def search_archive(self, q, limit=4): return []
 
     window = (NOW - 4 * 86400, NOW - 2 * 86400)
-    tr = retrieve_for_turn(_Mem(), "mos def", window=window, use_cache=False, rerank=False)
+    tr = retrieve_for_turn(_Mem(), "mirelo", window=window, use_cache=False, rerank=False)
     assert [h["id"] for h in tr.semantic_hits] == ["m1"]
     assert tr.semantic_hits[0]["outside_window"] is True
     assert tr.window_stats["in_window"] == 0 and tr.window_stats["outside_window"] == 1
@@ -186,8 +186,8 @@ def test_quick_mode_keeps_a_lean_prompt_and_deep_modes_get_the_full_counts():
 
 
 @pytest.mark.parametrize("text,social", [
-    ("Afternoon Eli, you back to life yet?", True),
-    ("Morning pal, how is the head?", True),
+    ("Afternoon Eli, are you awake yet?", True),
+    ("Morning pal, how are things?", True),
     ("Morning Eli, what's the weather?", False),
     ("you there? set a timer for 5 minutes", False),
 ])

@@ -239,17 +239,10 @@ def test_no_memory_marker_on_empty_recall(tmp_db):
     mem = Memory(db_path=str(tmp_db))
     # These specific queries should return empty
     queries = [
-        "immortal technique concert 2024",
+        "quiet machine concert 2024",
         "quantum mechanics lecture notes",
         "purple elephant flying machine",
         "xyzzy_nonexistent_topic_123",
     ]
     for q in queries:
-        result = mem.recall_memory(q)
-        assert isinstance(result, list)
-        # Empty result should trigger no-memory marker in engine context (not tested here)
-        # Just verify recall doesn't fabricate entries
-        assert len(result) == 0 or all(
-            q.lower().split()[0][:5] in (r.get("text", "")).lower()
-            for r in result
-        ) or True  # actual grounding check is in engine context assembly
+        assert mem.recall_memory(q) == [], f"an empty memory recalled something for {q!r}"

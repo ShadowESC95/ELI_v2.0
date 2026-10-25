@@ -434,8 +434,11 @@ def _categorise_semantic(semantic: List[Dict[str, Any]]) -> Dict[str, List[str]]
         "Recent Significant Changes": [],
         "Uncertain / Needs Confirmation": [],
     }
+    from eli.cognition.evidence_format import as_of
     for item in semantic:
-        fact = item["fact"]
+        # a fact's own "currently", "recently", "two weeks ago" are as of when it was recorded: read
+        # weeks later they put a trip that was over in the present
+        fact = as_of(item["fact"], item.get("created_at"))
         raw_tags = str(item.get("tags") or "")
         if _is_profile_noise(fact, raw_tags):
             continue
@@ -471,8 +474,9 @@ def _categorise_memories(memories: List[Dict[str, Any]]) -> Dict[str, List[str]]
         "Recent Significant Changes": [],
         "Uncertain / Needs Confirmation": [],
     }
+    from eli.cognition.evidence_format import as_of
     for item in memories:
-        text = item["text"]
+        text = as_of(item["text"], item.get("created_at"))
         raw_tags = str(item.get("tags") or "")
         if _is_profile_noise(text, raw_tags):
             continue

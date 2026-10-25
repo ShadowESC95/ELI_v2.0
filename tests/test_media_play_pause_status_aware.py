@@ -42,7 +42,7 @@ def test_play_pause_falls_back_to_toggle_when_status_unknown(monkeypatch):
 
 # After "next", ELI names the track that is now playing, or none.
 #
-# Live: "next" -> "⏭ Next track — spotify (Eminem — Trouble)", the track it had just skipped:
+# Live: "next" -> "⏭ Next track — spotify (Orlo — Trouble)", the track it had just skipped:
 # the player had not switched yet when ELI read what was playing.
 class _Clock:
     def __init__(self):
@@ -58,7 +58,7 @@ class _Clock:
 @pytest.fixture
 def player(monkeypatch):
     state = {"track": "old", "switch_after": 3, "reads": 0}
-    tracks = {"old": ("Eminem", "Trouble"), "new": ("Eminem", "Evil")}
+    tracks = {"old": ("Orlo", "Trouble"), "new": ("Orlo", "Evil")}
 
     def metadata(p, key):
         state["reads"] += 1

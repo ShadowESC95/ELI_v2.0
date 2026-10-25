@@ -49,7 +49,7 @@ def test_handoff_blocks_from_dossier_phatic_caps_and_trims_heavy_retrieval():
     from eli.cognition.turn_dossier import TurnDossier, handoff_blocks_from_dossier
 
     dossier = TurnDossier(
-        identity_block="[USER IDENTITY — verified]\nName: Jay",
+        identity_block="[USER IDENTITY — verified]\nName: Alex",
         insight_block="[BACKGROUND REFLECTION — synthesised insight]\nPattern noted.",
         retrieval_text=(
             "[MEMORY — retrieved for this turn]\n"
@@ -59,14 +59,14 @@ def test_handoff_blocks_from_dossier_phatic_caps_and_trims_heavy_retrieval():
     blocks = handoff_blocks_from_dossier(dossier, phatic=True, max_chars=400)
     joined = "\n".join(blocks)
     assert "Pattern noted" in joined
-    assert "Name: Jay" not in joined
+    assert "Name: Alex" not in joined
     assert "[MEMORY — retrieved for this turn]" not in joined
     assert len(joined) <= 420
 
 
 @patch("eli.runtime.self_facts.get_self_facts", return_value={"version": "2.3.92", "capabilities": 180})
 @patch("eli.runtime.user_model.get_user_brief", return_value="likes thorough answers")
-@patch("eli.kernel.state.get_user_name", return_value="Jay")
+@patch("eli.kernel.state.get_user_name", return_value="Alex")
 @patch("eli.kernel.state.get_user_profile_text", return_value="")
 def test_assemble_turn_dossier_includes_machine_block(_profile, _name, _brief, _facts):
     from eli.cognition.turn_dossier import assemble_turn_dossier
@@ -84,7 +84,7 @@ def test_assemble_turn_dossier_includes_machine_block(_profile, _name, _brief, _
 
 @patch("eli.memory.retrieval.retrieve_for_turn")
 @patch("eli.runtime.user_model.get_user_brief", return_value="likes thorough answers")
-@patch("eli.kernel.state.get_user_name", return_value="Jay")
+@patch("eli.kernel.state.get_user_name", return_value="Alex")
 @patch("eli.kernel.state.get_user_profile_text", return_value="")
 def test_assemble_turn_dossier_phatic_light_retrieval(_profile, _name, _brief, _retrieve):
     from eli.cognition.turn_dossier import assemble_turn_dossier
@@ -107,7 +107,7 @@ def test_assemble_turn_dossier_phatic_light_retrieval(_profile, _name, _brief, _
         session_id="s1",
     )
     assert dossier.query_class == "PHATIC"
-    assert "Jay" in dossier.identity_block
+    assert "Alex" in dossier.identity_block
     assert "likes thorough answers" in dossier.user_brief
     assert dossier.retrieval_text
     assert "light recall" in dossier.retrieval_text.lower()

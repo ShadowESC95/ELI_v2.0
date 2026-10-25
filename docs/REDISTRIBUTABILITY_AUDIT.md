@@ -10,7 +10,7 @@
 
 | Area | Status | Notes |
 |------|--------|-------|
-| Tracked source paths | **PASS** | No `/home/jay`, `/Users/`, or `C:\Users\` in committed code |
+| Tracked source paths | **PASS** | No `/home/<user>`, `/Users/`, or `C:\Users\` in committed code |
 | Personal config in git | **PASS** | `config/settings.json`, `config/voices/` gitignored |
 | Cross-platform audit CI | **PASS** | `tools/audit_cross_platform.py` |
 | YouTube/media imports | **PASS** | No dead `YouTubeController` imports |

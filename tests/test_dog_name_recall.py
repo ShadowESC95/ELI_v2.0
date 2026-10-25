@@ -1,12 +1,12 @@
 """
 Regression tests for the "what is my dog's name" recall failure.
 
-Root cause (June 23rd, dog "Shadow"): a fact stated in passing ("Shadow (my
+Root cause (a dog's name): a fact stated in passing ("Biscuit (my
 dog)") was written to the raw conversation_turns log but never promoted into any
 durable store (memories / kg_entities), and:
   * the KG extractor had no pattern for possessive relationships ("my dog X"),
   * the raw-log recall fallback matched the whole question verbatim (so
-    "%what is my dog's name%" never matched "...my dog Shadow"),
+    "%what is my dog's name%" never matched "...my dog Biscuit"),
   * the KG context block truncated at 5 relations without query-awareness, and
   * demoted/contradicted name relations still leaked into context.
 
@@ -29,8 +29,8 @@ def kg(tmp_path):
 # ── KG possessive-relationship extraction ──────────────────────────────────
 
 @pytest.mark.parametrize("text,predicate,name", [
-    ("haha, i am going to explain darwinsim to Shadow (my dog), next", "has_dog", "Shadow"),
-    ("my dog Shadow is very smart", "has_dog", "Shadow"),
+    ("haha, i am going to explain the rules to Biscuit (my dog), next", "has_dog", "Biscuit"),
+    ("my dog Biscuit is very smart", "has_dog", "Biscuit"),
     ("my dog's name is Rex", "has_dog", "Rex"),
     ("my dog is named Bella", "has_dog", "Bella"),
     ("Rex, my dog, ate the couch", "has_dog", "Rex"),
@@ -57,10 +57,10 @@ def test_kg_rejects_relationship_noise(kg, text):
 
 def test_kg_relationship_gated_to_trusted_source(kg):
     """Assistant/synthesised text must not poison the graph with relationships."""
-    kg.extract_from_memory("my dog Shadow is a good boy", source="assistant")
+    kg.extract_from_memory("my dog Biscuit is a good boy", source="assistant")
     ent = kg.query_entity("User")
     rels = {(r["predicate"], r["object"]) for r in (ent or {}).get("outbound", [])}
-    assert ("has_dog", "Shadow") not in rels
+    assert ("has_dog", "Biscuit") not in rels
 
 
 # ── KG context rendering: query-aware + retired-relation suppression ────────
@@ -69,9 +69,9 @@ def test_kg_context_is_query_aware(kg):
     # Bury the dog fact under many higher-volume "prefers" relations.
     for i in range(8):
         kg.extract_from_memory(f"user prefers thing{i}.", source="user")
-    kg.extract_from_memory("my dog Shadow is my dog", source="user")
+    kg.extract_from_memory("my dog Biscuit is my dog", source="user")
     ctx = kg.context_for_prompt("what is my dog's name")
-    assert "Shadow" in ctx, f"dog fact crowded out of KG context:\n{ctx}"
+    assert "Biscuit" in ctx, f"dog fact crowded out of KG context:\n{ctx}"
 
 
 def test_kg_context_suppresses_demoted_name(kg):
@@ -93,14 +93,14 @@ def test_conversation_fallback_surfaces_passing_fact(tmp_path, monkeypatch):
     db = tmp_path / "user.sqlite3"
     mem = Memory(db_path=db)
     now = time.time()
-    mem.add_conversation_turn("user", "haha explaining darwinism to Shadow (my dog), next")
+    mem.add_conversation_turn("user", "haha explaining the rules to Biscuit (my dog), next")
     time.sleep(0.01)
     mem.add_conversation_turn("user", "what is the weather today")        # recent noise
     mem.add_conversation_turn("user", "remind me about my meeting tomorrow")
 
     res = mem.recall_memory("what is my dog's name", limit=5)
     texts = " || ".join((r.get("text") or "") for r in res)
-    assert "Shadow" in texts, f"fallback failed to surface the dog turn: {texts}"
+    assert "Biscuit" in texts, f"fallback failed to surface the dog turn: {texts}"
 
 
 def test_conversation_fallback_prefers_distinctive_noun_over_recency(tmp_path, monkeypatch):
@@ -108,12 +108,12 @@ def test_conversation_fallback_prefers_distinctive_noun_over_recency(tmp_path, m
     monkeypatch.setattr(vs, "get_vector_store", lambda *a, **k: None)
     db = tmp_path / "user.sqlite3"
     mem = Memory(db_path=db)
-    mem.add_conversation_turn("user", "my dog Shadow loves the park")
+    mem.add_conversation_turn("user", "my dog Biscuit loves the park")
     # A more recent turn that only matches the generic word 'name'.
     mem.add_conversation_turn("user", "what was that restaurant name again")
     res = mem.recall_memory("what is my dog's name", limit=3)
     assert res, "no fallback results"
-    assert "Shadow" in (res[0].get("text") or ""), \
+    assert "Biscuit" in (res[0].get("text") or ""), \
         f"distinctive-noun turn should rank first, got {[r.get('text') for r in res]}"
 
 

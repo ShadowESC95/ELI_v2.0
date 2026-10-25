@@ -123,7 +123,7 @@ def test_the_opt_out_still_exists():
 
 
 # ── live: the pack installed on this machine must satisfy the contract ─────
-def test_installed_pack_reports_offload_after_preload():
+def test_installed_pack_reports_offload_after_preload(machine_gpu):
     import sys
     gpu_dir = Path.home() / ".local/share/ELI_v2/runtime/gpu"
     if not (gpu_dir / "llama_cpp").is_dir():

@@ -77,14 +77,34 @@ def _patch_transformers_cache_compat_v2() -> None:
 
     if not hasattr(DynamicCache, "get_max_length"):
         def _get_max_length(self):
+            # None means unbounded, as a dynamic cache was in Transformers 4. Transformers 5's
+            # max_cache_len raises on a cache with no layers yet.
             for name in ("max_cache_len", "max_length", "_max_length"):
-                value = getattr(self, name, None)
+                try:
+                    value = getattr(self, name, None)
+                except (ValueError, AttributeError):
+                    value = None
                 if value is not None:
                     return value
             return None
 
         try:
             DynamicCache.get_max_length = _get_max_length
+        except Exception:
+            pass
+
+    # Phi-3's remote code asks how much of the cache the new tokens can use; Transformers 5 dropped
+    # the method, so evaluating a Phi-3 adapter failed with AttributeError. As Transformers 4 had it.
+    if not hasattr(DynamicCache, "get_usable_length"):
+        def _get_usable_length(self, new_seq_length, layer_idx=0):
+            previous = self.get_seq_length(layer_idx)
+            max_length = self.get_max_length()
+            if max_length is not None and previous + new_seq_length > max_length:
+                return max_length - new_seq_length
+            return previous
+
+        try:
+            DynamicCache.get_usable_length = _get_usable_length
         except Exception:
             pass
 

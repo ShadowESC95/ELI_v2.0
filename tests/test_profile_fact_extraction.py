@@ -47,7 +47,7 @@ def _patterns(cur):
 # ── classification ───────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("line,expected", [
-    ("User is called Jay by close colleagues", "identity.name"),
+    ("User is called Alex by close colleagues", "identity.name"),
     ("User works as an independent physicist", "identity.role"),
     ("User lives in Dublin", "identity.location"),
     ("User researches entropy and coherence fields", "research.field"),

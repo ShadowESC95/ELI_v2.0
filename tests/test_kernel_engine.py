@@ -204,11 +204,6 @@ def test_recall_query_is_list_of_dicts(engine):
 
 # ── Settings integration ──────────────────────────────────────────────────
 
-def test_engine_has_settings_or_model_info(engine):
-    has_settings = hasattr(engine, "settings") or hasattr(engine, "_settings") or hasattr(engine, "model_path")
-    assert has_settings or True  # flexible
-
-
 # ── Multiple engine instances ─────────────────────────────────────────────
 
 def test_two_engine_calls():
@@ -240,6 +235,10 @@ def test_fragment_detector_flags_garbage(frag):
     "There are no broken components.",
     "Path not found: /home/user/Desktop/eli/brain",
     "34G\t/home/user/eli/models/",
+    "20:36",
+    "2026-10-20",
+    "42",
+    "12.5%",
 ])
 def test_fragment_detector_passes_real_answers(ok):
     from eli.kernel.engine import _eli_is_fragment_output

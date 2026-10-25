@@ -19,7 +19,6 @@ Three defects, all fixed here:
    ``pip install -e ".[natural]"  (from the ELI project root)``. In an AppImage there
    is no project root and no writable site-packages.
 """
-import re
 from pathlib import Path
 
 import pytest
@@ -174,11 +173,16 @@ def test_other_platforms_do_not_pull_the_torch_stack(job):  # noqa: D401
     assert "natural" not in extras.split(), f"{job} would pull the CUDA torch stack"
 
 
+def _linux_deps() -> str:
+    """The Linux build's dependency install, which the release's test job runs too."""
+    jobs = _release_yaml()["jobs"]
+    for job in ("build-linux", "tests"):
+        assert any("packaging/ci_linux_deps.sh" in str(s.get("run", "")) for s in jobs[job]["steps"]), job
+    return (REPO / "packaging" / "ci_linux_deps.sh").read_text(encoding="utf-8")
+
+
 def test_linux_installs_the_cpu_torch_stack_before_the_extras_loop():
-    d = _release_yaml()
-    step = next(s for s in d["jobs"]["build-linux"]["steps"]
-                if "Install dependencies" in str(s.get("name", "")))
-    run = step["run"]
+    run = _linux_deps()
     cpu_at = run.index("download.pytorch.org/whl/cpu")
     loop_at = run.index("for extra in $OPTIONAL_EXTRAS")
     assert cpu_at < loop_at, "extras resolve torch before the CPU index is used"
@@ -186,10 +190,7 @@ def test_linux_installs_the_cpu_torch_stack_before_the_extras_loop():
 
 
 def test_a_cuda_regression_fails_the_linux_build():
-    d = _release_yaml()
-    step = next(s for s in d["jobs"]["build-linux"]["steps"]
-                if "Install dependencies" in str(s.get("name", "")))
-    assert "nvidia-" in step["run"], "no guard against CUDA wheels re-entering the bundle"
+    assert "nvidia-" in _linux_deps(), "no guard against CUDA wheels re-entering the bundle"
 
 
 def test_the_two_gib_asset_guard_is_still_in_place():

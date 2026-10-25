@@ -237,8 +237,8 @@ def _filter_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 
 
 # Command wrappers the router leaves attached to the query. Live examples:
-#   "please open the browser and search for QFT. OPEN A BROWSER SEARCH PAGE"
-#   "on QFT and open the browser"
+#   "please open the browser and search for KITE. OPEN A BROWSER SEARCH PAGE"
+#   "on KITE and open the browser"
 # were sent verbatim to the search engine as the query text.
 _QUERY_LEAD_PATTERNS = (
     r"^(?:hey\s+)?(?:eli|assistant)[,\s]+",

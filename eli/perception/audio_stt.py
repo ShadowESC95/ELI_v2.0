@@ -242,7 +242,7 @@ def _eli_echo_like_assistant_output(text):
         "if that doesn't help",
         "if that doesnt help",
         "open your web browser",
-        "search for immortal technique",
+        "search for the artist",
         "once you've found",
         "once you found",
         "click the play button",
@@ -1199,7 +1199,7 @@ class VoiceGate:
 
                 # If the user re-said the full command (text already self-contained and
                 # complete), use text directly rather than prepending the pending prefix
-                # — prevents duplication like "play diabolic play diabolic on spotify".
+                # — prevents duplication like "play veridian play veridian on spotify".
                 _pref_verb = self._pending_prefix.split()[0] if self._pending_prefix else ""
                 if _pref_verb and text.startswith(_pref_verb + " ") and not _is_potentially_incomplete_media_play(text):
                     combined = _eli_media_voice_alias(text)

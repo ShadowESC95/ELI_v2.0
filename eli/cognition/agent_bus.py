@@ -1014,10 +1014,13 @@ class BusMemoryAgent(_BaseAgent):
                     from eli.runtime.memory_provenance import format_grounding_memory_line
                 except Exception:
                     format_grounding_memory_line = None  # type: ignore
+                from eli.cognition.evidence_format import row_time
                 for h in raw_hits[:_tn["cog.mem_semantic_shown"]]:
                     if format_grounding_memory_line:
                         line = format_grounding_memory_line(h)
-                        raw_ts = h.get("ts") or h.get("timestamp") or 0
+                        # when it was said (event_ts), not when the row was last stored again: a
+                        # re-pinned memory from 14 Sep showed as 24 Sep
+                        raw_ts = row_time(h) or 0
                         try:
                             ts_str = time.strftime(
                                 "%Y-%m-%d %H:%M", time.localtime(float(raw_ts)),
@@ -1030,7 +1033,7 @@ class BusMemoryAgent(_BaseAgent):
                         hits_text.append(as_of(line, raw_ts))
                         continue
                     txt = (h.get("text") or h.get("content") or "")[:_tn["cog.mem_fact_chars"]]
-                    raw_ts = h.get("ts") or h.get("timestamp") or 0
+                    raw_ts = row_time(h) or 0
                     try:
                         ts_str = time.strftime("%Y-%m-%d %H:%M", time.localtime(float(raw_ts))) if raw_ts else ""
                     except Exception:

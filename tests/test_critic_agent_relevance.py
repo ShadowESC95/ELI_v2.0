@@ -2,11 +2,11 @@
 EACH OTHER while both being off-topic for what was actually asked."""
 from eli.cognition.agent_bus import CriticAgent
 
-ON_TOPIC_A = "The RAIMS ingestion pipeline stages data in SQLite before the retry queue processes it."
-ON_TOPIC_B = "RAIMS uses a SQLite staging store, then a retry queue handles failed ingestion batches."
+ON_TOPIC_A = "The ORBIT ingestion pipeline stages data in SQLite before the retry queue processes it."
+ON_TOPIC_B = "ORBIT uses a SQLite staging store, then a retry queue handles failed ingestion batches."
 OFF_TOPIC_A = "The bakery on Fifth Street sells sourdough every Tuesday and Friday morning."
 OFF_TOPIC_B = "Sourdough baked fresh every Tuesday and Friday is the bakery's best seller."
-QUERY = "what's the status of the RAIMS ingestion pipeline"
+QUERY = "what's the status of the ORBIT ingestion pipeline"
 
 
 def _intent(upstream: dict) -> dict:

@@ -283,7 +283,7 @@ def title_from(text: Any, when: Optional[When] = None) -> str:
     for m in _EVENT_PHRASE.finditer(cut):
         lead = m.group(0)[:m.start("noun") - m.start()].split()
         article = any(w.lower() in ("a", "an", "my", "the", "our", "that", "this") for w in lead)
-        # the name is what sits directly on the noun ("RAIMS presentation"), not words further back
+        # the name is what sits directly on the noun ("ORBIT presentation"), not words further back
         pre_words = (m.group("pre") or "").split()
         while pre_words and any(w.lower() in _NOT_NAME for w in pre_words):
             pre_words.pop(0)
@@ -877,7 +877,7 @@ def _known_event(title: str, start_ts: float, user_id: str) -> bool:
 
 def mentioned_event(texts: Sequence[str], *, user_id: str = "", now: Optional[datetime] = None) -> Optional[Dict[str, Any]]:
     """An upcoming event one of these messages (newest first) describes that is not on the
-    calendar yet: "I thought I had a presentation at 10am for RAIMS, but it's not until 7.30pm".
+    calendar yet: "I was sure the ORBIT presentation was at 10am, but it's not until 7.30pm".
     Returned with the sentence that offers to add it and the command that adds it."""
     now = now or datetime.now()
     for text in texts:

@@ -33,12 +33,12 @@ from eli.runtime.control_contracts import route_control_text
 
 
 @pytest.mark.parametrize("said", [
-    # the exact turns from the transcript
-    "okay i am finished mesing around with your codebase. how are you feeling?",
+    # turns shaped like the transcript's
+    "okay i am done poking at your settings. how are you feeling?",
     "I am the one asking how you are feeling..",
-    "nice to see your persona, and memory for my world domination plans, "
+    "nice to see your persona, and memory for my gardening notes, "
     "good to see! so you are feeling, fine?",
-    "it is nice to see your persona, and memory for my world domination plans, "
+    "it is nice to see your persona, and memory for my gardening notes, "
     "good to see! so you are feeling, fine?",
     # the phrasing family the guard was missing
     "how are you feeling",

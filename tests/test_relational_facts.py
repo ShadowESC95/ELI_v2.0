@@ -1,7 +1,7 @@
 """Relational-fact extraction (regression, 2026-07-04).
 
 ELI captured the user's OWN name but nothing about the people/pets they mention, so
-"what's my dog's name?" had nothing to recall even after the user had said "Shadow (my
+"what's my dog's name?" had nothing to recall even after the user had said "Biscuit (my
 dog)". This locks in the extractor that closes that gap — it must catch the real forms and
 NOT fire on questions, adjectives, breeds, or bare mentions.
 """
@@ -16,11 +16,11 @@ def _pairs(text):
 
 @pytest.mark.parametrize("text, expected", [
     # The exact bug: a casual appositive mention.
-    ("haha, i am going to explain darwinsim to Shadow (my dog), next", [("dog", "Shadow")]),
-    ("my dog is Shadow", [("dog", "Shadow")]),
-    ("my dog Shadow loves treats", [("dog", "Shadow")]),
-    ("my dog's name is Shadow", [("dog", "Shadow")]),
-    ("Shadow, my dog, is asleep", [("dog", "Shadow")]),
+    ("haha, i am going to explain the rules to Biscuit (my dog), next", [("dog", "Biscuit")]),
+    ("my dog is Biscuit", [("dog", "Biscuit")]),
+    ("my dog Biscuit loves treats", [("dog", "Biscuit")]),
+    ("my dog's name is Biscuit", [("dog", "Biscuit")]),
+    ("Biscuit, my dog, is asleep", [("dog", "Biscuit")]),
     ("my cat is called Luna", [("cat", "Luna")]),
     ("my wife is Jane and my son is Tom", [("son", "Tom"), ("wife", "Jane")]),
 ])
@@ -47,4 +47,4 @@ def test_canonicalises_relation_synonyms():
 
 
 def test_last_mention_wins_per_relation():
-    assert _pairs("my dog is Rex... actually my dog is Shadow") == [("dog", "Shadow")]
+    assert _pairs("my dog is Rex... actually my dog is Biscuit") == [("dog", "Biscuit")]

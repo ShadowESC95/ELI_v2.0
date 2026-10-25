@@ -47,7 +47,7 @@ def _answer(text: str) -> tuple[str, str]:
     "i said the day AND time",
     # 12+ words: these are the ones that used to be refused outright.
     "Eli, what is the date, the day, and what is the time?",
-    "i want to know what the fucking time is, and what day it is?!",
+    "i need to know what the bloody time is, and which day it is?!",
     "what do you mean 00:00 ? do you know what time it is?",
     "please could you kindly tell me what the time is right now because I need to know?",
 ])
@@ -96,25 +96,25 @@ def test_compound_question_gets_both_day_and_time():
 # --------------------------------------------------------------------------
 
 def test_named_place_is_answered_in_that_places_timezone():
-    _, reply = _answer("what time is it now in Shimla?")
+    _, reply = _answer("what time is it now in Delhi?")
     expected = datetime.now(ZoneInfo("Asia/Kolkata")).strftime("%H:%M")
-    assert expected in reply, f"Shimla should read {expected}, got {reply!r}"
+    assert expected in reply, f"Delhi should read {expected}, got {reply!r}"
     assert "Asia/Kolkata" in reply
 
 
 def test_named_place_does_not_fall_back_to_local_time():
-    """The original bug: 'in Shimla' answered with the Irish wall clock."""
-    _, reply = _answer("what time is it now in Shimla?")
+    """The original bug: 'in Delhi' answered with the local wall clock."""
+    _, reply = _answer("what time is it now in Delhi?")
     local = datetime.now().astimezone()
-    shimla = datetime.now(ZoneInfo("Asia/Kolkata"))
-    if local.utcoffset() != shimla.utcoffset():
+    delhi = datetime.now(ZoneInfo("Asia/Kolkata"))
+    if local.utcoffset() != delhi.utcoffset():
         assert local.strftime("%H:%M") not in reply
 
 
 @pytest.mark.parametrize("text,zone", [
-    ("What is the time in shimla, india?", "Asia/Kolkata"),
-    ("what time is it now in Cork?", "Europe/Dublin"),
-    ("what is the current day/date, and current time in ireland?", "Europe/Dublin"),
+    ("What is the time in mumbai, india?", "Asia/Kolkata"),
+    ("what time is it now in Dublin?", "Europe/Dublin"),
+    ("what is the day, the date and the time in japan right now?", "Asia/Tokyo"),
     ("what time is it in Tokyo?", "Asia/Tokyo"),
     ("what time is it in New York?", "America/New_York"),
 ])
@@ -167,13 +167,13 @@ def test_file_command_containing_todays_date_is_not_a_clock_request():
 # --------------------------------------------------------------------------
 
 @pytest.mark.parametrize("text", [
-    "but you do not seem to be processing the questions properly without hand-holding, "
-    "you sure you are okay?",
+    "but you do not seem to follow the questions properly without help, "
+    "are you sure you are alright?",
     "why are you processing that so slowly",
     "are you processing this correctly?",
     "you keep processing my request wrong",
-    "i just want to know what is going on with you because the conversation is not "
-    "completely coherent",
+    "i only want to know what is happening with you because the conversation is not "
+    "quite making sense",
 ])
 def test_behaviour_complaints_do_not_trigger_a_memory_inventory(text):
     """'processing' sat in both halves of a two-signal AND, collapsing the gate."""

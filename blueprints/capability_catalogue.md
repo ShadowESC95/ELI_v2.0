@@ -218,7 +218,7 @@ layer that wraps the probabilistic model. Grouped by function:
 | Module | LOC | Role |
 |---|---|---|
 | `deterministic_grounding_gate.py` | 3385 | Renders control/status answers directly from live runtime (bypasses the model). One ordered `render_action` pipeline of layers composed by `_stack`; an unhandled action returns a `missing_deterministic_renderer` surface. |
-| `grounding_escalation.py` | 698 | When a **checkable factual** question is poorly grounded by the bus, escalates through agent tiers instead of letting the model confabulate (the "Eminem's real name" failure class). |
+| `grounding_escalation.py` | 698 | When a **checkable factual** question is poorly grounded by the bus, escalates through agent tiers instead of letting the model confabulate (the "Orlo's real name" failure class). |
 | `diagnostic_patterns.py` | 112 | Regexes that catch vague/dynamic status confabulation ("currently processing updates…") and image-status fabrication. |
 | `control_contracts.py` | 1242 | Control-action evidence contract: build evidence → validate the model's output doesn't violate it → finalise. |
 | `persistence_gate.py` | 204 | Gates what gets stored — refuses to persist internal dumps / error-pattern noise as memory. |
@@ -375,7 +375,6 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 | `config.py` | 357 | Thin config shim over runtime_settings (canonical key mapping). |
 | `model_download.py` | 673 | Curated GGUF catalogue + VRAM-based recommend + download. |
 | `dag.py` | 470 | **Generic DAG engine** (Kahn topo-order, parallel layers, critical path) — shared by the agent bus + coding engine. |
-| `dynamic_runtime_budget.py` | 271 | Per-boot runtime budget derivation. |
 | `netguard.py` | 586 | **Offline-by-default** socket-level network gate (fail-closed) + `guarded_urlopen`/`http_get_json`. |
 | `memory_reset.py` | 333 | Factory-reset of memory/identity (scrub names, clear DBs, backup). |
 | `cognition_tunables.py` | 273 | User-tunable knowledge-gathering limits + synthesis cap registry (GUI-surfaced). |

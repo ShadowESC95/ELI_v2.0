@@ -18,9 +18,9 @@ from eli.kernel import engine
 @pytest.mark.parametrize(
     "text",
     [
-        "what wild night did i have, what do you mean?",
+        "what wild night did i have, what are you on about?",
         "What are you talking about, what wild night?",
-        "why do you say that i have been through a bit lately?",
+        "why do you say that i have had a rough week?",
         "i never said that",
         "what do you mean by that",
     ],
@@ -53,7 +53,7 @@ def test_classify_query_marks_wild_night_dispute_as_correction():
         "that was a question",
         "like what?",
         "you asked me \"How about we focus on something more productive today?\" and i responded with \"like what?\"",
-        "no you fucking were not, what is your problem?!",
+        "no you were not, what is wrong with you?!",
         "What are you talking bout??",
     ],
 )

@@ -34,7 +34,7 @@ def test_recommend_with_model():
     assert rec.n_ctx > 0
 
 
-def test_recommend_matches_the_load_for_a_large_model_on_a_small_card():
+def test_recommend_matches_the_load_for_a_large_model_on_a_small_card(gpu_offload_runtime):
     """Large model on 8 GB GPU: the recommendation must equal what the loader does.
 
     This test used to assert `rec.n_gpu_layers == _gpu_layers_for_model(...)` and

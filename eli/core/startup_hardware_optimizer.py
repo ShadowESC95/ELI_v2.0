@@ -4,8 +4,6 @@ eli/core/hardware_profile.py."""
 from __future__ import annotations
 
 import os
-import re
-from pathlib import Path
 from typing import Any, Dict, Optional
 
 from eli.utils.log import get_logger
@@ -13,50 +11,50 @@ from eli.utils.log import get_logger
 log = get_logger(__name__)
 
 
-def detect_ram_gb() -> float:
-    # psutil is cross-platform (Linux/macOS/Windows) and already a dependency —
-    # prefer it so RAM is detected correctly off-Linux instead of defaulting to 8.
-    # Binary GiB throughout — matches hardware_profile.py's HardwareProfile.ram_gb and
-    # every model-size figure (mem_units.py), so this file's own standalone reasoning
-    # print doesn't show a different total for the same machine.
-    from eli.core.mem_units import bytes_to_gib
-    try:
-        import psutil
-        return round(bytes_to_gib(psutil.virtual_memory().total), 2)
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    try:
-        txt = Path("/proc/meminfo").read_text()
-        m = re.search(r"MemTotal:\s+(\d+)\s+kB", txt)
-        if m:
-            return round(int(m.group(1)) / 1024 / 1024, 2)
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    return 8.0
-
-
 def detect_available_ram_gb() -> float:
-    """Currently free RAM — the binding budget for CPU-only inference."""
-    from eli.core.mem_units import bytes_to_gib
+    """Currently free RAM — the binding budget for CPU-only inference. 0.0 when it cannot be read."""
+    from eli.core.hardware_profile import system_ram_gib
+    return round(system_ram_gib()[1], 2)
+
+
+_MIN_CTX = 4096
+# A proportion of measured memory, not a size band: a machine with twice the
+# RAM gets twice the allowance, with no thresholds to fall between.
+_RAM_FRACTION_FOR_CTX = 0.25
+
+
+def _ctx_ceiling_for_ram(ram_gb: float, size_gb: float, train_ctx: int = 0,
+                         model_path: Optional[str] = None) -> int:
+    """Largest context this machine's RAM can hold for a model this size.
+
+    The per-token cost comes from hardware_profile._kv_cache_mb — the same
+    measured KV arithmetic the loader uses — rather than a constant invented
+    here. An earlier draft of this function DID invent one, and it implied an
+    18k context on an 8GB machine. A model's own trained window is the only
+    honest ceiling above that (0: unknown, RAM alone sets it).
+    """
     try:
-        import psutil
-        return round(bytes_to_gib(psutil.virtual_memory().available), 2)
+        from eli.core.hardware_profile import _kv_cache_mb, _layers_for_size, model_cost
+        layers = _layers_for_size(float(size_gb))
+        mb_per_token = _kv_cache_mb(1, layers, quant=False, cost=model_cost(model_path))
     except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    try:
-        from eli.core.hardware_profile import detect_hardware
-        hw = detect_hardware()
-        avail = float(getattr(hw, "available_ram_gb", 0) or 0)
-        if avail > 0:
-            return round(avail, 2)
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    return round(detect_ram_gb() * 0.5, 2)
+        return _MIN_CTX
+    if mb_per_token <= 0:
+        return _MIN_CTX
+    # ram_gb is AVAILABLE headroom — subtract model weights + runtime reserve first,
+    # then size KV from what remains. Ignoring model size over-estimates ctx on
+    # low-RAM CPU-only hosts (e.g. integrated-GPU laptops with ~4–8 GB RAM).
+    _model_mb = max(0.0, float(size_gb)) * 1024.0 * 1.08
+    _runtime_mb = 512.0
+    _net_mb = max(0.0, float(ram_gb) * 1024.0 - _model_mb - _runtime_mb)
+    allowance_mb = _net_mb * _RAM_FRACTION_FOR_CTX
+    ceiling = max(_MIN_CTX, int(allowance_mb / mb_per_token))
+    train = int(train_ctx or 0)
+    return min(ceiling, train) if train > 0 else ceiling
 
 
 def cpu_ctx_ceiling_from_ram(model_gb: float, train_ctx: int = 0, model_path: Optional[str] = None) -> int:
     """Largest ctx this machine's available RAM can hold for this model."""
-    from eli.core.dynamic_runtime_budget import _ctx_ceiling_for_ram
     return int(_ctx_ceiling_for_ram(detect_available_ram_gb(), float(model_gb), int(train_ctx or 0),
                                     model_path=model_path))
 

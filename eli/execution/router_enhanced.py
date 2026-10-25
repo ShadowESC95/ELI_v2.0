@@ -598,7 +598,7 @@ def _eli_schedule_prepass(user_text: str):
     if _QUESTION_RX.search(t):
         return None
     # _QUESTION_RX is ^-anchored and only saw the start, so an imperative opener followed by a
-    # question slipped through ("Stop talking about reactors.. How is the head, this evening?"
+    # question slipped through ("Stop talking about engines.. How are things, this evening?"
     # created a background task). Test the closing sentence too. Polite requests ("can you open
     # spotify at 8pm?") still schedule; only a real trailing question is refused.
     if _QUESTION_RX.search(_eli_final_clause(t)):
@@ -638,7 +638,7 @@ def _eli_multi_command_prepass(user_text: str):
         segs = None
     if not segs:
         return None
-    # "open the browser and search QFT" is one browser request, not two. Splitting it opened the
+    # "open the browser and search KITE" is one browser request, not two. Splitting it opened the
     # home page and answered the search in chat. Only decline to split when the whole phrase
     # resolves to a browser search with a query; other chained utterances still split.
     try:
@@ -699,8 +699,8 @@ _COURTESY_TAIL = re.compile(
     r"right\s+now|now|eli))+[\s,.!?]*$", re.I)
 
 
-# The same before a command: "good. play the third world by immortal technique" searched for
-# "good. play the third world". Only with punctuation after it ("right click" is a command), and never
+# The same before a command: "good. play the first light by quiet machine" searched for
+# "good. play the first light". Only with punctuation after it ("right click" is a command), and never
 # yes/no: those answer a question ELI asked. A name or "again" may follow the word: "Thanks bud, open
 # youtube please" went to the intent model (32 s) and came back as an app to install.
 _COURTESY_HEAD = re.compile(
@@ -1116,7 +1116,7 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
             return None
 
     # "my name is X" / "call me X" go through the same extractor as the profile and the
-    # graph: it rejects "If my name is listed as unknown, ..." (renamed a user "listed").
+    # graph: it rejects "my name is listed wrongly, ..." (renamed a user "listed").
     from eli.runtime.identity_validation import (
         _DECLARATION_RE, _drop_hypothetical_clauses, extract_explicit_identity_facts)
     _said = _drop_hypothetical_clauses(_re.sub(r"(?i)\bmy name's\b", "my name is", raw))
@@ -1244,7 +1244,7 @@ _NEGATORS = ("not", "n't", "never", "aint", "ain't", "isnt", "isn't", "wasnt", "
 
 # Stems that make a turn a request rather than a remark. The personal-memory route is a
 # substring test over a keyword table and can't tell a question from a passing mention ("My
-# memory is fine, it is yours that we are concerned about" hit PERSONAL_MEMORY_DEEP_EXPLAIN at
+# memory is fine, it is yours that we are worried about" hit PERSONAL_MEMORY_DEEP_EXPLAIN at
 # 0.99). Require that something was actually asked.
 _ASKING_STEMS = (
     "what", "which", "how", "why", "when", "where", "who", "whose",
@@ -1254,7 +1254,7 @@ _ASKING_STEMS = (
 )
 
 # Word-boundary anchored: a bare `in` test is the defect this guard stops ("it is yourS that we are
-# concerned" contains "is your").
+# worried" contains "is your").
 _ASKING_RE = re.compile(
     r"\b(?:" + "|".join(s.replace(" ", r"\s+") for s in _ASKING_STEMS) + r")\b",
     re.I,
@@ -1913,8 +1913,8 @@ def _trailing_request_clause(raw: str) -> str:
     """The final sentence of a multi-sentence utterance, if it is a short request.
 
     The long-question guard measures the whole utterance, but the request often
-    lives in the last clause: "Nope, i don't want to be stuck in that loop anymore
-    than you do, broken now anyway. What's the morning report?" is 20 words, while
+    lives in the last clause: "No, i don't want to go round in circles either, the old one
+    is broken now anyway. What's the morning report?" is 21 words, while
     the thing being asked for is 5. Returns "" when there is no distinct trailing
     clause, or when it is not short enough to be an unambiguous request — the
     caller then falls back to CHAT exactly as before.
@@ -1937,6 +1937,38 @@ _SEE_CUE_RE = re.compile(r"\b(?:see|visible|showing|shown|displayed|open|appears
 def _asks_what_is_on_screen(low: str) -> bool:
     """A question about what the screen currently shows. It needs the screen read, not a chat answer."""
     return bool(_ON_SCREEN_RE.search(low) and _SEE_CUE_RE.search(low))
+
+
+# "when did I tell you about X", "what day did I drive to X", "the day that I went to X", "the
+# timestamps of that interaction": answered from the conversation log, which has every message's
+# time. ELI answered from memories whose dates had moved when they were stored again, and said the
+# times weren't recorded.
+_WHEN_SAID_RE = re.compile(
+    r"\b(?:when|what\s+(?:day|date|time))\s+did\s+(?:i|we)\s+(?:first\s+|last\s+|ever\s+)?"
+    r"(?:tell|told|mention|say|said|talk|speak|bring|ask|go|went|drive|travel|visit|fly|head)\w*\s+"
+    r"(?:(?:you|me|up|about|of|to|from|on|that)\s+)*(?P<topic>[^,.;!?]+)", re.I)
+_DAY_I_RE = re.compile(
+    r"\bthe\s+(?:\w+\s+)?(?:day|date|time)\s+(?:that\s+|when\s+)?(?:i|we)\s+"
+    r"(?:went|drove|travelled|traveled|flew|headed|visited|told|mentioned|said|talked|spoke)\w*\s+"
+    r"(?:(?:you|me|about|of|to|from|that)\s+)*(?P<topic>[^,.;!?]+)", re.I)
+_TIMESTAMPS_OF_RE = re.compile(
+    r"\btime\s?stamps?\s+(?:of|for|on)\s+(?:that|this|the|those|our)\s+"
+    r"(?:interaction|conversation|chat|message|talk|exchange)s?\b"
+    r"|^(?:\w+[\s,]+){0,3}(?:give|show|tell)\s+me\s+the\s+time\s?stamps?(?:\s+then)?[\s.!?]*$", re.I)
+
+
+def when_said_topic(text: str) -> Optional[str]:
+    """What a "when did I mention X" question asks about: X; "" when it points back at the exchange
+    just had ("give me the timestamps of that interaction"); None when it is not that question."""
+    t = str(text or "").strip()
+    for rx in (_WHEN_SAID_RE, _DAY_I_RE):
+        m = rx.search(t)
+        if m:
+            topic = re.split(r"\s+(?:because|but|since|cause|cos|and then)\b", m.group("topic"), maxsplit=1)[0]
+            topic = topic.strip(" '\"")
+            if topic:
+                return topic
+    return "" if _TIMESTAMPS_OF_RE.search(t) else None
 
 
 def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
@@ -2427,8 +2459,8 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             return _mk("CLEAR_TONE", {}, 0.9, matched_by="tone.clear")
     # SET: an explicit tone directive naming a palette tone/alias. Needs a tone-setting verb and a
     # phrase that resolves to a real tone, so "be comedic" fires but "that joke was comedic gold"
-    # doesn't. The verb list used to include more/less/get/go, so "i am not sad eli, i am just
-    # trying to get your codebas correct" set the tone to sad. "be more cheerful" still works via `be`.
+    # doesn't. The verb list used to include more/less/get/go, so "i am not sad eli, i am only
+    # trying to get this fixed" set the tone to sad. "be more cheerful" still works via `be`.
     # The tone has to follow the verb ("be more cheerful", "use a sarcastic tone"). Both anywhere
     # in the message was enough before: "how fast does a serious incident have to be reported"
     # set the tone to serious.
@@ -2813,6 +2845,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         low,
     ):
         return _mk("CHAT", {"message": raw}, 0.9, matched_by="chat.relational_concern")
+
+    _said = when_said_topic(raw)
+    if _said is not None:
+        return _mk("MESSAGE_TIME_QUERY", {"topic": _said, "question": raw}, 0.95,
+                   matched_by="memory.when_said", allow_chat_without_evidence=False)
 
     # Long-question guard: a long rambling question goes to CHAT at 0.85 so the LLM intent resolver
     # never mis-maps it. It shadows ~300 keyword routes, so asking completely must never get a worse
@@ -5034,7 +5071,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # the machine as its object) and never fires on a how-to or state question.
     _power_cmd = (
         # the verb alone, or with a word of time or courtesy: "restart", "reboot now please".
-        # With an object it is that object's command ('restart "Order & Chaos"' is a song).
+        # With an object it is that object's command ('restart "North & South"' is a song).
         re.match(r"^\s*(?:please\s+|can\s+you\s+|could\s+you\s+|pls\s+)?"
                  r"(?:shut\s*down|power\s*off|poweroff|restart|reboot)"
                  r"(?:\s+(?:now|please|pls|it|immediately|right\s+now))*\s*[.!]?\s*$", low)
@@ -5263,7 +5300,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("SCREEN_READ_ANALYZE", {}, 0.93, matched_by="screen.read_ocr")
 
     # A question about the capability isn't a request to use it. "So, you can see my screen?" and
-    # "just confirming that you can actually see what i see" each fired another SCREEN_READ_ANALYZE
+    # "just checking you can really see what i see" each fired another SCREEN_READ_ANALYZE
     # (~20s, new screenshot) and answered neither. The split is syntactic: a request puts the modal
     # first ("can you see my screen?"), a confirmation puts the subject first. Falling through lets
     # CHAT answer the yes/no.
@@ -5486,6 +5523,16 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                  r"show\s+(?:me\s+)?(?:the\s+|your\s+)?(?:help|commands?|capabilities?)\b|list\s+command)", low):
         return _mk("HELP", {}, 0.90, matched_by="system.help")
 
+    # A question about ELI's own tastes or views ("what's your favourite kind of music?", "do you like
+    # jazz?") is conversation. Left at the fallback's confidence it went to the intent model, and a
+    # small one sent it to NEWS_FETCH. Every specific route above has already had its turn.
+    if re.search(r"\b(?:what|which)(?:'?s|\s+is|\s+are|\s+would\s+be)?\s+(?:your|ur)\s+(?:favou?rite|fav|preferred)\b"
+                 r"|\bdo\s+(?:you|u)\s+(?:like|love|enjoy|prefer|hate|dislike)\b"
+                 r"|\bhow\s+do\s+(?:you|u)\s+feel\s+about\b"
+                 r"|\bwhat\s+(?:kind|sort|type)s?\s+of\s+\w+(?:\s+\w+)?\s+do\s+(?:you|u)\s+"
+                 r"(?:like|enjoy|prefer|listen\s+to|watch|read)\b", low):
+        return _mk("CHAT", {"message": raw}, 0.9, matched_by="chat.opinion_of_eli")
+
     _eli_pipeline_trace("router.fallback_chat_selected", text=str(raw)[:160])
     return _mk("CHAT", {"message": raw}, 0.6, matched_by="fallback.chat")
 
@@ -5518,12 +5565,12 @@ def _eli_mqc_clean_query(q: str) -> str:
     """
     q = _eli_mqc_re.sub(r"\s+", " ", str(q or "")).strip(" .,!?:;")
     q = _eli_mqc_re.sub(r"^(open|play|search|find)\s+", "", q, flags=_eli_mqc_re.I).strip()
-    # Punctuation between words is not part of the song: "play evil; by eminem" searched "evil; eminem".
+    # Punctuation between words is not part of the song: "play evil; by orlo" searched "evil; orlo".
     # Inside a word it stays (P!nk, AC/DC, B.I.G.).
     q = _eli_mqc_re.sub(r"[\"“”]+|(?:[;!?,]+|\.{2,}|…)(?=\s|$)", " ", q)
     # Strip trailing service qualifiers — the router already extracted `target`.
-    # Without this, "logic by diabolic on spotify" → query="logic by diabolic on spotify"
-    # instead of the expected "logic by diabolic".
+    # Without this, "logic by veridian on spotify" → query="logic by veridian on spotify"
+    # instead of the expected "logic by veridian".
     q = _eli_mqc_re.sub(
         r"\s+on\s+(spotify|youtube|yt|youtube\.com|mpv|soundcloud|apple\s+music|tidal|deezer|amazon\s+music)\s*$",
         "",
@@ -6203,8 +6250,8 @@ def _eli_self_improvement_phrase_guard(text):
             # NOT a fix request — "fix the bugs in foo.py" is FIX_FILE's job; this is the
             # diagnose-only "is there any issues with the files?" form.
             not re.search(r"\b(fix|repair|correct|patch|solve|resolve|debug|rewrite)\b", low)
-            # The issue word and the code word must be about each other, not just co-occur ("i am not
-            # saying close files (the name of the app)... this is the issue" went to a code examination at
+            # The issue word and the code word must be about each other, not just co-occur ("i do not
+            # mean close files (the app's name)... that is the problem" went to a code examination at
             # 0.96). Requiring them within a few words keeps "any issues with the files?" and "the code has
             # bugs" and drops incidental co-occurrence.
             and re.search(
@@ -6520,7 +6567,7 @@ def _eli_recent_memory_processing_question(text: object) -> bool:
         return False
 
     # Looking something up in memory, or asking about the user's own life, is recall, not the memory
-    # store's activity: "check your memories again for the most recent show i have been watching" got
+    # store's activity: "look in your memories for the latest series i have been watching" got
     # a count of memory rows.
     if (_eli_recent_mem_re.search(r"\b(?:check|search|look|dig|go|scan)\b.{0,24}\b(?:memor(?:y|ies)|records|logs|history|notes)\b"
                                   r".{0,16}\b(?:for|and|to|about|what|when|which|if)\b", low)
@@ -8771,7 +8818,7 @@ try:
         def _eli_target_took_the_rest(whole) -> bool:
             """Whether a command took the rest of the message as its target: "open steam, set an
             alarm for 30 minutes, and tell me the meaning of life" opened an app by that whole
-            name, and "look up RAIMS and tell me what you can see" searched for the instruction."""
+            name, and "look up the tide tables and tell me what you can see" searched for the instruction."""
             from eli.execution.route_contracts import TARGET_ARGS
             from eli.runtime.command_splitter import holds_more_than_one
             args = (whole or {}).get("args") or {}
@@ -8821,9 +8868,9 @@ try:
                 rest = " ".join(talk).strip()
                 if len(re.findall(r"[A-Za-z0-9']+", _without_courtesy(rest) if rest else "")) < 3:
                     rest = ""                      # "well done." before a command is not a second subject
-                # One thing to read and something to say about it ("look up RAIMS and tell me what
+                # One thing to read and something to say about it ("look up ORBIT and tell me what
                 # you can see"): the read, with its own words as its target, answered against the
-                # whole message, as "look up RAIMS" alone is. Shown first as a result and then
+                # whole message, as "look up ORBIT" alone is. Shown first as a result and then
                 # replied to, the search was a list of links and the reply saw 600 characters of it.
                 # A read that points back at the rest ("explain whether you recalled this") needs it.
                 from eli.execution.route_contracts import changes_something

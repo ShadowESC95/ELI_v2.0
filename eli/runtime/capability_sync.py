@@ -139,6 +139,44 @@ def _ast_extract_dispatch_actions(source: str) -> Set[str]:
     return actions - {"TEMPLATE", "SEQUENCE_STEP"}
 
 
+def _ast_action_modules(source: str) -> Dict[str, Set[str]]:
+    """The third-party modules each action's own branch imports (`if a == "X":` / `if a in (...)`).
+    Measured against this machine they say whether the action can run here; standard-library and
+    ELI's own modules are always present. What a branch's helpers import elsewhere is not seen."""
+    import sys
+    try:
+        tree = ast.parse(source, mode="exec")
+    except SyntaxError:
+        return {}
+    ids = {"a", "action_name", "action_text"}
+    own = {"eli", "api", "__future__"}
+    needs: Dict[str, Set[str]] = {}
+    for node in ast.walk(tree):
+        if not (isinstance(node, ast.If) and isinstance(node.test, ast.Compare)):
+            continue
+        t = node.test
+        if not (isinstance(t.left, ast.Name) and t.left.id in ids and len(t.ops) == 1 and len(t.comparators) == 1):
+            continue
+        comp = t.comparators[0]
+        if isinstance(t.ops[0], ast.Eq) and isinstance(comp, ast.Constant) and isinstance(comp.value, str):
+            names = [comp.value]
+        elif isinstance(t.ops[0], ast.In) and isinstance(comp, (ast.Tuple, ast.List, ast.Set)):
+            names = [e.value for e in comp.elts if isinstance(e, ast.Constant) and isinstance(e.value, str)]
+        else:
+            continue
+        modules: Set[str] = set()
+        for stmt in node.body:
+            for n in ast.walk(stmt):
+                if isinstance(n, ast.Import):
+                    modules |= {a.name.split(".")[0] for a in n.names}
+                elif isinstance(n, ast.ImportFrom) and n.module and not n.level:
+                    modules.add(n.module.split(".")[0])
+        modules -= own | set(sys.stdlib_module_names)
+        for name in names:
+            needs.setdefault(name.upper(), set()).update(modules)
+    return needs
+
+
 def _ast_extract_supported_actions(source: str) -> Set[str]:
     """
     Extract the SUPPORTED_ACTIONS list literal from executor source.
@@ -281,6 +319,7 @@ class CapabilitySync:
             src = executor_path.read_text(encoding="utf-8", errors="replace")
             dispatch = _ast_extract_dispatch_actions(src)
             supported = _ast_extract_supported_actions(src)
+            needs = _ast_action_modules(src)
             all_executor = dispatch | supported
             for action in all_executor:
                 caps[action] = {
@@ -289,6 +328,7 @@ class CapabilitySync:
                     "in_dispatch": action in dispatch,
                     "routable": False,
                     "plugin": None,
+                    "needs": sorted(needs.get(action, ())),
                 }
 
         # 2. Router: regex-extract intent names.

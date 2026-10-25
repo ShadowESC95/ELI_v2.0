@@ -248,7 +248,7 @@ wider `mode_chat_agent_profile()` fan-out. Quick still runs the orchestrator.
   grammar built from the live action catalogue, so the model can only name a real
   capability and emit well-formed JSON. Backends without grammar support fall back to
   free text.
-- Budgeting lives in `engine.py::_build_enhanced_system` and `core/dynamic_runtime_budget.py`.
+- Budgeting lives in `engine.py::_build_enhanced_system` and `core/startup_hardware_optimizer.py`.
 
 ---
 
@@ -416,7 +416,7 @@ An internal world the agent inhabits. `world_event_bus.py` receives runtime even
 - **`runtime_settings.py`, `config.py`**: settings load, merge and heal; `DEFAULTS` are clean
   (offline, no model, wizard on). `config/settings.json` is per user and gitignored, seeded
   from `config/templates/settings.template.json`.
-- **`hardware_profile.py`, `startup_hardware_optimizer.py`, `dynamic_runtime_budget.py`**:
+- **`hardware_profile.py`, `startup_hardware_optimizer.py`**:
   detect GPU and VRAM and pick context, GPU layers and batch (one fit calculation shared by
   the loader and the startup dialog).
 - **`model_download.py`**: curated GGUF downloader (7 catalogue entries, resumable, magic and

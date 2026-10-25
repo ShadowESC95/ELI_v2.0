@@ -4,7 +4,7 @@ Regression tests for natural salience weighting + auto-capture.
 ELI should weight statements by how memorable they are *from the content itself*
 and promote genuinely important user statements into durable memory on its own —
 without the user ever saying "remember this", and without chit-chat / questions
-polluting the store. This is the general fix behind the "Shadow (my dog)" failure.
+polluting the store. This is the general fix behind the "Biscuit (my dog)" failure.
 """
 import pathlib
 import sqlite3
@@ -36,7 +36,7 @@ def test_facts_outscore_chitchat():
 
 def test_questions_are_not_high_salience():
     q = Memory._score_importance("what is my dog's name?", None, "user", "fact")
-    s = Memory._score_importance("my dog is called Shadow", None, "user", "fact")
+    s = Memory._score_importance("my dog is called Biscuit", None, "user", "fact")
     assert s > q, "a stated fact must outweigh a question"
 
 
@@ -47,7 +47,7 @@ def test_questions_are_not_high_salience():
     ("i just started a new job at a robotics lab", True),
     ("we adopted a rescue dog last week", True),
     ("my favourite band is Radiohead", True),
-    ("Shadow (my dog) is very clever", True),
+    ("Biscuit (my dog) is very clever", True),
     # non-facts / queries / chit-chat:
     ("what is the weather today", False),
     ("what is my dog's name?", False),
@@ -78,7 +78,7 @@ def test_chitchat_and_questions_not_promoted(mem):
 
 
 def test_assistant_turns_not_promoted(mem):
-    mem.add_conversation_turn("assistant", "I think your dog Shadow sounds lovely.")
+    mem.add_conversation_turn("assistant", "I think your dog Biscuit sounds lovely.")
     conn = sqlite3.connect(mem.db_path)
     rows = [r[0] for r in conn.execute("SELECT text FROM memories").fetchall()]
     conn.close()

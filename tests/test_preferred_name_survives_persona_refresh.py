@@ -19,20 +19,20 @@ def db(tmp_path):
 
 def test_preferred_name_is_stored_as_a_single_valued_pattern(db):
     cur = db.cursor()
-    assert _insert_user_pattern(cur, "identity.preferred_name", "User prefers to be called Jay.",
+    assert _insert_user_pattern(cur, "identity.preferred_name", "User prefers to be called Alex.",
                                 provenance="user_explicit")
     db.commit()
     rows = db.execute(
         "SELECT pattern_data FROM user_patterns WHERE lower(pattern_type)=lower(?)",
         ("identity.preferred_name",),
     ).fetchall()
-    assert rows and "Jay" in rows[0][0]
+    assert rows and "Alex" in rows[0][0]
 
 
 def test_a_persona_auto_txt_rebuild_does_not_touch_it(db, tmp_path, monkeypatch):
     monkeypatch.setenv("ELI_PERSONA_AUTO_FILE", str(tmp_path / "persona.auto.txt"))
     cur = db.cursor()
-    _insert_user_pattern(cur, "identity.preferred_name", "User prefers to be called Jay.",
+    _insert_user_pattern(cur, "identity.preferred_name", "User prefers to be called Alex.",
                          provenance="user_explicit")
     db.commit()
 
@@ -45,12 +45,12 @@ def test_a_persona_auto_txt_rebuild_does_not_touch_it(db, tmp_path, monkeypatch)
         "SELECT pattern_data FROM user_patterns WHERE lower(pattern_type)=lower(?)",
         ("identity.preferred_name",),
     ).fetchall()
-    assert rows and "Jay" in rows[0][0]
+    assert rows and "Alex" in rows[0][0]
 
 
 def test_correcting_the_name_supersedes_not_accumulates(db):
     cur = db.cursor()
-    _insert_user_pattern(cur, "identity.preferred_name", "User prefers to be called Jay.",
+    _insert_user_pattern(cur, "identity.preferred_name", "User prefers to be called Alex.",
                          provenance="user_explicit")
     db.commit()
     _insert_user_pattern(cur, "identity.preferred_name", "User prefers to be called James.",

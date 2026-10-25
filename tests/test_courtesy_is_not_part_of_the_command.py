@@ -14,10 +14,10 @@ from eli.execution.router_enhanced import route
     ("launch firefox pls", "OPEN_APP", "name", "firefox"),
     ("close spotify please", "CLOSE_APP", "name", "spotify"),
     ("open youtube please", "OPEN_URL", "url", "https://youtube.com"),
-    ("play trouble by eminem please", "PLAY_MEDIA", "query", "trouble by eminem"),
-    # before the command too: "good. play the third world ..." searched for "good. play the third world"
-    ("good. play the third world by immortal technique on spotify", "PLAY_MEDIA", "query",
-     "the third world by immortal technique"),
+    ("play trouble by orlo please", "PLAY_MEDIA", "query", "trouble by orlo"),
+    # before the command too: "good. play the first light ..." searched for "good. play the first light"
+    ("good. play the first light by quiet machine on spotify", "PLAY_MEDIA", "query",
+     "the first light by quiet machine"),
     ("ok, open spotify", "OPEN_APP", "name", "spotify"),
 ])
 def test_the_target_is_what_was_named(text, action, key, value):

@@ -57,8 +57,6 @@ def normalise_voice_text(text: str) -> str:
 
 def _clean_target(text: str) -> str:
     s = re.sub(r"\s+", " ", str(text or "")).strip(" .,:;")
-    s = re.sub(r"\b(?:chikovsky|chekovsky|chaykovsky|chaikovsky)\b", "tchaikovsky", s, flags=re.I)
-    s = re.sub(r"\b(?:a moral technique|immoral technique|immortal technic|immortal technical)\b", "immortal technique", s, flags=re.I)
     return re.sub(r"\s+", " ", s).strip(" .,:;")
 
 
@@ -141,8 +139,8 @@ _APP_TAIL_REJECT_TOKENS = frozenset({
     "please", "thanks", "thank", "to", "for", "about", "regarding", "if",
     "whether", "could", "would", "should", "can", "may", "might", "do",
     "does", "did", "is", "are", "was", "were", "the",
-    # Prepositions and search verbs: "open a browser on qft" was taken whole as an app called "a
-    # browser on qft" and offered for install. "of" is deliberately absent: plenty of apps are named
+    # Prepositions and search verbs: "open a browser on kite" was taken whole as an app called "a
+    # browser on kite" and offered for install. "of" is deliberately absent: plenty of apps are named
     # "<x> of <y>".
     "on", "in", "into", "onto", "with", "from", "via", "using",
     "search", "searching", "find", "google", "lookup",
@@ -151,7 +149,7 @@ _APP_TAIL_REJECT_TOKENS = frozenset({
 })
 
 
-# A generic browser request is a browser request, not an app called "browser qft". OPEN_BROWSER
+# A generic browser request is a browser request, not an app called "browser kite". OPEN_BROWSER
 # already accepts a query and makes a search page; this contract matched first at 0.995 and shadowed
 # it.
 _BROWSER_HEAD_RE = re.compile(r"^(?:(?:a|an|the)\s+)?(?:(?:web|internet)\s+)?browsers?\b", re.I)
@@ -163,7 +161,7 @@ def _browser_open_target(target: str):
     """Return the search query for a generic browser request, else None.
 
     ""   -> open the browser with no query
-    "qft"-> open the browser on a search for qft
+    "kite"-> open the browser on a search for kite
     None -> not a browser request at all
     """
     s = str(target or "").strip()
@@ -171,7 +169,7 @@ def _browser_open_target(target: str):
     if not m:
         return None
     rest = s[m.end():].strip(" .,:;-")
-    # The query ends at the first sentence break: "…search for qft. open a
+    # The query ends at the first sentence break: "…search for kite. open a
     # browser search page" is one subject followed by a restated instruction,
     # and the instruction is not part of what to search for.
     rest = re.split(r"(?<=\w)[.!?](?:\s|$)", rest, maxsplit=1)[0].strip()
@@ -466,7 +464,7 @@ def try_route(text: str) -> Optional[dict]:
     ):
         return None
 
-    # "please open the browser and search for QFT" never reached this matcher because of the leading
+    # "please open the browser and search for KITE" never reached this matcher because of the leading
     # politeness marker, so nothing opened. Stripped for this match only, to keep the blast radius
     # small.
     _norm_cmd = re.sub(r"^(?:please|pls|kindly|(?:could|can|would|will)\s+you(?:\s+please)?)\s+",

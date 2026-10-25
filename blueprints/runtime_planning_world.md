@@ -87,7 +87,7 @@ Background cognition + goal/queue machinery:
   clear phrasings from the user's messages ("we decided to", "we still need to", "let's work on"),
   and `task_brief` puts unfinished work into the next session's awareness block — but only within
   a 14-day idle window. `find_task(query, include_idle=True)` (2026-09-29) bypasses that window on
-  an explicit ask ("continue the RAIMS project" routes to `RESUME_TASK`, a real router/executor
+  an explicit ask ("continue the ORBIT project" routes to `RESUME_TASK`, a real router/executor
   action — not a chat-routed guess), and states real staleness ("last touched N days ago") rather
   than silently implying continuity. `close_task(goal_id)` is the explicit, non-inferred
   completion path. Opening/closing a task also notifies the World system (below) — a task is now

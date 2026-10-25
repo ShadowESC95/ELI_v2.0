@@ -112,7 +112,7 @@ def exchange_budget_chars(user_input: str = "") -> int:
 
 # Actions whose reply is the result of something carried out, not something the model recalled:
 # a news briefing, a search, a file read. Named on ELI's line in the exchange so a follow-up ("go
-# deeper on the Caine Prize story") and a challenge ("you just told me that") are read against
+# deeper on the sea wall story") and a challenge ("you just told me that") are read against
 # what was fetched — the model called a real Guardian story its own invention.
 def _reply_actions(items: List[Any]) -> Dict[int, str]:
     try:

@@ -3,7 +3,7 @@
 Live at 2.3.26, ungrounded, with 28 of the 99 requested layers on the card and
 the user having just said so:
 
-    "The GPU's back to full offload, the matrix is playing on loop..."
+    "The GPU's back to full offload, the documentary is playing on loop..."
 
 Health claims ("all systems nominal") were already governed; hardware claims
 were not, so this passed every guard and read as a flat lie. When the turn IS
@@ -16,7 +16,7 @@ from eli.cognition.output_governor import (
 )
 
 _BAD = ("You're not exactly wrong, but I'm still running on a few half-baked "
-        "assumptions. The GPU's back to full offload, the matrix is playing on "
+        "assumptions. The GPU's back to full offload, the documentary is playing on "
         "loop, and I've got a 4th sequel in my head.")
 
 

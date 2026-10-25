@@ -8,7 +8,7 @@ class _FakeBus:
         self.grounding_confidence = g
 
     def to_context_block(self):
-        return "EVIDENCE: Marshall Bruce Mathers III"
+        return "EVIDENCE: Paul David Hewson"
 
 
 class _FakeEngine:
@@ -20,8 +20,8 @@ class _FakeEngine:
 
 
 def test_classify_factual_domains():
-    assert G.classify_factual("what is eminems real name")[0] is True
-    assert G.classify_factual("who is eminem") == (True, "external")
+    assert G.classify_factual("what is bonos real name")[0] is True
+    assert G.classify_factual("who is bono") == (True, "external")
     assert G.classify_factual("what is the capital of france") == (True, "external")
     # identity / self → local, never external (never web-searched)
     assert G.classify_factual("who are you")[1] == "local"
@@ -71,12 +71,12 @@ def test_external_online_escalates_to_web(monkeypatch):
     monkeypatch.setattr(
         E, "execute",
         lambda a, args=None: ({"web_grounded": True,
-                               "results": [{"title": "Eminem - Wikipedia",
-                                            "body": "Marshall Bruce Mathers III is the "
-                                                    "real name of the rapper Eminem."}],
-                               "content": "Wiki: Eminem's real name is Marshall Bruce Mathers III"}
+                               "results": [{"title": "Bono - Wikipedia",
+                                            "body": "Paul David Hewson is the "
+                                                    "real name of the singer bono."}],
+                               "content": "Wiki: Bono's real name is Paul David Hewson"}
                               if a == "WEB_SEARCH" else {}))
-    r = G.escalate(_FakeEngine(), "what is eminems real name",
+    r = G.escalate(_FakeEngine(), "what is bonos real name",
                    {"action": "CHAT"}, _FakeBus(0.30))
     assert r is not None and r["meta"]["response_mode"] == "escalation_web"
     assert r["grounded"] is True
@@ -118,7 +118,7 @@ def test_web_relevance_floor_separates_junk_from_real():
 
 def test_external_offline_hedges(monkeypatch):
     monkeypatch.setattr(C, "network_allowed", lambda: False)
-    r = G.escalate(_FakeEngine(), "what is eminems real name",
+    r = G.escalate(_FakeEngine(), "what is bonos real name",
                    {"action": "CHAT"}, _FakeBus(0.30))
     assert r is not None and r["meta"]["response_mode"] == "ungrounded_hedge"
     assert r["grounded"] is False
@@ -131,9 +131,24 @@ def test_banter_never_escalates(monkeypatch):
                       {"action": "CHAT"}, _FakeBus(0.20)) is None
 
 
+def test_a_greeting_phrased_as_a_question_never_escalates(monkeypatch):
+    """"Evening Eli, what is the story?" (an idiom for "how are things") was classed as an outside fact and
+    searched on the web, while the engine had already classed the turn as a greeting."""
+    monkeypatch.setattr(C, "network_allowed", lambda: True)
+    import eli.execution.executor_enhanced as E
+    searched = []
+    monkeypatch.setattr(E, "execute", lambda a, args=None: searched.append(a) or {"ok": True, "results": []})
+    for q in ("Evening Eli, what is the story?", "hey, how are you?"):
+        assert G.escalate(_FakeEngine(), q, {"action": "CHAT"}, _FakeBus(0.0), reasoning_mode="quick") is None, q
+    assert not searched
+    assert G.escalate(_FakeEngine(), "Hey Eli, what is the capital of France?", {"action": "CHAT"},
+                      _FakeBus(0.0), reasoning_mode="quick") is not None
+    assert searched == ["WEB_SEARCH"]
+
+
 def test_already_grounded_no_escalation(monkeypatch):
     monkeypatch.setattr(C, "network_allowed", lambda: True)
-    assert G.escalate(_FakeEngine(), "what is eminems real name",
+    assert G.escalate(_FakeEngine(), "what is bonos real name",
                       {"action": "CHAT"}, _FakeBus(0.80)) is None
 
 
@@ -166,7 +181,7 @@ def test_self_action_regex_excludes_chitchat_and_capability():
 
 def test_disabled_via_env(monkeypatch):
     monkeypatch.setenv("ELI_GROUNDING_ESCALATION", "0")
-    assert G.escalate(_FakeEngine(), "what is eminems real name",
+    assert G.escalate(_FakeEngine(), "what is bonos real name",
                       {"action": "CHAT"}, _FakeBus(0.10)) is None
 
 
@@ -223,7 +238,7 @@ def test_degenerate_answer_falls_through_to_hedge(monkeypatch):
         def _synthesize_answer(self, evidence, q, reasoning_mode=None, action=None):
             return "-"
 
-    r = G.escalate(_DashEngine(), "what is eminems real name",
+    r = G.escalate(_DashEngine(), "what is bonos real name",
                    {"action": "CHAT"}, _FakeBus(0.30))
     assert r is not None and r["meta"]["response_mode"] == "ungrounded_hedge"
     assert G._is_degenerate("-") and G._is_degenerate(". . .") and not G._is_degenerate("Detroit")
@@ -231,7 +246,7 @@ def test_degenerate_answer_falls_through_to_hedge(monkeypatch):
 
 def test_web_candidate_classic_question():
     assert G.classify_web_candidate("is it a classic ? it is barely out a month...")
-    assert G.classify_web_candidate("when did spider-man brand new day come out?")
+    assert G.classify_web_candidate("when did paddington in peru come out?")
 
 
 def test_web_candidate_escalates_on_very_low_grounding(monkeypatch):
@@ -240,13 +255,13 @@ def test_web_candidate_escalates_on_very_low_grounding(monkeypatch):
     monkeypatch.setattr(
         E, "execute",
         lambda a, args=None: ({"web_grounded": True,
-                               "results": [{"title": "Spider-Man: Brand New Day - Wikipedia",
+                               "results": [{"title": "Paddington in Peru - Wikipedia",
                                             "body": "Released July 31, 2026 in the United States."}],
                                "content": "Wikipedia: released July 31, 2026"}
                               if a == "WEB_SEARCH" else {}))
     r = G.escalate(
         _FakeEngine(),
-        "is spider-man brand new day a classic yet?",
+        "is paddington in peru a classic yet?",
         {"action": "CHAT"},
         _FakeBus(0.18),
         reasoning_mode="quick",
@@ -262,9 +277,9 @@ def test_orchestrator_has_pre_generation_escalation():
 
 
 def test_correction_turn_with_pop_culture_does_not_web_escalate(monkeypatch):
-    """User correcting ELI's recency must not trigger Spider-Man web lookup."""
+    """User correcting ELI's recency must not trigger Paddington web lookup."""
     monkeypatch.setattr(C, "network_allowed", lambda: True)
-    q = "spider man was today, can you not read a fucking timestamp?!"
+    q = "paddington was today, can you not read a fucking timestamp?!"
     assert G.classify_web_candidate(q) is False
     assert G.classify_factual(q) == (False, "none")
     assert G.escalate(_FakeEngine(), q, {"action": "CHAT"}, _FakeBus(0.18)) is None
@@ -273,8 +288,8 @@ def test_correction_turn_with_pop_culture_does_not_web_escalate(monkeypatch):
 def test_rapport_and_watch_progress_not_web_candidate(monkeypatch):
     """Compliment + 'feeling fresh? season 3 episode 6 now' is chat, not a web lookup."""
     monkeypatch.setattr(C, "network_allowed", lambda: True)
-    q = ("Wow, wasn't expecting that- fair ply, you have a pretty fucking solid memory "
-         "and recll pal. So i take it you are feeling fresh? Season 3, episode 6 now")
+    q = ("Well, didn't see that coming, fair play, you have a seriously good memory "
+         "pal. So you're feeling sharp then? Chapter 4 of the book now")
     assert G.classify_web_candidate(q) is False
     assert G.escalate(_FakeEngine(), q, {"action": "CHAT"}, _FakeBus(0.26)) is None
 
@@ -287,21 +302,21 @@ def test_episode_recap_still_web_candidate():
 def test_a_question_about_this_conversation_is_never_an_outside_fact():
     """Live 2026-10-09: "can you tell me when that was?" about "that conversation" was classed an
     outside fact and sent to a web search."""
-    for t in ("Okay i seem to be annoyed in that conversation, can you tell me when that was? "
-              "or do you have a timestamp?",
-              "Can you check the long response from above Eli, and tell me what date it is from i.e a timestamp?",
-              "That is not the response from you that i was talking about!"):
+    for t in ("Looks like i was cross in that chat, can you tell me when that was? "
+              "or is there a timestamp?",
+              "Check the long reply further up and tell me what date it came from, a timestamp please?",
+              "That is not the reply of yours that i meant!"):
         assert G.classify_factual(t) == (False, "none"), t
         assert G.classify_web_candidate(t) is False, t
     assert G.classify_factual("what was the government response to the floods")[1] == "external"
 
 
 def test_a_question_about_eli_is_never_a_web_lookup():
-    """"I want to see who you really are ... bring the pain" was web-searched and answered with
+    """"show me what you are really like ... give it everything" was web-searched and answered with
     "I searched the web but couldn't find anything"."""
     from eli.runtime.grounding_escalation import classify_factual
-    assert classify_factual("That is a weak-ass response Eli, i want to see who you really are when confronted "
-                            "like this. Bring the pain of Hiroshima down on it, finish it off") == (False, "none")
+    assert classify_factual("That is a feeble answer Eli, show me what you are really like when someone pushes "
+                            "back. Go on, give it everything, finish it off") == (False, "none")
     assert classify_factual("i wonder what your favourite film is") == (False, "none")
     assert classify_factual("who is the president of france") == (True, "external")
     assert classify_factual("tell me who won the match last night") == (True, "external")

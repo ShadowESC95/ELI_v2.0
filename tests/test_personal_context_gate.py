@@ -35,17 +35,17 @@ def test_continuity_guard_present_unless_asked():
 
 def test_extract_current_user_plan_pickup():
     plan = extract_current_user_plan(
-        "i am collecting sam in limerick then bringing him back to cork"
+        "i am collecting sam in york then bringing him back to leeds"
     )
     assert plan
     assert "sam" in plan.lower()
-    assert "limerick" in plan.lower()
+    assert "york" in plan.lower()
 
 
 def test_strip_focus_and_recalled_projects():
     brief = (
-        "USER MODEL: Jay — prefers blunt\n"
-        "Currently focused on: collect Sam Saturday in Cork.\n"
+        "USER MODEL: Alex — prefers blunt\n"
+        "Currently focused on: collect Sam Saturday in York.\n"
         "Interests: GPUs.\n"
         "Goals: ship ELI.\n"
     )
@@ -55,9 +55,9 @@ def test_strip_focus_and_recalled_projects():
     assert "Interests:" in stripped
 
     profile = (
-        "Name: Jay\n"
+        "Name: Alex\n"
         "Recalled past topics (previous sessions — not current request):\n"
-        "  - Collect Sam in Cork Saturday\n"
+        "  - Collect Sam in York Saturday\n"
         "Recalled research areas (previous sessions):\n"
         "  - field theory\n"
         "Preferences:\n"
@@ -66,12 +66,12 @@ def test_strip_focus_and_recalled_projects():
     cleaned = strip_recalled_projects_from_profile_text(profile)
     assert "Collect Sam" not in cleaned
     assert "field theory" not in cleaned
-    assert "Name: Jay" in cleaned
+    assert "Name: Alex" in cleaned
     assert "blunt" in cleaned
 
 
 def test_travel_schedule_detector():
-    assert looks_like_travel_or_schedule("Collecting Sam in Limerick tomorrow")
+    assert looks_like_travel_or_schedule("Collecting Sam in York tomorrow")
     assert not looks_like_travel_or_schedule("Debugging the memory system")
 
 
@@ -90,7 +90,7 @@ def test_travel_stale_faster_than_general_project(tmp_path, monkeypatch):
     PE._insert_user_pattern(
         cur,
         "project.trip",
-        "User is collecting Sam in Limerick tomorrow.",
+        "User is collecting Sam in York tomorrow.",
         ts_value=now - 5 * 86400,
     )
     PE._insert_user_pattern(

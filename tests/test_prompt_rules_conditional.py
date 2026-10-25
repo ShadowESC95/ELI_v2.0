@@ -110,7 +110,7 @@ def test_deepen_requests_get_the_deliver_substance_guard(ui):
 
 
 def test_attribution_guard_when_eli_turns_are_in_history():
-    ctx = "User: hi\nELI: your dog is Shadow\nUser: ok\n"
+    ctx = "User: hi\nELI: your dog is Biscuit\nUser: ok\n"
     assert pr.ATTRIBUTION in pr.select_rules("what did I say", ctx)
     assert pr.ATTRIBUTION not in pr.select_rules("what is 2+2", "")
 

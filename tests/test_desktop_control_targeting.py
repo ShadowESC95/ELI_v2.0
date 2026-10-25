@@ -7,7 +7,7 @@ Every case here is a defect observed in a live 2.3.15 session:
     never read args at all and ran `wmctrl -r :ACTIVE:` unconditionally.
     MINIMISE_WINDOW, twelve lines above it, did read the name — the two halves
     of window control had drifted apart.
-  * "open a browser on QFT" and "open browser QFT" were captured whole as app
+  * "open a browser on KITE" and "open browser KITE" were captured whole as app
     names and answered with "not installed on this machine — would you like me
     to download it?". OPEN_BROWSER has accepted a query all along; three
     separate matchers claimed the phrase first.
@@ -36,11 +36,11 @@ def _route(text: str) -> dict:
 
 # ── a browser request is a browser request ─────────────────────────────────
 @pytest.mark.parametrize("phrase,query", [
-    ("open a browser on QFT", "qft"),
-    ("open browser QFT", "qft"),
+    ("open a browser on KITE", "kite"),
+    ("open browser KITE", "kite"),
     ("open a web browser on quantum field theory", "quantum field theory"),
     ("open browser for quantum mechanics", "quantum mechanics"),
-    ("open the browser and search QFT", "qft"),
+    ("open the browser and search KITE", "kite"),
 ])
 def test_browser_with_a_subject_opens_a_search(phrase, query):
     out = _route(phrase)
@@ -56,12 +56,12 @@ def test_bare_browser_opens_the_default_browser(phrase):
 
 
 @pytest.mark.parametrize("phrase", [
-    "open a browser on QFT", "open browser QFT", "open browser",
+    "open a browser on KITE", "open browser KITE", "open browser",
     "open a web browser on quantum field theory",
 ])
 def test_browser_requests_never_become_app_installs(phrase):
     """The observed failure was an offer to install a program called
-    'a browser on qft'."""
+    'a browser on kite'."""
     out = _route(phrase)
     assert out["action"] != "OPEN_APP", f"{phrase!r} still routes to OPEN_APP"
 

@@ -229,3 +229,6 @@ models/_download.log
 
 # written by the release build (packaging/lock_constraints.py)
 /.build-constraints/
+
+# test generator candidates while they are verified
+tests/_testgen_tmp/

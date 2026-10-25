@@ -36,7 +36,7 @@ def test_recalled_pins_are_not_written_back():
 
 def test_a_fact_stated_this_session_is_still_saved():
     wm = WorkingMemory()
-    wm.pin("i drive to cork on saturdays", source="user_explicit", importance=0.95)
-    wm.pin("i drive to cork on saturdays", source="user_explicit", importance=0.95)  # second hit
+    wm.pin("i drive to york on saturdays", source="user_explicit", importance=0.95)
+    wm.pin("i drive to york on saturdays", source="user_explicit", importance=0.95)  # second hit
     store = _Store()
     assert wm.flush_to_memory(store) == 1

@@ -14,7 +14,6 @@ from pathlib import Path
 
 import pytest
 
-from eli.core import hardware_profile as hp
 from eli.core.hardware_profile import HardwareProfile, recommend
 
 REPO = Path(__file__).resolve().parent.parent
@@ -33,8 +32,7 @@ def _models(size_gb: float = 4.68):
 
 
 @pytest.fixture(autouse=True)
-def _clean_env(monkeypatch):
-    monkeypatch.setattr(hp, "_llama_gpu_offload_available", lambda: True)
+def _clean_env(monkeypatch, gpu_offload_runtime):
     for var in ("ELI_VRAM_RESERVE_MB", "ELI_FORCE_GPU_LAYERS",
                 "ELI_MIN_BATCH", "ELI_TARGET_BATCH"):
         monkeypatch.delenv(var, raising=False)
@@ -75,15 +73,6 @@ def test_the_batch_overwrite_no_longer_discards_the_target():
     src = inspect.getsource(recommend)
     code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
     assert "if _env_target_batch > 0:" in code, "the target is not the first branch"
-
-
-# ── one VRAM reserve ─────────────────────────────────────────────────────────
-def test_the_dynamic_budget_uses_the_shared_reserve():
-    from eli.core import dynamic_runtime_budget as drb
-    src = inspect.getsource(drb.derive_budget)
-    code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
-    assert "- 900" not in code, "a fourth private VRAM reserve survived"
-    assert "vram_reserve_mb" in code
 
 
 # ── the installer runs off x86 ───────────────────────────────────────────────

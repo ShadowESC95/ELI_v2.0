@@ -1,6 +1,6 @@
-"""Live session report (2026-10-02): "Well we just need to get head on quantum
-dynamic encryption, send that note to MI5 will you? What is the news headline
-about cosmic dust and venus's atmosphere?" split into two sub-questions
+"""Live session report (2026-10-02): a sarcastic aside followed by a real question
+("..., post that letter to the council will you? What is the news headline
+about the comet?") split into two sub-questions
 (engine.py's multi-question splitter). The first segment is a sarcastic aside,
 not a real question, but it still passed the word-count gate, got routed
 independently, and landed on a low-confidence identity/memory-dump fallback —
@@ -15,9 +15,9 @@ from eli.kernel.engine import CognitiveEngine
 # like a question are, and "Well we just need to..." doesn't. The gate below is still
 # needed when two real questions arrive together, so it's tested with those.
 COMPOUND = (
-    "What is the quickest way to send an encrypted note to someone working at "
-    "MI5 these days? What is the news headline about cosmic dust and venus's "
-    "atmosphere?"
+    "What is the quickest way to send a recorded letter to the county council "
+    "these days? What is the news headline about the comet that passed last "
+    "week?"
 )
 
 
@@ -42,24 +42,24 @@ def test_low_confidence_segment_is_dropped_not_concatenated():
     eng = _engine_with_scripted_segments([
         {"response": "Personal memory summary from active local DB: ...",
          "confidence": 0.2},
-        {"response": "Cosmic dust is the source of Venus's atmospheric haze.",
+        {"response": "The comet passed closest to the sun last Tuesday.",
          "confidence": 0.95},
     ])
     out = eng.process(COMPOUND, stream=False)
     assert "Personal memory summary" not in out
-    assert "Cosmic dust" in out
+    assert "The comet passed" in out
 
 
 def test_both_high_confidence_segments_are_both_kept():
     eng = _engine_with_scripted_segments([
-        {"response": "Quantum encryption note not something I can send to MI5.",
+        {"response": "A recorded letter is the quickest way to reach the council.",
          "confidence": 0.9},
-        {"response": "Cosmic dust is the source of Venus's atmospheric haze.",
+        {"response": "The comet passed closest to the sun last Tuesday.",
          "confidence": 0.95},
     ])
     out = eng.process(COMPOUND, stream=False)
-    assert "Quantum encryption" in out
-    assert "Cosmic dust" in out
+    assert "recorded letter" in out
+    assert "The comet passed" in out
 
 
 def test_missing_confidence_is_not_treated_as_low():
@@ -67,12 +67,12 @@ def test_missing_confidence_is_not_treated_as_low():
     legitimate answer."""
     eng = _engine_with_scripted_segments([
         {"response": "No confidence field here."},
-        {"response": "Cosmic dust is the source of Venus's atmospheric haze.",
+        {"response": "The comet passed closest to the sun last Tuesday.",
          "confidence": 0.95},
     ])
     out = eng.process(COMPOUND, stream=False)
     assert "No confidence field here" in out
-    assert "Cosmic dust" in out
+    assert "The comet passed" in out
 
 
 def test_both_low_confidence_falls_through_to_normal_single_pass():

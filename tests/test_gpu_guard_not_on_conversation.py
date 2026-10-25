@@ -4,12 +4,12 @@ Live at 2.3.26, this fifty-word turn was routed to GPU_STATUS at 0.995 and
 answered with a VRAM dump:
 
     "The GPU is not back to full offload yet, you are on 28 layers- why are you
-     still lying? I did the matrix arse-ways, now i am back to watching the 2nd
-     movie- reloaded. My story ? Waiting for my dealer to finish work so i cn
-     get some weed, you?"
+     still lying? I read the series out of order, now i am back on the 2nd
+     book. My story ? Waiting for the kettle to boil so we can
+     get some tea, you?"
 
 Two faults compounded: a trailing "?" made the whole turn a "request" even
-though it belonged to the last clause (about weed, not the GPU), and the user
+though it belonged to the last clause (about food, not the GPU), and the user
 STATING the layer count -- a correction, they already knew it -- was read as
 asking for it. The guard runs ahead of chat.long_question_guard by design, so
 nothing downstream could rescue it.
@@ -20,9 +20,9 @@ from eli.execution.router_enhanced import route_command
 
 _CHALLENGE = (
     "The GPU is not back to full offload yet, you are on 28 layers- why are you "
-    "still lying? I did the matrix arse-ways, now i am back to watching the 2nd "
-    "movie- reloaded. My story ? Waiting for my dealer to finish work so i cn "
-    "get some weed, you?"
+    "still lying? I read the series out of order, now i am back on the 2nd "
+    "book. My story ? Waiting for the kettle to boil so we can "
+    "get some tea, you?"
 )
 
 

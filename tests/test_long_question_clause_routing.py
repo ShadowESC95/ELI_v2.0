@@ -3,7 +3,7 @@ prepass not recognising yes/no questions.
 
 **1. A request in the final clause was thrown away.** From a live session:
 
-    "Nope, i don't want to be stuck in that loop anymore than you do, broken now
+    "No, i don't want to go round in circles either, the old one is broken now
      anyway. What's the morning report?"
 
 20 words, so ``chat.long_question_guard`` fired and returned CHAT at 0.85 — the user
@@ -43,8 +43,8 @@ def _via(text):
 
 
 # ── 1. the trailing clause carries the request ──────────────────────────────
-LIVE_CASE = ("Nope, i don't want to be stuck in that loop anymore than you do, "
-             "broken now anyway. What's the morning report?")
+LIVE_CASE = ("No, i don't want to go round in circles either, "
+             "the old one is broken now anyway. What's the morning report?")
 
 
 def test_the_live_case_reaches_the_report_route():
@@ -158,7 +158,7 @@ def test_question_rx_distinguishes_asking_from_requesting():
 def test_a_report_is_not_a_repo():
     """'repo' matched inside 'report', so 'broken ... morning report' was routed as a codebase audit."""
     from eli.execution.router_enhanced import _eli_phase10_is_codebase_audit_request as audit
-    assert not audit("it is broken now anyway. What's the morning report?")
+    assert not audit("the old one is broken now anyway. What's the morning report?")
     assert not audit("is the engineer around, status please")
     assert audit("audit the repo for missing imports")
     assert audit("check the router.py for what is wrong")

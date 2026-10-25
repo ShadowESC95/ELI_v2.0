@@ -137,9 +137,9 @@ def test_forgetting_asks_first_and_deletes_only_on_confirmation(tmp_path, monkey
     assert "nothing" in ex.execute("MEMORY_FORGET", {"query": "zzzz qqqq"})["response"].lower()
 
 
-CHATTER_TURN = "Couldn't of said it better myself. I am only awake n hour go or so, too many sleeping pills last night haha"
-CORRECTING_TURN = ("Nah, sleeping pills and alcohol are the classic combo haha. No the splitting headache and watching TWD was a few "
-                   "days ago (I was going through withdrawls). Plan for today is give you a proper test flight!")
+CHATTER_TURN = "Couldn't agree more. I've only been up an hour or so, the party next door went on far too late last night haha"
+CORRECTING_TURN = ("Nah, early starts and cold tea are the classic combo haha. No the long walk and reading that book "
+                   "was a few days ago (I was at my aunt's for the weekend). Plan for today is give you a proper workout!")
 
 
 def test_a_statement_that_says_last_night_does_not_narrow_retrieval_to_last_night():
@@ -152,7 +152,7 @@ def test_a_statement_that_says_last_night_does_not_narrow_retrieval_to_last_nigh
 def test_no_the_x_was_earlier_is_a_correction_of_the_last_answer():
     from eli.cognition.correction_patterns import is_answer_correction
     assert is_answer_correction(CORRECTING_TURN)
-    assert not is_answer_correction("Nah, sleeping pills and alcohol are the classic combo haha")
+    assert not is_answer_correction("Nah, early starts and cold tea are the classic combo haha")
 
 
 def test_plain_conversation_never_reaches_the_intent_model():

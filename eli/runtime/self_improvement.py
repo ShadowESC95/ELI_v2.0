@@ -117,6 +117,10 @@ def _reload_patched_module(dotted: Optional[str]) -> bool:
         return False
 
 
+# Detail of an import check that could not run at all: not a pass, so the patch is labelled unverified.
+_NOT_RUN = "could not run: "
+
+
 def _smoke_import_module(dotted: str, timeout: float = 30.0) -> Tuple[bool, str]:
     """Import a module in an isolated subprocess; return (ok, detail).
 
@@ -126,7 +130,8 @@ def _smoke_import_module(dotted: str, timeout: float = 30.0) -> Tuple[bool, str]
     *caller* via a differential check (import before vs after the patch), so this
     deliberately does NOT special-case ModuleNotFoundError. Inability to launch
     the subprocess at all (infra error) returns ok=True so we never falsely
-    revert on our own tooling failure.
+    revert on our own tooling failure, with a detail starting _NOT_RUN so the
+    caller reports the patch unverified instead of checked.
     """
     code = (
         "import importlib, sys\n"
@@ -146,7 +151,7 @@ def _smoke_import_module(dotted: str, timeout: float = 30.0) -> Tuple[bool, str]
     except subprocess.TimeoutExpired:
         return False, f"import of {dotted} exceeded {timeout:.0f}s"
     except Exception as exc:
-        return True, f"smoke-test skipped (infra): {exc}"
+        return True, f"{_NOT_RUN}{exc}"
     if proc.returncode == 0:
         return True, ""
     tail = "\n".join((proc.stderr or "").splitlines()[-6:])
@@ -1110,8 +1115,11 @@ class SelfImprovementEngine:
         # (unresolved name, broken top-level statement, bad import). For importable `eli` modules that
         # imported cleanly before the patch, smoke-import the patched file in an isolated subprocess and
         # revert if it no longer loads.
+        import_not_run = ""
         if verify_dotted and pre_import_ok:
             imp_ok, imp_detail = _smoke_import_module(verify_dotted)
+            if imp_detail.startswith(_NOT_RUN):
+                import_not_run = imp_detail
             if not imp_ok:
                 if backup.exists():
                     shutil.copy2(str(backup), str(p))
@@ -1141,6 +1149,8 @@ class SelfImprovementEngine:
                         shutil.copy2(str(backup), str(p))
                     return {"ok": False, "applied": False, "verification": verification,
                             "message": f"Patch reverted, its tests could not run ({t_detail[:160]})"}
+        if import_not_run:
+            verification = f"unverified: the import check {import_not_run}"
 
         # Log the applied patch
         try:
@@ -1282,11 +1292,14 @@ class SelfImprovementEngine:
                 _rollback_all()
                 return {"ok": False, "applied": False,
                         "message": f"compile error in {p.name} (all reverted): {exc}"}
+        unchecked: List[str] = []
         if verify:
             for p in order:
                 d = dotted.get(p)
                 if d and pre_ok.get(p):
                     ok, detail = _smoke_import_module(d)
+                    if detail.startswith(_NOT_RUN):
+                        unchecked.append(f"{p.name} ({detail})")
                     if not ok:
                         _rollback_all()
                         return {"ok": False, "applied": False,
@@ -1301,6 +1314,7 @@ class SelfImprovementEngine:
                     reloaded.append(d)
         log.debug(f"[SELF-IMPROVE] Patch set applied atomically across {len(files)} file(s): {files}")
         return {"ok": True, "applied": True, "files": files, "reloaded": reloaded,
+                **({"verification": "unverified: import check " + "; ".join(unchecked)} if unchecked else {}),
                 "message": f"Applied {len(patches)} patch(es) across {len(files)} file(s)"}
 
     def verify_in_workspace(self, patch: dict, *, tests: Optional[List[str]] = None, reproducer: Optional[List[str]] = None,

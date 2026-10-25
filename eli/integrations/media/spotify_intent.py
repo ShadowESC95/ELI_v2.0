@@ -82,8 +82,8 @@ def album_request(query: str) -> tuple[str, str | None]:
         if len(name) >= 2:
             return name, None
     # "ARTIST album ALBUMNAME" — "album" as a mid-string separator rather than
-    # the query's last or first word, e.g. "the arctic monkeys album am" or
-    # "diabolic album liar and a thief". Tried last since the "X by Y" and
+    # the query's last or first word, e.g. "the copper tides album ox" or
+    # "veridian album salt and a stone". Tried last since the "X by Y" and
     # "X album"/"album X" forms above are both more specific and must win
     # when they also happen to match.
     mid_m = _ALBUM_MID_RE.match(q)

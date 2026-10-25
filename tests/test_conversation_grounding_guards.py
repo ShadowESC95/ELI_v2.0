@@ -4,11 +4,11 @@ All four were diagnosed from one live 2.1.95 transcript, and three of them share
 a single root cause: a bare `in` / regex-stem test asserting intent that one more
 line of checking refutes.
 
-  user> Still on loop, seson 3 now. How is your memory after all the codebse changes?
-  ELI > I'm still on loop, season 3 now. Your memory's a bit fuzzy…      <- echo
+  user> Still on the jigsaw, corner peices now. How is your memory after all the code changez?
+  ELI > I'm still on the jigsaw, corner pieces now. Your memory's a bit fuzzy…      <- echo
 
-  user> Still going, taking over the world one LOC at a time.
-        My memory is fine, it is yours that we are concerned about
+  user> Still going, one brick at a time.
+        My memory is fine, it is yours that we are worried about
   ELI > Personal memory evidence report / Durable rows: 431 / User DB: …  <- hijack
 
 and, invisibly, `[PENDING_PROPOSAL] stored: 'keep a deeper'` — a fragment of
@@ -22,7 +22,7 @@ from eli.kernel.engine import (
 )
 from eli.runtime.pending_proposal import extract_proposal
 
-USER_TURN = "Still on loop, seson 3 now. How is your memory after all the codebse changes?"
+USER_TURN = "Still on the jigsaw, corner peices now. How is your memory after all the code changez?"
 
 
 def _stream(text, size=20):
@@ -32,8 +32,8 @@ def _stream(text, size=20):
 
 # ── 1. the router must not answer a remark with a database report ───────────
 @pytest.mark.parametrize("text", [
-    "Still going, taking over the world one LOC at a time. "
-    "My memory is fine, it is yours that we are cincerned about",
+    "Still going, one brick at a time. "
+    "My memory is fine, it is yours that we are wories about",
     "my memory is fine",
     "my memory is great these days",
     "haha my memory is personal business",
@@ -55,20 +55,20 @@ def test_genuine_memory_requests_still_route(text):
 def test_asking_test_is_word_boundary_anchored():
     """"it is yourS" contains the substring "is your" — the un-anchored version
     passed the exact sentence it was written to reject."""
-    assert not _pm_asks_something("it is yours that we are concerned about")
+    assert not _pm_asks_something("it is yours that we are worried about")
     assert _pm_asks_something("is your memory ok")
 
 
 # ── 2. ELI must not open with the user's own sentence ───────────────────────
 def test_the_live_echo_is_detected():
-    echo = ("I'm still on loop, season 3 now. Your memory's a bit fuzzy—"
+    echo = ("I'm still on the jigsaw, corner pieces now. Your memory's a bit fuzzy—"
             "last time you asked about it.")
     assert _opens_by_echoing(echo, [USER_TURN])
 
 
 @pytest.mark.parametrize("reply", [
     "My memory is holding up fine after all those changes — 431 durable rows.",
-    "Season 3 is where it gets good. Memory-wise I'm steady.",
+    "Corner pieces are where it gets good. Memory-wise I'm steady.",
     "Sure.",
 ])
 def test_genuine_replies_are_not_flagged(reply):
@@ -77,7 +77,7 @@ def test_genuine_replies_are_not_flagged(reply):
 
 def test_quoting_the_user_later_in_the_reply_is_fine():
     """Only the OPENING is judged: referring back mid-answer is legitimate."""
-    reply = ("Memory's fine. You said 'Still on loop, seson 3 now' — "
+    reply = ("Memory's fine. You said 'Still on the jigsaw, corner peices now' — "
              "that's still in the log.")
     assert not _opens_by_echoing(reply, [USER_TURN])
 
@@ -85,7 +85,7 @@ def test_quoting_the_user_later_in_the_reply_is_fine():
 def test_short_echo_is_caught_even_though_it_never_fills_the_buffer():
     """An echoed opening is usually short, so it is the end-of-stream flush that
     has to catch it, not the 200-char head check."""
-    echo = "I'm still on loop, season 3 now. Your memory's a bit fuzzy."
+    echo = "I'm still on the jigsaw, corner pieces now. Your memory's a bit fuzzy."
     with pytest.raises(_RepeatDetected):
         list(_stream_holding_back_repeats(
             _stream(echo), [], allow_retry=True, echo_sources=[USER_TURN]))
@@ -101,11 +101,11 @@ def test_a_genuine_reply_streams_through_untouched():
 def test_final_attempt_salvages_rather_than_serving_the_echo():
     """No retry left: drop the echoed sentence, serve the rest. An empty turn
     would be worse than the echo."""
-    echo = "I'm still on loop, season 3 now. Your memory's a bit fuzzy."
+    echo = "I'm still on the jigsaw, corner pieces now. Your memory's a bit fuzzy."
     out = "".join(_stream_holding_back_repeats(
         _stream(echo), [], allow_retry=False, salvage=True, echo_sources=[USER_TURN]))
     assert out.strip(), "salvage produced an empty turn"
-    assert "still on loop" not in out.lower()
+    assert "still on the jigsaw" not in out.lower()
 
 
 def test_echo_of_a_PAST_user_turn_is_caught():
@@ -114,8 +114,8 @@ def test_echo_of_a_PAST_user_turn_is_caught():
     with a user message from a session three hours earlier, verbatim down to both
     typos. Past turns reach the model through recalled memory, so they belong in
     the guard's corpus too."""
-    stale_user_turn = ("Still on loop, seson 3 now. "
-                       "How is your memory after all the codebse changes?")
+    stale_user_turn = ("Still on the jigsaw, corner peices now. "
+                       "How is your memory after all the code changez?")
     current = "just checking in on you"
 
     assert not _opens_by_echoing(stale_user_turn, [current]), \
@@ -125,7 +125,7 @@ def test_echo_of_a_PAST_user_turn_is_caught():
 
 def test_widened_corpus_does_not_flag_a_normal_reply():
     history = ["hey", "just checking in on you", "who am i ?",
-               "Still on loop, seson 3 now. How is your memory?"]
+               "Still on the jigsaw, corner peices now. How is your memory?"]
     reply = "I'm in the Simulation Lab, poking at branch trees. What's your move?"
     assert not _opens_by_echoing(reply, history)
 
@@ -139,7 +139,7 @@ def test_source_cap_covers_a_full_recent_window():
 
 def test_guard_is_inert_without_echo_sources():
     """Existing callers pass no echo_sources and must be unaffected."""
-    echo = "I'm still on loop, season 3 now. Your memory's a bit fuzzy."
+    echo = "I'm still on the jigsaw, corner pieces now. Your memory's a bit fuzzy."
     out = "".join(_stream_holding_back_repeats(_stream(echo), [], allow_retry=True))
     assert out == echo
 

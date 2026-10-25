@@ -20,9 +20,9 @@ def engine(tmp_path, monkeypatch):
     mem = Memory(db_path=tmp_path / "user.sqlite3")
     now = time.time()
     c = sqlite3.connect(mem.db_path)
-    for days, text in [(3, "i am watching dune again, the second one"),
-                       (9, "just started the new arrival film"),
-                       (33, "i am watching severance, not much of a deal")]:
+    for days, text in [(3, "i am watching the hobbit again, the second one"),
+                       (9, "just started the new paddington film"),
+                       (33, "i am watching bluey, not much of a deal")]:
         ts = now - days * DAY
         c.execute("insert into conversation_turns (session_id, user_id, role, content, ts, timestamp) "
                   "values ('s', 'old-id', 'user', ?, ?, ?)", (text, ts, ts))
@@ -41,14 +41,14 @@ def test_only_the_period_asked_about_is_returned(engine):
     q = "What movies or series was i watching the past week or two?"
     kw, sem, tr = orchestrator_retrieve(engine, q, q, _plan(q))
     said = format_period_log(tr, q) + " ".join(h["text"] for h in kw + sem)
-    assert "dune" in said and "arrival" in said
-    assert "severance" not in said
+    assert "hobbit" in said and "paddington" in said
+    assert "bluey" not in said
 
 
 def test_without_a_period_nothing_is_filtered_by_time(engine):
-    q = "what do you know about severance"
+    q = "what do you know about bluey"
     kw, sem, tr = orchestrator_retrieve(engine, q, q, {"need_keyword": True, "need_semantic": True})
-    assert "severance" in " ".join(h["text"] for h in kw + sem)
+    assert "bluey" in " ".join(h["text"] for h in kw + sem)
 
 
 def test_every_hit_exposes_its_date_to_ranking_and_display(engine):
@@ -64,7 +64,7 @@ def test_every_hit_exposes_its_date_to_ranking_and_display(engine):
 def test_turns_from_earlier_user_ids_are_still_found(engine):
     q = "what was i watching the past week"
     _, sem, _ = orchestrator_retrieve(engine, q, q, _plan(q))
-    assert any("dune" in h["text"] for h in sem)
+    assert any("hobbit" in h["text"] for h in sem)
 
 
 def test_the_date_filter_finds_memories_the_topic_search_cannot(engine):
@@ -108,3 +108,51 @@ def test_a_deeper_pass_is_not_served_the_shallower_cached_result(engine):
     shallow = retrieve_for_turn(_Mem(), "same question", session_id="s", semantic_limit=4, rerank=False, enable_hop2=False)
     deep = retrieve_for_turn(_Mem(), "same question", session_id="s", semantic_limit=12, rerank=False, enable_hop2=False)
     assert len(shallow.semantic_hits) == 4 and len(deep.semantic_hits) == 12
+
+
+@pytest.mark.parametrize("asked, topic", [
+    ("Are you serious? When did i drive to the coast, because it was weeks ago!", "the coast"),
+    ("give me the exact day that i went to the coast..", "the coast"),
+    ("when did we talk about the garden", "the garden"),
+    ("give me the timestamp then", ""),
+    ("I am looking for timestamps of that interaction Eli!", ""),
+])
+def test_when_did_i_mention_x_goes_to_the_conversation_log(asked, topic):
+    """Asked when they told ELI about a trip, the user got a time made up from memories whose dates had
+    moved, then "the timestamps aren't recorded"; "give me the timestamp then" went to GET_TIME."""
+    from eli.execution.router_enhanced import route
+    r = route(asked)
+    assert r["action"] == "MESSAGE_TIME_QUERY" and r["args"]["topic"] == topic
+
+
+@pytest.mark.parametrize("asked", ["what time is it", "when did I last restart", "add timestamps to my log",
+                                   "Hey Eli, what is the story?"])
+def test_other_time_questions_are_not_taken_for_it(asked):
+    from eli.execution.router_enhanced import route
+    assert route(asked)["action"] != "MESSAGE_TIME_QUERY"
+
+
+def test_the_answer_lists_every_message_by_day_and_follows_up_on_the_last_topic(tmp_path, monkeypatch):
+    monkeypatch.setenv("ELI_TEST_MODE", "1")
+    monkeypatch.setattr("eli.memory.vector_store.get_vector_store", lambda: None)
+    mem = Memory(db_path=tmp_path / "user.sqlite3")
+    monkeypatch.setattr("eli.memory.get_memory", lambda *a, **k: mem)
+    first = time.mktime((2026, 9, 10, 10, 5, 0, 0, 0, -1))
+    rows = [(first, "we're heading to the coast this weekend. leaving early"),
+            (first + 46800, "back from the coast tomorrow"),
+            (first + DAY + 300, "i am driving to the shop"),
+            (first + 40 * DAY, "When did i drive to the coast?"),
+            (first + 40 * DAY + 60, "give me the timestamp then")]
+    c = sqlite3.connect(mem.db_path)
+    for ts, text in rows:
+        c.execute("insert into conversation_turns (session_id, user_id, role, content, ts, timestamp) "
+                  "values ('s', 'u', 'user', ?, ?, ?)", (text, ts, ts))
+    c.commit()
+    c.close()
+    from eli.execution.executor_enhanced import execute
+    # every word must appear: "driving to the shop" is not about the trip
+    assert "can't find" in execute("MESSAGE_TIME_QUERY", {"topic": "drive to the coast"})["content"]
+    for topic in ("the coast", ""):         # "" is "give me the timestamp then": the last topic asked about
+        out = execute("MESSAGE_TIME_QUERY", {"topic": topic})["content"]
+        assert "coast” in 2 messages" in out and "Thu 10 Sep 2026 at 10:05" in out and "10:05, 23:05" in out, out
+        assert "shop" not in out and "When did" not in out

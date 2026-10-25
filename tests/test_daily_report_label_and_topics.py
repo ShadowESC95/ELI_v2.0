@@ -62,16 +62,17 @@ def test_the_daemon_greeting_uses_the_same_boundaries():
 
 
 # ── topics ──────────────────────────────────────────────────────────────────
-# The real user messages from the session that produced the bad topic line.
+# Messages shaped like the session that produced the bad topic line: greetings and filler around
+# two real subjects.
 SESSION = [
-    "Hey buddy, how's the ould head doing, now?",
-    "don't sell yourself short, you have a much better memory than 3 hours. "
+    "Hey pal, how are you doing, now?",
+    "you have a better memory than you let on. "
     "You remember me ? yourself?",
-    "Running just on cpu? I do not think that is entirely accurate, no ?",
+    "Running only on cpu? I do not think that is quite right, no ?",
     'wht does this mean "init: embeddings required but some input tokens were '
     'not marked as outputs -> overriding " ?',
-    "All good my end. Sorry i just clered your chat, do you remember wht we were discussing?",
-    "Fuck it we will start fresh again. You have a morning/daily report for me?",
+    "All fine here. Sorry i just clered the chat, do you remember wht we were discussing?",
+    "Right, let's start fresh. You have a morning/daily report for me?",
     "Good afternoon, Eli. How are you, today?",
     "wht does this mean about the embeddings and tokens?",
 ]

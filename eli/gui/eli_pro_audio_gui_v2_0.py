@@ -12299,7 +12299,7 @@ class EliMainWindow(QMainWindow):
 
     def _render_rich_reply(self, start, color: str) -> None:
         """A finished reply from `start` to the end, with its Markdown and formulas laid out
-        (the reply streams in as plain text: "**bold**" and "$\\Xi$" showed as typed)."""
+        (the reply streams in as plain text: "**bold**" and "$\\phi$" showed as typed)."""
         if start is None:
             return
         try:

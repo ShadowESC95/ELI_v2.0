@@ -8,7 +8,6 @@ This module is kept as the stable GUI/self-upgrade entry point.
 """
 
 import json
-import re
 import time
 from pathlib import Path
 
@@ -23,41 +22,6 @@ def _eli_root() -> Path:
 
 
 ELI_ROOT = _eli_root()
-
-
-def extract_executor_actions(executor_path: Path) -> list:
-    """Extract all action names handled by the executor."""
-    src = executor_path.read_text(encoding="utf-8", errors="replace")
-    # Match: if a == "ACTION_NAME":  or  if a in ("A", "B"):
-    single = re.findall(r'if a == ["\'](\w+)["\']', src)
-    multi  = re.findall(r'if a in \(([^)]+)\)', src)
-    actions = set(single)
-    for group in multi:
-        for name in re.findall(r'["\'](\w+)["\']', group):
-            actions.add(name)
-    return sorted(actions)
-
-
-def extract_plugin_actions(plugins_dir: Path) -> dict:
-    """Extract actions from each plugin's plugin.py."""
-    plugin_actions = {}
-    if not plugins_dir.exists():
-        return plugin_actions
-    for plugin_dir in plugins_dir.iterdir():
-        plugin_py = plugin_dir / "plugin.py"
-        if not plugin_py.exists():
-            continue
-        try:
-            src = plugin_py.read_text(encoding="utf-8", errors="replace")
-            actions = re.findall(r'["\'](\w+)["\']', src)
-            # Filter to uppercase action-like names
-            plugin_actions[plugin_dir.name] = [
-                a for a in actions
-                if a.isupper() and len(a) > 3 and "_" in a or a.isupper()
-            ][:20]
-        except Exception:
-            pass
-    return plugin_actions
 
 
 def _plugin_permission_rollup(plugin_id: str) -> str:
@@ -103,54 +67,77 @@ def _manifest_matches(path, manifest) -> bool:
            {k: v for k, v in manifest.items() if k != "generated_at"}
 
 
-def _build_capability_entry(action: str, meta: dict) -> dict:
-    from eli.runtime.evidence_ledger import predict_success, last_verified_success
-    from eli.runtime import capability_state as _cs
+def _missing_modules(needs) -> list:
+    import importlib.util
+    out = []
+    for name in needs or ():
+        try:
+            if importlib.util.find_spec(name) is None:
+                out.append(name)
+        except (ImportError, ValueError):
+            out.append(name)
+    return out
 
-    # Discovery is re-run fresh every call (AST scan), but the state dimensions
-    # below are incremental — never wiped, only ever added to as real evidence
-    # comes in. touch_discovered is a no-op after the first time this action
-    # was ever seen.
-    _cs.touch_discovered(action)
 
-    plugin = meta.get("plugin")
-    permission_state = _plugin_permission_rollup(plugin) if plugin else "not_applicable"
-    # Permission decisions can change between runs (the operator can grant or
-    # revoke at any time) and are cheap to recompute, unlike probe-sourced
-    # dimensions which need an actual probe to run — so this one is refreshed
-    # unconditionally every call, not left to go stale.
-    _cs.upsert_state(action, permission_state=permission_state)
-
-    state = _cs.get_state(action) or {}
-    # Not proven broken along any dimension capability_state actually tracks —
-    # "missing evidence" (None) counts as not-proven-broken, same as today's
-    # unconditional True, but for a real reason instead of a hardcoded literal.
-    # Already-collected evidence that DOES say broken can flip this to False;
-    # nothing currently probes these dimensions for a real action yet (see
-    # capability_state.py's probe-adapter notes), so in practice this stays
-    # True until something does — the mechanism is real even though nothing
-    # feeds it negative evidence yet.
-    active = not any(state.get(k) is False for k in
-                     ("reachable", "device_available", "dependency_ready"))
-
+def manifest_entry(action: str, meta: dict) -> dict:
+    """What the code says about one action, for the shipped manifest: where it lives, how it is reached,
+    the third-party modules its own branch imports. Whether it has worked here, and whether what it needs
+    is present, belong to this machine and are kept in its capability state (capability_status). The
+    manifest used to carry both: every action read "active", and a test run's results were written into
+    the tracked file as verified successes."""
     return {
         "action": action,
         "source": meta.get("source", "unknown"),
-        "active": active,
-        "health": predict_success(action),
-        "last_verified_success": last_verified_success(action),
-        "plugin": plugin,
+        "plugin": meta.get("plugin"),
         "routable": bool(meta.get("routable")),
         "in_dispatch": bool(meta.get("in_dispatch")),
         "in_supported_list": bool(meta.get("in_supported_list")),
-        "discovered_at": state.get("discovered_at"),
-        "dependency_ready": state.get("dependency_ready"),
-        "permission_state": permission_state,
-        "reachable": state.get("reachable"),
-        "device_available": state.get("device_available"),
-        "last_probe_at": state.get("last_probe_at"),
-        "evidence_state": state.get("evidence_state"),
+        "needs": sorted(meta.get("needs") or []),
     }
+
+
+def _build_capability_entry(action: str, meta: dict) -> dict:
+    """The manifest entry, and this machine's state for the action brought up to date."""
+    from eli.runtime import capability_state as _cs
+
+    entry = manifest_entry(action, meta)
+    _cs.touch_discovered(action)
+    # Permission decisions can change between runs and are cheap to recompute: refreshed every call.
+    fields = {"permission_state": _plugin_permission_rollup(entry["plugin"]) if entry["plugin"] else "not_applicable"}
+    if entry["needs"]:
+        # measured here: a module the branch imports is installed or it is not
+        fields["dependency_ready"] = not _missing_modules(entry["needs"])
+    _cs.upsert_state(action, **fields)
+    return entry
+
+
+def capability_status(actions=None) -> dict:
+    """This install's view of its capabilities. "verified": it has worked here (a real success in the
+    evidence ledger); "unavailable": something it needs is missing here, it was found unreachable, or
+    its plugin is denied; "untested": neither yet. The manifest only says what the code can do."""
+    from eli.runtime import capability_state as _cs
+    from eli.runtime.evidence_ledger import verified_actions
+    if actions is None:
+        try:
+            actions = [c["action"] for c in json.loads((ELI_ROOT / "capability_manifest.json").read_text(
+                encoding="utf-8")).get("capabilities", [])]
+        except Exception:
+            actions = []
+    worked = verified_actions()
+    states = _cs.all_states()
+    view = {}
+    for action in actions:
+        st = states.get(str(action).upper()) or {}
+        blocked = (any(st.get(k) is False for k in ("dependency_ready", "reachable", "device_available"))
+                   or st.get("permission_state") == "denied")
+        view[action] = {
+            "status": "unavailable" if blocked else ("verified" if action in worked else "untested"),
+            "verified_at": worked.get(action),
+            **{k: st.get(k) for k in ("dependency_ready", "permission_state", "reachable", "device_available",
+                                      "evidence_state", "discovered_at", "last_probe_at")},
+        }
+    counts = {k: sum(1 for v in view.values() if v["status"] == k) for k in ("verified", "unavailable", "untested")}
+    return {"discovered": len(view), **counts, "actions": view}
 
 
 def update_capability_manifest():

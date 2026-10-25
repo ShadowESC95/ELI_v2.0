@@ -29,7 +29,7 @@ def test_personal_empty_memory_fails_closed():
 def test_personal_with_verified_lines_allows_generation():
     ctx = (
         "Verified stored memories (1 found — ground user-specific claims ONLY from these rows):\n"
-        "  - [memory_id=1 status=verified prov=user_verbatim] User name is Jay"
+        "  - [memory_id=1 status=verified prov=user_verbatim] User name is Alex"
     )
     assert count_verified_memory_lines(ctx) == 1
     out = evaluate_chat_grounding_gate(

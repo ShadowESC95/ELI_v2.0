@@ -295,7 +295,7 @@ to be answered from.
 - **Search** (`search`): FTS5 BM25 over the question's content words and cosine over the
   vectors, fused by reciprocal rank. A question that names a document stays inside that
   document: two words of its title, or one when the question is about a document or a pack
-  ("the harbour pack"). One title word said in passing no longer pulls the document in; "that file" means the one read last; a file attached to the
+  ("the garden guide"). One title word said in passing no longer pulls the document in; "that file" means the one read last; a file attached to the
   message is stored before the search and the search stays inside it. Asked nothing about
   documents (`strict`), a passage is offered only at cosine >= 0.70, or >= 0.64 with at least
   half the question's content words in it (thresholds measured on the nomic embedder, where

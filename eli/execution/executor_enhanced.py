@@ -2185,6 +2185,46 @@ def _maybe_background_codegen(action, args):
         return None
 
 
+def _when_said_answer(a: str, topic: str) -> Dict[str, Any]:
+    """When the user wrote about `topic`: every one of their messages that mentions it, by day, from
+    the conversation log. An empty topic means the exchange just had ("give me the timestamps of that
+    interaction"): what the user's recent messages were about. Questions asking when are left out,
+    or the answer would list them."""
+    import time as _t
+    from eli.cognition.evidence_format import age_label, row_time
+    from eli.execution.router_enhanced import when_said_topic
+    from eli.memory import get_memory
+    from eli.runtime.conversation_thread import last_subject
+    mem = get_memory()
+    if not topic:
+        recent = []
+        for turn in mem.get_recent_conversation(role="user") or []:
+            asked = when_said_topic(turn.get("content"))
+            if asked != "":
+                recent.append({**turn, "content": asked} if asked else turn)
+        topic = last_subject(recent)
+    if not topic:
+        msg = "Which conversation do you mean? Tell me what it was about and I'll give you the times."
+        return {"ok": True, "action": a, "needs_input": True, "content": msg, "response": msg}
+    hits = [(row_time(h), h) for h in mem.search_conversations(topic, limit=None, match_all=True) or []
+            if when_said_topic(h.get("content")) is None]
+    hits = sorted((when, h) for when, h in hits if when)
+    if not hits:
+        msg = f"I can't find a message of yours that mentions “{topic}” in our conversation log."
+        return {"ok": True, "action": a, "content": msg, "response": msg, "evidence_source": "conversation_turns"}
+    days: Dict[str, List[float]] = {}
+    for when, _h in hits:
+        days.setdefault(_t.strftime("%Y-%m-%d", _t.localtime(when)), []).append(when)
+    lines = [f"- {_t.strftime('%a %d %b %Y', _t.localtime(times[0]))} ({age_label(times[0])}): "
+             + ", ".join(_t.strftime("%H:%M", _t.localtime(x)) for x in times) for _day, times in sorted(days.items())]
+    first_when, first = hits[0]
+    opening = re.split(r"(?<=[.!?])\s", str(first.get("content") or "").strip(), maxsplit=1)[0]
+    msg = (f"You wrote about “{topic}” in {len(hits)} message{'s' if len(hits) != 1 else ''}, first on "
+           f"{_t.strftime('%a %d %b %Y at %H:%M', _t.localtime(first_when))} (“{opening}”):\n" + "\n".join(lines)
+           + "\nThese are when you wrote about it; the day of the event itself is only here if you said it.")
+    return {"ok": True, "action": a, "content": msg, "response": msg, "evidence_source": "conversation_turns"}
+
+
 def _record_tool_execution(action: str, args: Any, result: Any) -> None:
     """Log this action in the evidence ledger: what ran, whether it worked, and the
     argument names only (values can be private)."""
@@ -2192,12 +2232,8 @@ def _record_tool_execution(action: str, args: Any, result: Any) -> None:
         return
     if not action or action.upper() == "CHAT":
         return
-    from eli.runtime.evidence_ledger import predict_success, record_event
-    ok = bool(result.get("ok", True)) if isinstance(result, dict) else True
-    # "I opened the search but nothing played" came back ok: four failed Spotify plays in a row
-    # left PLAY_MEDIA recorded at 95% success.
-    if isinstance(result, dict) and result.get("played") is False:
-        ok = False
+    from eli.runtime.evidence_ledger import execution_outcome, predict_success, record_event
+    outcome = execution_outcome(result)
     predicted = predict_success(action)
     text = ""
     if isinstance(result, dict):
@@ -2208,15 +2244,21 @@ def _record_tool_execution(action: str, args: Any, result: Any) -> None:
         action=action,
         subject=",".join(sorted(str(k) for k in (args or {}))) if isinstance(args, dict) else "",
         content=text[:200],
-        payload={"ok": ok, **({"predicted": predicted} if predicted is not None else {})},
-        outcome="ok" if ok else "failed",
-        severity="info" if ok else "warning",
+        payload={"ok": outcome == "ok", **({"predicted": predicted} if predicted is not None else {})},
+        outcome=outcome,
+        severity="warning" if outcome == "failed" else "info",
     )
-    try:
-        from eli.runtime.lessons import observe_action
-        observe_action(action, ok)
-    except Exception:
-        log.debug("lesson observation skipped", exc_info=True)
+    if outcome in ("ok", "failed"):
+        try:
+            from eli.runtime.lessons import observe_action
+            observe_action(action, outcome == "ok")
+        except Exception:
+            log.debug("lesson observation skipped", exc_info=True)
+        try:
+            from eli.runtime.capability_state import observe_run
+            observe_run(action, outcome, f"{result.get('error') or ''} {text}" if isinstance(result, dict) else text)
+        except Exception:
+            log.debug("capability state not updated", exc_info=True)
 
 
 def _maybe_background_code_work(action, args):
@@ -5970,107 +6012,47 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- HELP / LIST_CAPABILITIES ----
     if a in ("HELP", "LIST_CAPABILITIES"):
-        # Try live introspection first (awareness module)
-        public_actions = []
-        capabilities = []
-        fallback_msg = None
-
+        # What the code has, and what this machine has shown of it: a bare count read as that many
+        # working capabilities, when most had never been run here.
+        caps: Dict[str, Any] = {}
         try:
             from eli.runtime.capability_sync import CapabilitySync
-            sync = CapabilitySync()
-            caps = sync.discover()
-            capabilities = sorted(caps.keys())
-            public_actions = [
-                {"action": k, "sources": [v.get("source", "")], "aliases": [],
-                 "plugins": [v["plugin"]] if v.get("plugin") else []}
-                for k, v in caps.items()
-            ]
-        except Exception as e:
-            fallback_msg = f"Live introspection failed: {e}"
+            caps = CapabilitySync().discover()
+        except Exception:
+            log.debug("capability discovery failed", exc_info=True)
+        status: Dict[str, Any] = {}
+        try:
+            from eli.tools.registry.capability_updater import capability_status
+            status = capability_status(sorted(caps) or None)
+        except Exception:
+            log.debug("capability status unavailable", exc_info=True)
+        here = status.get("actions") or {}
+        capabilities = sorted(caps) or sorted(here) or sorted(set(SUPPORTED_ACTIONS))
 
-        # Fallback: generated report file
-        if not capabilities:
-            repo_root = Path(__file__).resolve().parents[2]
-            report_path = repo_root / "capability_public_report.generated.json"
-            if report_path.exists():
-                try:
-                    report = json.loads(report_path.read_text(encoding="utf-8"))
-                    public_actions = report.get("public_actions", []) or []
-                    capabilities = [
-                        item.get("action")
-                        for item in public_actions
-                        if isinstance(item, dict) and item.get("action")
-                    ]
-                except Exception as e:
-                    fallback_msg = f"Generated report unreadable: {e}"
-            else:
-                fallback_msg = "Generated capability report not found."
+        def _why_not(st: Dict[str, Any]) -> str:
+            if st.get("dependency_ready") is False:
+                return "something it needs is not installed"
+            if st.get("permission_state") == "denied":
+                return "its plugin is not allowed"
+            return "its device was not found"
 
-        # Fallback: SUPPORTED_ACTIONS
-        if not capabilities:
-            capabilities = sorted(set(SUPPORTED_ACTIONS))
-            if not fallback_msg:
-                fallback_msg = "Using SUPPORTED_ACTIONS fallback."
-
-        if a == "HELP":
-            lines = ["ELI Capabilities:"]
-            if public_actions:
-                for item in public_actions:
-                    if not isinstance(item, dict):
-                        continue
-                    name = str(item.get("action") or "").strip()
-                    if not name:
-                        continue
-                    aliases = item.get("aliases") or []
-                    plugins = item.get("plugins") or []
-                    sources = item.get("sources") or []
-                    extras = []
-                    if aliases:
-                        extras.append("aliases=" + ", ".join(str(x) for x in aliases))
-                    if plugins:
-                        extras.append("plugins=" + ", ".join(str(x) for x in plugins))
-                    if sources:
-                        extras.append("sources=" + ", ".join(str(x) for x in sources))
-                    if extras:
-                        lines.append(f"  {name} ({'; '.join(extras)})")
-                    else:
-                        lines.append(f"  {name}")
-                if fallback_msg:
-                    lines.append("")
-                    lines.append(f"[note] {fallback_msg}")
-            else:
-                for cap in capabilities:
-                    lines.append(f"  {cap}")
-                if fallback_msg:
-                    lines.append("")
-                    lines.append(f"[note] {fallback_msg}")
-
-            txt = "\n".join(lines)
-            return {
-                "ok": True,
-                "action": a,
-                "count": len(capabilities),
-                "capabilities": capabilities,
-                "capability_report": public_actions,
-                "content": txt,
-                "response": txt,
-            }
-
-        lines = [f"Loaded {len(capabilities)} public capabilities:"]
-        for cap in capabilities:
-            lines.append(f"- {cap}")
-        msg = "\n".join(lines)
-        if fallback_msg:
-            msg += f"\n\n[note] {fallback_msg}"
-        return {
-            "ok": True,
-            "action": a,
-            "count": len(capabilities),
-            "capabilities": capabilities,
-            "capability_report": public_actions,
-            "content": msg,
-            "response": msg,
-        }
+        public_actions, lines = [], []
+        for name in capabilities:
+            meta, st = caps.get(name) or {}, here.get(name) or {}
+            state = st.get("status", "untested")
+            public_actions.append({"action": name, "sources": [meta.get("source", "")],
+                                   "plugins": [meta["plugin"]] if meta.get("plugin") else [], "status": state})
+            notes = {"verified": ["has worked here"], "unavailable": ["cannot run here: " + _why_not(st)]}.get(state, [])
+            if a == "HELP" and meta.get("plugin"):
+                notes.append(f"plugin {meta['plugin']}")
+            lines.append(f"- {name}" + (f" ({'; '.join(notes)})" if notes else ""))
+        _worked = int(status.get("verified", 0))
+        head = (f"{len(capabilities)} actions in my code; {_worked} {'has' if _worked == 1 else 'have'} worked on this machine"
+                + (f", {status['unavailable']} cannot run here" if status.get("unavailable") else "")
+                + ", the rest have not been tried here yet.")
+        msg = head + "\n" + "\n".join(lines)
+        return {"ok": True, "action": a, "count": len(capabilities), "capabilities": capabilities,
+                "capability_report": public_actions, "content": msg, "response": msg}
 
     # ---- OPEN_FILE_SYSTEM VALIDATION GUARD ----
     if a == "OPEN_FILE_SYSTEM":
@@ -6561,6 +6543,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # ---- MESSAGE_TIME_QUERY ----
     # Grounded answer to "what time did I first/last send a message (today)" —
     # read from the conversation_turns log, never the wall clock.
+    if a == "MESSAGE_TIME_QUERY" and (args or {}).get("topic") is not None:
+        try:
+            return _when_said_answer(a, str((args or {}).get("topic") or "").strip())
+        except Exception as e:
+            return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
     if a == "MESSAGE_TIME_QUERY":
         import sqlite3 as _sq3
         from datetime import datetime as _dt
@@ -7230,9 +7217,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # larger runs (SCHEDULE_TASK kind=testgen).
     if a == "GENERATE_TESTS":
         try:
-            from eli.runtime.test_generator import run_testgen
+            from eli.runtime import test_generator as TG
             limit = int(args.get("limit") or 3)
-            res = run_testgen(limit=max(1, min(limit, 10)))
+            res = TG.run_testgen(limit=max(1, min(limit, 10)))
             if not res.get("ok"):
                 msg = f"Test generation unavailable: {res.get('reason')}"
                 return {"ok": False, "action": a, "content": msg, "response": msg}
@@ -7241,7 +7228,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                    f"test(s) (rejected {res.get('rejected', 0)} of {res.get('targets', 0)} "
                    f"targets — those failed verification). "
                    + ("Accepted: " + ", ".join(files) if files else "Nothing accepted this run.")
-                   + " Review them in tests/generated/ (manifest: _manifest.json).")
+                   + f" They are drafts in {TG.GEN_DIR} (manifest: _manifest.json); read one before moving it into tests/.")
             return {"ok": True, "action": a, "content": msg, "response": msg, "result": res}
         except Exception as e:
             msg = f"GENERATE_TESTS failed: {e}"
@@ -8818,6 +8805,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             _si_result = {
                 "ok": True,
                 "action": a,
+                "effect": cycle.get("effect"),
                 "content": msg,
                 "response": msg,
                 "result": cycle,
@@ -8863,7 +8851,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             )
             msg = str(cycle.get("content") or cycle.get("summary") or "Patch cycle complete.")
             fire_maintenance_world_event(cycle)
-            return {"ok": True, "action": a, "content": msg, "response": msg, "result": cycle}
+            return {"ok": True, "action": a, "effect": cycle.get("effect"), "content": msg, "response": msg,
+                    "result": cycle}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
@@ -9110,7 +9099,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "3. Propose specific falsification criteria, experiments, or observational tests.\n"
                     "4. Check dimensional consistency of every equation.\n"
                     "5. Flag hidden assumptions, missing derivation steps, or scope overreach.\n"
-                    "6. Cross-reference against established physics (GR, QFT, thermodynamics, etc.).\n"
+                    "6. Cross-reference against established physics (GR, KITE, thermodynamics, etc.).\n"
                     "7. Verdict per claim: TESTABLE | UNFALSIFIABLE | ALREADY FALSIFIED | VALID.\n\n"
                     "Conclude with: (a) overall falsifiability assessment, (b) strongest predictions, "
                     "(c) fatal flaws if any, (d) recommended next steps for validation.\n"
@@ -11291,8 +11280,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     res = fetcher.fetch(sources=None, topic=topic)
                     results = fetcher.get_recent(limit=12, category=topic)
                     if not results:
-                        msg = f"Fetched {res['fetched']} articles but none stored. Check network."
-                        return {'ok': True, 'action': a, 'content': msg, 'response': msg}
+                        msg = f"No news to show: {res['fetched']} articles fetched and none stored. Check the network."
+                        return {'ok': False, 'action': a, 'content': msg, 'response': msg}
                 msg = _format_articles(results, f"Recent headlines ({len(results)}):")
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg}
 
@@ -11340,7 +11329,10 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         msg = _format_articles(recent2, header)
                     msg = msg or f"Fetched {_fetched} articles — ask 'morning report' for a full digest."
                 elif not msg:
-                    msg = f"Fetched {_fetched} articles."
+                    # nothing fetched and nothing stored: "Fetched 0 articles." came back ok and was
+                    # recorded as a working news fetch
+                    msg = "No news to show: nothing was fetched (offline, or no source answered) and none is stored."
+                    return {'ok': False, 'action': a, 'content': msg, 'response': msg}
                 if errs:
                     msg += f"\n\n⚠ Some sources failed: {'; '.join(errs[:2])[:200]}"
                 return {'ok': True, 'action': a, 'content': msg, 'response': msg}
@@ -11396,17 +11388,22 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             # without psutil: the load average (Linux, macOS) or Windows' own processor load
             import subprocess as _sp
             from eli.utils import platform_compat as _pc_cpu
+            # psutil is a required dependency: a reading that can't be taken is a failure, not an answer
+            msg = ""
             try:
                 if _pc_cpu.WINDOWS:
                     out = _sp.check_output(["powershell", "-NoProfile", "-Command",
                                             "(Get-CimInstance Win32_Processor | Measure-Object -Property "
                                             "LoadPercentage -Average).Average"], text=True, timeout=15).strip()
-                    msg = f"CPU usage: {out}%" if out else "CPU info unavailable (install psutil)"
+                    msg = f"CPU usage: {out}%" if out else ""
                 else:
                     one, five, _ = os.getloadavg()
                     msg = f"CPU load average: {one:.2f} (1 min), {five:.2f} (5 min) over {os.cpu_count()} cores"
             except Exception:
-                msg = "CPU info unavailable (install psutil: pip install psutil)"
+                log.debug("CPU load fallback failed", exc_info=True)
+            if not msg:
+                msg = "CPU info unavailable: psutil, which ELI needs, isn't installed (pip install psutil)."
+                return {"ok": False, "action": a, "error": "psutil missing", "content": msg, "response": msg}
             return {"ok": True, "action": a, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
@@ -11424,8 +11421,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "used_gb": round(used_gb, 2), "total_gb": round(total_gb, 2),
                     "content": msg, "response": msg}
         except ImportError:
-            msg = "RAM info unavailable (install psutil: pip install psutil)"
-            return {"ok": True, "action": a, "content": msg, "response": msg}
+            msg = "RAM info unavailable: psutil, which ELI needs, isn't installed (pip install psutil)."
+            return {"ok": False, "action": a, "error": "psutil missing", "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
@@ -11457,8 +11454,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": True, "action": a, "content": msg, "response": msg,
                     "cpu_percent": cpu_pct, "ram_percent": vm.percent, "disk_percent": disk.percent}
         except ImportError:
-            msg = "System stats unavailable (install psutil: pip install psutil)"
-            return {"ok": True, "action": a, "content": msg, "response": msg}
+            msg = "System stats unavailable: psutil, which ELI needs, isn't installed (pip install psutil)."
+            return {"ok": False, "action": a, "error": "psutil missing", "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
@@ -12212,7 +12209,7 @@ def _action_post_dispatch(
     retired in phaseBW2.
     """
     try:
-        from eli.runtime.evidence_ledger import record_event as _eli_record_event
+        from eli.runtime.evidence_ledger import execution_outcome, record_event as _eli_record_event
         # Whose turn ran it, so a period log on a shared install shows each user their own.
         try:
             from eli.kernel import request_context as _rc_who
@@ -12234,8 +12231,8 @@ def _action_post_dispatch(
             ),
             content=str((result or {}).get("content") or (result or {}).get("response") or (result or {}).get("error") or ""),
             payload={"args": args or {}, "result": result or {}},
-            severity="info" if bool((result or {}).get("ok", True)) else "error",
-            outcome="ok" if bool((result or {}).get("ok", True)) else "failed",
+            severity="error" if execution_outcome(result) == "failed" else "info",
+            outcome=execution_outcome(result),
             reusable=True,
             user_id=_who,
             session_id=_sess,
@@ -13925,8 +13922,10 @@ def _eli_second_execute(action, args=None, *pargs, **kwargs):
         try:
             from eli.runtime.reasoning_status import current_reasoning_mode_text
             msg = current_reasoning_mode_text()
-        except Exception:
-            msg = "Current reasoning mode: unavailable"
+        except Exception as _rm_err:
+            msg = "Couldn't read the current reasoning mode."
+            return {"ok": False, "action": "REASONING_MODE_STATUS", "error": str(_rm_err), "content": msg,
+                    "response": msg}
         return {"ok": True, "action": "REASONING_MODE_STATUS", "content": msg, "response": msg}
 
     if action_name == "TILE_WINDOWS":

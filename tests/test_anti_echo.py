@@ -30,7 +30,7 @@ def test_echo_wrapped_in_new_words_detected():
 
 def test_genuine_reply_is_not_flagged():
     assert not is_echo_of_recent(
-        "Nice one — Rick and Morty's a solid breakfast pairing. Which season are you on?", PREV)
+        "Nice one — Bluey's a solid breakfast pairing. Which season are you on?", PREV)
     assert not is_echo_of_recent(
         "Good, thanks — how's the morning going so far? Anything you want to dig into?", PREV)
 

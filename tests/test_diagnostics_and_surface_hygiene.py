@@ -14,7 +14,7 @@ about itself, and leaked its own internals into what the user reads:
     asked for no action at all.
   * A mistyped "ply" was answered with a raw JSON blob on screen:
     {"event": "input_fragment_guard", "heard": "ply", ...}
-  * "i am not saying close files (the name of the app) ... this is the issue"
+  * "i do not mean close files (the app's name) ... that is the problem"
     was routed to EXAMINE_CODE at 0.96 and answered with lint warnings about
     unused imports, because an issue-word and a file-word merely had to
     co-occur somewhere in the sentence.
@@ -100,8 +100,8 @@ def test_fragment_guard_still_records_the_diagnostic():
 
 # ── a complaint about ELI is not a request to audit ELI ────────────────────
 @pytest.mark.parametrize("phrase", [
-    "i am not saying close files (the name of the app/spftware) because you "
-    "will just shut my pc down, but there you go, this is the issue",
+    "i do not mean close files (the app's name, the softwre) because you "
+    "would just close everything, but anyway, that is the issue",
     "the issue is that spotify keeps repeating the same file",
     "that is the problem with your code of conduct",
     "what's the issue with the code of conduct file",

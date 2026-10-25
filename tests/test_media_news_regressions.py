@@ -184,35 +184,35 @@ def test_browser_play_button_routes_to_browser_media_control():
 
 
 def test_play_specific_music_defaults_to_spotify_search_target():
-    result = route("play soldiers logic by diabolic")
+    result = route("play silver lanterns by veridian")
     assert result["action"] == "PLAY_MEDIA"
-    assert result["args"]["query"] == "soldiers logic by diabolic"
+    assert result["args"]["query"] == "silver lanterns by veridian"
     assert result["args"]["target"] == "spotify"
 
 
 def test_play_specific_explicit_spotify_target_is_preserved():
-    result = route("play soldiers logic by diabolic on spotify")
+    result = route("play silver lanterns by veridian on spotify")
     assert result["action"] == "PLAY_MEDIA"
-    assert result["args"]["query"] == "soldiers logic by diabolic"
+    assert result["args"]["query"] == "silver lanterns by veridian"
     assert result["args"]["target"] == "spotify"
 
 
 def test_play_specific_explicit_youtube_target_is_preserved():
-    result = route("play soldiers logic by diabolic on youtube")
+    result = route("play silver lanterns by veridian on youtube")
     assert result["action"] == "PLAY_MEDIA"
-    assert result["args"]["query"] == "soldiers logic by diabolic"
+    assert result["args"]["query"] == "silver lanterns by veridian"
     assert result["args"]["target"] == "youtube"
 
 
 def test_play_specific_video_provider_targets_are_normalized():
-    netflix = route("play Oppenheimer, on netflix")
-    prime = route("play Oppenheimer on prime")
+    netflix = route("play Coco, on netflix")
+    prime = route("play Coco on prime")
 
     assert netflix["action"] == "PLAY_MEDIA"
-    assert netflix["args"]["query"].lower() == "oppenheimer"
+    assert netflix["args"]["query"].lower() == "coco"
     assert netflix["args"]["target"] == "netflix"
     assert prime["action"] == "PLAY_MEDIA"
-    assert prime["args"]["query"].lower() == "oppenheimer"
+    assert prime["args"]["query"].lower() == "coco"
     assert prime["args"]["target"] == "primevideo"
 
 
@@ -221,14 +221,14 @@ def test_play_specific_music_provider_targets_are_normalized():
     "play X on TARGET" contract entirely — an explicit "on apple music" request fell
     through to a generic "X by Y" match and got silently misrouted to Spotify instead
     of the platform the user actually named."""
-    apple = route("play soldiers logic by diabolic on apple music")
-    tidal = route("play soldiers logic by diabolic on tidal")
-    deezer = route("play soldiers logic by diabolic on deezer")
-    soundcloud = route("play soldiers logic by diabolic on soundcloud")
-    amazon_music = route("play soldiers logic by diabolic on amazon music")
+    apple = route("play silver lanterns by veridian on apple music")
+    tidal = route("play silver lanterns by veridian on tidal")
+    deezer = route("play silver lanterns by veridian on deezer")
+    soundcloud = route("play silver lanterns by veridian on soundcloud")
+    amazon_music = route("play silver lanterns by veridian on amazon music")
 
     assert apple["action"] == "PLAY_MEDIA"
-    assert apple["args"]["query"].lower() == "soldiers logic by diabolic"
+    assert apple["args"]["query"].lower() == "silver lanterns by veridian"
     assert apple["args"]["target"] == "applemusic"
 
     assert tidal["action"] == "PLAY_MEDIA"
@@ -245,7 +245,7 @@ def test_play_specific_music_provider_targets_are_normalized():
 
     # "amazon prime"/"amazon" alone must still mean Prime Video, unaffected by the
     # new "amazon music" alias.
-    amazon_prime = route("play Oppenheimer on amazon prime")
+    amazon_prime = route("play Coco on amazon prime")
     assert amazon_prime["args"]["target"] == "primevideo"
 
 
@@ -261,14 +261,14 @@ def test_play_specific_streaming_target_never_falls_through_to_youtube(monkeypat
 
     from eli.execution.executor_enhanced import play_specific
 
-    for target, query in (("netflix", "rick and morty"), ("primevideo", "severance")):
+    for target, query in (("netflix", "bluey"), ("primevideo", "severance")):
         result = play_specific(query, target)
         assert "YouTube" not in (result.get("response") or "")
         assert result.get("target") == target
         assert query in (result.get("response") or "")
 
     assert calls == [
-        ("netflix", "rick and morty", False),
+        ("netflix", "bluey", False),
         ("primevideo", "severance", False),
     ]
 
@@ -807,16 +807,16 @@ def test_gguf_stream_keeps_global_llm_lock_during_iteration():
 
 
 def test_go_deeper_after_a_briefing_is_not_taken_by_the_generic_follow_up_rule():
-    """'go deeper on the AI and Caine prize' after a briefing went to chat through the router's
+    """'go deeper on the sea wall vote' after a briefing went to chat through the router's
     'go deeper' rule (0.92 confidence) and the model, without the story, called it invented."""
     import time
     from eli.kernel.engine import _try_news_topic_deepen_reroute
 
-    user = "go deeper on the AI and Caine prize"
+    user = "go deeper on the sea wall vote"
     action, args, intent = _try_news_topic_deepen_reroute(
         user, "CHAT", {"message": user},
         {"action": "CHAT", "confidence": 0.92, "meta": {"matched_by": "eli.followup.identity_depth"}},
         {"action": "NEWS_FETCH", "ts": time.time()},
     )
     assert action == "NEWS_FETCH"
-    assert "Caine prize" in (args.get("topic") or "")
+    assert "sea wall" in (args.get("topic") or "")

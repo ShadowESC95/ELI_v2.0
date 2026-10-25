@@ -13,7 +13,7 @@ def test_story_and_you_good_is_phatic():
 
 
 def test_model_dispute_routes_runtime_status():
-    r = route("What the fuck, no you are not, you are GLM!!!!!!!!")
+    r = route("Hang on, no you are not, you are Mistral!!!!")
     assert r["action"] == "RUNTIME_STATUS"
     assert r["meta"]["matched_by"] == "router.model_identity_dispute"
 
@@ -41,8 +41,8 @@ def test_codebase_health_routes_runtime_audit():
 
 def test_codebase_health_long_preamble_routes_via_trailing_clause():
     msg = (
-        "just another house call and check-in with you bud, still trying to "
-        "iron out the kinks. How is the codebase?"
+        "just popping in to check on you pal, still tidying up "
+        "the loose ends. How is the codebase?"
     )
     r = route(msg)
     assert r["action"] == "RUNTIME_AUDIT"
@@ -61,17 +61,17 @@ def test_runtime_recheck_not_biographical_dispute():
 
 
 def test_model_dispute_not_web_factual():
-    q = "What the fuck, no you are not, you are GLM!!!!!!!!"
+    q = "Hang on, no you are not, you are Mistral!!!!"
     assert G.classify_factual(q) == (False, "none")
     assert is_model_identity_dispute(q)
 
 
 # A complaint that says "you are not ..." is not the user disputing which model is loaded.
 #
-# Live: "...but you are not properly searching for fucking songs i asked for!!" matched the
+# Live: "...but you are not properly searching for the tracks i asked for!!" matched the
 # model-identity dispute and got the runtime status dump instead of an answer.
-SESSION = ("Why the fuck did you not open spotify when i asked you to, but you can apparently just play one "
-           "fucking song/resume on spotify, but you are not properly searching for fucking songs i asked for!!")
+SESSION = ("Why the hell did you not open spotify when i asked, yet you can somehow play one "
+           "track/resume on spotify, but you are not properly searching for the tracks i asked for!!")
 
 
 def test_complaints_about_what_eli_did_are_not_model_disputes():

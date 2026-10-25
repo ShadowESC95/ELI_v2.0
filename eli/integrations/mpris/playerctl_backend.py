@@ -422,7 +422,7 @@ def _playerctl(cmd: str, player: Optional[str] = None, extra: Optional[List[str]
         return _err(f"No media player{suffix} is currently running")
 
     # A player takes a moment to change track; read straight away, "next" named the track it
-    # had just left ("⏭ Next track — spotify (Eminem — Trouble)", live 2.5.6).
+    # had just left ("⏭ Next track — spotify (Orlo — Trouble)", live 2.5.6).
     skips = cmd in ("next", "previous")
     before = _track_key(p) if skips else ""
     argv = ["playerctl", "-p", p, cmd] + (extra or [])

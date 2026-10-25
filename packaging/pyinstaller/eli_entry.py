@@ -172,10 +172,10 @@ def _selftest() -> int:
         # must be in the bundle), python-docx writes the document where Qt cannot.
         import tempfile
         from eli.runtime.rich_document import formula_png, write_docx
-        if not formula_png(r"\int \Xi\, d^4x", size_pt=10.0, dpi=96.0, color="#000000").startswith(b"\x89PNG"):
+        if not formula_png(r"\int \phi\, d^4x", size_pt=10.0, dpi=96.0, color="#000000").startswith(b"\x89PNG"):
             raise RuntimeError("formulas cannot be typeset (matplotlib mathtext or its fonts missing from the bundle)")
         with tempfile.TemporaryDirectory() as _doc_dir:
-            write_docx("Field $\\Xi$", Path(_doc_dir) / "selftest.docx")
+            write_docx("Field $\\phi$", Path(_doc_dir) / "selftest.docx")
         import llama_cpp                              # noqa: F401  native inference libs load
         # llama_cpp must import from REAL files on disk (module_collection_mode
         # "py") or the GPU pack cannot shadow it via sys.path.

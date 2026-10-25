@@ -1,62 +1,32 @@
 """Live engine integration suite — a REAL local model, REAL turns.
 
-The normal suite mocks llama_cpp/torch/faiss (for speed), so the genuine
-inference + cognition pipeline is never executed there. This lane loads an actual
-small GGUF through the full `CognitiveEngine` and drives real turns end-to-end
-(router -> agent bus -> grounding/escalation -> GGUF broker -> governed output).
+This lane loads the smallest chat GGUF in models/ through the full `CognitiveEngine` and drives
+real turns end-to-end (router -> agent bus -> grounding/escalation -> GGUF broker -> governed
+output), with its background loops running as they do in the app. It skips where no model is
+present (CI).
 
 Discipline (no fine-tuning): model output is non-deterministic, so every
 assertion is STRUCTURAL — routed action, non-empty response, result shape,
 subsystem behaviour — never an exact model string. We assert what the *code*
 guarantees, not what the model happened to say.
 
-Run on the clean lane (real deps + coverage), pointing at a small model:
-
-    ELI_MODEL_PATH=models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf \
-    ELI_ARTIFACTS_DIR=/tmp/eli_live \
-    .venv/bin/python -m pytest tests/test_engine_integration_live.py --noconftest \
-        --cov=eli --cov-report=term
-
-Skips gracefully under the mocked full suite (llama_cpp is a MagicMock there).
+A particular model: ELI_MODEL_PATH=models/<file>.gguf .venv/bin/python -m pytest tests/test_engine_integration_live.py
 """
 from __future__ import annotations
 
-import glob
 import os
 
 import pytest
 
-# Under the mocked full suite, llama_cpp/torch are MagicMocks — a real load is
-# impossible, so skip cleanly (never break the main run).
-try:
-    import llama_cpp as _llama
-    if type(_llama).__name__ == "MagicMock":
-        raise RuntimeError("llama_cpp mocked")
-except Exception as _e:  # pragma: no cover
-    pytest.skip(f"live model lane unavailable ({_e}); run with --noconftest",
-                allow_module_level=True)
-
-
-def _pick_small_model() -> str | None:
-    """ELI_MODEL_PATH if set, else the smallest chat-capable GGUF present."""
-    env = os.environ.get("ELI_MODEL_PATH")
-    if env and os.path.exists(env):
-        return env
-    cands = []
-    for g in glob.glob("models/**/*.gguf", recursive=True):
-        base = os.path.basename(g).lower()
-        if any(x in base for x in ("mmproj", "embed", "nomic", "clip")):
-            continue  # not a chat model
-        cands.append((os.path.getsize(g), g))
-    cands.sort()
-    return cands[0][1] if cands else None
+pytest.importorskip("llama_cpp")
 
 
 @pytest.fixture(scope="module")
-def engine():
-    model = _pick_small_model()
+def engine(small_chat_model):
+    model = small_chat_model
     if not model:
         pytest.skip("no small chat GGUF available for the live lane")
+    _env_before = {k: os.environ.get(k) for k in ("ELI_GGUF_MODEL_PATH", "ELI_MODEL_PATH")}
     # ELI_GGUF_MODEL_PATH is the STRONGEST override and is honoured before the
     # loader's own PYTEST_CURRENT_TEST guard (gguf_inference.get_model_path); a bare
     # ELI_MODEL_PATH is checked after that guard, so it never loads under pytest.
@@ -86,6 +56,12 @@ def engine():
         eng.shutdown()
     finally:
         eng_mod._eli_test_mode = _orig_tm
+        # the rest of the run must not find this model and load it
+        for k, v in _env_before.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
 
 
 def _text(result) -> str:

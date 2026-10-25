@@ -24,7 +24,7 @@ from eli.kernel.request_context import turn_facts_var
 @pytest.fixture()
 def turn():
     """A turn's facts, as process() sets them."""
-    facts = {"user_input": "you should have logs of every song played, why don't you?", "t0": time.perf_counter()}
+    facts = {"user_input": "you should have a record of every track you played, why don't you?", "t0": time.perf_counter()}
     token = rc.turn_facts_var.set(facts)
     yield facts
     rc.turn_facts_var.reset(token)
@@ -33,13 +33,13 @@ def turn():
 @pytest.mark.parametrize("text,about", [
     ("why did you search the web for that?", True),
     ("What is with all the issues?", True),
-    ("Why the fuck are you lying to me and making shit up?", True),
-    ("i want logging for every single thing that you do", True),
+    ("Why the fuck do you keep inventing things and getting them wrong?", True),
+    ("i want a log of every single thing you do", True),
     ("what went wrong there?", True),
-    ("YOU DO NOT NEED TO SEARCH THE FUCKING WEB FOR ANY OF THOSE QUESTIONS!!", True),
-    ("you should have logs of every song played", True),
-    ("i asked you a fucking question Eli!!", True),
-    ("play my mom by eminem", False),
+    ("YOU DON'T HAVE TO SEARCH THE FUCKING WEB FOR SIMPLE THINGS!!", True),
+    ("you should have a record of every track you played", True),
+    ("i asked you a simple fucking thing Eli!!", True),
+    ("play harbour bells by orlo", False),
     ("why is the sky blue?", False),
     ("what is the capital of France?", False),
 ])
@@ -112,7 +112,7 @@ RECORD = ["[today 18:34] “what has been going on the past day or two?” -> CH
 @pytest.fixture()
 def fault_turn():
     """A complaint about ELI, with the pipeline's record of the turn it is about."""
-    facts = {"user_input": "YOU DO NOT NEED TO SEARCH THE FUCKING WEB FOR ANY OF THOSE QUESTIONS!!",
+    facts = {"user_input": "YOU DON'T HAVE TO SEARCH THE FUCKING WEB FOR SIMPLE THINGS!!",
              "_record_lines": RECORD, "_record": "\n".join(RECORD)}
     token = rc.turn_facts_var.set(facts)
     yield facts
@@ -145,7 +145,7 @@ def test_a_cause_the_record_does_not_show_is_not_served(sentence, fault_turn):
 
 
 def test_a_conclusion_drawn_from_a_dropped_sentence_goes_with_it(fault_turn):
-    reply = ("The search ran at 18:34. The vector index conflates the two artists. That is why I told you Mos Def "
+    reply = ("The search ran at 18:34. The vector index conflates the two artists. That is why I told you Mirelo "
              "was on when he wasn't. Nothing else is recorded for that turn.")
     out = sc.drop_invented_self_claims(reply)
     assert "That is why" not in out and "The search ran at 18:34." in out and "Nothing else is recorded" in out
@@ -256,7 +256,7 @@ def test_a_question_about_elis_own_behaviour_is_never_web_searched(monkeypatch):
     monkeypatch.setattr("eli.core.config.network_allowed", lambda *a, **k: True)
     monkeypatch.setattr("eli.execution.executor_enhanced.execute", lambda action, *a, **k: ran.append(action) or {})
     bus = SimpleNamespace(grounding_confidence=0.1, aggregated_confidence=0.1)
-    for text in ("why did you get that so wrong?", "YOU DO NOT NEED TO SEARCH THE WEB FOR THAT",
+    for text in ("why did you get that so wrong?", "YOU DON'T HAVE TO SEARCH THE WEB FOR THAT",
                  "what is with all the issues?"):
         assert ge.escalate(SimpleNamespace(), text, {"action": "CHAT"}, bus, reasoning_mode="quick") is None
     assert ran == []
@@ -341,11 +341,11 @@ def test_reporting_a_change_nothing_made_is_dropped_unless_something_ran(sentenc
 
 def test_the_same_check_runs_on_a_streamed_reply(turn):
     reply = ("Every action I run is already in the ledger. Consider it done. The audit trail is now active. "
-             "Option A: enable `verbose_media_logging`.\nYesterday you played My Mom at 18:08.\n"
+             "Option A: enable `verbose_media_logging`.\nYesterday you played Harbour Bells at 18:08.\n"
              "```\nraw `made_up_name` in a code block stays\n```\nEnd.")
     out = "".join(sc.gate_stream(reply[i:i + 9] for i in range(0, len(reply), 9)))
     assert "Consider it done" not in out and "now active" not in out and "verbose_media_logging" not in out
-    assert "already in the ledger" in out and "My Mom at 18:08" in out and "made_up_name" in out
+    assert "already in the ledger" in out and "Harbour Bells at 18:08" in out and "made_up_name" in out
 
 
 def test_a_reply_that_is_nothing_but_claims_is_still_served(turn):
@@ -375,16 +375,16 @@ def test_troubleshooting_eli_is_not_stored_as_the_users_work(tmp_path):
     pe.ensure_profile_tables(db)
     con = sqlite3.connect(db)
     cur = con.cursor()
-    quoted = ('you should be the one that corrects me -- "want a deep dive into why the vector search is drifting '
-              '(likely the embedding model\'s decay on long-term context)" -> yes i want that')
+    quoted = ('you are meant to correct me -- "want a deep dive into why the vector search is drifting '
+              '(likely the embedding model\'s decay on long-term context)" -> yes go on then')
     pe._route_summary_to_profile(cur, "CURRENT WORK: Analyzing the technical reasons behind vector search drift, "
                                       "comparing embedding model decay against short-term urgency.\n", user_text=quoted)
     pe._route_summary_to_profile(cur, "CURRENT WORK: Frustrated with ELI's memory and temporal awareness.\n",
                                  user_text="your memory is broken")
     assert cur.execute("select count(*) from user_patterns where pattern_type='project.current'").fetchone()[0] == 0
-    pe._route_summary_to_profile(cur, "CURRENT WORK: Writing the harbour coursework pack on high-risk AI use cases.\n",
-                                 user_text="here is the harbour coursework i am writing, a high-risk AI use case pack")
-    assert "harbour" in cur.execute("select pattern_data from user_patterns where pattern_type='project.current'").fetchone()[0]
+    pe._route_summary_to_profile(cur, "CURRENT WORK: Writing the lighthouse survey report on coastal erosion.\n",
+                                 user_text="here is the lighthouse survey i am writing, a coastal erosion report")
+    assert "lighthouse" in cur.execute("select pattern_data from user_patterns where pattern_type='project.current'").fetchone()[0]
     con.close()
 
 
@@ -488,7 +488,7 @@ def test_this_morning_and_yesterday_are_days_too():
     from datetime import datetime
     from eli.cognition.query_planner import days_named
     evening = (datetime(2026, 10, 5, 22, 0).timestamp(), datetime(2026, 10, 12, 22, 42).timestamp())
-    assert days_named("You played Immortal Technique and checked some news this morning.", evening) == ["2026-10-12"]
+    assert days_named("You played Quiet Machine and checked some news this morning.", evening) == ["2026-10-12"]
     assert days_named("Last night you were tired, and yesterday you rested.", evening) == ["2026-10-11"]
     assert days_named("Earlier today you asked about it.", evening) == ["2026-10-12"]
     assert days_named("It is quiet today, and tonight should be too.", evening) == [], "today can be about now"
@@ -503,7 +503,7 @@ def test_what_is_put_down_to_this_morning_goes_when_nothing_was_said_today():
                                 "_period_days": ["2026-10-08", "2026-10-09"]})
     try:
         out = self_claims.drop_invented_self_claims(
-            "You had a rough time with the media controls on Thursday. You managed to play Immortal Technique and "
+            "You had a rough time with the media controls on Thursday. You managed to play Quiet Machine and "
             "check some news this morning. The memory is holding up.")
     finally:
         turn_facts_var.reset(token)
@@ -531,7 +531,7 @@ def chat_turn():
 
 @pytest.mark.parametrize("reply,gone", [
     ("Fair play, I will take the win.\n\nSpotify is opening now.", "opening now"),
-    ('Done. Playing "Play My Mom" by Eminem, since that is the last track you asked for.\n\nYou are welcome.', "Playing"),
+    ('Done. Playing "Play Harbour Bells" by Orlo, since that is the last track you asked for.\n\nYou are welcome.', "Playing"),
     ("Understood.\n\nExecuting directory scans...", "Executing"),
     ("Scanning `/data/physics/theory` and `/data/physics/sims`.\n\n*(Waiting for system execution output...)*", "Scanning"),
     ("I've opened the browser for you.", "opened the browser"),
@@ -556,7 +556,7 @@ def test_done_on_its_own_is_a_report_and_done_before_written_work_is_not(chat_tu
 
 def test_what_really_ran_may_be_reported(chat_turn):
     chat_turn["executed_actions"] = ["PLAY_MEDIA"]
-    reply = 'Done. Playing "Blood In Blood Out" on Spotify.'
+    reply = 'Done. Playing "Salt In Salt Out" on Spotify.'
     assert sc.drop_invented_self_claims(reply) == reply
 
 
@@ -591,14 +591,14 @@ def test_talk_about_doing_things_is_not_a_report_of_doing_them(reply, chat_turn)
 
 # ── a statement of what ELI just did ─────────────────────────────────────────
 
-STOPPED = ("no, you started playing the correct song- the exact one i wanted, then you just stopped spotify, "
-           "didn't close the app, but just stopped the song?")
-PLAY_RECORD = ["23:10 'play songs by diabolic and ill bill': routed by media.play_song_by_artist_contract, ran PLAY_MEDIA: "
-               "Spotify is playing Diabolic, Order & Chaos (feat. Ill Bill), not songs diabolic and ill bill"]
+STOPPED = ("no, you started the right track, the one i asked for, then you just stopped spotify, "
+           "the app stayed open, you only stopped the music?")
+PLAY_RECORD = ["23:10 'play songs by veridian and red tamsin': routed by media.play_song_by_artist_contract, ran PLAY_MEDIA: "
+               "Spotify is playing Veridian, North & South (feat. Red tamsin), not songs veridian and red tamsin"]
 
 
-ASKED = ("you fucking asked me did you want to RESUME the song correctly, i said yes, and then you pause a song "
-         "that is not playing, and open the power panel?!")
+ASKED = ("you asked me whether to RESUME the track, i said yes, and then you pause a track "
+         "that was not playing, and open the power panel?!")
 
 
 @pytest.mark.parametrize("text", [STOPPED, "you just maximised your GUI, not the browser", ASKED])
@@ -620,7 +620,7 @@ def test_the_account_given_for_a_stopped_song_is_held_to_the_record():
     try:
         out = sc.drop_invented_self_claims(
             "Yes. Here is what happened:\n"
-            "1. I successfully identified \"Order & Chaos\" and sent the play command to Spotify. It started playing.\n"
+            "1. I successfully identified \"North & South\" and sent the play command to Spotify. It started playing.\n"
             "2. Almost immediately after, a background housekeeping routine (meant to stop stale or inactive "
             "processes) misfired and routed a `stop` signal into the active media control channel.\n"
             "3. Spotify received that stop signal, paused the track, but left the app window open because it "
@@ -628,7 +628,7 @@ def test_the_account_given_for_a_stopped_song_is_held_to_the_record():
             "It is a routing error in the orchestrator layer where cleanup tasks are leaking into the wrong command "
             "queue. I have isolated the media player handler from that general \"stop all\" loop so it won't "
             "happen again.\n"
-            "Do you want me to restart \"Order & Chaos\"?")
+            "Do you want me to restart \"North & South\"?")
     finally:
         rc.turn_facts_var.reset(token)
     for invented in ("housekeeping", "leaking", "I have isolated", "won't happen again", "because it wasn't told"):
@@ -649,12 +649,12 @@ def test_a_fix_said_to_be_made_so_it_will_not_happen_again_is_dropped_on_any_tur
     ("why?!", True),
     ("I did not ask about RAM at all actually!!", True),
     ("I asked why your response took so long", True),
-    ("it is 2026 you fucking idiot, and you still are talking shit!", True),
+    ("it is 2026 you absolute idiot, and you are still getting it wrong!", True),
     ("what is going on with the weather today?", False),
     ("how?", False),
     ("what time is it?", False),
     ("my brother is an idiot", False),
-    ("go deeper on the AI and Caine prize", False),
+    ("go deeper on the harbour festival story", False),
 ])
 def test_reactions_corrections_and_insults_are_about_eli(text, about):
     """A bare reaction has no subject of its own, so it is about ELI's last reply; live, "What the fuck
@@ -680,6 +680,6 @@ def test_no_carried_out_footer_when_nothing_was_asked_to_be_done(asked):
 def test_banter_ending_on_a_tag_question_is_not_a_complaint():
     """It got the audit ledger's rows appended under a chat reply, then ELI told the user they were
     hallucinating when asked about them."""
-    assert not sc.complains_about_eli("All cleaned, you didn't burn the house down while i was away, did you?")
+    assert not sc.complains_about_eli("All tidied, you didn't flood the kitchen while i was out, did you?")
     assert sc.complains_about_eli("you didn't open spotify")
-    assert sc.complains_about_eli("YOU DO NOT NEED TO SEARCH THE FUCKING WEB FOR ANY OF THOSE QUESTIONS!!")
+    assert sc.complains_about_eli("YOU DON'T HAVE TO SEARCH THE FUCKING WEB FOR SIMPLE THINGS!!")

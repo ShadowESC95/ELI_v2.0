@@ -1,6 +1,6 @@
 """Formulas typeset and Markdown laid out without a TeX install: chat, task view and saved documents.
 
-The folder summary arrived as raw "$\\Xi$" and "$$ S = \\int ... $$", and a document needed pandoc and LuaLaTeX,
+The folder summary arrived as raw "$\\phi$" and "$$ S = \\int ... $$", and a document needed pandoc and LuaLaTeX,
 which few machines have."""
 import struct
 
@@ -12,7 +12,7 @@ from eli.runtime import rich_document as rd
 needs_png = pytest.mark.skipif(not rd.formula_png("x", size_pt=10, dpi=96, color="#000000"),
                                reason="Pillow is mocked here; run with --noconftest")
 
-ACTION = r"S = \int d^4x\sqrt{-g} \left[ \frac{1}{2}f(\Xi)R - \frac{1}{4}F_{\mu\nu}F^{\mu\nu} \right]"
+ACTION = r"S = \int d^4x\sqrt{-g} \left[ \frac{1}{2}R - \frac{1}{2}\partial_\mu\phi\,\partial^\mu\phi - V(\phi) \right]"
 
 
 def _font():
@@ -28,7 +28,7 @@ def _html(md):
 
 @needs_png
 def test_inline_and_display_formulas_become_images_at_the_text_size():
-    body, images = _html(f"The field $\\Xi$ couples to $\\chi$.\n\n$${ACTION}$$")
+    body, images = _html(f"The field $\\phi$ couples to $\\psi$.\n\n$${ACTION}$$")
     assert body.count('<img src="eli-formula:') == 3 and len(images) == 3
     assert '<p align="center"><img' in body
     for png in images.values():
@@ -45,7 +45,7 @@ def test_prices_and_code_stay_as_written():
 
 @needs_png
 def test_an_aligned_block_is_drawn_row_by_row_and_box_reads():
-    body, images = _html(r"$$\begin{aligned} G_{\mu\nu} &= 8\pi G T_{\mu\nu} \\ \Box\Xi &= V'(\Xi) \end{aligned}$$")
+    body, images = _html(r"$$\begin{aligned} G_{\mu\nu} &= 8\pi G T_{\mu\nu} \\ \Box\phi &= V'(\phi) \end{aligned}$$")
     assert len(images) == 2 and "<br>" in body and "<code>" not in body
 
 
@@ -63,7 +63,7 @@ def test_markdown_is_laid_out():
 def test_docx_carries_formulas_as_pictures(tmp_path):
     from docx import Document
     from docx.oxml.ns import qn
-    path = rd.write_docx(f"# Summary\n\nWith $\\Xi$:\n\n$${ACTION}$$\n\n- one item", tmp_path / "s.docx", title="T")
+    path = rd.write_docx(f"# Summary\n\nWith $\\phi$:\n\n$${ACTION}$$\n\n- one item", tmp_path / "s.docx", title="T")
     doc = Document(str(path))
     assert len(doc.inline_shapes) == 2
     assert any(p.text == "Summary" for p in doc.paragraphs)

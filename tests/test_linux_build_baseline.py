@@ -119,8 +119,7 @@ def test_every_file_a_workflow_runs_is_in_the_repo(workflow):
 
 def test_extras_resolve_torch_from_the_cpu_index_too():
     # an extra pinning its own torch version would take the CUDA build of it from PyPI
-    script = next(run for _name, run in _run_steps(WORKFLOWS / "release.yml")
-                  if "pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu" in run)
+    script = (ROOT / "packaging" / "ci_linux_deps.sh").read_text(encoding="utf-8")
     cpu_index = script.index("export PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu")
     assert cpu_index < script.index('pip install ".[$(echo $REQUIRED_EXTRAS')
     assert cpu_index < script.index("for extra in $OPTIONAL_EXTRAS")

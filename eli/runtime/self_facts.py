@@ -65,16 +65,18 @@ def _database_paths() -> List[str]:
 
 
 def _capability_count() -> str:
+    """How many actions the code has, and how many of them have actually worked on this machine.
+    The bare count read as that many working capabilities; most have never been run here."""
     try:
-        from eli.core.paths import project_root
-        manifest = project_root() / "capability_manifest.json"
-        if manifest.is_file():
-            data = json.loads(manifest.read_text(encoding="utf-8"))
-            total = data.get("total") or len(data.get("capabilities") or [])
-            if total:
-                return str(int(total))
+        from eli.tools.registry.capability_updater import capability_status
+        st = capability_status()
+        if st["discovered"]:
+            out = f"{st['discovered']} in the code, {st['verified']} {'has' if st['verified'] == 1 else 'have'} worked on this machine"
+            if st["unavailable"]:
+                out += f", {st['unavailable']} cannot run here"
+            return out
     except Exception:
-        log.debug("capability manifest read failed", exc_info=True)
+        log.debug("capability status read failed", exc_info=True)
     return ""
 
 
@@ -313,7 +315,7 @@ def render_self_facts_block(include_canon: bool = True) -> str:
     for db in facts.get("databases", []):
         lines.append(f"  {db}")
     if facts.get("capabilities"):
-        lines.append(f"  capabilities in the manifest: {facts['capabilities']}")
+        lines.append(f"  capabilities: {facts['capabilities']}")
     if facts.get("network"):
         # Stated explicitly because its absence was read as an absence of the
         # capability: given only "local, private assistant", the model concluded it

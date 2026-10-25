@@ -21,11 +21,11 @@ def _linked_object(state, goal_id):
 
 
 def test_task_opened_creates_a_linked_workbench_object(engine):
-    state = engine.ingest_event(WorldEvent("task_opened", "test", "Task opened: RAIMS project",
-                                            {"goal_id": "g1", "title": "RAIMS project"}))
+    state = engine.ingest_event(WorldEvent("task_opened", "test", "Task opened: ORBIT project",
+                                            {"goal_id": "g1", "title": "ORBIT project"}))
     obj = _linked_object(state, "g1")
     assert obj is not None
-    assert obj.name == "RAIMS project"
+    assert obj.name == "ORBIT project"
     assert obj.room == "workshop"
     assert obj.retired is False
 

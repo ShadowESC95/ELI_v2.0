@@ -21,3 +21,21 @@ def test_a_media_player_call_cannot_reach_a_real_player():
     except FileNotFoundError:
         return
     assert "spotify" not in out.stdout
+
+
+def test_sound_cannot_reach_a_real_device():
+    """The real audio libraries load in tests now; nothing a test plays or sets can reach the speakers."""
+    try:
+        import sounddevice as sd
+        outputs = [d["name"] for d in sd.query_devices() if d["max_output_channels"] > 0]
+    except ImportError:
+        outputs = []
+    except Exception as e:  # PortAudioError: no sound system reachable at all, as on a CI runner
+        assert type(e).__name__ == "PortAudioError", e
+        outputs = []
+    assert all(name in ("default", "null") for name in outputs), outputs
+    try:
+        mixer = subprocess.run(["amixer", "scontrols"], capture_output=True, text=True, timeout=10)
+    except FileNotFoundError:
+        return
+    assert "Master" not in mixer.stdout, "a test could change this machine's volume"

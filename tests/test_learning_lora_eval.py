@@ -156,6 +156,11 @@ def test_dynamic_cache_compat_v2_has_legacy_phi3_methods():
     assert hasattr(DynamicCache, "seen_tokens")
     assert hasattr(DynamicCache, "get_max_length")
     assert hasattr(DynamicCache, "get_usable_length")
+    # called as Phi-3's code calls them, on a cache with nothing in it yet (Transformers 5's
+    # max_cache_len raised there, and get_usable_length was never added)
+    cache = DynamicCache()
+    assert cache.get_max_length() is None
+    assert cache.get_usable_length(5) == 0
 
 
 def test_lora_eval_generation_disables_cache():

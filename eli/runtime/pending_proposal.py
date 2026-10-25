@@ -47,7 +47,7 @@ def set_pending_proposal(command: str, summary: str = "", *, items: Optional[Lis
                          from_reply: bool = False, question: str = "",
                          awaiting: Optional[Dict[str, Any]] = None) -> None:
     """Record what ELI's reply left open. `command` is the phrase to re-route if the user
-    affirms (e.g. "set a reminder for the rick and morty premiere"); `items` is every step it
+    affirms (e.g. "set a reminder for the bluey premiere"); `items` is every step it
     offered, each with the number it was listed under; `question` is the question the reply
     ended on; `awaiting` is {"command", "action"} when an action asked for a missing detail.
 

@@ -1,7 +1,7 @@
 """ELI must be told, in the prompt, not to repeat what it has already said.
 
 Three live loops, three different phrasings — "still glitchy, still running on the same
-old code", then "post-breakfast haze and Rick and Morty on repeat" — each re-asking
+old code", then "post-breakfast haze and Bluey on repeat" — each re-asking
 "How are you?" after the user had answered, and continuing even after being told to
 stop. Purging the text doesn't help: the mechanism just latches onto a new phrase.
 
@@ -11,7 +11,7 @@ it applies to every path. This tests the block the engine appends after chat his
 """
 from __future__ import annotations
 
-LOOP = ("I'm standing by, still got that post-breakfast haze and Rick and Morty "
+LOOP = ("I'm standing by, still got that post-breakfast haze and Bluey "
         "on repeat. Everything's fine. How are you?")
 
 

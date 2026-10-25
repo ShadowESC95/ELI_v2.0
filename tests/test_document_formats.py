@@ -405,7 +405,7 @@ def _write_docx_with_table(path):
     t = d.add_table(rows=2, cols=2)
     t.cell(0, 0).text = "Name"
     t.cell(0, 1).text = "Score"
-    t.cell(1, 0).text = "Diabolic"
+    t.cell(1, 0).text = "Veridian"
     t.cell(1, 1).text = "9"
     d.add_paragraph("Outro paragraph text.")
     d.save(str(path))
@@ -420,7 +420,7 @@ def test_docx_reads_table_cells(plugin, tmp_path):
     res = plugin.read({"path": str(_write_docx_with_table(tmp_path / "report.docx"))})
     assert res["ok"] is True
     assert "Name | Score" in res["content"]
-    assert "Diabolic | 9" in res["content"]
+    assert "Veridian | 9" in res["content"]
     assert "Intro paragraph text." in res["content"]
     assert "Outro paragraph text." in res["content"]
 

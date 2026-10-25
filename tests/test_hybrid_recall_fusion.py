@@ -146,6 +146,21 @@ def test_the_keyword_channel_reads_what_was_said_not_the_tags(tmp_path):
     mem = Memory(db_path=str(tmp_path / "user.sqlite3"))
     mem.store_memory("Both setups are in Bristol", tags=["working_memory", "memory_recall"])
     mem.store_memory("my memory of the trip is hazy", tags=["conversation"])
-    by_keyword = [h["text"] for h in mem.search_memory("memory", limit=10) if h.get("_source") == "fts"]
+    by_keyword = [h["text"] for h in mem.search_memory("memory", limit=10) if "keyword" in h.get("_channels", ())]
     assert by_keyword == ["my memory of the trip is hazy"]
 
+
+
+def test_an_index_entry_whose_id_now_belongs_to_another_memory_is_not_recalled(tmp_path, monkeypatch):
+    """After a reset the ids start again, and the index's own copy of an old memory was shown under
+    the new memory #1: a fresh store recalled "test content" when asked about what it held."""
+    from types import SimpleNamespace
+    from eli.memory.memory import Memory
+    mem = Memory(db_path=str(tmp_path / "user.sqlite3"))
+    rowid = mem.store_memory("the kettle in the back kitchen is new", tags=["conversation"])["id"]
+    index = SimpleNamespace(_index=SimpleNamespace(ntotal=2), search=lambda q, top_k=5: [
+        {"memory_id": rowid, "text": "the shed roof leaks when it rains", "score": 0.9},
+        {"memory_id": rowid + 1, "text": "a memory that was deleted", "score": 0.8}])
+    monkeypatch.setattr("eli.memory.vector_store.get_vector_store", lambda: index)
+    vector = [h["text"] for h in mem.search_memory("does the shed roof leak", limit=5) if "vector" in h.get("_channels", ())]
+    assert vector == []

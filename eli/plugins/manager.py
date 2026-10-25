@@ -33,11 +33,6 @@ from eli.core.legacy_paths import legacy_named_paths, migrate_text_file
 from eli.core.paths import get_paths
 from eli.utils.log import get_logger
 
-# Module logger. The manager's methods (auto-load, install, …) reference `log`;
-# the only other `log = get_logger(...)` in this file lives INSIDE the
-# generated-stub f-string template, so without this real definition any method
-# that logged raised "name 'log' is not defined" — surfacing in the GUI as
-# "Plugin manager unavailable: name 'log' is not defined".
 log = get_logger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -313,7 +308,7 @@ class PluginManager:
         Install a plugin by id.
         1. Looks up registry entry
         2. pip-installs any required packages
-        3. Downloads plugin.py (or copies builtin stub)
+        3. Downloads plugin.py, or for a built-in uses the copy that ships with ELI
         4. Enables it
         """
         entry = self.get_registry_entry(plugin_id)
@@ -338,16 +333,15 @@ class PluginManager:
             except Exception as exc:
                 return {"ok": False, "error": f"pip install {pkg} failed: {exc}"}
 
-        # 2. Create plugin dir
-        plugin_dir = _plugins_dir() / plugin_id
-        plugin_dir.mkdir(parents=True, exist_ok=True)
-        (plugin_dir / "__init__.py").touch()
-
-        # 3. Download or generate plugin.py
+        # 2–3. Download plugin.py, or use the built-in that ships with ELI. A built-in with no copy
+        # used to get a generated stub whose every action answered ok "executed (stub)", and it
+        # replaced the real plugin in memory.
         source_url = entry.get("source")
-        plugin_py = plugin_dir / "plugin.py"
-
         if source_url:
+            plugin_dir = _plugins_dir() / plugin_id
+            plugin_dir.mkdir(parents=True, exist_ok=True)
+            (plugin_dir / "__init__.py").touch()
+            plugin_py = plugin_dir / "plugin.py"
             _log(f"  Downloading from {source_url}")
             try:
                 req = urllib.request.Request(
@@ -359,10 +353,9 @@ class PluginManager:
             except Exception as exc:
                 return {"ok": False, "error": f"Download failed: {exc}"}
         else:
-            # builtin — generate a stub if plugin.py doesn't already exist
-            if not plugin_py.exists():
-                _log("  Generating builtin stub")
-                plugin_py.write_text(_make_builtin_stub(entry))
+            plugin_py = _bundled_plugins_dir() / plugin_id / "plugin.py"
+            if not plugin_py.is_file():
+                return {"ok": False, "error": f"Plugin '{plugin_id}' has no download and none ships with ELI"}
 
         # 4. Save state
         state = _load_state()
@@ -405,10 +398,11 @@ class PluginManager:
         """Remove plugin files and state."""
         import shutil
 
+        # Only a downloaded plugin's files are removed: a built-in is ELI's own code (in a source
+        # checkout, the repository), so uninstalling one disables it. This used to delete the
+        # shipped plugin's folder whenever no downloaded copy existed.
         plugin_dir = _plugins_dir() / plugin_id
-        if not plugin_dir.exists():
-            plugin_dir = _bundled_plugins_dir() / plugin_id
-        if plugin_dir.exists():
+        if plugin_dir.exists() and plugin_dir.resolve() != (_bundled_plugins_dir() / plugin_id).resolve():
             shutil.rmtree(plugin_dir)
 
         state = _load_state()
@@ -648,48 +642,6 @@ class PluginManager:
 
     def all_loaded(self) -> Dict[str, Plugin]:
         return dict(self._loaded)
-
-
-# ---------------------------------------------------------------------------
-# Builtin stub generator
-# ---------------------------------------------------------------------------
-
-def _make_builtin_stub(entry: Dict) -> str:
-    """Generate a minimal working stub for builtin plugins that have no source URL."""
-    pid = entry["id"]
-    name = entry["name"]
-    desc = entry.get("description", "")
-    actions = entry.get("actions", [])
-
-    action_methods = ""
-    action_map = {}
-    for action in actions:
-        method_name = action.lower().replace(f"{pid}_", "").replace("-", "_")
-        action_map[action.lower().replace(f"{pid}_", "")] = method_name
-        action_methods += f"""
-    def {method_name}(self, args: dict) -> dict:
-        return {{"ok": True, "content": "{action} executed (stub)", "response": "{action} executed (stub)"}}
-"""
-
-    action_dict_str = ", ".join(f'"{k}": self.{v}' for k, v in action_map.items())
-
-    return f'''# Auto-generated builtin stub for plugin: {pid}
-from eli.plugins.base.base import Plugin
-
-
-
-from eli.utils.log import get_logger
-log = get_logger(__name__)
-
-class {name.replace(" ", "")}Plugin(Plugin):
-    name = "{pid}"
-    description = "{desc}"
-
-    def __init__(self):
-        self.actions = {{{action_dict_str}}}
-        super().__init__()
-{action_methods}
-'''
 
 
 # ---------------------------------------------------------------------------

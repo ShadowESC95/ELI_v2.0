@@ -7,7 +7,7 @@ Every case here is a defect observed in a live session:
     made unreachable by a variable that was reassigned before it was read.
   * "open home directory and the downloads directory" opened home, reported
     success, and silently dropped the second target.
-  * "fair play on your explanation, but …" routed to Bluetooth audio with the
+  * "fair play to you on that, but …" routed to Bluetooth audio with the
     rest of the sentence as a device name.
   * An OPEN_APP resolved by the model carried {"app_name": …}; the executor
     read only "name"/"app" and answered "Missing app name".
@@ -123,8 +123,8 @@ def test_an_address_said_aloud_is_still_an_address(phrase, url):
 # ── the window a command names ──────────────────────────────────────────────
 #
 # Live: "maximise browser" had no rule, the model resolved it to MAXIMISE_WINDOW with no name and
-# ELI maximised its own window; "switch to futurama tab in browser" was resolved to OPEN_URL
-# 'futurama'. "go to the youtube tab" opened https://the youtube tab.
+# ELI maximised its own window; "switch to weather tab in browser" was resolved to OPEN_URL
+# 'weather'. "go to the youtube tab" opened https://the youtube tab.
 
 @pytest.mark.parametrize("phrase,action,name", [
     ("maximise browser", "MAXIMISE_WINDOW", "browser"),
@@ -148,8 +148,8 @@ def test_the_window_in_front_is_meant_only_when_none_is_named(phrase):
 
 
 @pytest.mark.parametrize("phrase,name", [
-    ("switch to futurama tab in browser", "futurama"),
-    ("switch to the futurama tab", "futurama"),
+    ("switch to weather tab in browser", "weather"),
+    ("switch to the weather tab", "weather"),
     ("go to the youtube tab", "youtube"),
 ])
 def test_a_tab_asked_for_by_name_is_looked_for_as_a_window_title(phrase, name):
@@ -162,8 +162,8 @@ def test_a_tab_that_is_not_in_front_is_said_to_be_out_of_reach(monkeypatch):
     from eli.system import portable_app_control as pac
 
     monkeypatch.setattr(pac, "focus_app", lambda name: {"ok": False, "action": "FOCUS_APP", "content": f"Could not focus {name}."})
-    out = ex.execute("FOCUS_APP", {"name": "futurama", "tab": True})
-    assert out["ok"] is False and "No window is showing a tab called futurama" in out["content"]
+    out = ex.execute("FOCUS_APP", {"name": "weather", "tab": True})
+    assert out["ok"] is False and "No window is showing a tab called weather" in out["content"]
 
 
 @pytest.mark.parametrize("phrase,args", [
@@ -216,7 +216,7 @@ def test_real_audio_routing_still_works(phrase):
 
 
 @pytest.mark.parametrize("phrase", [
-    "fair play on your explanation, but i am talking about something different",
+    "fair play to you on that, but i mean another thing",
     "move on to the next thing",
     "switch to the other approach and tell me what you think",
 ])
@@ -227,7 +227,7 @@ def test_prose_never_routes_to_bluetooth_audio(phrase):
 
 
 def test_device_name_is_never_a_whole_sentence():
-    out = _route("fair play on your explanation, but i am talking about something else entirely")
+    out = _route("fair play to you on that, but i mean something else altogether")
     device = str((out.get("args") or {}).get("device") or "")
     assert len(device.split()) <= 5, device
 

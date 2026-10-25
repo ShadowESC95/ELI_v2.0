@@ -133,8 +133,8 @@ def test_redo_never_reruns_a_stale_or_missing_action():
 # spotify``` block. Nothing was opened.
 NOW = time.time()
 OPENED = {"action": "OPEN_APP", "args": {"name": "spotify"}, "input": "open spotify", "ts": NOW - 20}
-PLAYED = {"action": "PLAY_MEDIA", "args": {"target": "spotify", "query": "trouble by eminem"},
-          "input": "play trouble by eminem", "ts": NOW - 20}
+PLAYED = {"action": "PLAY_MEDIA", "args": {"target": "spotify", "query": "trouble by orlo"},
+          "input": "play trouble by orlo", "ts": NOW - 20}
 
 
 def test_saying_it_did_not_happen_redoes_it():

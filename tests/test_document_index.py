@@ -19,7 +19,7 @@ import pytest
 from eli.memory import document_index as di
 
 FILLER = "The committee met again and discussed the usual matters at length without reaching a decision. " * 200
-FACT = "The third high-risk category is biometric identification in public spaces."
+FACT = "The third soil type is chalky clay along the river banks."
 
 
 def _fake_embed(text):
@@ -37,8 +37,8 @@ def index(tmp_path):
 
 @pytest.fixture()
 def pack(tmp_path):
-    p = tmp_path / "harbour_pack.md"
-    p.write_text("# Harbour coursework pack\n\n" + FILLER + "\n\n" + FACT + "\n\n" + FILLER)
+    p = tmp_path / "garden_guide.md"
+    p.write_text("# Garden guide\n\n" + FILLER + "\n\n" + FACT + "\n\n" + FILLER)
     return p
 
 
@@ -60,9 +60,9 @@ def test_a_fact_far_past_the_readers_preview_is_found(index, pack):
     assert FACT not in DocumentReaderPlugin().read({"path": str(pack)})["content"]  # the reply never saw it
     added = index.add(pack, source="READ_FILE")
     assert added["ok"] and added["passages"] > 20
-    hits = index.search("what is the third high-risk category in the harbour pack?", 3)
+    hits = index.search("what is the third soil type in the garden guide?", 3)
     assert any(FACT in h["text"] for h in hits)
-    assert hits[0]["title"] == "harbour_pack.md" and hits[0]["parts"] == added["passages"]
+    assert hits[0]["title"] == "garden_guide.md" and hits[0]["parts"] == added["passages"]
 
 
 def test_every_page_of_a_pdf_is_stored_with_its_page_number(index, tmp_path, monkeypatch):
@@ -103,7 +103,7 @@ def test_an_unchanged_document_is_not_stored_twice_and_a_changed_one_is_replaced
     pack.write_text("Entirely new content about lighthouse keepers and their logbooks.")
     index.add(pack)
     assert index.stats() == {"documents": 1, "passages": 1, "embedded": 1}
-    assert index.search("lighthouse keepers", 2) and not index.search("biometric identification", 2)
+    assert index.search("lighthouse keepers", 2) and not index.search("chalky clay", 2)
 
 
 @pytest.mark.parametrize("name", [".env", "id_rsa.txt", "passwords.txt", "api_token.md", "wallet-recovery-codes.txt",
@@ -118,9 +118,9 @@ def test_secrets_and_non_documents_are_never_stored(index, tmp_path, name):
 def test_one_users_documents_are_not_shown_to_another(index, pack, monkeypatch):
     monkeypatch.setattr("eli.kernel.state.get_active_user_id", lambda *a, **k: "owner")
     index.add(pack, user_id="owner")
-    assert index.search("biometric identification", 3, user_id="owner")
-    assert index.search("biometric identification", 3, user_id="guest") == []
-    assert index.documents("guest") == [] and not index.mentions("the harbour pack", "guest")
+    assert index.search("chalky clay", 3, user_id="owner")
+    assert index.search("chalky clay", 3, user_id="guest") == []
+    assert index.documents("guest") == [] and not index.mentions("the garden guide", "guest")
     assert index.remove([1], user_id="guest") == [] and index.stats()["documents"] == 1
 
 
@@ -135,12 +135,12 @@ def test_a_question_that_is_not_about_a_document_gets_only_passages_that_bear_on
 
 def test_a_question_naming_a_document_stays_inside_it(index, pack, tmp_path):
     other = tmp_path / "minutes.txt"
-    other.write_text("The committee met again and discussed biometric turnstiles for the car park.")
+    other.write_text("The committee met again and discussed chalky gravel for the car park.")
     index.add(pack)
     index.add(other)
-    assert index.mentions("what does the harbour pack say about categories")
-    hits = index.search("what does the harbour pack say about biometric identification", 5)
-    assert hits and {h["title"] for h in hits} == {"harbour_pack.md"}
+    assert index.mentions("what does the garden guide say about categories")
+    hits = index.search("what does the garden guide say about chalky clay", 5)
+    assert hits and {h["title"] for h in hits} == {"garden_guide.md"}
 
 
 def test_that_file_means_the_one_read_last(index, pack, tmp_path):
@@ -155,12 +155,12 @@ def test_that_file_means_the_one_read_last(index, pack, tmp_path):
 def test_removing_a_document_removes_everything_made_from_it(index, pack):
     doc_id = index.add(pack)["doc_id"]
     gone = index.remove([doc_id])
-    assert [d["title"] for d in gone] == ["harbour_pack.md"] and pack.exists()
+    assert [d["title"] for d in gone] == ["garden_guide.md"] and pack.exists()
     assert index.stats() == {"documents": 0, "passages": 0, "embedded": 0}
     con = sqlite3.connect(index._db)
-    assert con.execute("SELECT COUNT(*) FROM passages_fts WHERE passages_fts MATCH 'biometric'").fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM passages_fts WHERE passages_fts MATCH 'chalky'").fetchone()[0] == 0
     con.close()
-    assert index.search("biometric identification", 3) == []
+    assert index.search("chalky clay", 3) == []
 
 
 def test_indexing_and_removing_are_written_to_the_evidence_ledger(index, pack, monkeypatch):
@@ -177,7 +177,7 @@ def test_wording_still_finds_passages_without_an_embedder_or_fts5(tmp_path, pack
     ix._fts = False
     ix.add(pack)
     assert ix.stats()["embedded"] == 0
-    assert any(FACT in h["text"] for h in ix.search("third high-risk category biometric", 3))
+    assert any(FACT in h["text"] for h in ix.search("third soil type chalky", 3))
 
 
 def test_a_document_an_action_reads_is_indexed_behind_the_reply(live_index, pack):
@@ -187,7 +187,7 @@ def test_a_document_an_action_reads_is_indexed_behind_the_reply(live_index, pack
     _action_post_dispatch("READ_FILE", {"path": str(pack) + ".missing"}, {"ok": False})
     assert live_index.wait(20)
     docs = live_index.documents()
-    assert [d["title"] for d in docs] == ["harbour_pack.md"] and docs[0]["source"] == "READ_FILE"
+    assert [d["title"] for d in docs] == ["garden_guide.md"] and docs[0]["source"] == "READ_FILE"
 
 
 def test_the_index_can_be_switched_off(monkeypatch, pack):
@@ -204,14 +204,14 @@ def _orchestrator(index):
 def test_the_orchestrator_reads_documents_when_asked_about_one_in_any_mode(index, pack):
     index.add(pack)
     _, planner, agent, _ = _orchestrator(index)
-    asked = "what does the harbour pack say the third high-risk category is?"
+    asked = "what does the garden guide say the third soil type is?"
     for mode in ("quick", "chain_of_thought", "research"):
         plan = planner.plan_retrieval(asked, {"action": "CHAT"}, "", None, reasoning_mode=mode)
         assert plan["need_rag"] and not plan["rag_strict"] and plan["rag_limit"] >= 2, mode
     hits = agent.document_rag_search(asked, 4)
     assert hits and hits[0]["source"] == "rag" and any(FACT in h["text"] for h in hits)
     block = di.format_passages(hits, max_chars=4000)
-    assert block.startswith("Passages from documents you have read") and "[harbour_pack.md | part" in block and FACT in block
+    assert block.startswith("Passages from documents you have read") and "[garden_guide.md | part" in block and FACT in block
 
 
 def test_other_questions_do_not_pull_documents_into_a_quick_prompt(index, pack):
@@ -231,7 +231,7 @@ def test_with_nothing_indexed_no_mode_searches_documents(index):
 
 def test_a_file_handed_over_with_the_message_is_read_on_that_turn(index, pack, tmp_path):
     other = tmp_path / "minutes.txt"
-    other.write_text("Minutes of the allotment society. Biometric turnstiles were discussed for the car park.")
+    other.write_text("Minutes of the allotment society. Chalky gravel was discussed for the car park.")
     index.add(other)
     _, planner, agent, _ = _orchestrator(index)
     message = f"what is this about?\n\n[File: {pack}]"
@@ -239,7 +239,7 @@ def test_a_file_handed_over_with_the_message_is_read_on_that_turn(index, pack, t
     assert plan["need_rag"] and not plan["rag_strict"]
     hits = agent.document_rag_search(message, 3)
     assert index.wait(20)
-    assert hits and {h["meta"]["title"] for h in hits} == {"harbour_pack.md"}
+    assert hits and {h["meta"]["title"] for h in hits} == {"garden_guide.md"}
     assert hits[0]["meta"]["part"] == 1  # too general a question to match a passage: how the document opens
 
 
@@ -258,12 +258,12 @@ def test_forgetting_a_document_asks_first_and_leaves_the_file(live_index, pack, 
     from eli.execution.router_enhanced import route
     live_index.add(pack)
     monkeypatch.setattr("eli.memory.memory.Memory.forget_candidates", lambda self, q, limit=8: [])
-    asked = ex.execute("MEMORY_FORGET", {"query": "the harbour pack"})
-    assert asked["ok"] and "document #1: harbour_pack.md" in asked["content"] and live_index.stats()["documents"] == 1
+    asked = ex.execute("MEMORY_FORGET", {"query": "the garden guide"})
+    assert asked["ok"] and "document #1: garden_guide.md" in asked["content"] and live_index.stats()["documents"] == 1
     confirm = route("confirm forget documents 1")
     assert confirm["action"] == "MEMORY_FORGET" and confirm["args"] == {"document_ids": [1], "confirm": True}
     done = ex.execute("MEMORY_FORGET", confirm["args"])
-    assert done["ok"] and "Removed from the document index: harbour_pack.md" in done["content"]
+    assert done["ok"] and "Removed from the document index: garden_guide.md" in done["content"]
     assert live_index.stats()["documents"] == 0 and pack.exists()
 
 
@@ -288,7 +288,7 @@ def test_a_document_edited_on_disk_is_read_again(index, pack):
     pack.write_text("Rewritten: the pack now covers lighthouse keepers only.")
     os.utime(pack, (pack.stat().st_atime, pack.stat().st_mtime + 60))
     assert index.refresh() == 1 and index.wait(20)
-    assert index.search("lighthouse keepers", 2) and not index.search("biometric identification", 2)
+    assert index.search("lighthouse keepers", 2) and not index.search("chalky clay", 2)
 
 
 def test_the_self_model_counts_what_has_been_read(live_index, pack):
@@ -327,18 +327,18 @@ def test_passages_that_open_alike_are_not_taken_for_copies_of_each_other():
 
 
 def test_one_word_of_a_file_name_in_passing_does_not_pull_the_document_in(index, tmp_path):
-    """Live on 2.5.2: "I thought I had a presentation at 10am for <course>" put six passages of a
-    coursework file into a chat prompt, because the course name is in the file name."""
-    doc = tmp_path / "Sam_Jones_HARBOUR_High_Risk_Use_Case_Definition_Pack_Week_1_summary.md"
-    doc.write_text("# Use case pack\n\n" + FILLER + "\n\n" + FACT)
+    """Live on 2.5.2: a remark naming a project in passing put six passages of a project file into a
+    chat prompt, because the project name is in the file name."""
+    doc = tmp_path / "Lee_Park_GARDEN_Soil_Survey_Guide_Week_1_summary.md"
+    doc.write_text("# Soil survey guide\n\n" + FILLER + "\n\n" + FACT)
     index.add(doc)
-    for said in ("I thought i had a presentation at 10am for HARBOUR, but it is not until 7.30pm haha",
-                 "give me a summary of this week", "what a week, high risk of rain"):
+    for said in ("I was sure the GARDEN meeting was at 10am, turns out it is at 7.30pm haha",
+                 "give me a summary of this week", "what a week, the survey says rain"):
         assert not index.mentions(said), said
-    assert index.mentions("what does the HARBOUR pack say about biometric identification")
-    assert index.mentions("the sam jones harbour work")           # two of the title's own words
+    assert index.mentions("what does the GARDEN guide say about chalky clay")
+    assert index.mentions("the lee park garden work")           # two of the title's own words
     _, planner, _, _ = _orchestrator(index)
-    plan = planner.plan_retrieval("I thought i had a presentation at 10am for HARBOUR, but it is not until 7.30pm haha",
+    plan = planner.plan_retrieval("I was sure the GARDEN meeting was at 10am, turns out it is at 7.30pm haha",
                                   {"action": "CHAT"}, "", None, reasoning_mode="quick")
     assert not plan["need_rag"]
 
@@ -389,7 +389,7 @@ def test_a_listing_keeps_to_its_room_and_counts_what_it_left_out(tmp_path):
 def test_the_documents_in_a_named_folder_are_handed_over_like_a_dropped_file(index, study):
     theory, sims = study
     _, planner, agent, _ = _orchestrator(index)
-    message = f"what do these say the third high-risk category is? {theory} AND {sims}"
+    message = f"what do these say the third soil type is? {theory} AND {sims}"
     assert sorted(pathlib.Path(p).name for p in di.attached_paths(message)) == ["overview.txt", "stueckelberg_notes.md"]
     plan = planner.plan_retrieval(message, {"action": "CHAT"}, "", None, reasoning_mode="quick")
     assert plan["need_rag"] and not plan["rag_strict"]
@@ -428,3 +428,21 @@ def test_the_turn_is_given_the_listing_before_the_model_is_asked(study, monkeypa
     later = assemble_turn_dossier(engine, "what can you tell me so far about our current project?")
     assert "stueckelberg_notes.md" in later.named_block and later.named_block in later.awareness_blocks()
     assert assemble_turn_dossier(engine, "what is the capital of France?").named_block == ""
+
+
+def test_what_eli_wrote_itself_is_labelled_as_its_own(index, tmp_path, monkeypatch):
+    """ELI's documents folder is indexed so its reports can be asked about, but a folder summary it wrote
+    was found beside the books it summarised as one more source."""
+    out_dir = tmp_path / "data" / "documents"
+    out_dir.mkdir(parents=True)
+    monkeypatch.setattr("eli.core.paths.documents_dir", lambda: out_dir)
+    mine = out_dir / "harbour_summary.md"
+    mine.write_text("# Summary\n\nThe pack says the harbour wall was rebuilt in stone after the storm.")
+    theirs = tmp_path / "harbour_notes.md"
+    theirs.write_text("# Notes\n\nThe harbour wall was rebuilt in stone after the storm of the winter.")
+    for p in (mine, theirs):
+        assert index.add(p)["ok"]
+    listed = {d["title"]: d["eli_written"] for d in index.documents()}
+    assert listed == {"harbour_summary.md": True, "harbour_notes.md": False}
+    block = di.format_passages(index.search("when was the harbour wall rebuilt", 4))
+    assert "[ELI-written: harbour_summary.md" in block and "[harbour_notes.md" in block

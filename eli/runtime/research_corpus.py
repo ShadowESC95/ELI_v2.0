@@ -90,36 +90,23 @@ def _corpus_dir(name: str) -> Path:
 
 
 # ── Embedding (reuse ELI's already-loaded nomic model) ──────────────────────
-def _embedder():
+def _embed(text: str) -> Optional[list]:
+    """Through the vector store, which serialises the shared model and never uses it once closed."""
     try:
         from eli.memory.vector_store import get_vector_store
         vs = get_vector_store()
-        return vs._get_embedder() if vs else None
+        return vs.embed_text(text) if vs else None
     except Exception:
-        log.debug("research_corpus: embedder unavailable", exc_info=True)
+        log.debug("research_corpus: embedding unavailable", exc_info=True)
         return None
 
 
 def _embed_doc(text: str) -> Optional[list]:
-    emb = _embedder()
-    if emb is None:
-        return None
-    try:
-        return emb.embed("search_document: " + text)
-    except Exception:
-        log.debug("research_corpus: doc embed failed", exc_info=True)
-        return None
+    return _embed("search_document: " + text)
 
 
 def _embed_query(text: str) -> Optional[list]:
-    emb = _embedder()
-    if emb is None:
-        return None
-    try:
-        return emb.embed(text)  # shim auto-prefixes "search_query: "
-    except Exception:
-        log.debug("research_corpus: query embed failed", exc_info=True)
-        return None
+    return _embed(text)  # the store's embedder prefixes "search_query: "
 
 
 # ── Text extraction + chunking ──────────────────────────────────────────────

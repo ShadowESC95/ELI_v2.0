@@ -248,7 +248,7 @@ class WorkingMemory:
         lines = ["WORKING MEMORY (pinned facts for this session):"]
         # A recalled memory is pinned when a search returns it and stays relevant while searches
         # keep returning it. Shown every turn regardless, a session filled the block with weeks-old
-        # quotes ("i got high ... last night") whatever was being asked.
+        # quotes ("stayed up far too late last night") whatever was being asked.
         _recalled = [f for f in self._facts.values() if f.source == "memory_recall"
                      and self._turn - f.last_hit_turn <= _RECALL_PIN_TURNS]
         _recalled = sorted(_recalled, key=lambda f: (f.last_hit_turn, f.importance),
@@ -316,7 +316,7 @@ class WorkingMemory:
             for key, fact in self._facts.items():
                 # A recalled memory is already in long-term memory and comes back when it is
                 # relevant. Carried over as a pin it showed up in every prompt of every later
-                # session, 59 days on ("i got high ... last night").
+                # session, 59 days on ("stayed up far too late last night").
                 if fact.source == "memory_recall":
                     continue
                 if fact.importance >= 0.65:

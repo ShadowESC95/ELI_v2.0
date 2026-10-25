@@ -15,12 +15,12 @@ def _route(text: str) -> dict:
 
 
 def test_youtube_com_not_spotify_for_song_by_artist():
-    out = _route("play lion and thief by diabolic on youtube com")
+    out = _route("play salt and stone by veridian on youtube com")
     assert out["action"] == "PLAY_MEDIA"
     args = out.get("args") or {}
     assert args.get("target") == "youtube website"
     assert args.get("browser") is True
-    assert "diabolic" in str(args.get("query") or "").lower()
+    assert "veridian" in str(args.get("query") or "").lower()
 
 
 def test_play_on_spotify_does_not_set_browser_flag():
@@ -32,7 +32,7 @@ def test_play_on_spotify_does_not_set_browser_flag():
 
 
 def test_lp_album_request_detected():
-    assert album_request("marshall matters lp") == ("marshall matters", None)
+    assert album_request("harbour matters lp") == ("harbour matters", None)
     assert album_request("the martial matters lp") == ("martial matters", None)
 
 

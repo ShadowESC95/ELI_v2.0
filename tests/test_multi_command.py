@@ -113,12 +113,12 @@ def test_an_instruction_is_told_from_a_statement_by_its_form(sentence, tells):
 def test_sentences_are_split_at_their_ends_and_not_inside_a_title():
     assert cs.sentences("see, you can do it! open spotify") == ["see, you can do it!", "open spotify"]
     assert cs.sentences("play mr. brightside by the killers") == ["play mr. brightside by the killers"]
-    assert cs.sentences("play order and chaos feat. ill bill") == ["play order and chaos feat. ill bill"]
+    assert cs.sentences("play order and chaos feat. red tamsin") == ["play order and chaos feat. red tamsin"]
     assert cs.sentences("this is great, play it again") == ["this is great,", "play it again"]
     assert cs.sentences("you did not open it - could you open spotify") == ["you did not open it", "could you open spotify"]
     whole = "Spotify received that stop signal, paused the track, but left the app window open"
     assert cs.sentences(whole) == [whole]
-    assert cs.sentences("play blood in blood out, then pause it") == ["play blood in blood out, then pause it"]
+    assert cs.sentences("play salt in salt out, then pause it") == ["play salt in salt out, then pause it"]
     # speech has no punctuation: the request's own frame marks where it starts
     assert cs.sentences("that was great can you play some jazz") == ["that was great", "can you play some jazz"]
     assert cs.sentences("it stopped again please resume it") == ["it stopped again", "please resume it"]
@@ -166,7 +166,7 @@ def test_a_sentence_of_explanation_is_not_a_command_and_is_not_kept_as_an_offere
     ("stop", "STOP_MEDIA"),
     ("resume", "PLAY_MEDIA"),
     ("close spotify and resume browser", "MULTI_COMMAND"),
-    ("play blood in blood out by jmt on spotify", "PLAY_MEDIA"),
+    ("play salt in salt out by kfr on spotify", "PLAY_MEDIA"),
 ])
 def test_what_is_said_as_a_command_is_still_a_command(text, action):
     assert route(text)["action"] == action
@@ -175,4 +175,4 @@ def test_what_is_said_as_a_command_is_still_a_command(text, action):
 def test_restart_is_the_machine_s_only_when_it_has_no_other_object():
     assert route("restart")["action"] == "OPEN_POWER_SETTINGS"
     assert route("restart the computer")["action"] == "OPEN_POWER_SETTINGS"
-    assert route('restart "Order & Chaos"')["action"] != "OPEN_POWER_SETTINGS"
+    assert route('restart "North & South"')["action"] != "OPEN_POWER_SETTINGS"

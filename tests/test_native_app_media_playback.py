@@ -93,7 +93,7 @@ def test_streaming_dot_com_uses_browser(monkeypatch):
 
     from eli.execution.executor_enhanced import play_specific
 
-    result = play_specific("Oppenheimer", "netflix.com", browser=True)
+    result = play_specific("Coco", "netflix.com", browser=True)
     assert result.get("target") == "netflix"
     assert browser_calls
     assert "netflix.com" in browser_calls[0]

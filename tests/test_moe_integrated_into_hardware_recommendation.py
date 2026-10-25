@@ -27,7 +27,7 @@ def _moe_model(size_gb: float = 19.71):
              "size_gb": size_gb, "size_bytes": int(size_gb * 1e9)}]
 
 
-def test_the_recommended_layer_count_is_the_post_moe_one(monkeypatch):
+def test_the_recommended_layer_count_is_the_post_moe_one(monkeypatch, gpu_offload_runtime):
     monkeypatch.setattr(hardware_profile, "layers_for_model", lambda *a, **k: 40)
     monkeypatch.setattr(moe_offload, "plan",
                          lambda *a, **k: {"resident_gb": 2.0, "experts_gb": 17.7, "layers": 40})
@@ -39,7 +39,7 @@ def test_the_recommended_layer_count_is_the_post_moe_one(monkeypatch):
     ), rec.reasoning
 
 
-def test_a_vram_starved_machine_gets_a_real_partial_fit(monkeypatch):
+def test_a_vram_starved_machine_gets_a_real_partial_fit(monkeypatch, gpu_offload_runtime):
     """2GB of core weights does not fit in ~800MB of budget — the recommendation must say
     so honestly (a genuine partial count) instead of forcing all 40 layers regardless."""
     monkeypatch.setattr(hardware_profile, "layers_for_model", lambda *a, **k: 40)
@@ -53,7 +53,7 @@ def test_a_vram_starved_machine_gets_a_real_partial_fit(monkeypatch):
     ), rec.reasoning
 
 
-def test_a_dense_model_with_no_plan_is_left_alone(monkeypatch):
+def test_a_dense_model_with_no_plan_is_left_alone(monkeypatch, gpu_offload_runtime):
     monkeypatch.setattr(moe_offload, "plan", lambda *a, **k: None)
     rec = recommend(_gpu_hw(), _moe_model())
     assert not any("mixture-of-experts" in line.lower() for line in rec.reasoning)

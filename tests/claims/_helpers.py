@@ -35,8 +35,9 @@ def supported_actions() -> tuple:
 
 @lru_cache(maxsize=1)
 def executor_action_branches() -> frozenset:
-    from eli.tools.registry.capability_updater import extract_executor_actions
-    return frozenset(extract_executor_actions(REPO / "eli" / "execution" / "executor_enhanced.py"))
+    from eli.runtime.capability_sync import _ast_extract_dispatch_actions
+    return frozenset(_ast_extract_dispatch_actions(
+        (REPO / "eli" / "execution" / "executor_enhanced.py").read_text(encoding="utf-8")))
 
 
 @lru_cache(maxsize=1)

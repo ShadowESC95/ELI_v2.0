@@ -244,7 +244,7 @@ it's interrupted mid-chain, repeating the same request skips whatever already
 succeeded instead of doing it all again. Works by voice or text.
 
 ### 🔖 Pick up where you left off
-*"Continue the RAIMS project"* recovers a saved task's real constraints, decisions,
+*"Continue the ORBIT project"* recovers a saved task's real constraints, decisions,
 finished steps and open questions — and tells you honestly how stale it is ("last
 touched 6 days ago"), never silently pretending no time passed. If nothing matches,
 it says so plainly instead of guessing.

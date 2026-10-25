@@ -3,7 +3,7 @@ Tiered grounding escalation.
 
 When a turn is a *checkable factual* question/claim AND the AgentBus grounded it
 poorly (no agent contributed real evidence), don't let the model answer from its
-weights and confabulate (the "Eminem's real name is Bruce Samuelson" failure).
+weights and confabulate (the "Bono's real name is Bruce Samuelson" failure).
 Instead escalate through tiers of agents — stopping at the first that grounds it —
 and if nothing can, HEDGE honestly instead of guessing.
 
@@ -557,6 +557,14 @@ def escalate(
         log.debug("[ESCALATION] session-continuity turn — skip factual hedge ladder")
         return None
 
+    # A greeting is never a lookup, whatever its words: "Hey Eli, what is the story?" read as a
+    # factual question and went to the web while the engine had already classed it as a greeting.
+    try:
+        from eli.cognition.chat_grounding_gate import is_phatic_turn
+        if is_phatic_turn(user_input):
+            return None
+    except Exception:
+        log.debug("phatic check failed", exc_info=True)
     is_fact, domain = classify_factual(user_input)
     web_candidate = classify_web_candidate(user_input)
 

@@ -153,7 +153,7 @@ def _build_machine_block(engine: Any) -> str:
         if facts.get("install_kind"):
             headline.append(f"install={facts['install_kind']}")
         if facts.get("capabilities"):
-            headline.append(f"{facts['capabilities']} capabilities")
+            headline.append(f"capabilities: {facts['capabilities']}")
         net = str(facts.get("network") or "").strip()
         if net:
             headline.append(net[:120])

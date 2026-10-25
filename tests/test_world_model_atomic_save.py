@@ -22,10 +22,10 @@ def _isolate(monkeypatch, tmp_path):
 
 def test_save_and_load_round_trips(monkeypatch, tmp_path):
     path = _isolate(monkeypatch, tmp_path)
-    wm.set_preferred_name("Jay", confidence=0.9)
+    wm.set_preferred_name("Alex", confidence=0.9)
     monkeypatch.setattr(wm, "_WORLD", None, raising=False)  # force a real reload
     loaded = wm.load_world_model(force_reload=True)
-    assert loaded.identity.preferred_name == "Jay"
+    assert loaded.identity.preferred_name == "Alex"
     assert loaded.identity.confidence == 0.9
     assert path.exists()
 

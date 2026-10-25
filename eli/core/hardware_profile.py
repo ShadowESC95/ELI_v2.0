@@ -45,7 +45,7 @@ from eli.core import mem_units
 from eli.core.runtime_settings import ALL_GPU_LAYERS
 
 log = get_logger(__name__)
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 
 # KV-cache overhead constants, used only when a model file cannot be read
@@ -719,6 +719,46 @@ def _cpu_list(text: str) -> List[int]:
         elif part.strip():
             out.append(int(part))
     return out
+
+
+def system_ram_gib() -> Tuple[float, float]:
+    """(total, available) RAM in binary GiB as the system reports it, 0.0 for a figure that cannot be
+    read here. Never a guess: an invented 8 GB used to size models for a machine nobody had measured."""
+    try:
+        import psutil
+        vm = psutil.virtual_memory()
+        return mem_units.bytes_to_gib(vm.total), mem_units.bytes_to_gib(vm.available)
+    except Exception:
+        log.debug("psutil memory reading unavailable", exc_info=True)
+    try:
+        if sys.platform.startswith("linux"):
+            info = {}
+            with open("/proc/meminfo") as f:
+                for line in f:
+                    key, _, value = line.partition(":")
+                    if value.split():
+                        info[key] = int(value.split()[0]) / 1_048_576
+            return info.get("MemTotal", 0.0), info.get("MemAvailable", 0.0)
+        if sys.platform == "win32":
+            import ctypes
+
+            class _MemoryStatus(ctypes.Structure):
+                _fields_ = [("dwLength", ctypes.c_ulong), ("dwMemoryLoad", ctypes.c_ulong),
+                            ("ullTotalPhys", ctypes.c_ulonglong), ("ullAvailPhys", ctypes.c_ulonglong),
+                            ("ullTotalPageFile", ctypes.c_ulonglong), ("ullAvailPageFile", ctypes.c_ulonglong),
+                            ("ullTotalVirtual", ctypes.c_ulonglong), ("ullAvailVirtual", ctypes.c_ulonglong),
+                            ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+            st = _MemoryStatus()
+            st.dwLength = ctypes.sizeof(_MemoryStatus)
+            if ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(st)):
+                return mem_units.bytes_to_gib(st.ullTotalPhys), mem_units.bytes_to_gib(st.ullAvailPhys)
+        if sys.platform == "darwin":
+            out = subprocess.run(["sysctl", "-n", "hw.memsize"], capture_output=True, text=True, timeout=10)
+            if out.returncode == 0 and out.stdout.strip().isdigit():
+                return mem_units.bytes_to_gib(int(out.stdout.strip())), 0.0
+    except Exception:
+        log.debug("system memory reading failed", exc_info=True)
+    return 0.0, 0.0
 
 
 @functools.lru_cache(maxsize=None)
@@ -1588,21 +1628,7 @@ def _detect_hardware_impl() -> HardwareProfile:
     # every model-size figure (mem_units.py): the psutil path used to divide by decimal
     # 1e9 while this same function's /proc/meminfo fallback already divided by binary
     # 1_048_576, so which branch ran changed the number for identical physical RAM.
-    try:
-        import psutil
-        vm = psutil.virtual_memory()
-        hw.ram_gb = mem_units.bytes_to_gib(vm.total)
-        hw.available_ram_gb = mem_units.bytes_to_gib(vm.available)
-    except Exception:
-        try:
-            with open("/proc/meminfo") as f:
-                for line in f:
-                    if line.startswith("MemTotal:"):
-                        hw.ram_gb = int(line.split()[1]) / 1_048_576
-                    elif line.startswith("MemAvailable:"):
-                        hw.available_ram_gb = int(line.split()[1]) / 1_048_576
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
+    hw.ram_gb, hw.available_ram_gb = system_ram_gib()
 
     # Reserve room for ELI's own always-on support models — the STT model and the
     # memory/RAG embedder — both load once at startup and stay resident all session,

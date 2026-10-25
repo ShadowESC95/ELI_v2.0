@@ -14,7 +14,7 @@ from eli.cognition.agent_bus import _filecode_extract_terms
 from eli.cognition.scoring import term_overlap
 
 CASUAL = [
-    "Sound, thanks for clrifying Eli. I'm good, just after eating breakfast and watching rick an morty. you?",
+    "Sound, thanks for clrifying Eli. I'm good, just after eating breakfast and watching bluey. you?",
     "What's up sahn?",
     "Nice one. How's your morning going?",
     "Good thanks. Just chilling.",

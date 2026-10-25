@@ -6,7 +6,7 @@ the app the moment it's no longer freshly launched — which is exactly the
 state Spotify is normally in. WM_CLASS stays constant ("Spotify") for the
 life of the process and must be tried first.
 
-User report: "play evil by eminem on spotify" refused to type (focus never
+User report: "play evil by orlo on spotify" refused to type (focus never
 confirmed) and the fallback search-only path never played the right track —
 root cause traced to this title-matching gap in a live session log.
 """

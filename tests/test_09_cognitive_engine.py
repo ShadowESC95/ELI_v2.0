@@ -1,6 +1,5 @@
-import pytest
 from eli.kernel.engine import CognitiveEngine
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 def test_engine_init():
     engine = CognitiveEngine(auto_init_gguf=False)
@@ -10,22 +9,15 @@ def test_engine_init():
 
 def test_engine_parse_intent():
     engine = CognitiveEngine(auto_init_gguf=False)
-    intent = engine.parse_intent("what time is it", [])
-    assert intent["action"] in ("TIME", "CHAT")
+    assert engine.parse_intent("what time is it", [])["action"] == "TIME"
 
 @patch("eli.execution.executor_enhanced.execute")
-def test_engine_process_non_chat(mock_execute):
-    mock_execute.return_value = {"ok": True, "content": "mocked", "response": "mocked"}
+def test_an_action_goes_to_the_executor_and_its_result_is_the_reply(mock_execute):
+    mock_execute.return_value = {"ok": True, "content": "Screenshot saved.", "response": "Screenshot saved."}
     engine = CognitiveEngine(auto_init_gguf=False)
     result = engine.process("screenshot", stream=False)
-    assert result.get("action") == "SCREENSHOT" or result.get("content")
-
-@patch("eli.cognition.gguf_inference.chat_completion", return_value="Mocked chat response")
-def test_engine_process_chat(mock_gguf, engine_with_mocks):
-    # Use a complete sentence with a terminator so the fragment guard does not
-    # intercept it and route to NOOP before the GGUF layer is reached.
-    result = engine_with_mocks.process("Hello, how are you today?", stream=False)
-    assert result.get("content") == "Mocked chat response" or result.get("response")
+    assert [c.args[0] for c in mock_execute.call_args_list] == ["SCREENSHOT"]
+    assert result.get("action") == "SCREENSHOT" and "Screenshot saved." in result.get("content")
 
 def test_engine_verify_persona_lock():
     # verify_persona_lock() returns False when no GGUF model is loaded — correct

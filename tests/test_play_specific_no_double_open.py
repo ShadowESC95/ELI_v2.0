@@ -83,20 +83,20 @@ def test_spotify_unreachable_reports_search_only_not_youtube(monkeypatch):
 
 
 def test_spotify_stale_track_resuming_is_not_reported_as_the_requested_song(monkeypatch):
-    """Regression (live session, 2026-10-01): "play evil by eminem on spotify"
+    """Regression (live session, 2026-10-01): "play evil by orlo on spotify"
     opened a spotify:search: URI then hit MPRIS Play. Spotify had an unrelated
     track already queued from earlier and just resumed it — playerctl status
     correctly says "Playing", but it's the wrong track. The old code trusted
-    status alone and told the user "Playing 'evil by eminem' on Spotify" when
+    status alone and told the user "Playing 'evil by orlo' on Spotify" when
     nothing of the sort had happened. Now it must report search_only instead."""
     monkeypatch.setattr(ex.shutil, "which",
                         lambda c: f"/usr/bin/{c}" if c in
                         {"xdg-open", "dbus-send", "playerctl"} else None)
     calls = _install_capture(monkeypatch, run_rc=0, run_stdout="Playing")
     monkeypatch.setattr(cp, "spotify_live_meta",
-                         lambda player="spotify": ("▶ Playing", "Point Of No Return", "Immortal Technique"))
+                         lambda player="spotify": ("▶ Playing", "Edge Of The Map", "Quiet Machine"))
 
-    res = ex.play_specific("evil by eminem", "spotify")
+    res = ex.play_specific("evil by orlo", "spotify")
 
     assert res["action"] == "PLAY_MEDIA"
     assert res.get("played") is not True, "must not claim success for an unrelated stale track"
@@ -134,7 +134,7 @@ def test_youtube_dot_com_uses_autoplay_mix_in_browser(monkeypatch):
     monkeypatch.setattr(ex, "_open_in_browser", lambda url: opened.append(url))
     monkeypatch.setattr(ex, "_yt_autoplay_enabled", lambda: True)
 
-    res = ex.play_specific("real slim shady", "youtube website")
+    res = ex.play_specific("real night owl", "youtube website")
 
     assert res["action"] == "PLAY_MEDIA"
     assert opened, "browser was not opened"
@@ -151,8 +151,8 @@ def test_spotify_playback_confirmed_rejects_unchanged_stale_track(monkeypatch):
     anything new actually got selected. Used by both fallbacks now."""
     monkeypatch.setattr(ex, "_spotify_play", lambda: True)
     monkeypatch.setattr(ex, "_spotify_live_meta",
-                         lambda *a, **k: ("▶ Playing", "Immortal Technique", "Harlem Streets"))
-    before = ("Immortal Technique", "Harlem Streets")
+                         lambda *a, **k: ("▶ Playing", "Quiet Machine", "Harbour Streets"))
+    before = ("Quiet Machine", "Harbour Streets")
     assert ex._spotify_playback_confirmed(before) is False
 
 
@@ -228,8 +228,8 @@ def test_my_liked_playlist_opens_liked_collection_not_a_named_playlist_search(mo
 
 
 def test_artist_album_name_phrasing_reaches_the_album_block_not_track_search(monkeypatch):
-    """Regression (live session): "play diabolics album liar and a thief" and
-    "play the arctic monkeys album AM" both fell through to the generic
+    """Regression (live session): "play veridians album salt and a stone" and
+    "play the copper tides album ox" both fell through to the generic
     track-search fallback, typing the whole phrase verbatim and playing an
     unrelated top result — album_request() didn't recognise "ARTIST album
     ALBUMNAME" phrasing at all (fixed separately in spotify_intent). This
@@ -252,12 +252,12 @@ def test_artist_album_name_phrasing_reaches_the_album_block_not_track_search(mon
         lambda q: False,
     )
 
-    ex.play_specific("the arctic monkeys album am", "spotify")
+    ex.play_specific("the copper tides album ox", "spotify")
 
-    assert album_uri_calls == [("am", "arctic monkeys")], (
-        "must resolve as an album request (name='am', artist='arctic monkeys')"
+    assert album_uri_calls == [("ox", "copper tides")], (
+        "must resolve as an album request (name='ox', artist='copper tides')"
     )
-    assert ("am arctic monkeys", "albums") in track_search_calls, (
+    assert ("ox copper tides", "albums") in track_search_calls, (
         "the album search-tab fallback must search for the album name + "
         "artist, not get skipped"
     )

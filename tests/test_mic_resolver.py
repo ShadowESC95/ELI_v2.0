@@ -148,7 +148,7 @@ def test_rank_usb_before_analog():
 
 
 def test_rank_airpods_before_builtin():
-    assert mr._rank_capture_name("Jay's AirPods Pro")[0] < mr._rank_capture_name(
+    assert mr._rank_capture_name("Alex's AirPods Pro")[0] < mr._rank_capture_name(
         "MacBook Pro Microphone"
     )[0]
 
@@ -217,7 +217,7 @@ def test_macos_ranked_portaudio_candidates(monkeypatch):
     monkeypatch.setattr(mr.sys, "platform", "darwin")
     devices = [
         (0, "MacBook Pro Microphone"),
-        (1, "Jay's AirPods Pro"),
+        (1, "Alex's AirPods Pro"),
     ]
     monkeypatch.setattr(mr, "_enumerate_input_devices", lambda: (0, devices))
     labels = [c[2] for c in mr._portaudio_candidates()]

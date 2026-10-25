@@ -60,7 +60,7 @@ def _norm(value: str) -> str:
 
 
 def _same(a: str, b: str) -> bool:
-    """The same value, or one is the other's initials: "GOT" is "Game of Thrones", "TWD" "The Walking Dead"."""
+    """The same value, or one is the other's initials: "GBBO" is "Great British Bake Off"."""
     na, nb = _norm(a), _norm(b)
     if na == nb or sorted(re.findall(r"[a-z0-9]+", na)) == sorted(re.findall(r"[a-z0-9]+", nb)):
         return True
@@ -271,7 +271,9 @@ _ON_SCREEN = re.compile(r"(?:^|[,;:]\s*|\band\s+)(?P<v>[^,.;:!?()\n]{1,40}?)\s+i
                         r"(?:in\s+the\s+b\w+|the\s+(?:tv|telly|box|television)|tv|telly)\b", re.I)
 _TAIL = re.compile(r"\s+(?:and|but|though|tho|with|while|whilst|because|cos|so|haha\w*|lol|lmao|now|tonight|today|"
                    r"again|atm|lately|right now|at the (?:moment|minute)|in the b\w+|for (?:a|the) \w+|for ages|"
-                   r"all (?:week|day|night|morning|evening|weekend)|this (?:week|morning|evening|weekend)|since \w+|"
+                   r"all (?:week|day|night|morning|evening|weekend)|this (?:week|morning|afternoon|evening|weekend|month)|"
+                   r"(?:every|each) (?:day|night|morning|afternoon|evening|week|weekend)|most (?:days|nights|mornings|evenings)|"
+                   r"these days|recently|since \w+|"
                    r"on (?:netflix|prime(?: video)?|amazon|disney\+?|hulu|youtube|now tv|sky|the (?:tv|telly)|tv|telly|my \w+))\b.*$",
                    re.I)
 _NOT_A_TITLE = {"it", "that", "this", "them", "something", "nothing", "stuff", "tv", "telly", "the tv", "the telly",
@@ -320,7 +322,7 @@ def activities(text: str) -> List[Dict[str, Any]]:
 
 
 def observed_show(title: str) -> str:
-    """The show in a player's title when it is an episode ("Game of Thrones — S2 E5 – ..."), else ""."""
+    """The show in a player's title when it is an episode ("Great British Bake Off — S2 E5 – ..."), else ""."""
     m = _EPISODE.match(str(title or ""))
     return _title(m.group("show")) if m else ""
 

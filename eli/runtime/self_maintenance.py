@@ -71,7 +71,10 @@ def run_maintenance_cycle(
     result["failures"] = failures
     result["failure_count"] = len(failures)
 
+    # "effect": whether anything came of the run (evidence_ledger.execution_outcome): a cycle that
+    # changed and proposed nothing is not a verified success of SELF_PATCH / SELF_IMPROVE.
     if mode == "report":
+        result["effect"] = True
         result["summary"] = f"{len(failures)} open failure(s) in the last {days} day(s)"
         result["content"] = result["summary"]
         return result
@@ -81,6 +84,7 @@ def run_maintenance_cycle(
         proposals = list(prop.get("proposals") or [])
         result["proposals"] = proposals
         result["proposal_count"] = len(proposals)
+        result["effect"] = bool(proposals)
         lines = [f"Coding-agent fix proposals (verified, not applied): {len(proposals)}"]
         for p in proposals[:max_proposals]:
             lines.append(
@@ -105,6 +109,7 @@ def run_maintenance_cycle(
         result["patch_cycle"] = patch_result
         result["proposal_count"] = int(patch_result.get("patches_generated") or 0)
         result["failure_count"] = int(patch_result.get("failures_analyzed") or 0)
+        result["effect"] = bool(patch_result.get("patches_generated" if dry_run else "patches_applied"))
         result["summary"] = str(patch_result.get("summary") or "Patch cycle complete.")
         lines = [result["summary"]]
         for d in (patch_result.get("details") or [])[:5]:
@@ -122,6 +127,7 @@ def run_maintenance_cycle(
     imps = list(improve.get("improvements") or [])
     result["improvements"] = imps
     result["proposal_count"] = int(improve.get("proposals_made") or 0)
+    result["effect"] = bool(imps or result["proposal_count"])
     lines = [
         "Improvement cycle complete.",
         "- code_changes_made: 0",

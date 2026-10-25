@@ -83,7 +83,7 @@ def recent_turns_from_context(context: Any) -> List[Dict[str, str]]:
 def extract_thread_topic(turns: List[Dict[str, str]]) -> str:
     """Best-effort subject of the current conversation thread: the show or film the most recent
     turns are about. Read newest first: the whole window read in order gave the oldest title, so
-    "watching Oppenheimer now" stayed the topic after the talk had moved to something else."""
+    "watching Coco now" stayed the topic after the talk had moved to something else."""
     for turn in reversed(turns[-8:]):
         text = str(turn.get("content") or "")
         m = _SHOW_TITLE_RE.search(text)
@@ -102,7 +102,7 @@ def extract_thread_topic(turns: List[Dict[str, str]]) -> str:
 
 def last_subject(turns: List[Dict[str, str]]) -> str:
     """What the user last asked about: the subject of their most recent earlier message that has
-    one ("look up RAIMS", "no dude, RAIMS and Orcawise" -> "RAIMS and Orcawise"). What "look it up"
+    one ("look up ORBIT", "no dude, ORBIT and Northwind" -> "ORBIT and Northwind"). What "look it up"
     refers to. "" when no earlier message names anything."""
     from eli.runtime.command_splitter import without_correction_lead
     for turn in reversed(turns or []):
@@ -128,7 +128,7 @@ def expand_web_query(user_input: str, thread_topic: str = "") -> str:
             q = f"{topic} {q}"
     elif topic and _SEARCH_VERB_RE.search(raw) and not web_query_has_substance(q):
         # "google it": the topic is what "it" is. A search that names something is left as the
-        # user said it ("look up RAIMS" became "Oppenheimer now RAIMS" while a film was the topic).
+        # user said it ("look up ORBIT" became "Coco now ORBIT" while a film was the topic).
         q = topic
     return re.sub(r"\s+", " ", q).strip()
 
@@ -188,7 +188,7 @@ _META_STOP_RE = re.compile(
 
 def web_query_has_substance(query: str, *, min_terms: int = 1) -> bool:
     """True when a web query names something after stripping meta-instructions: "look it up" names
-    nothing, "look up RAIMS" names one thing (two were required, so it opened the browser)."""
+    nothing, "look up ORBIT" names one thing (two were required, so it opened the browser)."""
     q = str(query or "").strip()
     if not q:
         return False
@@ -206,8 +206,8 @@ def build_thread_aware_query(user_input: str, turns: Optional[List[Dict[str, str
                                     "and come with some facts", "come with some facts"})
     if is_grounding_demand(raw) and vague:
         # "look it up": what the user last asked about. Only when no earlier message names
-        # anything does the show being talked about stand in (it gave "Oppenheimer now facts
-        # reviews plot summary" two messages after the talk had moved on to RAIMS).
+        # anything does the show being talked about stand in (it gave "Coco now facts
+        # reviews plot summary" two messages after the talk had moved on to ORBIT).
         earlier = last_subject(turns or [])
         if earlier:
             return expand_web_query(earlier, "")

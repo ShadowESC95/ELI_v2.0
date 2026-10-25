@@ -19,7 +19,7 @@ from eli.runtime import agenda as ag
 from eli.runtime import pending_proposal as pp
 
 NOW = datetime(2026, 10, 5, 9, 5)  # the Monday morning of the session
-SAID = "I thought i had a presentation at 10am for RAIMS, but it is not until 7.30pm haha"
+SAID = "I was sure the ORBIT presentation was at 10am, but it is not until 7.30pm haha"
 
 
 @pytest.fixture()
@@ -68,10 +68,10 @@ def proposals(tmp_path, monkeypatch):
 # ── reading a day and a time out of ordinary words ───────────────────────────
 
 @pytest.mark.parametrize("text,when,title", [
-    (SAID, "today (Mon 5 Oct) at 19:30", "RAIMS presentation"),
+    (SAID, "today (Mon 5 Oct) at 19:30", "ORBIT presentation"),
     ("add an event tomorrow at 3pm", "tomorrow (Tue 6 Oct) at 15:00", ""),
     ("add dentist appointment on friday at 2:30pm to my calendar", "Fri 9 Oct at 14:30", "Dentist appointment"),
-    ("put the RAIMS presentation in my calendar for 7.30pm today", "today (Mon 5 Oct) at 19:30", "RAIMS presentation"),
+    ("put the ORBIT presentation in my calendar for 7.30pm today", "today (Mon 5 Oct) at 19:30", "ORBIT presentation"),
     ("remind me at 4pm to prepare for the presentation", "today (Mon 5 Oct) at 16:00", "Prepare for the presentation"),
     ("remind me in 20 minutes to check the oven", "today (Mon 5 Oct) at 09:25", "Check the oven"),
     ("remind me tomorrow morning to call mum", "tomorrow (Tue 6 Oct) at 09:00", "Call mum"),
@@ -105,14 +105,14 @@ def test_a_sentence_that_names_no_time_gives_none(text):
 # ── the calendar and reminders are real ──────────────────────────────────────
 
 def test_an_event_is_added_listed_and_written_to_a_calendar_file(agenda, monday):
-    out = ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
-    assert out["ok"] and out["content"] == ("Added to your calendar: RAIMS presentation, today (Mon 5 Oct) at 19:30. "
+    out = ag.do_add_event({"text": "add the ORBIT presentation at 7.30pm today to my calendar"}, now=NOW)
+    assert out["ok"] and out["content"] == ("Added to your calendar: ORBIT presentation, today (Mon 5 Oct) at 19:30. "
                                             "I'll remind you at 19:00 and 19:30.")
     listed = ag.do_list_events({"text": "what's on today"}, now=NOW)
-    assert listed["content"] == "On your calendar today:\n- today (Mon 5 Oct) at 19:30: RAIMS presentation"
+    assert listed["content"] == "On your calendar today:\n- today (Mon 5 Oct) at 19:30: ORBIT presentation"
     ics = agenda.ics.read_text()
-    assert "BEGIN:VEVENT" in ics and "SUMMARY:RAIMS presentation" in ics and "DTSTART:20261005T" in ics
-    again = ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
+    assert "BEGIN:VEVENT" in ics and "SUMMARY:ORBIT presentation" in ics and "DTSTART:20261005T" in ics
+    again = ag.do_add_event({"text": "add the ORBIT presentation at 7.30pm today to my calendar"}, now=NOW)
     assert again["content"].startswith("That is already on your calendar")
 
 
@@ -126,7 +126,7 @@ def test_an_empty_calendar_says_so_and_nothing_is_ever_not_configured(agenda, mo
 
 def test_add_it_takes_the_event_from_what_the_user_just_said(agenda, monday):
     out = ag.do_add_event({"text": "You add it!", "from_context": True}, earlier=["YES! DO 1-3", "yes please", SAID], now=NOW)
-    assert out["ok"] and "RAIMS presentation, today (Mon 5 Oct) at 19:30" in out["content"]
+    assert out["ok"] and "ORBIT presentation, today (Mon 5 Oct) at 19:30" in out["content"]
 
 
 def test_with_nothing_to_go_on_it_asks_when_and_does_not_invent(agenda, monday):
@@ -153,10 +153,10 @@ def test_a_reminder_that_came_due_while_eli_was_shut_is_still_delivered(agenda):
 
 
 def test_a_reminder_without_a_subject_takes_the_event_it_is_for(agenda, monday):
-    ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
+    ag.do_add_event({"text": "add the ORBIT presentation at 7.30pm today to my calendar"}, now=NOW)
     out = ag.do_remind({"text": "Set reminders for 4 PM today (5 hours before the presentation) to alert you about "
                                 "the upcoming meeting"}, now=NOW)
-    assert out["content"] == "Reminder set for today (Mon 5 Oct) at 16:00: RAIMS presentation at 19:30."
+    assert out["content"] == "Reminder set for today (Mon 5 Oct) at 16:00: ORBIT presentation at 19:30."
     ask = ag.do_remind({"text": "remind me to stretch"}, now=NOW)
     assert not ask["ok"] and "When should I remind you?" in ask["content"]
 
@@ -186,7 +186,7 @@ def test_cancelling_an_event_takes_its_reminders_with_it(agenda):
 # ── routing ──────────────────────────────────────────────────────────────────
 
 @pytest.mark.parametrize("text,action", [
-    ("add the RAIMS presentation at 7.30pm today to my calendar", "ADD_EVENT"),
+    ("add the ORBIT presentation at 7.30pm today to my calendar", "ADD_EVENT"),
     ("put dentist on friday at 2pm in my calendar", "ADD_EVENT"),
     ("schedule a call with Tom tomorrow at 10am", "ADD_EVENT"),
     ("You add it!", "ADD_EVENT"),
@@ -261,7 +261,7 @@ def test_only_steps_eli_has_an_action_for_are_kept_each_with_its_number():
 
 
 def test_what_an_action_reports_is_not_an_offer():
-    said = "Added to your calendar: RAIMS presentation, today at 19:30. I'll remind you at 19:00 and 19:30."
+    said = "Added to your calendar: ORBIT presentation, today at 19:30. I'll remind you at 19:00 and 19:30."
     assert pp.actionable_items(said, offers_only=True) == []
 
 
@@ -389,14 +389,14 @@ def test_agreed_steps_report_their_outcomes_not_elis_sentences_back(agenda, monk
 
 def test_an_event_the_user_mentions_is_offered_once_and_yes_adds_it(agenda, monday):
     found = ag.mentioned_event([SAID], now=NOW)
-    assert found["title"] == "RAIMS presentation"
-    assert found["sentence"] == ("Want me to put RAIMS presentation in your calendar for today (Mon 5 Oct) at 19:30, "
+    assert found["title"] == "ORBIT presentation"
+    assert found["sentence"] == ("Want me to put ORBIT presentation in your calendar for today (Mon 5 Oct) at 19:30, "
                                  "and remind you before it?")
     from eli.execution.router_enhanced import route
     routed = route(found["command"])
     assert routed["action"] == "ADD_EVENT"
     added = ag.do_add_event(routed["args"], now=NOW)
-    assert "RAIMS presentation, today (Mon 5 Oct) at 19:30" in added["content"]
+    assert "ORBIT presentation, today (Mon 5 Oct) at 19:30" in added["content"]
     assert ag.mentioned_event([SAID], now=NOW) is None          # it is on the calendar now
 
 
@@ -410,8 +410,8 @@ def test_talk_that_is_not_a_plan_gets_no_offer(agenda, monday, text):
 
 def test_listing_an_empty_calendar_points_out_what_was_just_mentioned(agenda, monday):
     out = ag.do_list_events({"text": "check my calendar"}, earlier=[SAID], now=NOW)
-    assert out["content"].startswith("Nothing on your calendar in the next 7 days.\n\nYou mentioned RAIMS presentation")
-    assert out["offer"].startswith('add "RAIMS presentation" on 2026-10-05 at 19:30')
+    assert out["content"].startswith("Nothing on your calendar in the next 7 days.\n\nYou mentioned ORBIT presentation")
+    assert out["offer"].startswith('add "ORBIT presentation" on 2026-10-05 at 19:30')
 
 
 # ── clock arithmetic is done for the model ───────────────────────────────────
@@ -432,11 +432,11 @@ def test_times_the_user_names_are_worked_out_against_the_clock():
 # ── changing and removing what is on the calendar ────────────────────────────
 
 def test_i_meant_8pm_moves_the_event_just_added_and_its_reminders(agenda, monday):
-    ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
+    ag.do_add_event({"text": "add the ORBIT presentation at 7.30pm today to my calendar"}, now=NOW)
     out = ag.do_add_event({"text": "cancel that, i meant 8pm", "move": True}, now=NOW)
-    assert out["content"] == "Moved RAIMS presentation to today (Mon 5 Oct) at 20:00. I'll remind you at 19:30 and 20:00."
+    assert out["content"] == "Moved ORBIT presentation to today (Mon 5 Oct) at 20:00. I'll remind you at 19:30 and 20:00."
     listed = ag.do_list_events({"text": "what's on today"}, now=NOW)["content"]
-    assert listed == "On your calendar today:\n- today (Mon 5 Oct) at 20:00: RAIMS presentation"
+    assert listed == "On your calendar today:\n- today (Mon 5 Oct) at 20:00: ORBIT presentation"
     day_end = NOW.replace(hour=23, minute=59).timestamp()
     times = [datetime.fromtimestamp(r["start_ts"]).strftime("%H:%M")
              for r in ag.between(NOW.timestamp(), day_end, kinds=("reminder",), own_reminders_only=False)]
@@ -445,43 +445,43 @@ def test_i_meant_8pm_moves_the_event_just_added_and_its_reminders(agenda, monday
 
 def test_an_event_can_be_moved_by_name_to_another_day_keeping_its_time(agenda, monday):
     ag.do_add_event({"text": "add dentist appointment on friday at 2:30pm to my calendar"}, now=NOW)
-    ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
+    ag.do_add_event({"text": "add the ORBIT presentation at 7.30pm today to my calendar"}, now=NOW)
     out = ag.do_add_event({"text": "move the dentist to next monday", "move": True}, now=NOW)
     assert out["content"].startswith("Moved Dentist appointment to Mon 12 Oct at 14:30.")
 
 
 def test_a_correction_with_nothing_to_move_is_read_as_a_new_event(agenda, monday):
     out = ag.do_add_event({"text": "i meant 8pm", "move": True}, earlier=[SAID], now=NOW)
-    assert out["ok"] and out["content"].startswith("Added to your calendar: RAIMS presentation, today (Mon 5 Oct) at 20:00")
+    assert out["ok"] and out["content"].startswith("Added to your calendar: ORBIT presentation, today (Mon 5 Oct) at 20:00")
 
 
 def test_an_entry_is_removed_by_name_and_an_unclear_request_asks_which(agenda, monday):
     ag.do_add_event({"text": "add dentist appointment on friday at 2:30pm to my calendar"}, now=NOW)
     ag.do_add_event({"text": "add dentist check-up on 20 October at 10am to my calendar"}, now=NOW)
-    ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
+    ag.do_add_event({"text": "add the ORBIT presentation at 7.30pm today to my calendar"}, now=NOW)
     unclear = ag.do_remove({"text": "cancel the dentist"}, now=NOW)
     assert not unclear["ok"] and unclear["error"] == "ambiguous"
     assert unclear["content"].splitlines()[1:] == ["1. Fri 9 Oct at 14:30: Dentist appointment",
                                                    "2. Tue 20 Oct at 10:00: Dentist check-up"]
-    gone = ag.do_remove({"text": "cancel the RAIMS presentation"}, now=NOW)
-    assert gone["ok"] and gone["content"] == "Removed from your calendar: RAIMS presentation, today (Mon 5 Oct) at 19:30."
-    assert "RAIMS" not in ag.do_list_events({"text": "what's on this week"}, now=NOW)["content"]
+    gone = ag.do_remove({"text": "cancel the ORBIT presentation"}, now=NOW)
+    assert gone["ok"] and gone["content"] == "Removed from your calendar: ORBIT presentation, today (Mon 5 Oct) at 19:30."
+    assert "ORBIT" not in ag.do_list_events({"text": "what's on this week"}, now=NOW)["content"]
     missing = ag.do_remove({"text": "cancel the yoga class"}, now=NOW)
     assert not missing["ok"] and missing["error"] == "not_found"
 
 
 def test_clearing_reminders_leaves_events_alone(agenda, monday):
-    ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
+    ag.do_add_event({"text": "add the ORBIT presentation at 7.30pm today to my calendar"}, now=NOW)
     ag.do_remind({"text": "remind me at 4pm to go over my slides"}, now=NOW)
     ag.do_remind({"text": "remind me tomorrow morning to call mum"}, now=NOW)
     out = ag.do_remove({"text": "clear my reminders"}, now=NOW)
     assert out["ok"] and out["content"].startswith("Cleared 2:")
-    assert "RAIMS presentation" in ag.do_list_events({"text": "what's on today"}, now=NOW)["content"]
+    assert "ORBIT presentation" in ag.do_list_events({"text": "what's on today"}, now=NOW)["content"]
 
 
 @pytest.mark.parametrize("text,action,move", [
     ("cancel the dentist appointment", "REMOVE_EVENT", False),
-    ("delete the RAIMS presentation from my calendar", "REMOVE_EVENT", False),
+    ("delete the ORBIT presentation from my calendar", "REMOVE_EVENT", False),
     ("clear my reminders", "REMOVE_EVENT", False),
     ("cancel that, i meant 8pm", "ADD_EVENT", True),
     ("move the dentist to friday at 3pm", "ADD_EVENT", True),
@@ -508,21 +508,21 @@ def test_removing_an_event_is_never_the_models_guess():
 # ── the calendar is known on every turn, and never looked for on the web ─────
 
 def test_what_is_coming_up_is_in_the_prompt_with_how_far_off_it_is(agenda, monday):
-    ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
+    ag.do_add_event({"text": "add the ORBIT presentation at 7.30pm today to my calendar"}, now=NOW)
     line = ag.prompt_line(now=NOW)
-    assert line.startswith("ON THE USER'S CALENDAR") and "today (Mon 5 Oct) at 19:30: RAIMS presentation, in 10 h 25 min" in line
+    assert line.startswith("ON THE USER'S CALENDAR") and "today (Mon 5 Oct) at 19:30: ORBIT presentation, in 10 h 25 min" in line
     assert ag.prompt_line(now=NOW + timedelta(days=3)) == ""
 
 
 def test_a_question_about_the_clock_or_the_calendar_is_never_web_searched(agenda, monkeypatch):
     from eli.runtime import grounding_escalation as ge
-    ag.add_event("RAIMS presentation", time.time() + 3600)
+    ag.add_event("ORBIT presentation", time.time() + 3600)
     ran = []
     monkeypatch.setattr("eli.core.config.network_allowed", lambda *a, **k: True)
     monkeypatch.setattr("eli.execution.executor_enhanced.execute", lambda action, *a, **k: ran.append(action) or {})
     bus = SimpleNamespace(grounding_confidence=0.1, aggregated_confidence=0.1)
     for text in ("what time is it and how long until the presentation?", "is my calendar free tomorrow afternoon",
-                 "how long until the raims thing"):
+                 "how long until the orbit thing"):
         assert ge.escalate(SimpleNamespace(), text, {"action": "CHAT"}, bus, reasoning_mode="quick") is None
     assert ran == []
 
@@ -593,11 +593,11 @@ def test_profile_rows_about_eli_are_taken_out_and_the_users_own_facts_stay(tmp_p
 
 
 def test_an_event_the_user_moved_or_removed_is_not_offered_again_at_its_old_time(agenda, monday):
-    ag.do_add_event({"text": "add the RAIMS presentation at 7.30pm today to my calendar"}, now=NOW)
+    ag.do_add_event({"text": "add the ORBIT presentation at 7.30pm today to my calendar"}, now=NOW)
     ag.do_add_event({"text": "i meant 8pm", "move": True}, now=NOW)
     assert ag.mentioned_event([SAID], now=NOW) is None
     assert "You mentioned" not in ag.do_list_events({"text": "what have i got on today"}, earlier=[SAID], now=NOW)["content"]
-    ag.do_remove({"text": "cancel the RAIMS presentation"}, now=NOW)
+    ag.do_remove({"text": "cancel the ORBIT presentation"}, now=NOW)
     assert ag.mentioned_event([SAID], now=NOW) is None
 
 
@@ -659,10 +659,10 @@ def test_a_due_reminder_reaches_the_desktop_and_the_chat(monkeypatch):
     monkeypatch.setattr("eli.utils.platform_compat.play_alarm_sound", lambda *a, **k: seen.append(("sound", "")))
     monkeypatch.setattr("eli.planning.proactive_daemon.get_daemon", lambda *a, **k: SimpleNamespace(suggestion_queue=q))
     at = datetime(2026, 10, 5, 19, 0).timestamp()
-    ag._default_delivery({"title": "RAIMS presentation in 30 minutes", "start_ts": at}, missed=False)
-    assert seen == [("notify", "RAIMS presentation in 30 minutes (19:00)"), ("sound", "")]
+    ag._default_delivery({"title": "ORBIT presentation in 30 minutes", "start_ts": at}, missed=False)
+    assert seen == [("notify", "ORBIT presentation in 30 minutes (19:00)"), ("sound", "")]
     kind, data = q.get_nowait()
-    assert kind == "reminder" and data["suggestion"] == "Reminder: RAIMS presentation in 30 minutes (19:00)"
+    assert kind == "reminder" and data["suggestion"] == "Reminder: ORBIT presentation in 30 minutes (19:00)"
     seen.clear()
     ag._default_delivery({"title": "Call mum", "start_ts": at}, missed=True)      # came due while ELI was shut: no alarm
     assert seen == [("notify", "Call mum (was due at 19:00; ELI was not running)")]

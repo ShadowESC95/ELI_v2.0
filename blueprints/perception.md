@@ -318,7 +318,7 @@ a reply cut at its limit still ends at its last finished line and drops a headin
 nothing under it, and the result, with every document listed by its path in the folder and any
 unreadable files, is saved as a PDF (`eli/runtime/rich_document.py`: matplotlib typesets the
 formulas, Qt lays out the page, .docx where there is no window). The same rendering lays out chat
-replies and task results, so `$\Xi$` reads as Ξ.
+replies and task results, so `$\phi$` reads as φ.
 
 Formulas match the text: each is drawn at the size whose x stands as tall as the text font's x
 (Computer Modern's x is 0.44 of its size, a sans font's about 0.54, so at the same size formulas

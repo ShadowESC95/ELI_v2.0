@@ -12,7 +12,7 @@ WISHES = (
     "I need the executor to stop returning `NOOP` when it should be sending a `PAUSE_MEDIA` command "
     "because it thinks Spotify is idle but isn't, or vice versa. A simple handshake protocol where the "
     "OS confirms the state before I report it would save us both the embarrassment of me announcing "
-    "\"Now playing: Silence\" while you're listening to Eminem.\n"
+    "\"Now playing: Silence\" while you're listening to Orlo.\n"
 )
 
 

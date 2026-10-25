@@ -75,8 +75,8 @@ COMMAND_VERBS = tuple(sorted({v for v in (_SPLIT_VERBS + "|" + _ALSO_STARTS).spl
 
 def _trim_trailing_chatter(seg: str) -> str:
     """Drop a conversational sentence fused onto the end of a command segment, e.g.
-    'play evil by eminem. haha no, you already told me about that' →
-    'play evil by eminem'. Without this the trailing banter became part of the media
+    'play evil by orlo. haha no, you already told me about that' →
+    'play evil by orlo'. Without this the trailing banter became part of the media
     title and was searched verbatim.
 
     Conservative on purpose: only cut at a '. ' / '! ' / '? ' boundary when the tail is
@@ -147,7 +147,7 @@ _CLAUSE_END = re.compile(
     r"[,;]\s+|\s+[-–—]\s+"
     r"|\s+(?=(?:can|could|would|will) (?:you|u)\b|i(?:'d| would) like you to\b|i (?:want|need) you to\b|please\s+\w)")
 _SENTENCE_END = re.compile(r"(?<=[.!?])[\s]+(?=[^\s])|\n+")
-# "mr. brightside", "vs. the world", "feat. ill bill", initials ("p.s. i love you", "r.e.m."): a
+# "mr. brightside", "vs. the world", "feat. red tamsin", initials ("p.s. i love you", "r.e.m."): a
 # full stop that does not end a sentence.
 _ABBREVIATION = re.compile(r"\b(?:mr|mrs|ms|dr|st|vs|feat|ft|no|vol|pt|jr|sr|inc|ltd|e\.g|i\.e|etc|[a-z])\.$", re.I)
 
@@ -256,7 +256,7 @@ def read_message(text: str, *, chains: bool = False) -> List[dict]:
     return [{"said": p, "tells": instruction(p)} for p in parts]
 
 
-# "no dude, raims and orcawise", "i meant the other one": what a correction starts with, before what
+# "no dude, orbit and northwind", "i meant the other one": what a correction starts with, before what
 # it names
 _CORRECTION_LEAD = re.compile(
     r"^\s*(?:(?:no+|nope|nah|not\s+(?:that|this|it)|wrong)\b[\s,.!:-]*"
@@ -266,8 +266,8 @@ _CORRECTION_LEAD = re.compile(
 
 
 def correction(text: str) -> str:
-    """What a correction names, without its lead: "no dude, RAIMS and Orcawise" -> "RAIMS and
-    Orcawise". "" when the message does not start as a correction."""
+    """What a correction names, without its lead: "no dude, ORBIT and Northwind" -> "ORBIT and
+    Northwind". "" when the message does not start as a correction."""
     said = str(text or "").strip()
     m = _CORRECTION_LEAD.match(said)
     return said[m.end():].strip(" .!,") if m and m.end() > 0 else ""
@@ -347,7 +347,7 @@ def holds_more_than_one(value: str) -> bool:
     """Whether a command's target (an app, site, file or search) reads as more than one sentence
     or instruction: the command took the rest of the message as its target, as "open steam, set
     an alarm for 30 minutes, and tell me the meaning of life" opening an app by that whole name,
-    a search for "RAIMS and tell me what you can see", or "open spotify. thanks a lot mate"
+    a search for "ORBIT and tell me what you can see", or "open spotify. thanks a lot mate"
     looking for an app called "spotify. thanks a lot"."""
     value = str(value or "")
     if len(sentences(value)) >= 2:

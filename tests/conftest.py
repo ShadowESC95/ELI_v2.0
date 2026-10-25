@@ -1,10 +1,12 @@
 import sys, os, pytest
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 os.environ["ELI_TEST_MODE"] = "1"
 os.environ["ELI_FORCE_CPU"] = "1"
+_MACHINE_CUDA_DEVICES = os.environ.get("CUDA_VISIBLE_DEVICES")
+os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")  # the real GPU libraries load; the card stays the app's, as on CI
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
@@ -15,6 +17,19 @@ sys.path.insert(0, str(ROOT))
 for _desktop_var in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_SESSION_TYPE"):
     os.environ.pop(_desktop_var, None)
 os.environ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + str(ROOT / "artifacts" / "_pytest" / "no-session-bus")
+# Nor its sound or mixer: the real audio libraries load in tests, so the sound servers are out of
+# reach and ALSA knows only a null device (as on a CI runner, PortAudio then does not start). Nor the internet: a request that is not stubbed fails at once.
+(ROOT / "artifacts" / "_pytest").mkdir(parents=True, exist_ok=True)
+(ROOT / "artifacts" / "_pytest" / "asound.conf").write_text("pcm.!default { type null }\n")
+os.environ["ALSA_CONFIG_PATH"] = str(ROOT / "artifacts" / "_pytest" / "asound.conf")
+os.environ["PULSE_SERVER"] = "unix:" + str(ROOT / "artifacts" / "_pytest" / "no-sound-server")
+os.environ["PIPEWIRE_REMOTE"] = str(ROOT / "artifacts" / "_pytest" / "no-sound-server")
+os.environ["JACK_NO_START_SERVER"] = "1"
+for _proxy in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+    os.environ[_proxy] = "http://127.0.0.1:9"
+os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost,::1"
+os.environ.setdefault("HF_HUB_OFFLINE", "1")
+os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
 # Redirect ALL artifact writes (documents, runtime snapshots, the scheduled-task
 # store) to a throwaway IN-PROJECT dir for the whole test session, so a test run can
@@ -65,6 +80,12 @@ os.environ.setdefault("ELI_DOCUMENT_INDEX", "0")
 os.environ["ELI_AGENDA_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "agenda.sqlite3")
 os.environ["ELI_CALENDAR_FILE"] = str(ROOT / "artifacts" / "_pytest" / "calendar.ics")
 os.environ["ELI_AGENDA_NOTIFY"] = "0"
+# Nor this machine's settings. Tests read the developer's own config/settings.json (Net toggle, Full
+# Control, model paths) and some wrote to it; with Full Control on, a test's "offline" connect went
+# out to the network. Each run starts with no settings file, as a fresh install and CI do.
+_PYTEST_SETTINGS = ROOT / "artifacts" / "_pytest" / "settings.json"
+_PYTEST_SETTINGS.unlink(missing_ok=True)
+os.environ["ELI_SETTINGS_FILE"] = str(_PYTEST_SETTINGS)
 
 # Hard isolation guard: fail LOUDLY at collection if any canonical store still resolves
 # to the real artifacts/db tree. This makes "no test can change memory" an enforced
@@ -116,25 +137,16 @@ def _assert_db_isolated() -> None:
             f"before this module is first imported.")
 _assert_db_isolated()
 
-@pytest.fixture(autouse=True, scope="session")
-def mock_heavy_imports():
-    with patch.dict(sys.modules, {
-        "llama_cpp": MagicMock(), "llama_cpp.llama_cpp": MagicMock(),
-        # PySide6 not re-stubbed here — root conftest.py already installs a real
-        # working stub/real binding; a bare MagicMock() broke `import *` (no Signal).
-        "faster_whisper": MagicMock(), "sounddevice": MagicMock(),
-        "soundfile": MagicMock(), "piper": MagicMock(), "onnxruntime": MagicMock(),
-        "faiss": MagicMock(), "torch": MagicMock(), "diffusers": MagicMock(),
-        "transformers": MagicMock(), "pydantic": MagicMock(),
-    }):
-        yield
-
 @pytest.fixture(autouse=True)
-def _tests_never_launch_spotify(monkeypatch):
+def _tests_never_launch_apps(monkeypatch):
     """A test that reached the real launcher started Spotify on the developer's machine and played
-    a song; with no display it would still spawn the process. Tests that need a launch stub it."""
+    a song, and an OPEN_APP test started Firefox; with no display they still spawn the process.
+    Tests that need a launch stub the launcher they are about."""
     monkeypatch.setattr("eli.execution.media_runtime.open_spotify",
                         lambda: "Could not open Spotify: tests never launch it")
+    monkeypatch.setattr("eli.execution.effectors.system_helpers.open_app_with_timeout",
+                        lambda argv, timeout=30: {"ok": False, "error": "tests never launch apps", "argv": argv})
+    monkeypatch.setattr("eli.system.portable_app_control._popen", lambda args: False)
 
 
 @pytest.fixture
@@ -148,20 +160,6 @@ def temp_db(tmp_path):
 def memory_instance(temp_db):
     from eli.memory import Memory
     return Memory(db_path=temp_db)
-
-@pytest.fixture
-def mock_gguf():
-    with patch("eli.cognition.gguf_inference") as mock:
-        mock.load_model.return_value = MagicMock()
-        mock.chat_completion.return_value = {"content": "Mocked GGUF response"}
-        mock.generate.return_value = "Mocked generation"
-        yield mock
-
-@pytest.fixture
-def mock_executor():
-    with patch("eli.execution.executor_enhanced.execute") as mock:
-        mock.return_value = {"ok": True, "content": "mocked", "response": "mocked"}
-        yield mock
 
 @pytest.fixture
 def quiet_gpu_sources(monkeypatch):
@@ -181,10 +179,39 @@ def quiet_gpu_sources(monkeypatch):
     monkeypatch.setattr(hp, "_DETECT_HW_CACHE", None)
     return hp
 
+@pytest.fixture(scope="session")
+def small_chat_model():
+    """ELI_MODEL_PATH if set, else the smallest GGUF in models/ that carries a chat template (a chat
+    model; projectors and embedders carry none, and a file's name is no guide). None when there is none."""
+    import glob
+    env = os.environ.get("ELI_MODEL_PATH")
+    if env and os.path.exists(env):
+        return env
+    from eli.cognition.model_load_diagnostics import gguf_metadata
+    found = sorted((os.path.getsize(g), g) for g in glob.glob(str(ROOT / "models" / "**" / "*.gguf"), recursive=True)
+                   if (gguf_metadata(g) or {}).get("tokenizer.chat_template"))
+    return found[0][1] if found else None
+
+
 @pytest.fixture
-def engine_with_mocks(mock_gguf, mock_executor):
-    from eli.kernel.engine import CognitiveEngine
-    return CognitiveEngine(auto_init_gguf=False)
+def machine_gpu(monkeypatch):
+    """This machine's own cards, for a test about them (the installed GPU pack): the run hides them."""
+    if _MACHINE_CUDA_DEVICES is None:
+        monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
+    else:
+        monkeypatch.setenv("CUDA_VISIBLE_DEVICES", _MACHINE_CUDA_DEVICES)
+
+
+@pytest.fixture
+def gpu_offload_runtime(monkeypatch):
+    """A llama.cpp that can offload to a GPU but gives no device list to plan with, so sizing takes the
+    fit path. Real llama.cpp answers for the machine running the tests (none on CI, the developer's
+    card here), so a sizing test names the runtime it is about."""
+    import eli.core.hardware_profile as hp
+    from eli.core import load_plan
+    monkeypatch.setattr(hp, "_llama_gpu_offload_available", lambda: True)
+    monkeypatch.setattr(load_plan, "devices", lambda: [])
+    return hp
 
 # FIX: Force persistence gate to allow all memory writes in tests
 @pytest.fixture(autouse=True)

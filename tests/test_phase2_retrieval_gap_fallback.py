@@ -170,7 +170,7 @@ def test_the_fallback_keeps_only_hits_that_share_a_word_with_the_message():
     agent = _agent()
     plan = {"need_keyword": True, "need_semantic": False, "need_rag": False,
             "need_kg": False, "prefer_identity": False}
-    nearest = [{"text": "User played Eminem on Spotify yesterday"}, {"text": "The physics project is set up"},
+    nearest = [{"text": "User played Orlo on Spotify yesterday"}, {"text": "The physics project is set up"},
                {"text": "opwk is not a word anyone said"}]
     with patch("eli.memory.unified_retrieval.orchestrator_retrieve",
               return_value=([], nearest, MagicMock(elapsed_ms=10))):

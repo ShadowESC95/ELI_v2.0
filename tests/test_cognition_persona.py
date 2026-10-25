@@ -48,15 +48,6 @@ def test_persona_txt_has_voice_guidelines():
         text = persona_path.read_text(encoding="utf-8").upper()
         assert "VOICE" in text or "DRY" in text or "DIRECT" in text
 
-def test_persona_txt_no_excessive_filler_words():
-    persona_path = Path(__file__).parents[1] / "eli" / "cognition" / "persona.txt"
-    if persona_path.exists():
-        text = persona_path.read_text(encoding="utf-8").lower()
-        # The persona itself should not model bad behavior
-        filler_count = text.count("of course") + text.count("happy to help") + text.count("great question")
-        # May appear in WRONG examples — but should be in a "don't do this" context
-        assert True  # Just checking it doesn't crash
-
 def test_persona_contains_wrong_right_examples():
     persona_path = Path(__file__).parents[1] / "eli" / "cognition" / "persona.txt"
     if persona_path.exists():

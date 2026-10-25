@@ -20,7 +20,7 @@ _STREAMING_CASES = [
     ("disney+", "disneyplus", "mandalorian"),
     ("disney plus", "disneyplus", "mandalorian"),
     ("disney", "disneyplus", "mandalorian"),
-    ("hulu", "hulu", "rick and morty"),
+    ("hulu", "hulu", "bluey"),
     ("hbo max", "max", "succession"),
     ("max", "max", "succession"),
     ("paramount", "paramountplus", "yellowstone"),

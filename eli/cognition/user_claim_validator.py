@@ -56,7 +56,7 @@ _CURRENT_ACTIVITY_RE = re.compile(
     re.I,
 )
 
-# User stating when something happened this turn ("spider man was today").
+# User stating when something happened this turn ("paddington was today").
 _TEMPORAL_ANCHOR_RE = re.compile(
     r"\b(.{2,80}?)\s+was\s+"
     r"(today|yesterday|this morning|this evening|just now|earlier today)\b",

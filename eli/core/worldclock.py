@@ -1,6 +1,6 @@
 """Place-aware wall-clock answers.
 
-Resolves a place named in a question ("what time is it in Shimla?") to an IANA
+Resolves a place named in a question ("what time is it in Delhi?") to an IANA
 zone and formats the current day/date/time for it. Standard library only:
 ``zoneinfo`` carries the full tz database on disk, so nothing here touches the
 network (ELI is offline by default — see ``eli.core.netguard``).
@@ -8,7 +8,7 @@ network (ELI is offline by default — see ``eli.core.netguard``).
 The two rules this module exists to enforce:
 
 * A named place is never silently ignored. Answering "what time is it in
-  Shimla?" with the local clock is worse than saying nothing.
+  Delhi?" with the local clock is worse than saying nothing.
 * An unresolvable place is reported as unresolvable, never guessed.
 """
 
@@ -28,7 +28,7 @@ __all__ = [
 ]
 
 # Places people name that are not IANA zone leaves. The tz database keys on a
-# representative city per zone, so "Shimla" or "Wexford" resolve to nothing
+# representative city per zone, so "Shimla" or "Sligo" resolve to nothing
 # without this table. Curated entries win over the derived index below.
 _PLACE_ALIASES: dict[str, str] = {
     # Ireland

@@ -14,7 +14,7 @@ tree = ast.parse(router_src)
 plugin_actions = sorted({
     str(c["action"]).upper()
     for c in data.get("capabilities", [])
-    if c.get("plugin") and c.get("active")
+    if c.get("plugin")
 })
 
 router_mk_actions = set()
@@ -65,4 +65,4 @@ print("=== Suggested next target ===")
 if missing:
     print("Add natural-language router rules for missing plugin actions.")
 else:
-    print("Clean: all active plugin actions are visible in router source.")
+    print("Clean: all plugin actions are visible in router source.")

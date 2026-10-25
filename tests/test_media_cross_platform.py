@@ -84,10 +84,10 @@ def test_spotify_search_type_and_play_drives_real_search_box(monkeypatch):
     monkeypatch.setattr(platc, "key_press", lambda keys: calls.append(("key", keys)) or True)
     monkeypatch.setattr(platc, "type_text", lambda text: calls.append(("type", text)) or True)
 
-    assert cp.spotify_search_type_and_play("soldiers logic by diabolic") is True
+    assert cp.spotify_search_type_and_play("silver lanterns by veridian") is True
     assert ("key", "ctrl+l") in calls
-    assert ("type", "soldiers logic by diabolic") in calls
-    assert calls.index(("key", "ctrl+l")) < calls.index(("type", "soldiers logic by diabolic"))
+    assert ("type", "silver lanterns by veridian") in calls
+    assert calls.index(("key", "ctrl+l")) < calls.index(("type", "silver lanterns by veridian"))
     assert ("key", "Down") in calls
     assert ("key", "Return") in calls
     assert calls.index(("key", "Return")) > calls.index(("key", "Down"))
@@ -127,7 +127,7 @@ def test_spotify_search_type_and_play_refuses_to_type_without_confirmed_focus(mo
     monkeypatch.setattr(platc, "key_press", lambda keys: calls.append(("key", keys)) or True)
     monkeypatch.setattr(platc, "type_text", lambda text: calls.append(("type", text)) or True)
 
-    assert cp.spotify_search_type_and_play("gangsters paradise by coolio") is False
+    assert cp.spotify_search_type_and_play("lantern paradise by mirelo") is False
     assert calls == []
 
 
@@ -149,7 +149,7 @@ def test_spotify_search_type_and_play_aborts_if_focus_lost_before_typing(monkeyp
     monkeypatch.setattr(platc, "key_press", lambda keys: True)
     monkeypatch.setattr(platc, "type_text", lambda text: typed.append(text) or True)
 
-    assert cp.spotify_search_type_and_play("gangsters paradise by coolio") is False
+    assert cp.spotify_search_type_and_play("lantern paradise by mirelo") is False
     assert typed == []
 
 
@@ -159,7 +159,7 @@ def test_spotify_search_type_and_play_false_when_launch_fails(monkeypatch):
 
 
 def test_spotify_search_type_and_play_does_not_claim_success_without_metadata_match(monkeypatch):
-    """Regression (live session, 2026-10-01): "play eminem trouble on spotify"
+    """Regression (live session, 2026-10-01): "play orlo trouble on spotify"
     sent Ctrl+L, typed, Down, Enter with no refusal logged — but only opened
     the search page and played nothing. Spotify's search suggestions are a
     live, debounced network call; Down+Enter can fire before they populate
@@ -180,7 +180,7 @@ def test_spotify_search_type_and_play_does_not_claim_success_without_metadata_ma
     monkeypatch.setattr(platc, "key_press", lambda keys: True)
     monkeypatch.setattr(platc, "type_text", lambda text: True)
 
-    assert cp.spotify_search_type_and_play("eminem trouble") is False
+    assert cp.spotify_search_type_and_play("orlo trouble") is False
 
 
 def test_spotify_search_type_and_play_retries_once_then_succeeds(monkeypatch):
@@ -205,23 +205,23 @@ def test_spotify_search_type_and_play_retries_once_then_succeeds(monkeypatch):
     monkeypatch.setattr(platc, "key_press", lambda keys: True)
     monkeypatch.setattr(platc, "type_text", lambda text: type_calls.append(text) or True)
 
-    assert cp.spotify_search_type_and_play("eminem trouble") is True
-    assert type_calls == ["eminem trouble", "eminem trouble"], "must re-type on retry, not just re-press Enter"
+    assert cp.spotify_search_type_and_play("orlo trouble") is True
+    assert type_calls == ["orlo trouble", "orlo trouble"], "must re-type on retry, not just re-press Enter"
 
 
 def test_track_query_matches_now_playing_true_on_token_overlap(monkeypatch):
     monkeypatch.setattr(cp, "spotify_live_meta",
-                         lambda player="spotify": ("▶ Playing", "Eminem", "Trouble"))
-    assert cp.track_query_matches_now_playing("eminem trouble") is True
-    assert cp.track_query_matches_now_playing("trouble by eminem") is True
+                         lambda player="spotify": ("▶ Playing", "Orlo", "Trouble"))
+    assert cp.track_query_matches_now_playing("orlo trouble") is True
+    assert cp.track_query_matches_now_playing("trouble by orlo") is True
 
 
 def test_track_query_matches_now_playing_false_on_unrelated_track(monkeypatch):
     monkeypatch.setattr(cp, "spotify_live_meta",
-                         lambda player="spotify": ("▶ Playing", "Immortal Technique", "Point Of No Return"))
-    assert cp.track_query_matches_now_playing("evil by eminem") is False
+                         lambda player="spotify": ("▶ Playing", "Quiet Machine", "Edge Of The Map"))
+    assert cp.track_query_matches_now_playing("evil by orlo") is False
 
 
 def test_track_query_matches_now_playing_false_when_nothing_live(monkeypatch):
     monkeypatch.setattr(cp, "spotify_live_meta", lambda player="spotify": ("", "", ""))
-    assert cp.track_query_matches_now_playing("evil by eminem") is False
+    assert cp.track_query_matches_now_playing("evil by orlo") is False

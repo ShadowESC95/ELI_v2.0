@@ -40,14 +40,14 @@ from eli.execution.router_enhanced import _RUNTIME_STATUS_RE
 # Turn 2, verbatim from the transcript.
 PRIOR = (
     "You're not wrong — I'm a bit of a hot mess, but at least I've got the simulation "
-    "grid running on autopilot. Sleep deprivation's like a bad software update: it "
+    "grid running on autopilot. A late night's like a bad software update: it "
     "crashes your system and leaves you wondering if you'll ever reboot. "
-    "How's the fallout 3 going?"
+    "How's the board game going?"
 )
 # Turn 3: the same two sentences, then a genuine answer to what was asked.
 RECYCLED_OPENING = (
     "You're not wrong — I'm a bit of a hot mess, but at least I've got the simulation "
-    "grid running on autopilot. Sleep deprivation's like a bad software update: it "
+    "grid running on autopilot. A late night's like a bad software update: it "
     "crashes your system and leaves you wondering if you'll ever reboot. As for the "
     "world model? It's basically a glorified todo list with a few flickering lights "
     "and a lot of existential dread. What's next on your agenda?"
@@ -93,7 +93,7 @@ def test_salvage_never_touches_a_novel_reply():
 def test_only_the_opening_is_trimmed():
     """A reply that happens to END on something said before keeps its own opening."""
     text = ("Right, the vector index is rebuilt and the count matches what's on disk. "
-            "How's the fallout 3 going?")
+            "How's the board game going?")
     assert _drive(text, [PRIOR], size=6, allow_retry=False, salvage=True) == text
 
 

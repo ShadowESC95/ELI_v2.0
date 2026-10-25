@@ -11,9 +11,9 @@ def _result(agent: str, text: str, confidence: float = 0.9) -> AgentResult:
                         data={"content": text}, elapsed_ms=1.0)
 
 
-ON_TOPIC = "The RAIMS ingestion pipeline uses SQLite for the staging store and needs retry backoff."
+ON_TOPIC = "The ORBIT ingestion pipeline uses SQLite for the staging store and needs retry backoff."
 OFF_TOPIC = "Yesterday's weather in Chicago was unusually warm for late September, near seventy degrees."
-QUERY = "what's the status of the RAIMS ingestion pipeline"
+QUERY = "what's the status of the ORBIT ingestion pipeline"
 
 
 def test_off_topic_evidence_scores_lower_than_on_topic_evidence():
@@ -27,7 +27,7 @@ def test_short_representative_text_is_not_gated():
     # Below _RELEVANCE_MIN_TEXT_CHARS (40): too little text for term_overlap to mean
     # anything, so it must NOT be penalised just for being short. Equal-length strings
     # isolate relevance from _evidence_density's own length sensitivity.
-    short_on_topic, _ = _aggregate_confidence(0.5, [_result("a", "the RAIMS status ok")], "CHAT", QUERY)
+    short_on_topic, _ = _aggregate_confidence(0.5, [_result("a", "the ORBIT status ok")], "CHAT", QUERY)
     short_off_topic, _ = _aggregate_confidence(0.5, [_result("a", "the weather is nice")], "CHAT", QUERY)
     assert short_on_topic == short_off_topic
 

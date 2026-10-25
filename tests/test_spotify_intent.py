@@ -3,9 +3,9 @@ from eli.integrations.media import spotify_intent as si
 
 
 def test_sanitize_strips_chat_log_prefix():
-    q = "🧑 You [11:51:07]: play the liar and a thief album diabolic"
+    q = "🧑 You [11:51:07]: play the salt and a stone album veridian"
     cleaned = si.sanitize_media_query(q)
-    assert "the liar and a thief album diabolic" == cleaned
+    assert "the salt and a stone album veridian" == cleaned
     assert "🧑" not in cleaned
 
 
@@ -15,19 +15,19 @@ def test_liked_songs_playlist_name():
 
 
 def test_album_by_artist():
-    name, artist = si.album_request("a liar and a thief album by diabolic")
-    assert name == "a liar and a thief"
-    assert artist == "diabolic"
+    name, artist = si.album_request("a salt and a stone album by veridian")
+    assert name == "a salt and a stone"
+    assert artist == "veridian"
 
 
 def test_album_without_artist():
-    name, artist = si.album_request("the marshall mathers lp album")
-    assert name == "marshall mathers lp"
+    name, artist = si.album_request("the harbour lights lp album")
+    assert name == "harbour lights lp"
     assert artist is None
 
 
 def test_artist_songs_request():
-    assert si.artist_songs_request("songs by diabolic") == "diabolic"
+    assert si.artist_songs_request("songs by veridian") == "veridian"
 
 
 def test_mpv_load_confirmed_rejects_bool_duration(monkeypatch):
@@ -46,42 +46,42 @@ def test_youtube_mpv_query_skips_album_suffix_for_plain_songs():
 
 def test_youtube_mpv_query_album_by_artist():
     from eli.integrations.media.spotify_intent import youtube_mpv_query
-    q = youtube_mpv_query("the album liar and a thief by diabolic")
-    assert "diabolic" in q.lower()
+    q = youtube_mpv_query("the album salt and a stone by veridian")
+    assert "veridian" in q.lower()
     assert "official audio" in q.lower()
-    q = si.youtube_search_query("the album liar and a thief by diabolic")
-    assert "diabolic" in q.lower()
-    assert "liar" in q.lower()
+    q = si.youtube_search_query("the album salt and a stone by veridian")
+    assert "veridian" in q.lower()
+    assert "salt" in q.lower()
     assert "album" in q.lower()
 
 
 def test_prefers_spotify_for_album_phrasing():
-    assert si.prefers_spotify_music_context("the marshall mathers lp album")
+    assert si.prefers_spotify_music_context("the harbour lights lp album")
 
 
 def test_album_mid_string_artist_album_name():
-    """Regression (live session): "play diabolics album liar and a thief" and
-    "play the arctic monkeys album AM on spotify" both fell through to a bare
+    """Regression (live session): "play veridians album salt and a stone" and
+    "play the copper tides album ox on spotify" both fell through to a bare
     track search typed verbatim, resolving to an unrelated song/album —
     album_request() only recognised "X album" (trailing) or "album X"
     (leading), never "ARTIST album ALBUMNAME" with "album" as a mid-string
     separator, which is how both real requests were phrased."""
-    name, artist = si.album_request("diabolics album liar and a thief")
-    assert name == "liar and a thief"
-    assert artist == "diabolics"
+    name, artist = si.album_request("veridians album salt and a stone")
+    assert name == "salt and a stone"
+    assert artist == "veridians"
 
-    name, artist = si.album_request("the arctic monkeys album am")
-    assert name == "am"
-    assert artist == "arctic monkeys"
+    name, artist = si.album_request("the copper tides album ox")
+    assert name == "ox"
+    assert artist == "copper tides"
 
 
 def test_album_mid_string_does_not_override_by_phrasing():
     """"NAME album by ARTIST" must still resolve via the existing, more
     specific "by" branch, not the new mid-string fallback — adding the
     fallback must not regress the already-working case this exercises."""
-    name, artist = si.album_request("a liar and a thief album by diabolic")
-    assert name == "a liar and a thief"
-    assert artist == "diabolic"
+    name, artist = si.album_request("a salt and a stone album by veridian")
+    assert name == "a salt and a stone"
+    assert artist == "veridian"
 
 
 def test_liked_songs_recognises_bare_liked_and_liked_playlist():

@@ -268,7 +268,7 @@ def _worker_eval(request: str):
 
 def _worker_testgen(request: str):
     """Overnight ELI-assisted test generation: write + sandbox-verify behavioural
-    tests for untested functions; only passing ones land in tests/generated/."""
+    tests for untested functions; only passing ones are kept, as drafts for review."""
     try:
         from eli.runtime.test_generator import run_testgen
         m = re.search(r"(\d+)", request or "")

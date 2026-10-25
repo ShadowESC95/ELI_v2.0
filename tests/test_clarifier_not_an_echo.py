@@ -3,7 +3,7 @@
 Seen live: an answer scored 0.44 against a 0.54 threshold, so the clarifier ran —
 and what reached the user as ELI's reply was
 
-    "What's the story bud! open spotify please?"
+    "Evening bud! open spotify please?"
 
 their own opening message of the session, quoted back at them with a question mark
 bolted on. The clarifier accepted any output under 90 words and *appended* '?' when
@@ -14,7 +14,7 @@ import pytest
 
 from eli.kernel.engine import CognitiveEngine, _clarifier_is_usable, _clarifier_norm
 
-USER_FIRST_TURN = "What's the story bud! open spotify please"
+USER_FIRST_TURN = "Evening bud! open spotify please"
 CONTEXT = f"user: {USER_FIRST_TURN}\nassistant: Opened media: spotify"
 CURRENT_INPUT = "What are you getting up to?"
 

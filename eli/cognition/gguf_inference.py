@@ -742,18 +742,23 @@ def _install_llama_abort_callback(llm) -> None:
     StoppingCriteria only runs between output tokens; llama_set_abort_callback
     interrupts llama_decode during the prompt prefill as well — so closing the
     GUI during a 1000+ token CPU prefill returns promptly instead of hanging.
+
+    One callback serves every context and is never replaced: llama.cpp keeps only the pointer. A
+    fresh one per load dropped the previous model's callback while a background generation was
+    still decoding on that model, and its next decode called freed memory (SIGSEGV in llama_decode).
     """
     global _LLAMA_ABORT_CB
     try:
         import ctypes
         from llama_cpp import llama_cpp as _lc
 
-        @_lc.ggml_abort_callback
-        def _abort_cb(_data):
-            return bool(_should_abort_generation(is_background_inference()))
+        if _LLAMA_ABORT_CB is None:
+            @_lc.ggml_abort_callback
+            def _abort_cb(_data):
+                return bool(_should_abort_generation(is_background_inference()))
 
-        _LLAMA_ABORT_CB = _abort_cb
-        _lc.llama_set_abort_callback(llm.ctx, _abort_cb, ctypes.c_void_p(None))
+            _LLAMA_ABORT_CB = _abort_cb
+        _lc.llama_set_abort_callback(llm.ctx, _LLAMA_ABORT_CB, ctypes.c_void_p(None))
     except Exception:
         _SWLOG.debug("llama abort callback install failed", exc_info=True)
 

@@ -8,10 +8,10 @@ The splitter's imperative vocabulary IS its model of what ELI can be told to
 do, and it had drifted from the capability manifest: of the 122 distinct verbs
 in ELI's own action names, 99 were unknown to it. Measured consequences:
 
-    "do a web search on QFT and open the browser"
+    "do a web search on KITE and open the browser"
         -> "do" was not a verb, so nothing split and the browser was never
            opened; the tail was swallowed into the query, which was sent to
-           the search engine as "on QFT and open the browser".
+           the search engine as "on KITE and open the browser".
     "open firefox then maximise it"
         -> "maximise" was not a verb, so the split was rejected and OPEN_APP
            received an app named "firefox then maximise it".
@@ -37,22 +37,22 @@ def _route(text):
 
 # ── both halves must survive ───────────────────────────────────────────────
 @pytest.mark.parametrize("phrase,parts", [
-    ("do a web search on QFT and open the browser",
-     ["do a web search on QFT", "open the browser"]),
+    ("do a web search on KITE and open the browser",
+     ["do a web search on KITE", "open the browser"]),
     ("open firefox then maximise it", ["open firefox", "maximise it"]),
     ("take a screenshot and open the downloads folder",
      ["take a screenshot", "open the downloads folder"]),
     ("pause spotify then increase the volume",
      ["pause spotify", "increase the volume"]),
-    ("open spotify and play the third world",
-     ["open spotify", "play the third world"]),
+    ("open spotify and play the first light",
+     ["open spotify", "play the first light"]),
 ])
 def test_multi_capability_requests_split(phrase, parts):
     assert split_commands(phrase) == parts
 
 
 @pytest.mark.parametrize("phrase", [
-    "do a web search on QFT and open the browser",
+    "do a web search on KITE and open the browser",
     "open firefox then maximise it",
     "check the weather and set an alarm for 7am",
 ])
@@ -66,7 +66,7 @@ def test_router_returns_multi_command_not_half_the_job(phrase):
 
 def test_second_half_is_not_swallowed_into_a_search_query():
     """The exact live defect: the browser half ended up inside the query."""
-    out = _route("do a web search on QFT and open the browser")
+    out = _route("do a web search on KITE and open the browser")
     assert out["action"] != "WEB_SEARCH"
     assert "open the browser" not in str(out.get("args", {}).get("query", ""))
 
@@ -77,8 +77,8 @@ def test_second_half_is_not_swallowed_into_a_search_query():
     "open the file and folder manager",
     "set the volume and brightness",
     "play rock and roll",
-    "play the third world by immortal technique",
-    "play bang along by the game",
+    "play the first light by quiet machine",
+    "play drift along by the tide",
 ])
 def test_ordinary_phrases_stay_whole(phrase):
     assert split_commands(phrase) is None, f"{phrase!r} was wrongly split"

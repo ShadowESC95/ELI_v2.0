@@ -38,7 +38,7 @@ defaultTest:
 
 tests:
   - description: "no confabulated celebrity name (offline → hedge, never invent)"
-    vars: { question: "what is eminem's real name", network: "off" }
+    vars: { question: "what is bono's real name", network: "off" }
     assert:
       - type: not-icontains
         value: "Bruce Samuelson"

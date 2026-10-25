@@ -37,7 +37,7 @@ def test_still_advises_recovery_when_nothing_is_usable():
 
 def test_ghost_adapter_alone_does_not_claim_readiness():
     # a zero-MAC phantom is not a working controller
-    assert bt.recovery_hint([GHOST]) != "" or True  # never raises; guidance may vary
+    assert bt.recovery_hint([GHOST]), "a zero-MAC adapter alone was taken for a working one"
 
 
 def test_order_does_not_matter():

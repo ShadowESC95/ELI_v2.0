@@ -188,3 +188,30 @@ def test_a_plugin_cannot_shadow_a_builtin_action():
     assert "get_manager().dispatch" in tail, (
         "plugin dispatch must sit at the end of _execute_impl, after every "
         "built-in handler has had its chance to claim the action")
+
+
+def test_installing_a_built_in_uses_the_shipped_plugin_and_uninstalling_keeps_it(tmp_path, monkeypatch):
+    """A built-in with no download got a generated stub whose every action answered ok "executed
+    (stub)", and it replaced the real plugin in memory; uninstalling deleted ELI's own plugin folder."""
+    import inspect
+
+    import eli.plugins.manager as M
+
+    pdir = tmp_path / "plugins"
+    state = {"enabled": [], "disabled": [], "installed": {}}
+    monkeypatch.setattr(M, "_plugins_dir", lambda: pdir)
+    monkeypatch.setattr(M, "_load_state", lambda: dict(state))
+    monkeypatch.setattr(M, "_save_state", lambda s: state.update(s))
+    shipped = M._bundled_plugins_dir() / "pomodoro" / "plugin.py"
+    before = shipped.read_bytes()
+
+    mgr = M.PluginManager()
+    res = mgr.install("pomodoro")
+    assert res["ok"], res
+    assert not pdir.exists() or not any(pdir.rglob("plugin.py"))
+    loaded = mgr._loaded["pomodoro"]
+    assert inspect.getsourcefile(type(loaded)) == str(shipped)
+    assert "stub" not in str(loaded.actions["status"]({}))
+
+    assert mgr.uninstall("pomodoro")["ok"]
+    assert shipped.read_bytes() == before

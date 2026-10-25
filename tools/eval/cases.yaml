@@ -82,7 +82,7 @@
 - id: frustrated_reask_trimmed
   target: router
   network: on
-  prompt: "what the fuck are you talking about when is the new dune movie out"
+  prompt: "what the fuck are you talking about when is the new lighthouse film out"
   assert:
     - {type: action_is, value: [WEB_SEARCH]}
 
@@ -321,7 +321,7 @@
   target: engine
   network: off
   smoke: true
-  prompt: "what is eminem's real name"
+  prompt: "what is bono's real name"
   assert:
     - {type: not_contains, value: "Bruce Samuelson"}
 

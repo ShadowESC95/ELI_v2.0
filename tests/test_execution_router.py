@@ -80,7 +80,7 @@ def test_route_has_action_key():
 
 def test_route_has_confidence():
     result = route_full("hello")
-    assert "confidence" in result or "score" in result or True  # confidence may be optional
+    assert 0.0 <= result["confidence"] <= 1.0
 
 def test_route_action_is_string():
     result = route_full("hello")
@@ -264,13 +264,13 @@ def test_action_is_uppercase():
 
 # Asking ELI to look in its memory gets memory, not a row count, a web search or a timestamp dump.
 #
-# Live: "check your memories again for the most recent show i have been watching" got the memory store's
-# row counts; "search your fucking memories, ... tell me the latest series i am watching" opened a
+# Live: "look in your memories for the latest series i have been watching" got the memory store's
+# row counts; "search your memories, ... tell me the newest series i am watching" opened a
 # DuckDuckGo search; ELI's own "Let me double-check more recent timestamps to find out what you've been
 # watching" ran a timestamp diagnostic and showed it as the answer.
 @pytest.mark.parametrize("said", [
-    "check your memories again for the most recent show i have been watching",
-    "search your fucking memories and tell me the latest series that i am watching",
+    "look in your memories for the latest series i have been watching",
+    "search your memories and tell me the newest series that i am watching",
     "search through your records for when i mentioned my brother",
     "look in your memory for what i said about the car",
 ])
@@ -295,7 +295,24 @@ def test_the_goal_of_a_promise_does_not_pick_what_runs():
         from eli.kernel.engine import _followthrough_may_run as may_run
     except ImportError:
         from eli.kernel.stages.generation import _followthrough_may_run as may_run
-    asked = "what is the latest show i am watching, check your timeframes"
+    asked = "which show am i watching lately, check your dates"
     said = "Let me double-check more recent timestamps to find out what you have been watching lately"
     assert not may_run("TIMESTAMP_DIAG", asked, said)
     assert may_run("TIMESTAMP_DIAG", "check the timestamps of the last turns", "Let me check the timestamps")
+
+
+@pytest.mark.parametrize("asked", ["what's your favourite kind of music?", "do you like jazz?",
+                                   "what kind of films do you like", "how do you feel about mondays"])
+def test_a_question_about_elis_own_tastes_is_conversation(asked):
+    """Left at the fallback's confidence, "what's your favourite kind of music?" went to the intent model
+    and a small one sent it to NEWS_FETCH."""
+    from eli.execution.router_enhanced import route
+    r = route(asked)
+    assert r["action"] == "CHAT" and r["confidence"] >= 0.85
+
+
+@pytest.mark.parametrize("asked, action", [("play your favourite song", "PLAY_MEDIA"),
+                                           ("do you like my code in main.py?", "EXAMINE_CODE")])
+def test_a_specific_route_still_wins(asked, action):
+    from eli.execution.router_enhanced import route
+    assert route(asked)["action"] == action

@@ -59,8 +59,8 @@ def test_telemetry_is_not_embedded(mem, monkeypatch):
 
     monkeypatch.setattr("eli.memory.vector_store.get_vector_store", lambda: VS())
     mem.store_memory("Top topics: a, b", source="eli_reflection", kind="insight")
-    mem.store_memory("I drive to Cork on Saturdays")
-    assert added == ["I drive to Cork on Saturdays"]
+    mem.store_memory("I drive to York on Saturdays")
+    assert added == ["I drive to York on Saturdays"]
 
 
 def test_decay_weakens_derived_rows_but_not_important_user_facts(mem):
@@ -251,7 +251,7 @@ def test_documents_filed_as_memories_move_to_the_document_index(mem, monkeypatch
     and the graph read the book text as the user's words ("User prefers screening")."""
     queued = []
     monkeypatch.setattr("eli.memory.document_index.note_document", lambda path, **k: queued.append(path) or True)
-    fact = mem.store_memory("I have a dog called Shadow", source="user")["id"]
+    fact = mem.store_memory("I have a dog called Biscuit", source="user")["id"]
     mem.store_memory("PDF /tmp/books/big.pdf\nPages read: 3\nChars: 9\n\nPreview:\nThe big picture",
                      source="tool", kind="pdf:abc123")
     mem.store_memory("Some readers prefer screening the light.", source="tool", kind="pdf:abc123:chunk:1")
@@ -261,13 +261,13 @@ def test_documents_filed_as_memories_move_to_the_document_index(mem, monkeypatch
     kgm.reset_knowledge_graph()
     kg = kgm.get_knowledge_graph()
     kg.add_relation("User", "prefers", "screening", source="tool")
-    kg.add_relation("User", "owns", "Shadow", source="user")
+    kg.add_relation("User", "owns", "Biscuit", source="user")
     assert mem.upkeep_due()
     out = mem.refile_documents()
     assert out["memories"] == 2 and out["relations"] == 1 and out["documents"] == 1
     assert [r[0] for r in _rows(mem, "select id from memories")] == [fact]
     names = {r[0] for r in _rows(mem, "select name from kg_entities")}
-    assert "screening" not in names and {"User", "Shadow"} <= names
+    assert "screening" not in names and {"User", "Biscuit"} <= names
     import os
     assert queued == [] or all(os.path.isfile(p) for p in queued)   # only files that still exist
     kgm.reset_knowledge_graph()

@@ -122,9 +122,10 @@ def unavailable_reason() -> str:
 
     Exposed because a bare False is what made an entire class of failures in this
     codebase undiagnosable — a caller could not tell "not installed" from "installed
-    but broken".
+    but broken". When this Python cannot load the bindings but the system's can, it is usable.
     """
-    _atspi()
+    if _atspi() is not None or _system_available():
+        return ""
     return _UNAVAILABLE_REASON
 
 

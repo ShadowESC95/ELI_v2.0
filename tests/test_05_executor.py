@@ -2,11 +2,13 @@ import pytest
 from unittest.mock import patch, MagicMock
 from eli.execution.executor_enhanced import execute
 
-@patch("eli.execution.executor_enhanced._run")
-def test_executor_open_app(mock_run):
-    mock_run.return_value = {"ok": True}
+def test_executor_open_app(monkeypatch):
+    launched = []
+    monkeypatch.setattr("eli.execution.effectors.system_helpers.open_app_with_timeout",
+                        lambda argv, timeout=30: launched.append(argv) or {"ok": True, "spawned": True, "argv": argv})
+    monkeypatch.setattr("eli.system.portable_app_control._popen", lambda args: launched.append(args) or True)
     result = execute("OPEN_APP", {"name": "firefox"})
-    assert result["ok"] is True
+    assert result["ok"] is True and launched and "firefox" in " ".join(launched[0])
 
 @patch("subprocess.run")
 def test_executor_shell_exec(mock_run):

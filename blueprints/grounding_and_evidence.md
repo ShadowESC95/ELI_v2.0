@@ -274,8 +274,8 @@ exist, and said "the audit trail is now active" for logging that was always on.
 - **Words written on an earlier day keep their day.** Session summaries, recalled memories and
   earlier sessions' lines reach the prompt dated, and their own "last night", "yesterday",
   "today" and "right now" become that day's dates (`evidence_format.as_of`, `dated`). A
-  15 October summary said "zero hours last night"; on 20 October ELI told the user they had
-  mentioned zero sleep last night, and after the correction that they were running on fumes.
+  15 October summary said "up late last night"; on 20 October ELI told the user they had been up
+  late last night.
 - **What the hardware is doing is measured, not said.** In a turn with no evidence, a sentence
   that puts a state (idle, unused, gathering dust, busy, a percentage, hot) on a part ELI can
   measure (GPU, card, VRAM, CPU, RAM, the cards' own model numbers) is dropped
@@ -368,8 +368,8 @@ within a short window of the last news command and **re-routes to `NEWS_FETCH` w
 that topic** — same live fetch path as the original briefing.
 
 The router's general follow-up nudges (`eli.followup.*`, "go deeper", "tell me more") do not
-count as explicit commands here, so they never outrank this rule: "go deeper on the AI and
-Caine prize" after a briefing went to chat until 2.5.15.
+count as explicit commands here, so they never outrank this rule: "go deeper on the sea wall
+vote" after a briefing went to chat until 2.5.15.
 
 If the user complains that ELI guessed (`is_news_fetch_complaint`), the kernel
 recovers the deepen topic from recent conversation (`recover_recent_deepen_topic`)

@@ -132,7 +132,6 @@ def test_none_of_the_fixed_sizes_came_back():
         "eli/gui/eli_pro_audio_gui_v2_0.py": ["self._n_ctx <= 8192", "min(131072, int(ram_gb * 1024))",
                                               "max_tokens_input.setRange(128, 4096)"],
         "eli/core/startup_hardware_optimizer.py": ["min(8192, n_ctx // 2)", "min(131072, int(net_gb * 1024))"],
-        "eli/core/dynamic_runtime_budget.py": ["[2048, 4096, 6144, 8192, 12288, 16384, 24576, 32768]"],
         "eli/runtime/runtime_policy.py": ["min(4.0, ctx / 8192.0)", "if ctx >= 32768"],
         "eli/memory/vector_store.py": ["n_ctx=2048,"],
     }

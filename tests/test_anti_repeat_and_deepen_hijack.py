@@ -7,7 +7,7 @@ The transcript is the specification here, so the fixtures are its actual text.
 ``[ANTI-REPEAT] contract injected (3 prior replies)`` on *every one* of those turns —
 the guard was running and being ignored. It was prompt-level only: it asked the model
 not to repeat and never checked whether it had. The worst instance came right after
-the user said "Shut the fuck up about my sleep" and ELI answered "I'll stop", then
+the user said "Stop going on about my schedule" and ELI answered "I'll stop", then
 repeated the paragraph on the next turn.
 
 **2. "Good.. morning report?" did not produce a morning report.** The router matched
@@ -176,7 +176,7 @@ def test_an_explicit_repeat_request_stands_the_guard_down(asked):
     "Morning Eli",
     "summary please pal",
     "keep going haha",
-    "I told you not to worry about my sleep, I will sleep properly tonight.",
+    "I told you not to worry about my schedule, I will sort it out tonight.",
     "Good.. morning report?",
     "Eli, why the fuck do you keep repeating yourself??",
     "",

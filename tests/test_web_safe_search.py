@@ -7,9 +7,9 @@ Observed live at 2.3.15:
     whatever the installed client defaulted to — a value this project never
     set or pinned.
   * The router passed the user's whole sentence through as the query text:
-    'please open the browser and search for QFT. OPEN A BROWSER SEARCH PAGE'
+    'please open the browser and search for KITE. OPEN A BROWSER SEARCH PAGE'
     was sent verbatim to the engine, which then matched on "open", "browser"
-    and "page" rather than on QFT.
+    and "page" rather than on KITE.
 
 Screening is host-based on purpose. A snippet-keyword blocklist would bury
 legitimate medical and biological results, so the locks below assert that
@@ -75,20 +75,20 @@ def test_screening_survives_junk_input():
 
 def test_filter_removes_only_adult_entries():
     results = [
-        {"href": "https://en.wikipedia.org/wiki/QFT", "title": "QFT"},
+        {"href": "https://en.wikipedia.org/wiki/KITE", "title": "KITE"},
         {"href": "https://pornhub.com/x", "title": "nope"},
         {"href": "https://arxiv.org/abs/1", "title": "paper"},
     ]
     kept = web._filter_results(results)
-    assert [r["title"] for r in kept] == ["QFT", "paper"]
+    assert [r["title"] for r in kept] == ["KITE", "paper"]
 
 
 # ── query hygiene ──────────────────────────────────────────────────────────
 @pytest.mark.parametrize("raw,expected", [
-    ("please open the browser and search for QFT. OPEN A BROWSER SEARCH PAGE", "QFT"),
-    ("do a web search on QFT and open the browser", "QFT"),
-    ("on QFT and open the browser", "QFT"),
-    ("search the web for QFT", "QFT"),
+    ("please open the browser and search for KITE. OPEN A BROWSER SEARCH PAGE", "KITE"),
+    ("do a web search on KITE and open the browser", "KITE"),
+    ("on KITE and open the browser", "KITE"),
+    ("search the web for KITE", "KITE"),
     ("google quantum field theory", "quantum field theory"),
     ("look up the history of quantum field theory", "the history of quantum field theory"),
 ])
@@ -97,7 +97,7 @@ def test_instruction_wrapper_is_stripped(raw, expected):
 
 
 @pytest.mark.parametrize("raw", [
-    "QFT",
+    "KITE",
     "what is the boiling point of mercury",
     "Niels Bohr and Max Planck correspondence 1913",
 ])

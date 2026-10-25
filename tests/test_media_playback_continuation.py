@@ -2,7 +2,7 @@
 
 Observed live at 2.3.15:
 
-  * "play bang along by the game on youtube" failed with mpv rc=3 and
+  * "play drift along by the tide on youtube" failed with mpv rc=3 and
     `[ffmpeg] https: HTTP error 403 Forbidden` on a googlevideo URL carrying
     `c=ANDROID_VR`. A 403 there does not mean the video is unavailable — it
     means yt-dlp returned a stream URL bound to the client that requested it.
@@ -77,8 +77,8 @@ def test_playlist_requests_are_recognised(query, expected):
 
 
 @pytest.mark.parametrize("query", [
-    "the third world by immortal technique",
-    "bang along by the game",
+    "the first light by quiet machine",
+    "drift along by the tide",
     "my playlist",          # names nothing
     "",
 ])

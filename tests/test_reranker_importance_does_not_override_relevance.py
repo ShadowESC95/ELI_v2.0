@@ -59,7 +59,7 @@ def test_window_sourced_memories_are_not_crushed_by_the_overlap_gate():
     # relevance gate added above was treating that as "no retriever vouched for this" and
     # crushing these to near-zero — exactly the candidates a "past week" question needs most.
     window_hit = {
-        "text": "Session: 4 turns. Recent: how are you today; sleeping pills last night",
+        "text": "Session: 4 turns. Recent: how are you today; a late night yesterday",
         "importance": 0.6, "weight": 1.0, "ts": time.time() - 2 * 86400, "_source": "window",
     }
     out = rerank_candidates("what have we been discussing the past 7 days",
