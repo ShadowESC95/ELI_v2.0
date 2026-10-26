@@ -46,6 +46,11 @@ jobs:
         # oldest supported, the one the full suite runs on, and the newest stable ("3.x" follows new releases)
         python: ["3.10", "3.12", "3.x"]
     runs-on: ${{ matrix.os }}
+    # The newest Python is informational, not required: a hard dependency with a compiled wheel
+    # (faiss-cpu) usually lags a brand-new CPython by weeks, so "3.x" can be uninstallable through no
+    # fault of the code — faiss-cpu had no cp314 wheel when 3.14 shipped. The two pinned versions
+    # (3.10, 3.12) stay required and still fail the run; only the bleeding-edge one is allowed to.
+    continue-on-error: ${{ matrix.python == '3.x' }}
     # Windows runners default to PowerShell, which cannot parse the `python - <<'PY'`
     # heredoc the dashboard step is built on — it failed with a .ps1 ParserError on both
     # Windows jobs the first time this workflow ever ran. Pinning bash everywhere also
