@@ -176,7 +176,7 @@ def route_control_text(user_input: Any, current_action: Any = None) -> str | Non
         return "EXPLAIN_LAST_RESPONSE"
 
     # How long / why slow the last response was -> the grounded timing, not a guessed duration.
-    if re.search(r"(?:how\s+long\s+(?:did|does|will)\s+(?:that|this|it|your(?:\s+last)?\s+(?:response|reply|answer))\s+take|took\s+(?:you\s+)?(?:about\s+|roughly\s+)?(?:\d|a|an|half|some|that|this|ages|forever|too|way\s+too)\b[^?.!\n]{0,40}\b(?:second|minute|hour|while|ages|forever|response|reply|answer|that|long)\b|why\s+(?:(?:did|does|is|was|are)\b[^?.!\n]{0,40}\b)?(?:so\s+slow|too\s+slow|so\s+long|take\s+so\s+long|really\s+slow)|(?:that|this|your\s+(?:response|reply|answer))\s+(?:took|was)\s+[^?.!\n]{0,20}\b(?:slow|forever|ages|too\s+long|so\s+long)\b)", low):
+    if re.search(r"how\s+long\s+(?:did|does|will)\s+(?:that|this|it|your(?:\s+last)?\s+(?:response|reply|answer))\s+take|(?:took|take|taking)\s+(?:you\s+)?(?:about\s+|roughly\s+|like\s+)?(?:\d|a|an|half|couple|few|several|ages|forever|too\s+long|so\s+long)\b[^?.!\n]{0,45}\bfor\s+(?:that|this|your|the)\s+(?:last\s+)?(?:response|reply|answer|one)\b|(?:that|this|your)\s+(?:last\s+)?(?:response|reply|answer)\s+(?:took|was)\s+[^?.!\n]{0,20}\b(?:slow|forever|ages|too\s+long|so\s+long)\b", low):
         return "EXPLAIN_LAST_RESPONSE"
 
     # Persona/identity-evolution questions ("how has your persona/identity evolved/changed") are

@@ -121,8 +121,8 @@ def test_a_slow_reply_is_answered_from_its_record_and_ram_with_ram(monkeypatch):
 @pytest.mark.parametrize("asked", [
     "took you a minute and a half for that response?",
     "how long did that take",
-    "why so slow?",
-    "that took forever",
+    "how long did your response take",
+    "your reply took ages",
 ])
 def test_a_question_about_the_last_response_time_is_grounded_not_guessed(asked):
     """Live: "took you a minute and a half for that response?" went to chat and the model invented
@@ -133,8 +133,13 @@ def test_a_question_about_the_last_response_time_is_grounded_not_guessed(asked):
     assert route_control_text(asked) in ("EXPLAIN_LAST_RESPONSE", "ROUTING_FAULT_EXPLAIN")
 
 
-@pytest.mark.parametrize("asked", ["how long until the bus comes", "the download was slow last night",
-                                   "play that song", "take a screenshot"])
-def test_an_unrelated_duration_question_is_not_a_timing_report(asked):
+@pytest.mark.parametrize("asked", [
+    # a complaint that opens "took too long" is talk, not a timing lookup, and keeps its own command
+    "took too long, you need to sort out a plan. open nasa website",
+    "why are you processing that so slowly",
+    "how long until the bus comes", "the download was slow last night",
+    "play that song", "take a screenshot",
+])
+def test_an_unrelated_or_complaint_duration_phrase_is_not_a_timing_report(asked):
     from eli.execution.router_enhanced import route
-    assert route(asked)["action"] not in ("EXPLAIN_LAST_RESPONSE",)
+    assert route(asked)["action"] != "EXPLAIN_LAST_RESPONSE"
