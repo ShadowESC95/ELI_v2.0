@@ -1,4 +1,5 @@
 from __future__ import annotations
+import pytest
 
 from eli.execution.router_enhanced import route
 from eli.execution.executor_enhanced import execute
@@ -115,3 +116,25 @@ def test_a_slow_reply_is_answered_from_its_record_and_ram_with_ram(monkeypatch):
     out = build_routing_fault_explanation("that took over a minute??")
     assert "69 s of model time" in out and "Inference runtime" in out
     assert "inference RAM" not in out and "re-run through the live router" not in out
+
+
+@pytest.mark.parametrize("asked", [
+    "took you a minute and a half for that response?",
+    "how long did that take",
+    "why so slow?",
+    "that took forever",
+])
+def test_a_question_about_the_last_response_time_is_grounded_not_guessed(asked):
+    """Live: "took you a minute and a half for that response?" went to chat and the model invented
+    "one and a half seconds" for an 83 s reply. It must reach the real recorded timing."""
+    from eli.execution.router_enhanced import route
+    from eli.runtime.control_contracts import route_control_text
+    assert route(asked)["action"] in ("EXPLAIN_LAST_RESPONSE", "ROUTING_FAULT_EXPLAIN")
+    assert route_control_text(asked) in ("EXPLAIN_LAST_RESPONSE", "ROUTING_FAULT_EXPLAIN")
+
+
+@pytest.mark.parametrize("asked", ["how long until the bus comes", "the download was slow last night",
+                                   "play that song", "take a screenshot"])
+def test_an_unrelated_duration_question_is_not_a_timing_report(asked):
+    from eli.execution.router_enhanced import route
+    assert route(asked)["action"] not in ("EXPLAIN_LAST_RESPONSE",)

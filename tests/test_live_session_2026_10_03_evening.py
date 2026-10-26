@@ -454,3 +454,17 @@ def test_a_junk_relation_an_old_extractor_stored_stays_out_from_either_side(tmp_
     text = kg.context_for_prompt("saying the kettle is broken again") + kg.context_for_prompt("kettle")
     assert "saying the kettle" not in text
     assert "Bristol" in kg.context_for_prompt("Bristol")
+
+
+def test_a_stale_watching_attribute_is_not_surfaced_as_a_durable_fact(tmp_path):
+    """Live (2026-10-21): MEMORY_RECALL surfaced "User has_attribute watching the movie Oppenheimer
+    (as of 19 Oct)" while the user was on a different film. Volatile activities belong to the
+    bitemporal claims store, which surfaces the CURRENT one; the KG must not keep a stale, re-dated
+    one as a durable attribute."""
+    from eli.memory.knowledge_graph import KnowledgeGraph
+    kg = KnowledgeGraph(db_path=tmp_path / "kg.sqlite3")
+    kg.add_relation("User", "has_attribute", "watching the movie Oppenheimer")
+    kg.add_relation("User", "has_attribute", "a physics researcher")
+    text = kg.context_for_prompt("what is the user watching") + kg.context_for_prompt("Oppenheimer")
+    assert "Oppenheimer" not in text and "watching the movie" not in text
+    assert "physics researcher" in kg.context_for_prompt("what does the user do")

@@ -817,14 +817,16 @@ def get_last_audit() -> Optional[Dict[str, Any]]:
     return payload if payload.get("findings") is not None else None
 
 
+_RECALL_VERBS = r"(?:list|show|give|enumerate|repeat|recap|pull\s+up|bring\s+up|go\s+(?:through|over)|run\s+(?:through|over)|walk\s+(?:me\s+)?through|go\s+back\s+(?:through|over))"
+
 _RECALL_RE = re.compile(
     r"\b(?:"
-    r"(?:list|show|give|enumerate|repeat|recap)\b.{0,60}\b(?:errors?|issues?|findings?|problems?|breakages?)\b.{0,40}\b(?:found|flagged|reported|earlier|before|audit|scan)"
+    + _RECALL_VERBS + r"\b.{0,60}\b(?:errors?|issues?|findings?|problems?|breakages?)\b.{0,40}\b(?:found|flagged|reported|earlier|before|audit|scan)"
     r"|(?:errors?|issues?|findings?|problems?|breakages?)\b.{0,20}\byou\s+(?:found|flagged|reported)"
     r"|(?:last|previous|that)\s+(?:audit|scan|examination|code\s+exam)"
-    # Definite reference to an existing report ("list all of the 43 errors",
-    # "show me those issues") — but not a fresh-scan target ("errors in <file>").
-    r"|(?:list|show|give|enumerate)\b.{0,40}\b(?:the|those|these|all(?:\s+of)?(?:\s+the)?)\s+(?:\d+\s+)?(?:errors?|issues?|findings?|problems?|breakages?)\b(?!\s+in\b)"
+    # Definite reference to an existing report ("list all of the 43 errors", "pull up each of those
+    # 59 findings", "show me those issues") — but not a fresh-scan target ("errors in <file>").
+    r"|" + _RECALL_VERBS + r"\b.{0,40}\b(?:the|those|these|each\s+of\s+(?:those|these|them)|all(?:\s+of)?(?:\s+the)?)\s+(?:\d+\s+)?(?:errors?|issues?|findings?|problems?|breakages?)\b(?!\s+in\b)"
     r")",
     re.I | re.S,
 )

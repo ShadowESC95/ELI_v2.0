@@ -144,15 +144,27 @@ _NOT_A_KIND = frozenset("""not just still only well actually your the in all goo
 pretty certain it doing saying so too very really""".split())
 
 
+# Point-in-time activities change constantly; the bitemporal claims store (eli.memory.claims,
+# CHANGES_OFTEN) is their authority and recall surfaces the CURRENT one. A durable KG attribute for
+# them goes stale: "watching the movie Oppenheimer" was still shown, re-dated, while the user was on
+# a different film. These are hidden from the prompt so the claims store speaks for them.
+_VOLATILE_ACTIVITY_VERBS = ("watching", "watched", "playing", "played", "reading", "read",
+                            "listening", "listening_to", "listened")
+
+
 def _junk_name_relation(rel: Dict[str, Any]) -> bool:
-    """A relation an earlier extractor stored that isn't a fact: a has_name/nickname whose value
-    isn't a name ("listed as unknown", "not fucking listed"), or an is_a that is a mood or an
-    activity ("going to bed now", "not happy"). Hidden from the prompt rather than deleted."""
+    """A relation an earlier extractor stored that isn't a durable fact: a has_name/nickname whose
+    value isn't a name ("listed as unknown"), an is_a that is a mood or an activity ("going to bed
+    now"), or a has_attribute that is a volatile activity ("watching the movie X" — the claims store
+    owns those). Hidden from the prompt rather than deleted."""
     predicate = str(rel.get("predicate") or "").lower()
     obj = str(rel.get("object") or "").strip()
     if predicate == "is_a":
         first = (obj.split() or [""])[0].lower()
         return first in _NOT_A_KIND or first.endswith("ing") or len(obj.split()) > 4
+    if predicate == "has_attribute":
+        first = (obj.split() or [""])[0].lower()
+        return first in _VOLATILE_ACTIVITY_VERBS
     if predicate not in ("has_name", "nickname"):
         return False
     try:

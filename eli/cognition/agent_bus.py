@@ -1,5 +1,5 @@
 """
-eli/brain/agents/agent_bus.py
+eli/cognition/agent_bus.py
 
 Multi-agent orchestration layer for ELI.
 
@@ -14,43 +14,46 @@ uses to build a richer, more confident reply.
 Agents are evidence-gatherers and action-executors, not LLM proxies.
 The LLM synthesis step still lives in CognitiveEngine._get_chat_response().
 
-Agent roster
+Agent roster (the classes in this file; a per-action profile picks which run — see the profile
+table above _BaseAgent)
 -----------
-  MemoryAgent          – semantic recall, conversation history, stored facts,
-                         habit rules, session summaries
-  SystemAgent          – OS actions: open apps/files/URLs, volume, screenshot,
-                         clipboard, keyboard, shell, timers, alarms
-  HabitAgent           – pattern detection, automation rule proposals,
-                         event logging for app launches
+  BusMemoryAgent       – semantic recall, conversation history, stored facts, session summaries
+  SystemAgent          – OS and app actions: open/close/focus apps, files, URLs, volume, screenshot,
+                         clipboard, keyboard, shell, timers, alarms, media, and the web actions
+                         (WEB_SEARCH / WEB_FETCH / GET_WEATHER / NEWS_FETCH) when the net is on
+  HabitAgent           – pattern detection, automation rule proposals, app-launch event logging
   SelfImprovementAgent – failure logging, improvement proposals, correction loop
   ProactiveAgent       – background daemon status, morning report, insights
-  FrontierAgent        – cross-system runtime matrix (memory/self/proactive/
-                         image/world/labs/chatflow)
-  PluginAgent          – weather, calendar, web automation, document reader,
-                         PDF/CSV analysis, smart home
+  FrontierAgent        – cross-system runtime matrix (memory/self/proactive/image/world/labs/chatflow)
+  PluginAgent          – plugin-backed tools: calendar, document reader, PDF/CSV analysis, smart home
+  CapabilityAgent      – what ELI can do (the capability surface), for help/capability queries
   VoiceAgent           – TTS/STT status, voice preference queries
-  KnowledgeAgent       – pure-LLM synthesis fallback (used when no other agent
-                         supplies grounded evidence)
+  OrchestratorAgent    – planning only: produces the plan, not evidence (excluded from scoring)
+  FileCodeAgent        – reads real source for code questions (snippets, files scanned)
+  KnowledgeGraphAgent  – entities and relations from the knowledge graph
+  IntrospectionBusAgent, ReflectionAgent, SpecAgent – runtime introspection, reflection, contracts
+  CriticAgent          – a reviewer over the others' evidence (profile "critic")
 
 Confidence model
 ----------------
-Each AgentResult carries a raw confidence (0.0–1.0).  The bus aggregates
-them using a weighted scheme:
+Evidence-driven, with no hardcoded per-agent weights (see _aggregate_confidence). Each contributing
+agent's share is evidence_quality × density × calibration × relevance:
+  - evidence_quality: the agent's self-reported confidence, blended with a tool-result score for
+    tool-typed results (evidence_arbitration).
+  - density: a smooth measure of how much real payload the result carries (_evidence_density).
+  - calibration: a rolling per-(agent, action) multiplier learned from the agent_metrics table.
+  - relevance: gates quality/density on whether the result is actually about the user's message.
+Route certainty contributes _ROUTE_BASE_WEIGHT (0.30) of the total; any one agent is capped at
+_SINGLE_AGENT_CAP (0.30); a dispatch with no grounded evidence is capped at _EMPTY_BUS_CEILING
+(0.65). The final score maps to a word label via eli.core.confidence.confidence_label
+(very low … very high), as the logs show (agg_conf).
 
-  base          = router intent confidence  (0.0–1.0)
-  memory hit    += 0.08 per relevant result (capped at +0.20)
-  system ok     += 0.15 if action succeeded, -0.10 if failed
-  plugin data   += 0.12 if plugin returned a real result
-  habit match   += 0.06 per matched rule
-  multi-agent   += 0.05 if ≥ 3 agents contributed evidence
-  grounded      += 0.08 if executor evidence has file paths / line numbers
-
-Final score is clamped to [0.02, 0.98].
-
-Offline guarantee
------------------
-No agent makes any network call.  All I/O is local SQLite, local filesystem,
-or subprocess calls to system binaries (playerctl, paplay, etc.).
+Network
+-------
+Local-first and offline by default. Most agents only touch local SQLite, the local filesystem, or
+subprocess calls to system binaries (playerctl, paplay, …). The web actions above are the exception:
+SystemAgent performs them only when the user has turned the network on, and every outbound request
+passes through the netguard egress ledger (eli.core.netguard).
 """
 
 from __future__ import annotations

@@ -2213,6 +2213,13 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if re.search(r"\b(confidence in (?:your|my) last response|which agents contributed|what agents contributed|last response trace|previous response trace|last turn trace)\b", low):
         return _mk("EXPLAIN_LAST_RESPONSE", {}, 0.99, matched_by="router.explain_last_response", allow_chat_without_evidence=False)
 
+    # How long / why slow the last response was, answered from the real recorded timing (model calls
+    # and seconds in the turn record), not the model's guess. Live, "took you a minute and a half for
+    # that response?" went to chat and the model invented "one and a half seconds" for an 83 s reply.
+    if re.search(r"(?:how\s+long\s+(?:did|does|will)\s+(?:that|this|it|your(?:\s+last)?\s+(?:response|reply|answer))\s+take|took\s+(?:you\s+)?(?:about\s+|roughly\s+)?(?:\d|a|an|half|some|that|this|ages|forever|too|way\s+too)\b[^?.!\n]{0,40}\b(?:second|minute|hour|while|ages|forever|response|reply|answer|that|long)\b|why\s+(?:(?:did|does|is|was|are)\b[^?.!\n]{0,40}\b)?(?:so\s+slow|too\s+slow|so\s+long|take\s+so\s+long|really\s+slow)|(?:that|this|your\s+(?:response|reply|answer))\s+(?:took|was)\s+[^?.!\n]{0,20}\b(?:slow|forever|ages|too\s+long|so\s+long)\b)", low):
+        return _mk("EXPLAIN_LAST_RESPONSE", {}, 0.96, matched_by="router.explain_last_response.timing",
+                   need_grounding=True, allow_chat_without_evidence=False)
+
     # Where did ELI get its last statement, in plain words. The jargon route above missed "where are
     # you getting this information?", so the model invented a source. The bus knows which agents
     # contributed, so answer from that. Needs that/this/it to stay about the prior statement.
@@ -6222,6 +6229,27 @@ def _eli_self_improvement_phrase_guard(text):
                 "task_family": "self_improvement",
             },
         }
+
+    # A request to see the findings from the last code audit again ("pull up each of those 59
+    # findings once more") replays the stored audit, not chat, where the model invented a fake file
+    # tree of files that do not exist. Only fires when a stored audit actually exists, so an unrelated
+    # "pull those up" cannot route here.
+    try:
+        from eli.runtime import code_examiner as _ce_recall
+        if _ce_recall.is_recall_request(raw) and _ce_recall.get_last_audit():
+            return {
+                "action": "EXAMINE_CODE",
+                "args": {"request": raw},
+                "confidence": 0.97,
+                "meta": {
+                    "matched_by": "eli.examine_code_recall",
+                    "need_grounding": True,
+                    "allow_chat_without_evidence": False,
+                    "task_family": "grounded_audit",
+                },
+            }
+    except Exception:
+        pass
 
     # EXAMINE_CODE: "examine/review/scan <file|module|codebase> for errors". Needs a code word, .py
     # path or eli.* module so "examine this image" doesn't match. GUI/runtime audits with proof go to

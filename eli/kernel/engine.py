@@ -10255,18 +10255,8 @@ Answer:"""
             # Anchored on "yourself" rather than an exact verb phrase: the question that produced
             # the fabricated paths was typed "what fo you know of yourself", and a strict pattern
             # would have let a typo decide whether the answer was grounded or invented.
-            _self_descriptive = bool(
-                (re.search(r"\byoursel(?:f|ves)\b", _ui_low)
-                 and re.search(r"\b(know|knew|tell|telling|describe|description|explain|"
-                               r"detail|detailed|accurate|accurately|about|of)\b", _ui_low))
-                or re.search(
-                    r"\b(what are you|who are you|describe yourself|"
-                    r"your (?:architecture|internals?|capabilit\w+|components?|design|"
-                    r"databases?|storage|memory system|codebase|upgrade path)|"
-                    r"how (?:do|are) you (?:built|structured|made|work)|"
-                    r"how do you (?:upgrade|update) yourself|what do you run on)\b",
-                    _ui_low)
-            )
+            from eli.runtime.self_facts import is_self_descriptive as _is_self_desc
+            _self_descriptive = _is_self_desc(_ui_low)
             if _self_descriptive:
                 from eli.runtime.self_facts import render_self_facts_block as _rsf
                 _sf = _rsf()

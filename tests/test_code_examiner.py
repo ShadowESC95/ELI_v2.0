@@ -267,3 +267,27 @@ def test_generate_fix_patch_retries_with_feedback(tmp_module, monkeypatch):
     assert patch["ok"] is True
     assert patch["new"] == "return 0"
     assert calls["n"] == 2   # proves it retried after the local rejection
+
+
+def test_recall_request_covers_pull_up_and_again_phrasings():
+    """Live: "pull up each of those 59 findings once more" went to chat and the model fabricated a
+    file tree of files that do not exist. The recall verbs were too narrow."""
+    for yes in ("can you pull up each of those 59 findings once more?",
+                "pull up those findings again", "go through those issues again",
+                "go back over those errors", "show me those 59 findings",
+                "list all of the 43 errors"):
+        assert CE.is_recall_request(yes), yes
+    for no in ("errors in main.py", "pull up that song", "show me the news", "open those files"):
+        assert not CE.is_recall_request(no), no
+
+
+def test_recalling_the_last_audit_routes_to_examine_not_chat(monkeypatch):
+    """A findings-recall routes to EXAMINE_CODE only when a stored audit exists, so the real findings
+    are replayed instead of invented; with nothing stored it stays conversational."""
+    from eli.execution.router_enhanced import route
+    monkeypatch.setattr(CE, "get_last_audit", lambda: None)
+    assert route("pull up each of those 59 findings once more")["action"] == "CHAT"
+    monkeypatch.setattr(CE, "get_last_audit", lambda: {"findings": [], "paths": []})
+    r = route("pull up each of those 59 findings once more")
+    assert r["action"] == "EXAMINE_CODE" and r["meta"]["matched_by"] == "eli.examine_code_recall"
+    assert route("pull up that song")["action"] != "EXAMINE_CODE"

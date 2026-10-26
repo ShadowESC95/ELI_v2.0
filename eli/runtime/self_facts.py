@@ -133,6 +133,43 @@ def _canon_lines(limit: int = _CANON_MAX) -> List[str]:
         return []
 
 
+def _machine() -> str:
+    """The operating system and Python ELI is actually running on, read now. Asked "what operating
+    system are we on?" on a Windows PC, ELI answered "macOS" four times and never checked — it had no
+    grounded OS fact, only the model's guess. ELI grounds the clock this way; it must ground this too."""
+    try:
+        import platform
+        import sys
+        system = platform.system() or "unknown"
+        names = {"Darwin": "macOS", "Windows": "Windows", "Linux": "Linux"}
+        os_name = names.get(system, system)
+        rel = platform.release() or ""
+        mach = platform.machine() or ""
+        py = ".".join(str(x) for x in sys.version_info[:3])
+        detail = " ".join(x for x in (os_name, rel) if x)
+        return f"operating system: {detail} ({mach}); Python {py}".strip()
+    except Exception:
+        log.debug("machine fact unavailable", exc_info=True)
+        return ""
+
+
+def _control_state() -> str:
+    """ELI's real permission state, read from the live settings — not narrated from memory. Asked to
+    take control, ELI said "I am rejecting this toggle" and "my permissions are strictly sandboxed"
+    while the toggle had in fact flipped Full Control on. It must state what the setting actually says."""
+    try:
+        from eli.core.full_control import is_full_control
+        if is_full_control():
+            return ("Full Control is ON (the user turned it on): the offline-by-default network "
+                    "barrier is lifted and ELI may act with the user's own account privileges. ELI "
+                    "cannot turn it off itself; the user controls the toggle")
+        return ("Full Control is OFF (the default): the standard safety barriers are in place — "
+                "offline-by-default network, and actions stay within ELI's normal permissions")
+    except Exception:
+        log.debug("control-state fact unavailable", exc_info=True)
+        return ""
+
+
 def _network_reach() -> str:
     """What ELI can actually reach right now, read from the live netguard policy.
 
@@ -155,11 +192,46 @@ def _network_reach() -> str:
         return ""
 
 
+def is_self_descriptive(text: str) -> bool:
+    """Whether a turn asks about ELI itself — its construction, the machine it runs on, or the
+    permissions it holds — so the grounded self-facts block is injected. Shared by the engine and
+    its tests so the two never drift. A typo must not decide groundedness, so the match is loose."""
+    low = str(text or "").lower()
+    return bool(
+        (re.search(r"\byoursel(?:f|ves)\b", low)
+         and re.search(r"\b(know|knew|tell|telling|describe|description|explain|"
+                       r"detail|detailed|accurate|accurately|about|of)\b", low))
+        or re.search(
+            r"\b(what are you|who are you|describe yourself|"
+            r"your (?:architecture|internals?|capabilit\w+|components?|design|"
+            r"databases?|storage|memory system|codebase|upgrade path)|"
+            r"how (?:do|are) you (?:built|structured|made|work)|"
+            r"how do you (?:upgrade|update) yourself|what do you run on)\b",
+            low)
+        # the machine ELI runs on and the permissions it holds are grounded facts too: asked "what OS
+        # are we on?" on Windows the model guessed macOS; asked to take control it narrated a
+        # permission state it never read.
+        or re.search(
+            r"\b(what|which)\s+(?:operating system|os|platform|system)\b"
+            r"|\bwhat\s+(?:os|operating system|platform)\s+(?:are|is|am)\b"
+            r"|\b(?:are|am)\s+(?:we|you|i)\s+(?:on|running)\s+(?:windows|mac|macos|linux|os)\b"
+            r"|\bfull\s+control\b|\bsafety\s+barriers?\b"
+            r"|\b(?:what|which)\s+(?:are\s+)?your\s+(?:permissions?|privileges?|access)\b"
+            r"|\b(?:are|can)\s+you\s+(?:sandboxed|contained|allowed to|able to access)\b"
+            r"|\bdo\s+you\s+have\s+(?:full\s+control|permission|access|control)\b",
+            low)
+    )
+
+
 def get_self_facts() -> Dict[str, Any]:
     """Structured verified self-facts. Missing values are omitted, never guessed."""
     facts: Dict[str, Any] = {}
     if (v := _version()):
         facts["version"] = v
+    if (machine := _machine()):
+        facts["machine"] = machine
+    if (control := _control_state()):
+        facts["control"] = control
     if (net := _network_reach()):
         facts["network"] = net
     if (dbs := _database_paths()):
@@ -312,6 +384,8 @@ def render_self_facts_block(include_canon: bool = True) -> str:
         lines.append(f"  version: {facts['version']}")
     if facts.get("install_kind"):
         lines.append(f"  install kind: {facts['install_kind']}")
+    if facts.get("machine"):
+        lines.append(f"  {facts['machine']}")
     for db in facts.get("databases", []):
         lines.append(f"  {db}")
     if facts.get("capabilities"):
@@ -321,6 +395,8 @@ def render_self_facts_block(include_canon: bool = True) -> str:
         # capability: given only "local, private assistant", the model concluded it
         # had no internet and said so — while holding live search results.
         lines.append(f"  {facts['network']}")
+    if facts.get("control"):
+        lines.append(f"  {facts['control']}")
     if facts.get("components"):
         lines.append(f"  real components: {', '.join(facts['components'])}")
     if facts.get("upgrade"):
