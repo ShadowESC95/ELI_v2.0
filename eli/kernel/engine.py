@@ -7965,12 +7965,16 @@ Answer:"""
                 _ctx_overflow = ("context window" in _emsg.lower()
                                  or "requested tokens" in _emsg.lower())
                 _empty = "empty response" in _emsg.lower()
+                # A KV-slot decode failure ("llama_decode returned 2") near full context is transient and
+                # recoverable — the non-stream retry below clears the cache and decodes fresh — so don't
+                # flip _gguf_available for it either, or one near-ctx turn poisons every later one.
+                _decode_slot = "llama_decode returned" in _emsg.lower()
                 log.debug(f"[COGNITIVE] GGUF streaming failed: {_emsg}")
                 # A context-window overflow is recoverable and doesn't mean the GGUF backend is dead. Don't
                 # flip _gguf_available (that poisons every later turn) and never show the raw exception as
                 # ELI's reply. Retry once non-streaming; generate() now truncates an over-ctx prompt to the
                 # model's n_ctx_train.
-                if not _ctx_overflow and not _empty:
+                if not _ctx_overflow and not _empty and not _decode_slot:
                     self._gguf_available = False
                 self._gguf_load_error = _emsg
                 if provider != "ollama":

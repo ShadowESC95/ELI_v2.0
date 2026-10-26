@@ -384,6 +384,16 @@ _EXPLAINS = re.compile(
     r"engine|orchestrat\w+|mechanism|subsystem|module|stack|scheduler)\b"
     r"|\b(?:has|have|had|with)\s+no\s+(?:concept|notion|way|awareness|tracking|state)\b|\bthere\s+is\s+no\s+\w+\s+(?:tracking|check|sync\w*|link)\b",
     re.I)
+# Invented self-performance statistics. ELI tracks per-turn confidence and timings (and reports those
+# from the record), but keeps NO "success rate" / "accuracy" / "reliability" percentage for itself — so a
+# sentence stating one about itself is fabricated. Live (v2.5.27): "my timestamp diagnostics (est. 67%
+# success rate lately)". 'confidence' is deliberately excluded — ELI does report a real per-turn one.
+_INVENTED_SELF_METRIC = re.compile(
+    r"\b\d{1,3}(?:\.\d+)?\s*%?\s*(?:success\s+rate|accuracy|reliab\w*|uptime|"
+    r"error\s+rate|failure\s+rate|hit\s+rate|precision|recall)\b"
+    r"|\b(?:success\s+rate|accuracy|reliability|uptime|error\s+rate|failure\s+rate|hit\s+rate)\s+"
+    r"(?:of\s+|is\s+|at\s+|around\s+|about\s+|roughly\s+|~\s*|est\.?\s*)*\d{1,3}(?:\.\d+)?\s*%?",
+    re.I)
 _SUPPORT_NEEDED = 0.6
 _FILLER = frozenset("""that this these those with from have been were was your you're they them then than when what
 which will would could should there their about into over also just only some more most very because instead
@@ -577,6 +587,8 @@ class _Check:
             return "says it changed something so that it will not happen again, and nothing was changed"
         if not self.about_self:
             return ""
+        if _INVENTED_SELF_METRIC.search(s):
+            return "states a self-performance metric ELI does not track"
         if not ran and _STANDING_PROMISE.search(s) and _COMMITS.search(s):
             return "promises a standing change a reply cannot make"
         name = _invented_identifier(s, self._evidence)

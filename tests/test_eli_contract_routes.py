@@ -143,3 +143,19 @@ def test_a_question_about_the_last_response_time_is_grounded_not_guessed(asked):
 def test_an_unrelated_or_complaint_duration_phrase_is_not_a_timing_report(asked):
     from eli.execution.router_enhanced import route
     assert route(asked)["action"] != "EXPLAIN_LAST_RESPONSE"
+
+
+@pytest.mark.parametrize("asked", [
+    "no dude, they come out every 2 weeks on a wednesday, why did you not search the web properly?!",
+    "why didn't you search the web right?",
+    "why did you not look that up properly",
+])
+def test_complaint_about_search_quality_is_not_a_routing_fault_dump(asked):
+    """'why did you NOT search properly' wants a better search, not the routing table — the opposite
+    of a 'why DID you web this' routing fault. Live (v2.5.27) it dumped the router table and got a
+    'what the hell?'."""
+    assert route(asked)["action"] != "ROUTING_FAULT_EXPLAIN", asked
+
+
+def test_genuine_went_to_web_complaint_still_explains_routing():
+    assert_route("why did you search the web for that?", "ROUTING_FAULT_EXPLAIN")

@@ -144,6 +144,16 @@ def test_a_cause_the_record_does_not_show_is_not_served(sentence, fault_turn):
     assert "that search was not needed" in out and "grounding was 0.26" in out
 
 
+def test_invented_self_performance_metric_is_dropped(fault_turn):
+    """ELI tracks a per-turn confidence and timings, not a 'success rate' for itself — a volunteered
+    'est. 67% success rate' is fabricated. Live (v2.5.27), on 'you are wrong.. check your dates'."""
+    reply = ("You're right, I got the day wrong. It's a known unreliability in my timestamp "
+             "diagnostics (est. 67% success rate lately). The record shows grounding was 0.26.")
+    out = sc.drop_invented_self_claims(reply)
+    assert "67% success rate" not in out
+    assert "I got the day wrong" in out and "grounding was 0.26" in out
+
+
 def test_a_conclusion_drawn_from_a_dropped_sentence_goes_with_it(fault_turn):
     reply = ("The search ran at 18:34. The vector index conflates the two artists. That is why I told you Mirelo "
              "was on when he wasn't. Nothing else is recorded for that turn.")

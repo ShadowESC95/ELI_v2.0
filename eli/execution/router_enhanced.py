@@ -1939,6 +1939,30 @@ def _asks_what_is_on_screen(low: str) -> bool:
     return bool(_ON_SCREEN_RE.search(low) and _SEE_CUE_RE.search(low))
 
 
+def _asks_now_playing(low: str) -> bool:
+    """A question about the LIVE media session — what is currently playing or being watched —
+    including wrapped request forms ('do you know what I'm watching', 'can you check what I'm
+    watching now'). Routes to NOW_PLAYING so ELI reads the active session instead of guessing from
+    memory/history. Declarative remarks ('you can see what I'm watching') carry no request lead, so
+    they deliberately fall through to chat. 'what's on' is left out — too ambiguous with the
+    calendar/agenda ('what's on today')."""
+    if re.search(r"\bnow\s+playing\b", low):
+        return True
+    if re.search(r"\bwhat(?:'?s| is| are\s+you)\s+playing\b", low):
+        return True
+    if re.search(r"\bwhat\s+(?:song|track|music|movie|film|show|episode|series)\s+is\s+"
+                 r"(?:this|that|playing)\b", low):
+        return True
+    # bare interrogative: "what am i (currently) watching/playing/listening to"
+    if re.search(r"\bwhat\s+am\s+i\s+(?:currently\s+)?(?:watching|playing|listening(?:\s+to)?)\b", low):
+        return True
+    # wrapped request: "do you know / can|could you … what i'm watching/playing/listening"
+    if re.search(r"\b(?:do\s+you\s+know|can\s+you|could\s+you|tell\s+me|show\s+me)\b[^?.!\n]{0,40}"
+                 r"\bwhat\s+i(?:'m|\s+am)\s+(?:watching|playing|listening(?:\s+to)?)\b", low):
+        return True
+    return False
+
+
 # "when did I tell you about X", "what day did I drive to X", "the day that I went to X", "the
 # timestamps of that interaction": answered from the conversation log, which has every message's
 # time. ELI answered from memories whose dates had moved when they were stored again, and said the
@@ -2857,6 +2881,14 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if _said is not None:
         return _mk("MESSAGE_TIME_QUERY", {"topic": _said, "question": raw}, 0.95,
                    matched_by="memory.when_said", allow_chat_without_evidence=False)
+
+    # A question about the live media session reads the active session (NOW_PLAYING), not a guess from
+    # history — even when wrapped in a longer sentence ("do you know what i am watching now? and we
+    # will work on RAIMS"). This runs BEFORE the long-question guard, which otherwise swallowed the
+    # wrapped forms into CHAT: observed live, ELI claimed it was blind while NOW_PLAYING could see the
+    # stream the whole time (the bare "what am i watching?" worked, the wrapped ones didn't).
+    if _asks_now_playing(low):
+        return _mk("NOW_PLAYING", {}, 0.95, matched_by="media.now_playing")
 
     # Long-question guard: a long rambling question goes to CHAT at 0.85 so the LLM intent resolver
     # never mis-maps it. It shadows ~300 keyword routes, so asking completely must never get a worse
@@ -5921,8 +5953,25 @@ _ROUTING_FAULT_COMPLAINT_RE = _eli_pm_re.compile(
 from eli.cognition.self_claims import WHAT_JUST_HAPPENED as _WHAT_JUST_HAPPENED
 
 
+# "why did you NOT search properly" / "why didn't you search the web right" is a complaint about the
+# QUALITY of a search the user wanted done, not a complaint that ELI went to the web at all — the
+# opposite of a routing fault. Routing it to ROUTING_FAULT_EXPLAIN dumped the routing table at the user
+# (live v2.5.27, which got a "what the hell?"). Those stay out of the routing-fault path and go to chat
+# (ELI apologises / offers a fresh search).
+_WANTED_BETTER_SEARCH_RE = _eli_pm_re.compile(
+    r"\bwhy\b[^.?!]{0,40}?\b(?:did\s*n[o']?t|didn'?t|not|never|failed\s+to|couldn'?t|could\s+not)\b"
+    r"[^.?!]{0,25}?\b(?:search|look|check|google|browse)\b"
+    r"|\b(?:search|look|google|browse)\w*\b[^.?!]{0,20}?\b(?:properly|correctly|right|better|"
+    r"thoroughly|harder|again)\b",
+    _eli_pm_re.I,
+)
+
+
 def wants_routing_fault_explain(text: str) -> bool:
-    return bool(_ROUTING_FAULT_COMPLAINT_RE.search(str(text or "")))
+    s = str(text or "")
+    if _WANTED_BETTER_SEARCH_RE.search(s):
+        return False
+    return bool(_ROUTING_FAULT_COMPLAINT_RE.search(s))
 
 
 def _eli_pm_pre_route(text):
@@ -7632,7 +7681,15 @@ def _eli_media_contract_post(raw, result):
             r"(.{4,70})\s+by\s+([a-z][a-z\s]{1,35})$",
             text,
         )
-        if m:
+        if m and not re.search(
+                # "then what did you mean by the first message" is a clarification question addressed to
+                # ELI, not "<song> by <artist>" — the leading "then" slipped past the ^-anchored opener
+                # guard and "by" did the rest, so ELI played (and crashed) Spotify. Narrow: a question
+                # word + "you mean/said" is a clarification; real titles ("You Mean Everything to Me by
+                # …", "Baby What You Want Me to Do by …") have no "what … you mean/said".
+                r"\b(?:what|why|how|who|when|where)\b[^.?!]{0,25}"
+                r"\byou\s+(?:mean|meant|said|say|think|thought)\b",
+                m.group(1)):
             return _play("spotify", raw, "media.implied_song_by_artist")
 
         m = re.match(r"^(open|launch|start|close|quit|kill|exit)\s+(.+?)$", text)

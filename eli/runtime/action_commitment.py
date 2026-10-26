@@ -265,11 +265,18 @@ def detect_action_commitment(text: str) -> Optional[Dict[str, str]]:
         return None
     # Past or perfect-continuous narration ("I've been checking", "I was searching", "I checked
     # earlier") isn't a commitment to act now, and re-running it buries the user in an action they
-    # never asked for. Only a forward commitment ("let me check", "I'll fetch", "checking now")
-    # triggers followthrough.
-    _pre = s[max(0, m.start() - 30):m.start()].lower()
+    # never asked for. Neither is a RETROSPECTIVE / NEGATED mention of the verb — ELI describing what
+    # it did NOT do ("I defaulted to the old pattern INSTEAD OF verifying the slot", "I should have
+    # verified", "I failed to check"). Live (v2.5.27): "…instead of verifying the current bi-weekly
+    # slot" fired a follow-through whose query was that whole 200-char sentence, which the web lookup
+    # searched verbatim and got junk. Only a forward commitment ("let me check", "I'll fetch",
+    # "checking now") triggers followthrough.
+    _pre = s[max(0, m.start() - 40):m.start()].lower()
     if re.search(r"\b(?:been|was|were|have\s+been|had\s+been|i'?ve\s+been|"
-                 r"earlier|already|recently|just\s+(?:checked|finished))\b", _pre):
+                 r"earlier|already|recently|just\s+(?:checked|finished)|"
+                 r"instead\s+of|rather\s+than|without|should(?:'?ve|\s+have)|"
+                 r"could(?:'?ve|\s+have)|failed\s+to|forgot\s+to|neglected\s+to|"
+                 r"did\s*n[o']?t|did\s+not|never)\b", _pre):
         return None
     start = max(s.rfind(". ", 0, m.start()), s.rfind("\n", 0, m.start())) + 1
     end_dot = s.find(". ", m.end())

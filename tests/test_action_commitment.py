@@ -162,3 +162,20 @@ def test_saying_it_did_not_happen_is_a_complaint_about_eli():
     assert complains_about_eli("You did not open spotify again!!!")
     assert complains_about_eli("you haven't played anything")
     assert not complains_about_eli("you never know, it might rain")
+
+
+def test_retrospective_or_negated_verbs_are_not_commitments():
+    """ELI describing what it did NOT do is not a promise to act now. Live (v2.5.27): a 'My bad…
+    instead of verifying the current bi-weekly slot' reply fired a follow-through whose query was
+    that whole 200-char sentence, which the web lookup searched verbatim and got junk back."""
+    for t in [
+        "I defaulted to the old weekly pattern instead of verifying the current bi-weekly slot",
+        "I should have verified the schedule for Season 29",
+        "I failed to check the broadcast dates",
+        "I did not verify the release cadence",
+    ]:
+        assert d(t) is None, f"retrospective/negated wrongly treated as a commitment: {t!r}"
+
+    # A genuine forward commitment still fires.
+    assert d("Let me verify the current schedule for you")
+    assert d("I'll search the web for the release date")

@@ -820,3 +820,44 @@ def test_go_deeper_after_a_briefing_is_not_taken_by_the_generic_follow_up_rule()
     )
     assert action == "NEWS_FETCH"
     assert "sea wall" in (args.get("topic") or "")
+
+
+def test_live_media_question_routes_to_now_playing_even_when_wrapped():
+    """A question about the live session reads NOW_PLAYING, not a guess from history — even when
+    wrapped in a longer sentence. Observed live (v2.5.27): 'do you know what i am watching now?' and
+    'can you check what i am watching, now?' fell to chat.long_question_guard and ELI claimed it was
+    blind, while the bare 'what am i watching?' worked. Declarative remarks stay chat."""
+    for q in [
+        "do you know what i am watching now? and we will work on RAIMS soon enough",
+        "you are forgetting dune, 2001 and venom. Can you not check what i am watching, now?",
+        "what am i watching?",
+        "what's playing?",
+        "do you know what i'm listening to",
+    ]:
+        assert route(q)["action"] == "NOW_PLAYING", f"expected NOW_PLAYING for {q!r}"
+
+    # A declarative remark (no request lead) and the calendar must NOT be grabbed as now-playing.
+    for q in ["see, you can see what i am watching", "it's okay, you can see what i'm watching"]:
+        assert route(q)["action"] != "NOW_PLAYING", f"declarative wrongly routed: {q!r}"
+    assert route("what's on my calendar today?")["action"] != "NOW_PLAYING"
+
+
+def test_a_clarification_question_with_by_does_not_play_music():
+    """'then what did you mean by the first message?' is a question to ELI, not '<song> by <artist>'.
+    Live (v2.5.28): the leading 'then' slipped past the implied-song opener guard and 'by' matched, so
+    ELI played (and crashed) Spotify with a spotify:search of the whole sentence."""
+    for q in [
+        "then what did you mean by the first message?",
+        "so what do you mean by the second one",
+        "wait, what did you mean by that",
+        "why did you say that by the way",
+    ]:
+        assert route(q)["action"] != "PLAY_MEDIA", f"clarification wrongly played music: {q!r}"
+
+    # Real "<song> by <artist>" still plays — including titles that contain 'you mean' / 'what you'.
+    for q in [
+        "bohemian rhapsody by queen",
+        "you mean everything to me by neil sedaka",
+        "baby what you want me to do by jimmy reed",
+    ]:
+        assert route(q)["action"] == "PLAY_MEDIA", f"real song wrongly blocked: {q!r}"

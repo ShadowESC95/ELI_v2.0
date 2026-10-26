@@ -1379,6 +1379,17 @@ def _resume_from_saved_state(llm, full_prompt: str, *, create: bool) -> str:
         return ""
 
 
+def _drop_saved_states_for(llm) -> None:
+    """Drop every saved sequence state tied to this model. Called after a KV-slot decode failure so
+    the retry starts from a cleared cache instead of reloading a state that would re-fill it."""
+    try:
+        for _k in [k for k, e in list(_SAVED_STATES.items())
+                   if e.get("llm") is not None and e["llm"]() is llm]:
+            _SAVED_STATES.pop(_k, None)
+    except Exception:
+        _SWLOG.debug("suppressed exception", exc_info=True)
+
+
 def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, top_k, repeat_penalty, stop, stream, grammar):
     """
     Invoke llama.cpp safely:
@@ -1460,7 +1471,11 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                 _SWLOG.debug("suppressed exception", exc_info=True)
             _fg_started[0] = 0.0
 
+    _skip_resume = [False]   # set after a KV-slot failure so the retry decodes fresh, not from a reloaded state
+
     def _resume():
+        if _skip_resume[0]:
+            return
         _how = _resume_from_saved_state(llm, full_prompt, create=not bg)
         if _how:
             log.debug(f"[GGUF][STATE] {_how} the model state for the prompt's fixed part")
@@ -1516,7 +1531,23 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
         except Exception as e:
             last_exc = e
             msg = str(e).lower()
-            if "exceed context window" in msg or "requested tokens" in msg:
+            # A full / fragmented KV cache makes llama.cpp fail to seat the batch ("llama_decode
+            # returned 2") — a different error shape from a predicted overflow, same cure. Untreated it
+            # took down a near-ctx turn and returned ZERO tokens (and poisoned _gguf_available). Clear
+            # the cache, drop the reusable states so the retry doesn't reload one that re-fills it,
+            # decode fresh, and give the generation real headroom. Recovery only — the fast path is
+            # untouched.
+            _kv_slot = "llama_decode returned" in msg or ("kv" in msg and "slot" in msg)
+            if "exceed context window" in msg or "requested tokens" in msg or _kv_slot:
+                if _kv_slot:
+                    _drop_saved_states_for(llm)
+                    try:
+                        llm.reset()
+                        llm._ctx.kv_cache_clear()
+                    except Exception:
+                        _SWLOG.debug("kv reset after decode failure failed", exc_info=True)
+                    _skip_resume[0] = True
+                    log.debug(f"[GGUF] decode failed ({str(e)[:60]}); cleared KV cache, retrying fresh")
                 # Two overflow shapes: (a) max_tokens too big for the remaining window, (b) the
                 # prompt alone exceeds it. Halving max_tokens only fixes (a); for (b) shrink the
                 # prompt (head+tail, once) or the retries run out.
@@ -1531,9 +1562,12 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                               f"truncated head+tail to {_ptok2} tok, max_tokens={attempt_max}")
                     continue
                 new_attempt = max(64, attempt_max // 2)
-                if new_attempt == attempt_max:
+                if _kv_slot:
+                    # leave headroom so prompt+gen doesn't seat right at the window edge
+                    new_attempt = max(64, min(new_attempt, _lim - _ptok - _gen_floor))
+                if new_attempt >= attempt_max and not _kv_slot:
                     break
-                log.debug(f"[GGUF] Context-window retry: reducing max_tokens {attempt_max} -> {new_attempt}")
+                log.debug(f"[GGUF] decode retry: reducing max_tokens {attempt_max} -> {new_attempt}")
                 attempt_max = new_attempt
                 continue
             raise
