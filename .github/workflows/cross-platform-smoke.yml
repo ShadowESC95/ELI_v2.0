@@ -43,14 +43,12 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        # oldest supported, the one the full suite runs on, and the newest stable ("3.x" follows new releases)
-        python: ["3.10", "3.12", "3.x"]
+        # oldest supported, the one the full suite runs on, and the newest Python ELI can actually
+        # install on. A hard dependency with a compiled wheel (faiss-cpu) lags a brand-new CPython by
+        # weeks, so the ceiling is the newest version it ships a wheel for, not the newest that exists
+        # ("3.x" resolved to 3.14 on Windows, which had no faiss-cpu wheel). Bump when faiss-cpu does.
+        python: ["3.10", "3.12", "3.13"]
     runs-on: ${{ matrix.os }}
-    # The newest Python is informational, not required: a hard dependency with a compiled wheel
-    # (faiss-cpu) usually lags a brand-new CPython by weeks, so "3.x" can be uninstallable through no
-    # fault of the code — faiss-cpu had no cp314 wheel when 3.14 shipped. The two pinned versions
-    # (3.10, 3.12) stay required and still fail the run; only the bleeding-edge one is allowed to.
-    continue-on-error: ${{ matrix.python == '3.x' }}
     # Windows runners default to PowerShell, which cannot parse the `python - <<'PY'`
     # heredoc the dashboard step is built on — it failed with a .ps1 ParserError on both
     # Windows jobs the first time this workflow ever ran. Pinning bash everywhere also
