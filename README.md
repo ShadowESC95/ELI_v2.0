@@ -450,7 +450,7 @@ SECURITY.md, not in a public issue.
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
-the full test suite (**11,815 tests collected**, 11,800+ passing), voice (USB/Bluetooth headset
+the full test suite (**13,000+ tests**, passing locally save a few machine-specific skips), voice (USB/Bluetooth headset
 auto-resolve verified on Linux), vision, the server, the AppImage with the CUDA GPU
 pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
 first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
@@ -502,9 +502,10 @@ touches real hardware. I'd rather you know them going in.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (**11,815 tests collected** across 446 files, 11,800+ passing;
-  including a `claims/` layer that checks the project against its own documentation); the full
-  suite runs locally, while CI gates a cross-platform portable subset (no GGUF/display/GPU) on
+- `tests` — a large pytest suite (**13,000+ tests across 550+ files**, of which ~4,700 are
+  structural `claims/` checks that assert the code matches its own manifests, docs and marketing
+  copy rather than exercising runtime behaviour); the full suite runs locally and gates every
+  release in CI, while CI also runs a cross-platform portable subset (no GGUF/display/GPU) on
   Linux, macOS, and Windows
 
 **Scaling:** the loader reads each model's real `n_ctx_train` from GGUF metadata and fits

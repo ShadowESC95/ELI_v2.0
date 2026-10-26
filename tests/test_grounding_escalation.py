@@ -116,6 +116,36 @@ def test_web_relevance_floor_separates_junk_from_real():
     assert G.web_evidence_relevance(q, [1, None, "x"]) == 0.0
 
 
+def test_executor_web_search_withholds_grounding_on_offtopic_results(monkeypatch):
+    """The relevance gate also lives at the executor chokepoint, so a DIRECTLY routed
+    WEB_SEARCH (not only the escalation ladder) can't be synthesised into a confident
+    answer from unrelated pages. Off-topic → web_grounded withheld + honest message;
+    on-topic (result echoes the query) → web_grounded True."""
+    monkeypatch.setattr(C, "network_allowed", lambda: True)
+    import eli.execution.executor_enhanced as E
+    import eli.plugins.web.plugin as WP
+
+    # Off-topic results for an obscure lookup — must NOT come back grounded.
+    monkeypatch.setattr(WP, "_web_search_results",
+                        lambda q, max_results=5: [{"title": "Best Buy Official Online Store",
+                                                   "body": "Shop electronics, laptops and deals.",
+                                                   "href": "https://example.com/bestbuy"}])
+    off = E.execute("WEB_SEARCH", {"query": "who founded Acme Dynamics Ltd"})
+    assert off["ok"] is True
+    assert not off.get("web_grounded")          # grounding withheld
+    assert off.get("web_offtopic") is True
+    assert "answers that" in off["response"].lower() and "guess" in off["response"].lower()
+
+    # On-topic result echoing the query clears the floor and comes back grounded.
+    monkeypatch.setattr(WP, "_web_search_results",
+                        lambda q, max_results=5: [{"title": "Acme Dynamics",
+                                                   "body": "Acme Dynamics was founded by Jane Roe in 1998.",
+                                                   "href": "https://example.com/acme"}])
+    on = E.execute("WEB_SEARCH", {"query": "who founded Acme Dynamics Ltd"})
+    assert on["ok"] is True and on.get("web_grounded") is True
+    assert on.get("results")
+
+
 def test_external_offline_hedges(monkeypatch):
     monkeypatch.setattr(C, "network_allowed", lambda: False)
     r = G.escalate(_FakeEngine(), "what is bonos real name",

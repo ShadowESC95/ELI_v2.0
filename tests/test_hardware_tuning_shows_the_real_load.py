@@ -128,3 +128,47 @@ def test_the_relay_is_installed_once():
     i = src.index("def _install_hardware_log_relay")
     body = src[i:src.index("\n    def ", i + 10)]
     assert "_hardware_log_relay" in body and "is not None:" in body
+
+
+def test_hardware_probe_runs_off_the_gui_thread_without_freezing():
+    """detect_hardware() is uncached and shells out to nvidia-smi/lspci with multi-second timeouts;
+    run inline it froze the window ("Not Responding") for a few seconds at the start of every load.
+    `_run_pumping` runs the probe on a worker thread and pumps the event loop meanwhile, so the GUI
+    stays live and the result still comes back on the caller's thread. Extracted from source without
+    importing PySide6 (mocked in this suite)."""
+    import re
+    import threading
+    import time as _time
+
+    src = GUI.read_text(encoding="utf-8")
+    i = src.index("def _run_pumping(")
+    m = re.search(r"\n(?=def |class )", src[i + 1:])
+    body = src[i: i + 1 + m.start()] if m else src[i:]
+    ns = {"threading": threading, "time": _time}
+    exec(body, ns)
+    run_pumping = ns["_run_pumping"]
+
+    class _FakeApp:
+        def __init__(self):
+            self.pumped = 0
+
+        def processEvents(self):
+            self.pumped += 1
+
+    app = _FakeApp()
+
+    def _slow_probe():
+        _time.sleep(0.08)
+        return {"ctx": 8192}
+
+    out = run_pumping(_slow_probe, app)
+    assert out == {"ctx": 8192}
+    assert app.pumped > 0, "the event loop was not pumped while the probe ran"
+
+    # app is None (headless / tests): runs inline and still returns.
+    assert run_pumping(lambda: 7, None) == 7
+
+    # a failure in the probe surfaces on the caller's thread, not swallowed on the worker.
+    import pytest
+    with pytest.raises(ValueError):
+        run_pumping(lambda: (_ for _ in ()).throw(ValueError("boom")), app)

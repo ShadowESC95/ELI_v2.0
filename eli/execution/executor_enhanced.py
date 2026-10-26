@@ -11516,6 +11516,29 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     entry += f"\n   {href}"
                 lines.append(entry)
             msg = "\n".join(lines)
+            # Relevance gate (shared scorer with the escalation ladder). The live backend can return
+            # unrelated pages for an obscure query, and every path downstream treats web_grounded
+            # results as authoritative — the model then synthesises a confident non-answer ("Best Buy
+            # doesn't offer breakfast recommendations"). Score the query's content-terms against the
+            # results; if clearly off-topic, withhold web_grounded and return an honest message so no
+            # consumer answers from junk. Fails OPEN (scorer missing, or no query content-terms →
+            # trusted), so a tooling gap never blocks a genuine result.
+            try:
+                from eli.runtime.grounding_escalation import (
+                    web_evidence_relevance as _web_rel,
+                    _web_relevance_floor as _web_floor,
+                )
+                _rel = _web_rel(query, results)
+                if _rel < _web_floor():
+                    off = (f"I searched the web for \"{query}\" but nothing that came back actually "
+                           f"answers that, so I won't guess. Try rephrasing it or giving me a more "
+                           f"specific detail and I'll look again.")
+                    log.debug(f"[WEB_SEARCH] results off-topic (relevance={_rel:.2f} < "
+                              f"floor {_web_floor():.2f}) → withholding web_grounded, honest message")
+                    return {"ok": True, "action": a, "query": query, "results": results,
+                            "web_offtopic": True, "content": off, "response": off}
+            except Exception:
+                log.debug("web relevance gate unavailable; returning results as grounded", exc_info=True)
             return {"ok": True, "action": a, "query": query, "results": results,
                     "content": msg, "response": msg, "web_grounded": True}
         except Exception as e:

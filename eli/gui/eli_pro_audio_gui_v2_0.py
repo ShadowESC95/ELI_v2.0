@@ -2102,6 +2102,38 @@ class _GlobalScrollZoom(QObject):
         return False
 
 
+def _run_pumping(fn, app, *args, _poll: float = 0.02, **kwargs):
+    """Run blocking, widget-free `fn` off the Qt main thread while pumping `app`'s event loop so
+    the window stays responsive, then return fn's result on the calling thread (exceptions
+    propagate). `app` is the QApplication instance, or None to run inline (headless / tests).
+
+    detect_hardware() shells out to nvidia-smi/lspci with multi-second timeouts and is deliberately
+    uncached (it must read CURRENT free VRAM), so calling it inline on the main thread froze the
+    window ("Not Responding") for a few seconds at the start of every load. The probe runs on a
+    daemon thread here; no widget is ever touched off-thread — the caller applies the result on the
+    main thread once it returns.
+    """
+    if app is None:
+        return fn(*args, **kwargs)
+    box: dict = {}
+
+    def _run():
+        try:
+            box["value"] = fn(*args, **kwargs)
+        except BaseException as exc:            # re-raised on the caller's thread below
+            box["error"] = exc
+
+    worker = threading.Thread(target=_run, daemon=True, name="hw-tuning-probe")
+    worker.start()
+    while worker.is_alive():
+        app.processEvents()
+        time.sleep(_poll)
+    worker.join()
+    if "error" in box:
+        raise box["error"]
+    return box.get("value")
+
+
 # ============================================================
 # MAIN GUI APPLICATION
 # ============================================================
@@ -9712,7 +9744,9 @@ class EliMainWindow(QMainWindow):
             if not model_file.exists():
                 raise FileNotFoundError(f"Model not found: {model_file}")
             size_bytes = int(model_file.stat().st_size)
-            hw = _hp_detect()
+            # Off the main thread + pump the event loop: detect_hardware()'s uncached nvidia-smi/
+            # lspci probes otherwise froze the window for a few seconds at the start of every load.
+            hw = _run_pumping(_hp_detect, QApplication.instance())
             # The user's EXPLICITLY chosen ctx must anchor the recommendation, not be
             # overwritten by the auto target. Source of truth (highest first):
             # the startup dialog's "Direct context window" field (ELI_FORCE_CTX), else
