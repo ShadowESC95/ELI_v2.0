@@ -133,20 +133,11 @@ def test_the_relay_is_installed_once():
 def test_hardware_probe_runs_off_the_gui_thread_without_freezing():
     """detect_hardware() is uncached and shells out to nvidia-smi/lspci with multi-second timeouts;
     run inline it froze the window ("Not Responding") for a few seconds at the start of every load.
-    `_run_pumping` runs the probe on a worker thread and pumps the event loop meanwhile, so the GUI
-    stays live and the result still comes back on the caller's thread. Extracted from source without
-    importing PySide6 (mocked in this suite)."""
-    import re
-    import threading
+    run_pumping (eli/gui/off_thread.py, shared by the main window and the start-up window) runs it on
+    a worker thread and pumps the event loop meanwhile, so the GUI stays live and the result still
+    comes back on the caller's thread. The module imports no Qt binding."""
     import time as _time
-
-    src = GUI.read_text(encoding="utf-8")
-    i = src.index("def _run_pumping(")
-    m = re.search(r"\n(?=def |class )", src[i + 1:])
-    body = src[i: i + 1 + m.start()] if m else src[i:]
-    ns = {"threading": threading, "time": _time}
-    exec(body, ns)
-    run_pumping = ns["_run_pumping"]
+    from eli.gui.off_thread import run_pumping
 
     class _FakeApp:
         def __init__(self):
@@ -172,3 +163,20 @@ def test_hardware_probe_runs_off_the_gui_thread_without_freezing():
     import pytest
     with pytest.raises(ValueError):
         run_pumping(lambda: (_ for _ in ()).throw(ValueError("boom")), app)
+
+
+def test_the_startup_window_prepares_the_load_off_its_thread():
+    """Live (2.5.29): pressing OK in the start-up window loaded Whisper, read the GPUs again and had
+    llama.cpp simulate the load on the window's thread, past the desktop's patience ("Not Responding").
+    The slow part runs through run_pumping and takes the window's values as arguments: no widget is
+    touched off the window's thread."""
+    import re
+    from pathlib import Path
+    src = (Path(__file__).resolve().parents[1] / "eli" / "gui" / "panels" / "startup.py").read_text(encoding="utf-8")
+    i = src.index("        def _prepare_load(")
+    body = src[i:src.index("        def _accept_wrapper():", i)]
+    assert "detect_hardware" in body and "recommend" in body and "preload_model" in body
+    assert not re.search(r"\bself\.", body), "the off-thread part reads a widget"
+    wrapper = src[src.index("        def _accept_wrapper():"):src.index("        self.accept = _accept_wrapper")]
+    assert "run_pumping(_prepare_load" in wrapper
+    assert "buttons.setEnabled(False)" in wrapper and "_preparing_load" in wrapper

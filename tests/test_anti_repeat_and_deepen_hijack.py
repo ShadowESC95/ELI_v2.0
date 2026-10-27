@@ -519,3 +519,65 @@ def test_cross_session_recall_carries_only_the_users_words():
         "cross-session recall can still surface ELI's own statements as history"
     )
     assert "their words only" in src[i - 200:i + 200]
+
+
+# ── 6. a bare follow-up must name something the briefing reported ──────────
+_BRIEFING = ("Juno Labs has filed to list its shares [Tech Wire — 13:04]. The harbour council has opened a "
+             "review into the ferry collision [Coast News — 15:49]. Ada Brennan received a suspended sentence "
+             "[City Desk — 14:16]. Millions joined a group dubbed 'Marlow's Army' in Westland "
+             "[World Desk — 15:37].\n\nI can go deeper on any of these stories.")
+
+
+def _after_briefing(text):
+    from eli.kernel.engine import _try_news_topic_deepen_reroute
+    action, _args, intent = _try_news_topic_deepen_reroute(
+        text, "CHAT", {"message": text},
+        {"action": "CHAT", "confidence": 0.6, "meta": {"matched_by": "fallback.chat"}},
+        {"action": "NEWS_FETCH", "ts": time.time()}, _BRIEFING)
+    return action, intent
+
+
+@pytest.mark.parametrize("reaction", [
+    "what the hell?!", "ok", "thanks", "no more news", "stop the news", "seriously?", "leave it", "that's mad"])
+def test_a_reaction_after_a_briefing_is_not_a_news_topic(reaction):
+    """Live (2.5.29): a bare exclamation after a briefing fetched news about the exclamation. Any message
+    of up to seven words counted as a topic."""
+    assert _after_briefing(reaction)[0] == "CHAT"
+
+
+@pytest.mark.parametrize("follow_up", ["the Marlow one", "Ada Brennan?", "Westland", "what about Juno Labs"])
+def test_a_follow_up_naming_a_story_still_goes_deeper(follow_up):
+    action, intent = _after_briefing(follow_up)
+    assert action == "NEWS_FETCH" and intent.get("_deepen_topic")
+
+
+def test_without_the_briefing_a_bare_follow_up_is_not_guessed_at():
+    from eli.kernel.engine import _try_news_topic_deepen_reroute
+    action, _a, _i = _try_news_topic_deepen_reroute(
+        "Westland", "CHAT", {"message": "Westland"},
+        {"action": "CHAT", "confidence": 0.6, "meta": {"matched_by": "fallback.chat"}},
+        {"action": "NEWS_FETCH", "ts": time.time()})
+    assert action == "CHAT"
+
+
+# ── 7. the same reply re-presented is a repeat ──────────────────────────────
+def test_a_reply_reformatted_as_a_list_is_still_a_repeat():
+    """Live (2.5.29): told the news was not what was asked for, ELI served the same stories again as a
+    bulleted list under bold headings. It opened differently, so the opening and head-to-head tests passed it."""
+    from eli.kernel.engine import _is_repeat_of_recent
+    prior = ("The harbour council has opened an independent review into the ferry collision to establish what "
+             "happened before and after the impact [Coast News — 15:49]. Ada Brennan received a suspended "
+             "eight-month sentence after admitting the warehouse fire [City Desk — 14:16]. The region is projected "
+             "to miss its target for new rail lines by an estimated twelve kilometres [Transport Desk — 06:59].")
+    again = ("Here are the latest updates:\n\n*   **Ferry Review:** The harbour council opened an independent "
+             "review into the ferry collision to establish what happened before and after the impact "
+             "[Coast News — 15:49].\n*   **Brennan Sentenced:** Ada Brennan received a suspended eight-month "
+             "sentence after admitting the warehouse fire [City Desk — 14:16].")
+    assert _is_repeat_of_recent(again, [prior])
+    fresh = ("Got it, my mistake: you were telling me what's new with you, the show you're watching. "
+             "How far into the season are you?")
+    assert not _is_repeat_of_recent(fresh, [prior])
+    quoting_one = ("You're right, I listed the review into the ferry collision to establish what happened "
+                   "before and after the impact. That was the news, not what you meant, and I should have "
+                   "asked about the show instead. So how is the season going so far for you?")
+    assert not _is_repeat_of_recent(quoting_one, [prior])

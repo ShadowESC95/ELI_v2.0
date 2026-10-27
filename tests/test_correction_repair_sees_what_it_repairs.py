@@ -103,3 +103,70 @@ def test_quick_mode_budget_beats_the_old_fixed_cap():
             eng.shutdown()
         except Exception:
             pass
+
+
+# ── "I did not ask for that" ─────────────────────────────────────────────────
+# Live (2.5.29): ELI asked what was new with the user, was shown what was playing, read the reply that
+# this was what's new as a news request, and was told the news was not wanted and that the user had
+# been answering its own question. The repair re-answered the misread message from the last exchange
+# alone and served the same headlines again as a bulleted list.
+_NEWS = ("The harbour council has opened an independent review into the ferry collision to establish what "
+         "happened before and after the impact [Coast News — 15:49]. Ada Brennan received a suspended "
+         "eight-month sentence after admitting the warehouse fire [City Desk — 14:16].")
+_CORRECTION = "I never wanted headlines. You asked what I was up to and I showed you."
+
+
+def _repair(monkeypatch, model_reply):
+    import threading
+    turns = [
+        {"role": "assistant", "content": "Slightly better, thanks. What's new with you?"},
+        {"role": "user", "content": "what am i watching?"},
+        {"role": "assistant", "content": "▶ Playing: a drama series — S2 E5."},
+        {"role": "user", "content": "well, that is what's new with me"},
+        {"role": "assistant", "content": _NEWS},
+        {"role": "user", "content": _CORRECTION},
+    ]
+    asked_for = {}
+
+    class _Memory:
+        def get_recent_conversation(self, limit=20, session_id=None, user_id=None, **_kw):
+            asked_for["session_id"] = session_id
+            return turns[-limit:]
+
+    seen = {}
+
+    def _chat(prompt, system="", **_kw):
+        seen["prompt"], seen["system"] = prompt, system
+        return model_reply
+
+    eng = engine.CognitiveEngine.__new__(engine.CognitiveEngine)
+    eng.memory = _Memory()
+    eng.session_id, eng.user_id = "session-1", "user-1"
+    eng._gguf_available = True
+    eng._gguf_lock = threading.Lock()
+    stored = []
+    eng._store_assistant_turn = stored.append
+    monkeypatch.setattr(engine, "_get_inference_broker", None)
+    monkeypatch.setattr(engine, "get_self_improvement", lambda: None)
+    monkeypatch.setattr(engine.gguf_inference, "chat_completion", _chat)
+    out = eng._correction_repair(_CORRECTION, {})
+    return out, seen, asked_for, stored
+
+
+def test_the_repair_sees_the_earlier_exchanges_of_this_session(monkeypatch):
+    out, seen, asked_for, _stored = _repair(
+        monkeypatch, "My mistake, you were telling me what's new with you: the show. How is it so far?")
+    assert asked_for["session_id"] == "session-1", "turns from other sessions can leak into the repair"
+    assert "What's new with you?" in seen["system"], "the exchange the correction points back to is missing"
+    assert seen["prompt"] == _CORRECTION, "the misread message was re-answered instead of the correction"
+    assert out and "the show" in out["response"]
+
+
+def test_a_repair_that_serves_the_rejected_reply_again_is_not_served(monkeypatch):
+    again = ("Here are the latest updates:\n\n*   **Ferry Review:** The harbour council opened an independent "
+             "review into the ferry collision to establish what happened before and after the impact "
+             "[Coast News — 15:49].\n*   **Brennan Sentenced:** Ada Brennan received a suspended eight-month "
+             "sentence after admitting the warehouse fire [City Desk — 14:16].")
+    out, _seen, _asked, stored = _repair(monkeypatch, again)
+    assert out is None, "the same news went out again as the repair"
+    assert not stored

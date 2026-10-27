@@ -3904,14 +3904,37 @@ def _news_deepen_news_fetch_args(topic: str, user_input: str) -> dict:
     }
 
 
+# Words that name the briefing itself, not one of its stories ("no more news", "stop the headlines").
+_BRIEFING_WORDS = frozenset({"news", "story", "stories", "headline", "headlines", "article", "articles",
+                             "briefing", "update", "updates", "report", "reports"})
+
+
+def _names_something_briefed(message: str, briefing: str) -> bool:
+    """A bare follow-up after a briefing asks to go deeper only when it names something the briefing
+    reported ("the Marlow one", "Juno Labs?"): one of its words is a name the briefing carried. A
+    reaction or a complaint names nothing of it. Any short message counted before, and a bare
+    exclamation after a briefing fetched news about the exclamation."""
+    try:
+        from eli.cognition.self_claims import asks_about_own_behaviour, subject_words
+    except Exception:
+        return False
+    if not briefing or asks_about_own_behaviour(message):
+        return False
+    reported = re.sub(r"\[[^\]]*\]", " ", str(briefing))        # without the [Source — time] tags
+    names = {re.sub(r"['’]s$", "", w.lower()) for w in re.findall(r"\b[A-Z][\w'’-]{2,}", reported)}
+    return any(w in names for w in subject_words(message) if w not in _BRIEFING_WORDS)
+
+
 def _try_news_topic_deepen_reroute(
     user_input: str,
     action: str,
     args: dict,
     intent: dict,
     last_command_action: dict | None,
+    last_reply: str = "",
 ) -> tuple[str, dict, dict]:
-    """After a news briefing, 'go deeper into X' must re-fetch — not CHAT guesswork."""
+    """After a news briefing, 'go deeper into X' must re-fetch — not CHAT guesswork. `last_reply` is
+    the briefing as ELI gave it: a bare follow-up must name something in it."""
     try:
         from eli.runtime.action_commitment import extract_deepen_topic as _edt
     except Exception:
@@ -3938,7 +3961,7 @@ def _try_news_topic_deepen_reroute(
             "GAZE_CLICK", "START_POMODORO", "ADD_EVENT", "SEARCH_NOTES",
         }
         _wc = len(str(user_input or "").split())
-        if _act_up not in _hard and 1 <= _wc <= 7:
+        if _act_up not in _hard and 1 <= _wc <= 7 and _names_something_briefed(user_input, last_reply):
             _deepen_topic = str(user_input or "").strip().rstrip("?.!,;: ").strip()
 
     if _is_explicit_command_match(intent) or _act_up in _DEEPEN_ARMING_ACTIONS:
@@ -4413,7 +4436,30 @@ def _is_repeat_of_recent(candidate: str, prior_replies, *,
             continue
         if _repeat_ratio(cand[:n], p[:n]) >= ratio:
             return True
+
+    # The same content re-presented: sentences ELI already delivered, reformatted (a paragraph turned
+    # into a list under bold headings) or reordered, open differently and pass every test above. Live:
+    # told the news was not what was asked for, ELI served the same stories again as a bulleted list
+    # under a new opening line. A reply mostly made of sentences already said is a repeat.
+    prior_sents = _prior_sentences(prior_replies)
+    if prior_sents:
+        lines = []
+        for sentence, _gap in _split_sentences_with_gaps(cand):
+            for line in _LIST_ITEM_SPLIT_RE.split(sentence):
+                line = _LIST_LEAD_RE.sub("", line).strip()
+                if len(_clarifier_norm(line)) >= _REPEAT_MIN_REDACT_CHARS:
+                    lines.append(line)
+        restated = sum(1 for line in lines if _sentence_seen_before(line, prior_sents, partial=False))
+        if restated >= _REPEAT_MIN_RESTATED and 2 * restated >= len(lines):
+            return True
     return False
+
+
+# Where a list item starts: a new line, or a bullet inline once the reply's lines were joined.
+_LIST_ITEM_SPLIT_RE = re.compile(r"\n+|\s+(?=[*•·-]\s+\S)")
+# A list item's lead: the bullet or number, and a bold label ("*   **UK Aid Spending:** ...").
+_LIST_LEAD_RE = re.compile(r"^\s*(?:(?:[-*•·]|\d+[.)])\s+)?(?:(?:\*\*|__)[^*_\n]{1,80}?(?:\*\*|__)\s*:?\s*)?")
+_REPEAT_MIN_RESTATED = 2     # one sentence said again can be a quote; two of them is the reply again
 
 
 # Anti-repeat: salvage instead of serving the duplicate. On the last attempt the retry repeated
@@ -10526,7 +10572,7 @@ Answer:"""
         _prev_user, _prev_eli = "", ""
         try:
             _turns = self.memory.get_recent_conversation(
-                limit=6, user_id=self.user_id) or []
+                limit=6, user_id=self.user_id, session_id=self.session_id) or []
             for _t in reversed(_turns):
                 _role = str(_t.get("role") or "").strip().lower()
                 _content = str(_t.get("content") or "").strip()
@@ -10539,11 +10585,18 @@ Answer:"""
                     _prev_user = _content
                     break
             if _prev_eli:
-                _prior = (
-                    "The exchange you are correcting:\n"
-                    + (f"User: {_prev_user[:600]}\n" if _prev_user else "")
-                    + f"You: {_prev_eli[:900]}\n\n"
-                )
+                # The exchanges before it too: a correction often points further back. Told that the news
+                # was not wanted and that the user had been answering ELI's own question from two turns
+                # earlier, the repair, shown only the last exchange, read the misread message as a news
+                # request a second time and served the same headlines again.
+                _lines = []
+                for _t in _turns:
+                    _role = str(_t.get("role") or "").strip().lower()
+                    _content = str(_t.get("content") or "").strip()
+                    if not _content or (_role == "user" and _content == str(user_input or "").strip()):
+                        continue
+                    _lines.append(f"User: {_content[:600]}" if _role == "user" else f"You: {_content[:900]}")
+                _prior = "The exchange you are correcting (oldest first):\n" + "\n".join(_lines) + "\n\n"
         except Exception:
             log.debug("[COGNITIVE] correction: prior turn lookup failed", exc_info=True)
 
@@ -10560,8 +10613,6 @@ Answer:"""
                 _low_corr,
             )
         )
-        if _reject_data_dump and _prev_user:
-            _corr_target = _prev_user
 
         import datetime as _dt_corr
         _now_corr = _dt_corr.datetime.now().astimezone()
@@ -10583,9 +10634,13 @@ Answer:"""
             "do not ask them to clarify a question about your own previous answer."
         )
         if _reject_data_dump:
+            # Re-answering the user's earlier message repeated the misreading: told the news was not
+            # what was asked for, it answered that same message with the same headlines again.
             _corr_system += (
-                " Your last reply wrongly dumped memory/runtime statistics or internal diagnostics. "
-                "Re-answer the user's ORIGINAL message conversationally, in ELI's voice. "
+                " The user says your last reply was not what they asked for (a data dump, or the wrong "
+                "thing altogether). Do not repeat, summarise or re-list anything from it. Read the "
+                "conversation above and their correction, work out what they actually meant, and "
+                "respond to that conversationally, in ELI's voice. "
                 "No counts, no bullet lists of stores, no 'as an AI' or 'language model' disclaimers."
             )
         try:
@@ -10774,6 +10829,9 @@ Answer:"""
                 _corr_response = govern_output(_corr_response or "", is_grounded=False).strip()
             except Exception:
                 _corr_response = (_corr_response or "").strip()
+            if _corr_response and _prev_eli and _is_repeat_of_recent(_corr_response, [_prev_eli]):
+                log.debug("[COGNITIVE] Correction: the repair repeats the reply being corrected, escalating")
+                return None
 
             if _corr_response:
                 self._store_assistant_turn(_corr_response)
@@ -13480,6 +13538,7 @@ Answer:"""
             action, args, intent = _try_news_topic_deepen_reroute(
                 user_input, action, args, intent,
                 getattr(self, "_last_command_action", None),
+                str(getattr(self, "_last_response", "") or ""),
             )
             action, args, intent = _try_news_fetch_complaint_redo(
                 user_input, action, args, intent, self.memory,

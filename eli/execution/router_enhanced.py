@@ -2940,7 +2940,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         r"\bwhat(?:'?s?|\s+is)\s+the\s+news\b"
         r"|\bcurrent\s+events?\b|\blatest\s+news\b"
         r"|\btoday'?s?\s+news\b|\bworld\s+news\b|\bnews\s+today\b"
-        r"|\bany\s+news\b|\bwhat'?s?\s+new\b"
+        r"|\bany\s+news\b"
         r"|\bthe\s+news\b|\bheadlines?\b|\bnews[,\s]*eli\b|\beli[,\s]*news\b", low)
     # "what's happening / what's going on" is ambiguous, in a companion it's usually relational
     # ("what's going on with you"). News only when explicitly world/time-scoped and never when aimed
@@ -2954,6 +2954,17 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         r"\b(?:you|your|yourself|me|my|here|us|this|that|blaming|wrong|"
         r"with\s+you)\b", low)
     _news_ambiguous = bool(_amb and _world_scope and not _relational)
+    # "what's new" is the news only as a question about the world. Said, not asked ("that's what's
+    # new", "here's what's new"), it tells ELI something; "what's new with you?" asks about ELI or the
+    # user. Both went to the news: ELI asked what was new with the user, was shown what was playing,
+    # and the reply saying that was what's new got three headlines.
+    _whats_new = re.search(r"\bwhat(?:'?s?|\s+is)\s+new\b", low)
+    if _whats_new and not _news_explicit and (
+            _relational or re.search(
+                r"\b(?:that|this|it|here|there|which)(?:'?s|\s+is|\s+was|\s+are)\s+what(?:'?s?|\s+is)\s+new\b"
+                r"|\b(?:guess|know|see|show|tell)\s+(?:you\s+|me\s+)?what(?:'?s?|\s+is)\s+new\b", low)):
+        _whats_new = None
+    _news_explicit = _news_explicit or _whats_new
     if (_news_explicit or _news_ambiguous) \
             and not re.search(r"\b(dude|bro|man|wtf|omg|lol|hey|seriously|really)\b", low):
         # Extract topic from "news in/about/on/for X" or "X news" phrasing.

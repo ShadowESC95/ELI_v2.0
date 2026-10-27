@@ -115,6 +115,13 @@ def reacts_to_last_reply(text: Any) -> bool:
     return 0 < len(words) <= 10 and all(w.strip("'") in _REACTION_WORDS for w in words)
 
 
+def subject_words(text: Any) -> List[str]:
+    """The words of a message that name something: not stopwords, and not the words a bare reaction
+    is made of ("what", "the", "fuck", "this", "really")."""
+    from eli.cognition.scoring import tokenize
+    return [w for w in tokenize(str(text or "")) if w.strip("'") not in _REACTION_WORDS]
+
+
 def asks_about_own_behaviour(text: Any) -> bool:
     """A question about what ELI did, why, or what it logs, a complaint about it, or a bare reaction
     to its last reply: the turns where it invents."""
@@ -577,6 +584,12 @@ class _Check:
                     if d not in self.unrecorded_days:
                         self.unrecorded_days.append(d)
                 return f"writes about {', '.join(missing)}, when nothing is recorded that day"
+        try:
+            from eli.cognition.output_governor import contradicts_the_loaded_placement
+            if contradicts_the_loaded_placement(s):
+                return "says the model is wholly on the GPU, and the loader put part of it in RAM"
+        except Exception:
+            log.debug("loaded-placement check skipped", exc_info=True)
         ran = self._ran_at_start or bool(self._facts.get("executed_actions"))
         if not ran and _ENABLED_CLAIM.search(s):
             return "reports a change nothing made"

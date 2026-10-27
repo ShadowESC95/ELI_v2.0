@@ -2102,36 +2102,9 @@ class _GlobalScrollZoom(QObject):
         return False
 
 
-def _run_pumping(fn, app, *args, _poll: float = 0.02, **kwargs):
-    """Run blocking, widget-free `fn` off the Qt main thread while pumping `app`'s event loop so
-    the window stays responsive, then return fn's result on the calling thread (exceptions
-    propagate). `app` is the QApplication instance, or None to run inline (headless / tests).
-
-    detect_hardware() shells out to nvidia-smi/lspci with multi-second timeouts and is deliberately
-    uncached (it must read CURRENT free VRAM), so calling it inline on the main thread froze the
-    window ("Not Responding") for a few seconds at the start of every load. The probe runs on a
-    daemon thread here; no widget is ever touched off-thread — the caller applies the result on the
-    main thread once it returns.
-    """
-    if app is None:
-        return fn(*args, **kwargs)
-    box: dict = {}
-
-    def _run():
-        try:
-            box["value"] = fn(*args, **kwargs)
-        except BaseException as exc:            # re-raised on the caller's thread below
-            box["error"] = exc
-
-    worker = threading.Thread(target=_run, daemon=True, name="hw-tuning-probe")
-    worker.start()
-    while worker.is_alive():
-        app.processEvents()
-        time.sleep(_poll)
-    worker.join()
-    if "error" in box:
-        raise box["error"]
-    return box.get("value")
+# Blocking work off the window's thread, the window kept alive meanwhile (one helper, shared with the
+# start-up window).
+from eli.gui.off_thread import run_pumping as _run_pumping  # noqa: E402
 
 
 # ============================================================

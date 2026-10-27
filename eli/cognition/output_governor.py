@@ -315,6 +315,36 @@ def _hardware_state_claim(sentence: str) -> bool:
                 or any(re.search(rf"(?i)\b{re.escape(m)}\b", sentence) for m in _card_model_numbers()))
 
 
+# The runtime claims that say the model is wholly on the GPU.
+_WHOLLY_ON_GPU_CLAIM = re.compile(
+    r"(?i)\b(?:(?:the )?gpu(?:'s| is)?\s+(?:back (?:to|on)|now (?:at|on)|at)\s+full\b"
+    r"|back to full (?:gpu )?offload\w*"
+    r"|full(?:y)?[- ](?:gpu[- ])?offload(?:ed|ing)?\b"
+    r"|fully offloaded\b"
+    r"|all (?:my |the )?layers (?:are )?(?:on|loaded on|running on) the gpus?"
+    r"|(?:running|loaded|sitting) (?:entirely|fully|completely|wholly) on (?:the )?gpus?)"
+)
+
+
+def contradicts_the_loaded_placement(sentence: str) -> bool:
+    """True for a claim that the model is wholly on the GPU while the loaded model keeps part of
+    itself off it (the experts of some layers in RAM) or none of it on a GPU. Judged from the
+    loader's own report of what loaded, so it holds in a grounded turn too: memories of earlier
+    sessions say nothing about this load. Live: "I'm back to full GPU offload now" while the
+    experts of 28 layers were in RAM, in a turn counted as grounded by its memories."""
+    if not _WHOLLY_ON_GPU_CLAIM.search(str(sentence or "")):
+        return False
+    try:
+        from eli.cognition.gguf_inference import get_runtime_snapshot
+        snap = get_runtime_snapshot() or {}
+    except Exception:
+        return False
+    if str(snap.get("provider") or "gguf") != "gguf" or not snap.get("loaded", True):
+        return False                 # another backend, or nothing loaded here: nothing to judge by
+    return (snap.get("gpu_offload_supported") is False or int(snap.get("n_gpu_layers") or 0) <= 0
+            or int(snap.get("moe_experts_in_ram_layers") or 0) > 0)
+
+
 def claims_unverified_self_status(text: str) -> bool:
     """True when the reply asserts ELI's own operational health or runtime state, or the hardware's."""
     body = str(text or "")
@@ -336,16 +366,23 @@ def drop_unverified_self_status(text: str, *, is_grounded: bool = False) -> str:
     not to forbid ELI from reporting its health, only from inventing it.
     """
     body = str(text or "")
-    if is_grounded or not body.strip():
+    if not body.strip():
         return body
-    if not (claims_unverified_self_status(body) or defers_own_diagnostic_to_user(body)):
+    if is_grounded:
+        # Evidence for the turn is not evidence about the load: a claim the loader's own report
+        # contradicts goes in a grounded turn too.
+        if not any(contradicts_the_loaded_placement(s) for s in _SENTENCE_PARTS.findall(body)):
+            return body
+        kept = [s for s in _SENTENCE_PARTS.findall(body) if not contradicts_the_loaded_placement(s)]
+    elif not (claims_unverified_self_status(body) or defers_own_diagnostic_to_user(body)):
         return body
-    kept = [
-        s for s in _SENTENCE_PARTS.findall(body)
-        if not (_SELF_STATUS_CLAIM.search(s) or _SELF_DIAGNOSTIC_DEFLECTION.search(s)
-                or _SELF_RUNTIME_CLAIM.search(s) or _SELF_MECHANISM_CLAIM.search(s) or _SELF_CHANGE_CLAIM.search(s)
-                or _hardware_state_claim(s))
-    ]
+    else:
+        kept = [
+            s for s in _SENTENCE_PARTS.findall(body)
+            if not (_SELF_STATUS_CLAIM.search(s) or _SELF_DIAGNOSTIC_DEFLECTION.search(s)
+                    or _SELF_RUNTIME_CLAIM.search(s) or _SELF_MECHANISM_CLAIM.search(s) or _SELF_CHANGE_CLAIM.search(s)
+                    or _hardware_state_claim(s))
+        ]
     stripped = re.sub(r"\s{2,}", " ", "".join(kept))
     stripped = re.sub(r"\n{3,}", "\n\n", stripped).strip()
     # Never empty the reply: a greeting that was ONLY an invented status line

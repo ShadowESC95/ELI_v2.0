@@ -861,3 +861,17 @@ def test_a_clarification_question_with_by_does_not_play_music():
         "baby what you want me to do by jimmy reed",
     ]:
         assert route(q)["action"] == "PLAY_MEDIA", f"real song wrongly blocked: {q!r}"
+
+
+@pytest.mark.parametrize("said", ["well, that is what's new with me", "here's what's new", "this is what's new",
+                                  "what's new with you?", "guess what's new", "what's new with me"])
+def test_whats_new_said_or_aimed_at_a_person_is_not_the_news(said):
+    """Live (2.5.29): ELI asked what was new with the user, was shown what was playing, and the reply saying
+    that was what's new got three headlines. "What's new" is the news only asked about the world."""
+    assert route(said)["action"] != "NEWS_FETCH"
+
+
+@pytest.mark.parametrize("asked", ["what's new?", "whats new", "what's new in the world?", "what's new today",
+                                   "what's the news", "any news?", "latest news", "headlines please"])
+def test_asking_for_the_news_still_gets_it(asked):
+    assert route(asked)["action"] == "NEWS_FETCH"

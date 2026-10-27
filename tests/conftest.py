@@ -301,12 +301,16 @@ def guard_real_runtime_snapshot(request):
 @pytest.fixture(autouse=True, scope="function")
 def measurements_stay_on_this_machine(monkeypatch, tmp_path):
     """What ELI measured on this machine (GPU headroom, whisper's footprint) is never read or written
-    by a test: a report test read this machine's 108 MB for Qwen3.6 once a real llama.cpp was loaded."""
-    from eli.core import load_plan
+    by a test: a report test read this machine's 108 MB for Qwen3.6 once a real llama.cpp was loaded.
+    Nor what one test measured for the next: a generation's decode speed is kept process-wide
+    (model_tier), and a slow one recorded by an earlier test cut a later self-consistency test's
+    samples from 3 to 2 in the full run, while the test passed on its own."""
+    from eli.core import load_plan, model_tier
     from eli.perception import local_whisper_stt
     monkeypatch.setattr(load_plan, "_headroom_file", lambda: tmp_path / "gpu_headroom.json")
     monkeypatch.setattr(load_plan, "_watch", {})
     monkeypatch.setattr(local_whisper_stt, "_footprint_file", lambda: tmp_path / "whisper_gpu.json")
+    monkeypatch.setattr(model_tier, "_speed_ema", 0.0)
 
 
 # ── Auto-updating test-results document ──────────────────────────────────────

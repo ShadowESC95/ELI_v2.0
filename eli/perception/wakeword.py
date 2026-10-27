@@ -215,15 +215,10 @@ def _build_head(in_dim: int):
 
 
 # ── Piper synthesis of positives / negatives ────────────────────────────────
-_voice_cache: dict = {}
-
-
 def _load_voice(model_path: Path):
-    key = str(model_path)
-    if key not in _voice_cache:
-        from piper import PiperVoice
-        _voice_cache[key] = PiperVoice.load(str(model_path))
-    return _voice_cache[key]
+    # the one in-process Piper loader, shared with speaking (a voice is loaded once)
+    from eli.perception.tts_router import piper_voice
+    return piper_voice(model_path)
 
 
 def _synth(text: str, model_path: Path, length_scale: float = 1.0) -> Optional[np.ndarray]:

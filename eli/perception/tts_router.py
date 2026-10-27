@@ -837,9 +837,7 @@ def _speak_piper_cli(text, voice_name=None):
         or _find_piper_bin()
     )
 
-    if not piper_bin or not (_Path(piper_bin).exists() or _shutil.which(piper_bin)):
-        log.debug(f"[TTS_FINAL_PIPER_ONLY] missing piper binary: {piper_bin}")
-        return False
+    _no_program = not piper_bin or not (_Path(piper_bin).exists() or _shutil.which(piper_bin))
 
     cfg = _find_piper_config(model)
     lock_path = _Path(
@@ -873,19 +871,27 @@ def _speak_piper_cli(text, voice_name=None):
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-        proc = _run_piper(_want_cuda)
-        # GPU not supported by this piper build / CUDA unavailable → remember and
-        # use CPU for the rest of the session (piper is fast on CPU anyway).
-        if proc.returncode != 0 and _want_cuda:
-            _PIPER_CUDA_FAILED = True
-            log.debug(
-                f"[TTS_FINAL_PIPER_ONLY] --cuda failed rc={proc.returncode}; "
-                f"falling back to CPU: {proc.stderr[-300:]}")
-            proc = _run_piper(False)
+        if _no_program:
+            # No piper program to run (the packaged app ships none): the library it does ship.
+            _data = _piper_lib_render(text, model, cfg)
+            if not _data:
+                log.debug(f"[TTS_FINAL_PIPER_ONLY] no piper program ({piper_bin}) and the library failed")
+                return False
+            wav.write_bytes(_data)
+        else:
+            proc = _run_piper(_want_cuda)
+            # GPU not supported by this piper build / CUDA unavailable → remember and
+            # use CPU for the rest of the session (piper is fast on CPU anyway).
+            if proc.returncode != 0 and _want_cuda:
+                _PIPER_CUDA_FAILED = True
+                log.debug(
+                    f"[TTS_FINAL_PIPER_ONLY] --cuda failed rc={proc.returncode}; "
+                    f"falling back to CPU: {proc.stderr[-300:]}")
+                proc = _run_piper(False)
 
-        if proc.returncode != 0:
-            log.debug(f"[TTS_FINAL_PIPER_ONLY] piper failed rc={proc.returncode}: {proc.stderr[-800:]}")
-            return False
+            if proc.returncode != 0:
+                log.debug(f"[TTS_FINAL_PIPER_ONLY] piper failed rc={proc.returncode}: {proc.stderr[-800:]}")
+                return False
 
         if not wav.exists() or wav.stat().st_size < 1000:
             log.debug(f"[TTS_FINAL_PIPER_ONLY] wav missing/empty: {wav}")
@@ -1119,6 +1125,65 @@ def speak_text(text: str, *, piper_path: str | None = None, model_path: str | No
 # The browser plays the audio itself, so the host must NOT use aplay/afplay here.
 # Reuses the same Piper binary/voice discovery + CUDA→CPU fallback as _speak_piper_cli.
 
+_PIPER_LIB_VOICES: Dict[str, Any] = {}
+
+
+def piper_voice(model, cfg=None):
+    """A Piper voice loaded in this process from its library, loaded once per model file and shared
+    (speaking, and the wake word's training). Raises when the library or the model cannot load."""
+    key = str(model)
+    voice = _PIPER_LIB_VOICES.get(key)
+    if voice is None:
+        from piper import PiperVoice
+        voice = PiperVoice.load(key, config_path=str(cfg) if cfg else None)
+        _PIPER_LIB_VOICES[key] = voice
+    return voice
+
+
+def _piper_lib_render(text: str, model, cfg) -> Optional[bytes]:
+    """Piper run in this process from its Python library, as WAV bytes. The packaged app ships the
+    library and the voices but no piper program, so on a machine without a working piper program
+    elsewhere ELI had no voice. Same voice, same prosody (_piper_prosody_args) as the program path,
+    the pause between sentences included. None when the library is missing or fails."""
+    try:
+        import io
+        import wave
+        try:
+            from piper import SynthesisConfig
+        except ImportError:             # an older library: Piper's own pacing
+            SynthesisConfig = None
+        voice = piper_voice(model, cfg)
+        flags = _piper_prosody_args()
+        vals = {flags[i].lstrip("-"): float(flags[i + 1]) for i in range(0, len(flags) - 1, 2)}
+        buf = io.BytesIO()
+        with wave.open(buf, "wb") as out:
+            if SynthesisConfig is None:
+                voice.synthesize(str(text or ""), out)
+            else:
+                syn = SynthesisConfig(**{k: v for k, v in (("length_scale", vals.get("length_scale")),
+                                                           ("noise_scale", vals.get("noise_scale")),
+                                                           ("noise_w_scale", vals.get("noise_w")))
+                                         if v is not None})
+                opened = False
+                for chunk in voice.synthesize(str(text or ""), syn_config=syn):
+                    if not opened:
+                        out.setframerate(chunk.sample_rate)
+                        out.setsampwidth(chunk.sample_width)
+                        out.setnchannels(chunk.sample_channels)
+                        opened = True
+                    else:
+                        gap = int(chunk.sample_rate * vals.get("sentence_silence", 0.0))
+                        out.writeframes(b"\x00" * gap * chunk.sample_width * chunk.sample_channels)
+                    out.writeframes(chunk.audio_int16_bytes)
+                if not opened:
+                    return None
+        data = buf.getvalue()
+        return data if len(data) > 1000 else None
+    except Exception:
+        log.debug("[TTS] in-process piper failed", exc_info=True)
+        return None
+
+
 def _piper_render_wav(text: str, model, cfg, piper_bin: str) -> Optional[bytes]:
     """Run Piper once for `text`, returning WAV bytes (CUDA→CPU fallback). No playback."""
     import os as _os
@@ -1294,10 +1359,9 @@ def synthesize_wav(text: str, voice_name: str | None = None) -> Optional[bytes]:
         log.debug(f"[TTS_WAV] no voice model for active={active}")
         return None
     piper_bin = _find_piper_bin()
-    if not piper_bin:
-        log.debug("[TTS_WAV] no piper binary available")
-        return None
     cfg = _find_piper_config(model)
     chunks = _tts_chunks(text) or [text]
-    rendered = [_piper_render_wav(c, model, cfg, piper_bin) for c in chunks]
+    # No piper program (the packaged app ships none): the library it does ship.
+    rendered = [_piper_render_wav(c, model, cfg, piper_bin) if piper_bin else _piper_lib_render(c, model, cfg)
+                for c in chunks]
     return _apply_tone_pitch(_concat_wavs([r for r in rendered if r]))

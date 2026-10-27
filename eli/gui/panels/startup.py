@@ -17,7 +17,7 @@ from eli.gui.panels._qt import (
     QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout, QLabel, QLineEdit, QTimer,
     QMessageBox, QPlainTextEdit, QProgressBar, QPushButton, QSpinBox,
     QTabWidget, QThread, QVBoxLayout, QHBoxLayout, QWidget, Qt,
-    now_hms, pyqtSignal,
+    QApplication, now_hms, pyqtSignal,
 )
 
 from eli.utils.log import get_logger
@@ -949,8 +949,10 @@ class StartupModelSelectionDialog(QDialog):
 
         _old_accept = super().accept
 
-        def _accept_wrapper():
-            _apply_env()
+        def _prepare_load(selected_path: str, chosen: str) -> None:
+            """The OK step's slow part: Whisper loaded, the GPUs read again and the load planned
+            by llama.cpp. Seconds, so it runs off the window's thread (_accept_wrapper); it touches
+            no widget, the window's values come in as arguments."""
             # Preload faster-whisper FIRST (warmed up on a GPU) so the memory it holds is taken before
             # the language model is planned against what each card has free; otherwise the plan
             # filled the card and Whisper ran out of memory on the first utterance.
@@ -964,7 +966,6 @@ class StartupModelSelectionDialog(QDialog):
             except Exception as _wp_err:
                 log.debug(f"[STARTUP_DIALOG][AUDIO_PRELOAD] skipped: {_wp_err}")
             try:
-                selected_path = self.model_path_input.text().strip()
                 if selected_path:
                     os.environ["ELI_MODEL_PATH"] = selected_path
                 # Whisper is loaded first, so the load plan measures what each card has free after it
@@ -983,8 +984,7 @@ class StartupModelSelectionDialog(QDialog):
                 # not for the largest model that partially fits on GPU. Without
                 # this, a 24B model on disk gets chosen (12 layers, batch=192)
                 # and those params are applied to the 7B the user actually loads.
-                _sel = (self.model_path_input.text().strip()
-                        or str(self.gguf_combo.currentData() or "").strip())
+                _sel = chosen
                 _rec_models = _mods
                 if _sel:
                     try:
@@ -1015,7 +1015,25 @@ class StartupModelSelectionDialog(QDialog):
                 )
             except Exception as _err:
                 log.debug(f"[STARTUP_DIALOG][HW_OPT] regeneration failed: {_err}")
-            _old_accept()
+
+        def _accept_wrapper():
+            if getattr(self, "_preparing_load", False):
+                return              # OK pressed again while the first press is being prepared
+            _apply_env()
+            selected_path = self.model_path_input.text().strip()
+            chosen = selected_path or str(self.gguf_combo.currentData() or "").strip()
+            # On the window's thread this froze it past the desktop's patience ("Not Responding")
+            # every time OK was pressed: the window is kept alive while it runs.
+            self._preparing_load = True
+            buttons.setEnabled(False)
+            try:
+                from eli.gui.off_thread import run_pumping
+                run_pumping(_prepare_load, QApplication.instance(), selected_path, chosen)
+            finally:
+                buttons.setEnabled(True)
+                self._preparing_load = False
+            if self.isVisible():    # closed meanwhile (Esc, the close button): not accepted
+                _old_accept()
 
         self.accept = _accept_wrapper
         buttons.accepted.connect(self.accept)
