@@ -146,7 +146,7 @@ def test_a_cause_the_record_does_not_show_is_not_served(sentence, fault_turn):
 
 def test_invented_self_performance_metric_is_dropped(fault_turn):
     """ELI tracks a per-turn confidence and timings, not a 'success rate' for itself — a volunteered
-    'est. 67% success rate' is fabricated. Live (v2.5.27), on 'you are wrong.. check your dates'."""
+    'est. 67% success rate' is fabricated. Live (v2.5.27), said in reply to a correction of the dates."""
     reply = ("You're right, I got the day wrong. It's a known unreliability in my timestamp "
              "diagnostics (est. 67% success rate lately). The record shows grounding was 0.26.")
     out = sc.drop_invented_self_claims(reply)
@@ -654,7 +654,7 @@ def test_a_fix_said_to_be_made_so_it_will_not_happen_again_is_dropped_on_any_tur
 # ---- 2.5.14 session: reactions, corrections, insults, and the carried-out footer ----------------
 
 @pytest.mark.parametrize("text,about", [
-    ("What the fuck is going on!?!?!?", True),
+    ("What the hell is going on!?!?!?", True),
     ("seriously??", True),
     ("why?!", True),
     ("I did not ask about RAM at all actually!!", True),
@@ -667,7 +667,7 @@ def test_a_fix_said_to_be_made_so_it_will_not_happen_again_is_dropped_on_any_tur
     ("go deeper on the harbour festival story", False),
 ])
 def test_reactions_corrections_and_insults_are_about_eli(text, about):
-    """A bare reaction has no subject of its own, so it is about ELI's last reply; live, "What the fuck
+    """A bare reaction has no subject of its own, so it is about ELI's last reply; live, "what the hell
     is going on" matched nothing and the model invented a "RAG phase" and a "reflection agent"."""
     assert sc.asks_about_own_behaviour(text) is about
 

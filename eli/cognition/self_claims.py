@@ -96,9 +96,9 @@ def complains_about_eli(text: Any) -> bool:
     return True
 
 
-# Words that name nothing: a message made only of these ("What the fuck is going on!?", "seriously??",
-# "why?!", "huh?") has no subject of its own, so it is about ELI's last reply. Live, "What the fuck is
-# going on" matched none of the patterns and the model invented a "RAG phase" and a "reflection agent".
+# Words that name nothing: a message made only of these ("what the hell is going on!?", "seriously??",
+# "why?!", "huh?") has no subject of its own, so it is about ELI's last reply. Live, a bare reaction like
+# that matched none of the patterns and the model invented a "RAG phase" and a "reflection agent".
 _REACTION_WORDS = frozenset("""
 a an the is was it its it's this that what what's whats why huh eh wtf fuck fucking fucked hell heck
 going on happening happened wrong now again really seriously actually even still just so oh god jesus

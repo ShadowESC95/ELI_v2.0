@@ -2884,7 +2884,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
 
     # A question about the live media session reads the active session (NOW_PLAYING), not a guess from
     # history — even when wrapped in a longer sentence ("do you know what i am watching now? and we
-    # will work on RAIMS"). This runs BEFORE the long-question guard, which otherwise swallowed the
+    # can get to the project later"). This runs BEFORE the long-question guard, which otherwise swallowed the
     # wrapped forms into CHAT: observed live, ELI claimed it was blind while NOW_PLAYING could see the
     # stream the whole time (the bare "what am i watching?" worked, the wrapped ones didn't).
     if _asks_now_playing(low):

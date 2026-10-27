@@ -828,8 +828,8 @@ def test_live_media_question_routes_to_now_playing_even_when_wrapped():
     'can you check what i am watching, now?' fell to chat.long_question_guard and ELI claimed it was
     blind, while the bare 'what am i watching?' worked. Declarative remarks stay chat."""
     for q in [
-        "do you know what i am watching now? and we will work on RAIMS soon enough",
-        "you are forgetting dune, 2001 and venom. Can you not check what i am watching, now?",
+        "do you know what i am watching now? and we can get to the project later",
+        "you are forgetting the other films. Can you not check what i am watching, now?",
         "what am i watching?",
         "what's playing?",
         "do you know what i'm listening to",

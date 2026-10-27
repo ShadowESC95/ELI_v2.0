@@ -15496,7 +15496,7 @@ Answer:"""
             from eli.cognition.llm_intent import is_plain_statement, is_social_checkin
             from eli.cognition.self_claims import asks_about_own_behaviour
             # A remark, a check-in, or a question/complaint about ELI's own last reply is never a
-            # command: asking the model which action it is cost 45 s for "What the fuck is going on".
+            # command: asking the model which action an exasperated "what is going on" was cost 45 s.
             if router_intent and _matched_by == "fallback.chat" and (
                     is_plain_statement(text) or is_social_checkin(text) or asks_about_own_behaviour(text)):
                 return router_intent

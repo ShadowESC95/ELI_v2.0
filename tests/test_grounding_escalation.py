@@ -239,13 +239,13 @@ def test_frustration_and_relational_vent_never_escalate(monkeypatch):
     # routed to the web/hedge ladder. They must be non-factual conversational.
     monkeypatch.setattr(C, "network_allowed", lambda: True)
     for t in [
-        "What the fuck are you talking about?!",
+        "What the hell are you talking about?!",
         "Eli, what is going on with you?",
-        "What the fuck is going on?!",
+        "What the hell is going on?!",
         "what is going on?!",
         "what's wrong with you",
         "what the hell is your problem",
-        "what the fuck do you mean",
+        "what the hell do you mean",
     ]:
         assert G.classify_factual(t) == (False, "none"), t
         assert G.escalate(_FakeEngine(), t, {"action": "CHAT"}, _FakeBus(0.20)) is None, t

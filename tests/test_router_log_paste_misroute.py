@@ -75,8 +75,8 @@ CHATGPT_CRITIQUE = (
 
 def test_the_users_own_words_are_split_from_what_they_pasted():
     from eli.cognition.correction_patterns import shortcut_text, split_pasted
-    own, pasted = split_pasted("here is the other assistant's reply, time to bring your best now Eli ---> " + CHATGPT_CRITIQUE)
-    assert own == "here is the other assistant's reply, time to bring your best now Eli"
+    own, pasted = split_pasted("here is the other assistant's reply, let's see what you make of it ---> " + CHATGPT_CRITIQUE)
+    assert own == "here is the other assistant's reply, let's see what you make of it"
     assert pasted.startswith("Alright, tell ELI")
     own, pasted = split_pasted("here's what it said:\n" + CHATGPT_CRITIQUE)
     assert own == "here's what it said" and pasted.startswith("Alright")

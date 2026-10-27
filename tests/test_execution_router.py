@@ -295,8 +295,8 @@ def test_the_goal_of_a_promise_does_not_pick_what_runs():
         from eli.kernel.engine import _followthrough_may_run as may_run
     except ImportError:
         from eli.kernel.stages.generation import _followthrough_may_run as may_run
-    asked = "which show am i watching lately, check your dates"
-    said = "Let me double-check more recent timestamps to find out what you have been watching lately"
+    asked = "what was i listening to last week, check the dates"
+    said = "Let me double-check more recent timestamps to find out what you have been listening to lately"
     assert not may_run("TIMESTAMP_DIAG", asked, said)
     assert may_run("TIMESTAMP_DIAG", "check the timestamps of the last turns", "Let me check the timestamps")
 
