@@ -26,7 +26,8 @@ pip install -r requirements-build.txt
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 # an extra that pins its own torch version gets the CPU build of that version too
 export PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
-pip install "$(python packaging/llama_source.py)"
+llama_src="$(python packaging/llama_source.py)"
+pip install "$llama_src"
 pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
 for extra in $OPTIONAL_EXTRAS; do
   pip install ".[$extra]" \

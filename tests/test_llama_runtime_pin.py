@@ -71,7 +71,8 @@ def test_the_lock_constraints_leave_out_only_what_the_build_tools_do_not_allow(t
 def test_gpu_packs_are_built_at_the_pinned_version():
     """The packs and the bundles come from one source, whose version is the pin."""
     text = (ROOT / ".github/workflows/gpu-packs.yml").read_text()
-    assert text.count('pip wheel "$(python packaging/llama_source.py)"') == 2
+    assert text.count('llama_src="$(python packaging/llama_source.py)"') == 2
+    assert text.count('pip wheel "$llama_src"') == 2
     assert "llama-cpp-python==" not in text
     assert text.count("actions/checkout") == 2
 
@@ -80,7 +81,8 @@ def test_gpu_packs_are_built_at_the_pinned_version():
                                             (".github/workflows/cross-platform-smoke.yml", 1)])
 def test_everything_that_installs_the_runtime_takes_it_from_that_source(path, installs):
     text = (ROOT / path).read_text()
-    assert text.count('pip install "$(python packaging/llama_source.py)"') == installs
+    assert text.count('llama_src="$(python packaging/llama_source.py)"') == installs
+    assert text.count('pip install "$llama_src"') == installs
     assert "pip install llama-cpp-python" not in text
 
 
@@ -122,6 +124,38 @@ def test_a_binding_change_that_no_longer_applies_stops_the_build(tmp_path):
     assert '("moe_cache_size", ctypes.c_size_t)' in text and "LLAMA_STATE_SEQ_VERSION = 4" in text
     with pytest.raises(SystemExit):
         source.apply_binding_changes(tmp_path)
+
+
+@pytest.mark.parametrize("filters", [True, False])
+def test_the_source_unpacks_with_or_without_extraction_filters(tmp_path, monkeypatch, filters):
+    """The last 3.10 with installers (macOS, Windows) has no filter=, and the source was never unpacked there."""
+    import io
+    import tarfile
+    source = _source_module()
+    if not filters:
+        monkeypatch.delattr(tarfile, "data_filter")
+
+    def archive(name, *entries):
+        path = tmp_path / name
+        with tarfile.open(path, "w:gz") as tar:
+            for entry, data in entries:
+                tar.addfile(entry, io.BytesIO(data) if data else None)
+        return path
+
+    def entry(name, data=b"", link=""):
+        info = tarfile.TarInfo(name)
+        info.size = len(data)
+        if link:
+            info.type, info.linkname = tarfile.SYMTYPE, link
+        return info, data
+
+    source._unpack(archive("good.tar.gz", entry("top/setup.py", b"x"), entry("top/latest", link="setup.py")),
+                   tmp_path / "out")
+    assert (tmp_path / "out" / "top" / "setup.py").read_bytes() == b"x"
+    for bad in (entry("../escaped", b"z"), entry("top/away", link="../../escaped")):
+        with pytest.raises((SystemExit, tarfile.TarError)):
+            source._unpack(archive("bad.tar.gz", bad), tmp_path / "bad")
+    assert not (tmp_path / "escaped").exists()
 
 
 def test_the_version_is_stamped_on_the_source(tmp_path):

@@ -70,7 +70,8 @@ jobs:
           pip install tomli
           python tools/validate_pyproject_scripts.py
           pip install -e ".[server]"
-          pip install "$(python packaging/llama_source.py)"
+          llama_src="$(python packaging/llama_source.py)"
+          pip install "$llama_src"
           pip install httpx pytest
 
       - name: Import smoke — cross-platform modules load on this OS

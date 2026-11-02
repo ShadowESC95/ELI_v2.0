@@ -84,7 +84,8 @@ jobs:
             export CMAKE_ARGS="-DGGML_VULKAN=on -DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64-v3 -DCMAKE_CXX_FLAGS=-march=x86-64-v3"
           fi
           python -m pip install --upgrade pip wheel cmake ninja
-          python -m pip wheel "$(python packaging/llama_source.py)" --no-deps -w wheelhouse
+          llama_src="$(python packaging/llama_source.py)"
+          python -m pip wheel "$llama_src" --no-deps -w wheelhouse
           ls -lh wheelhouse
           for f in wheelhouse/llama_cpp_python-*.whl; do
             mv "$f" "wheelhouse/vulkan-$(basename "$f")"
@@ -235,7 +236,8 @@ jobs:
           fi
           nvcc --version
           python -m pip install --upgrade pip wheel cmake ninja
-          python -m pip wheel "$(python packaging/llama_source.py)" --no-deps -w wheelhouse
+          llama_src="$(python packaging/llama_source.py)"
+          python -m pip wheel "$llama_src" --no-deps -w wheelhouse
           for f in wheelhouse/llama_cpp_python-*.whl; do
             mv "$f" "wheelhouse/cuda-$(basename "$f")"
           done

@@ -132,7 +132,8 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip wheel
           pip install -r requirements-build.txt
-          pip install "$(python packaging/llama_source.py)"
+          llama_src="$(python packaging/llama_source.py)"
+          pip install "$llama_src"
           pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
           for extra in $OPTIONAL_EXTRAS; do
             pip install ".[$extra]" \
@@ -283,7 +284,8 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip wheel
           pip install -r requirements-build.txt
-          pip install "$(python packaging/llama_source.py)"
+          llama_src="$(python packaging/llama_source.py)"
+          pip install "$llama_src"
           pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
           for extra in $OPTIONAL_EXTRAS; do
             pip install ".[$extra]" \

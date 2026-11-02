@@ -12,6 +12,12 @@ by version: under upstream's number an installed 0.3.36 pack would look current.
 Standard library only: it runs before anything is installed, on every system.
 
 usage: python packaging/llama_source.py [folder]     (prints the folder to give to pip)
+
+    llama_src="$(python packaging/llama_source.py)"
+    pip install "$llama_src"
+
+On a line of its own: inside `pip install "$(...)"` a failure here hands pip "", which installs
+nothing and succeeds.
 """
 from __future__ import annotations
 
@@ -68,13 +74,34 @@ def _fetch(source: tuple, into: Path) -> None:
     if found != sha256:
         raise SystemExit(f"{url}: sha256 is {found}, expected {sha256}")
     unpacked = into.parent / (sha256 + ".src")
-    with tarfile.open(archive) as tar:
-        tar.extractall(unpacked, filter="data")
+    _unpack(archive, unpacked)
     # an archive holds one folder, named after the repository and commit
     (top,) = unpacked.iterdir()
     top.rename(into)
     shutil.rmtree(unpacked)
     archive.unlink()
+
+
+def _unpack(archive: Path, dest: Path) -> None:
+    with tarfile.open(archive) as tar:
+        if hasattr(tarfile, "data_filter"):
+            tar.extractall(dest, filter="data")
+            return
+        # A Python from before extraction filters (the last 3.10 with installers is one): the same
+        # rule by hand, every entry a file, folder or link that stays inside the folder.
+        inside = dest.resolve()
+        for entry in tar.getmembers():
+            path = dest / entry.name
+            if entry.issym():
+                target = path.parent / entry.linkname
+            elif entry.islnk():
+                target = dest / entry.linkname
+            else:
+                target = path
+            plain = entry.isfile() or entry.isdir() or entry.issym() or entry.islnk()
+            if not plain or any(p != inside and inside not in p.parents for p in (path.resolve(), target.resolve())):
+                raise SystemExit(f"{archive.name}: {entry.name} is not a file, folder or link inside the archive")
+        tar.extractall(dest)
 
 
 def apply_binding_changes(root: Path) -> None:
