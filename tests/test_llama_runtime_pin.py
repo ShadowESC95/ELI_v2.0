@@ -73,8 +73,19 @@ def test_gpu_packs_are_built_at_the_pinned_version():
     text = (ROOT / ".github/workflows/gpu-packs.yml").read_text()
     assert text.count('llama_src="$(python packaging/llama_source.py)"') == 2
     assert text.count('pip wheel "$llama_src"') == 2
-    assert "llama-cpp-python==" not in text
-    assert text.count("actions/checkout") == 2
+    assert not re.search(r"llama-cpp-python==\d", text), "the version is read from the constraints, never written here"
+    assert text.count("actions/checkout") == 3
+
+
+def test_a_published_pack_is_never_rebuilt_over():
+    """2.5.31's tag rebuilt the Linux CUDA pack while installed apps were downloading it: half a file,
+    then a 404, and the app went to the CPU. Only the packs a version does not have are built."""
+    jobs = yaml.safe_load((ROOT / ".github/workflows/gpu-packs.yml").read_text())["jobs"]
+    for name, backend in (("build", "vulkan"), ("build-cuda", "cuda")):
+        assert jobs[name]["needs"] == "plan"
+        assert jobs[name]["strategy"]["matrix"]["os"] == "${{ fromJSON(needs.plan.outputs.%s) }}" % backend
+    text = (ROOT / ".github/workflows/gpu-packs.yml").read_text()
+    assert "group: gpu-packs" in text and "cancel-in-progress: false" in text
 
 
 @pytest.mark.parametrize("path, installs", [(".github/workflows/release.yml", 2), ("packaging/ci_linux_deps.sh", 1),
@@ -184,7 +195,7 @@ def gp(tmp_path, monkeypatch):
     (meipass / "llama_cpp").mkdir(parents=True)
     (meipass / "llama_cpp" / "__init__.py").write_text('__version__ = "0.3.36"\n')
     monkeypatch.setattr(sys, "_MEIPASS", str(meipass), raising=False)
-    # not through ELI_PROJECT_ROOT: any thread's load_settings() removes a path outside the install
+    # not through ELI_PROJECT_ROOT: the process's first load_settings() removes a path outside the install
     monkeypatch.setattr(eli_gpu_pack, "_eli_root", lambda: tmp_path / "root")
     return eli_gpu_pack
 
@@ -328,3 +339,22 @@ def test_an_update_brings_the_pack_up_to_date_without_asking_again(gp, tmp_path,
     assert calls[0] == argv
     label, shown, pct = calls[1]
     assert "0.3.35 → 0.3.36" in label and shown == "Downloading pack.whl: 1 / 2 MB" and pct == 50
+    # the download failed (the fake returns 1): still the person's GPU choice, tried again next start
+    assert (dest.parent / ".gpu_choice").read_text() == "gpu-installed"
+
+
+def test_a_failed_update_recorded_as_cpu_is_tried_again(gp, tmp_path):
+    """2.5.31 recorded a failed pack download as a CPU choice and stayed on the CPU at every start."""
+    import os
+    import subprocess
+    if sys.platform == "darwin":
+        pytest.skip("macOS builds carry Metal, no pack")
+    dest = _pack(tmp_path, "0.3.35")
+    (dest / ".gpu_pack.json").write_text(json.dumps({"version": "0.3.35", "backend": "cuda"}))
+    (dest.parent / ".gpu_choice").write_text("cpu-install-failed")
+    entry = ROOT / "packaging" / "pyinstaller" / "eli_entry.py"
+    out = subprocess.run([sys.executable, "-c", _OFFER, str(entry), sys._MEIPASS],
+                         env={**os.environ, "ELI_PROJECT_ROOT": str(tmp_path / "root")},
+                         capture_output=True, text=True, timeout=120, cwd=ROOT, check=True)
+    calls = json.loads(out.stdout.strip().splitlines()[-1])
+    assert calls[0] == ["--force"] and "asked" not in calls

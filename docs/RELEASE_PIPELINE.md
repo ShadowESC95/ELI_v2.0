@@ -29,8 +29,11 @@ produces on the Release page:
 | `RELEASE_NOTES.md` | Release summary stub |
 | `SHA256SUMS.txt` | checksums for all of the above |
 
-Pushing a version tag also refreshes the **`gpu-packs`** pre-release (CUDA +
-Vulkan llama-cpp-python wheels used by `ELI --install-gpu-pack`).
+Pushing a version tag also runs the **`gpu-packs`** workflow (CUDA + Vulkan llama-cpp-python
+wheels used by `ELI --install-gpu-pack`), which builds only the packs this version does not
+have yet. A published pack is never replaced: installed apps download it at any moment, and
+2.5.31's tag rebuilt the Linux CUDA pack under apps that were updating (half a file, then a
+404). A different build is a different version.
 
 The bundles and the packs are built from one llama-cpp-python source,
 `packaging/llama_source.py`: upstream's release with a newer llama.cpp, under the

@@ -194,7 +194,10 @@ bundled copy via `sys.path`.
 - **One llama.cpp per build**: a pack is used only at the bundled runtime's exact version
   (`pack_matches_runtime`). When an update moves llama.cpp on, `outdated_pack()` names the old
   pack and the first-run chooser (`eli_entry._first_run_gpu_offer`) replaces it with the matching
-  one, same backend, without asking again: the GPU was chosen already. Every download reports its
+  one, same backend, without asking again: the GPU was chosen already. An update that fails keeps
+  that choice and is tried again at the next start (2.5.31 recorded it as `cpu-install-failed`
+  and stayed on the CPU at every start after; that marker beside an older pack is retried too).
+  Every download reports its
   real size to the progress window (`install(argv, progress)`); the startup window and the
   first-run wizard share one status reader (`startup._gpu_pack_state`) and offer "Update"; server
   and helper starts print how to update.

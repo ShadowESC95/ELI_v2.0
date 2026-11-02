@@ -7,7 +7,12 @@
 #   detects an AMD GPU (or with --vulkan).
 #
 # Runtime needs only the Vulkan loader, which AMD/Intel/NVIDIA drivers ship;
-# glslc/the SDK are build-time-only. Re-run manually to refresh the wheels.
+# glslc/the SDK are build-time-only.
+#
+# Only a pack this version does not have yet is built. A published one is never replaced: an
+# installed app is downloading it at any moment (2.5.31's tag rebuilt the Linux CUDA pack while
+# apps were updating, and they got half a file, then a 404). A different build is a different
+# version (packaging/llama_cpp_constraints.txt), which is also what makes installed apps take it.
 #
 # Linux packs: ubuntu-24.04 by name, the same image as release.yml. A pack loads into
 # that app; built on a newer image it would not load in apps already installed.
@@ -26,15 +31,52 @@ on:
 permissions:
   contents: write
 
+# one at a time: a second run plans after the first has published, so it never builds the same pack twice
+concurrency:
+  group: gpu-packs
+  cancel-in-progress: false
+
 env:
   PYTHON_VERSION: "3.12"   # must match the frozen app's interpreter (release.yml)
 
 jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    outputs:
+      vulkan: ${{ steps.missing.outputs.vulkan }}
+      cuda: ${{ steps.missing.outputs.cuda }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: The packs this version does not have yet
+        id: missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          v=$(python3 -c 'import re; print(re.findall(r"^llama-cpp-python==(\S+)\s*$", open("packaging/llama_cpp_constraints.txt").read(), re.M)[0])')
+          if ! gh api "repos/$GITHUB_REPOSITORY/releases/tags/gpu-packs" --jq '.assets[].name' > have.txt 2> err.txt; then
+            grep -q "HTTP 404" err.txt || { cat err.txt; exit 1; }
+            : > have.txt   # no gpu-packs release yet: every pack is missing
+          fi
+          # backend, then runner=platform pairs: the runners whose pack is not published
+          missing() {
+            local backend=$1 pair out=(); shift
+            for pair in "$@"; do
+              grep -qx "$backend-llama_cpp_python-$v-py3-none-${pair#*=}.whl" have.txt || out+=("\"${pair%%=*}\"")
+            done
+            local IFS=,; echo "[${out[*]}]"
+          }
+          echo "vulkan=$(missing vulkan ubuntu-24.04=linux_x86_64 windows-latest=win_amd64)" | tee -a "$GITHUB_OUTPUT"
+          echo "cuda=$(missing cuda ubuntu-24.04=linux_x86_64 windows-2022=win_amd64)" | tee -a "$GITHUB_OUTPUT"
+
   build:
+    needs: plan
+    if: needs.plan.outputs.vulkan != '[]'
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, windows-latest]
+        os: ${{ fromJSON(needs.plan.outputs.vulkan) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -142,6 +184,8 @@ jobs:
           done
 
   build-cuda:
+    needs: plan
+    if: needs.plan.outputs.cuda != '[]'
     # NVIDIA packs. Previously NVIDIA relied entirely on the abetlen wheel
     # index, which stops at 0.3.19 for several interpreters -- so a machine
     # with a perfectly good GPU ended up on a runtime that cannot read hybrid
@@ -157,7 +201,8 @@ jobs:
         # keeps a supported host compiler instead of forcing nvcc past its own
         # check with -allow-unsupported-compiler, which would build a wheel
         # nobody has validated.
-        os: [ubuntu-24.04, windows-2022]
+        # (the runners below are planned in `plan`: ubuntu-24.04, windows-2022)
+        os: ${{ fromJSON(needs.plan.outputs.cuda) }}
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5

@@ -541,7 +541,7 @@ def escalate(
         if _about_eli(user_input) and (not _unsure or (_memory is not None and turn_record_lines(_memory, limit=1))):
             log.debug("[ESCALATION] question about ELI's own behaviour: answered from the turn record")
             return None
-        # Telling ELI something is not asking it to look something up: "Rick doesn't use a crossbow"
+        # Telling ELI something is not asking it to look something up: "the corner bakery shuts at six"
         # was searched, and answered "I searched the web but couldn't find anything".
         from eli.cognition.llm_intent import is_plain_statement
         if (is_plain_statement(user_input) and not re.match(
