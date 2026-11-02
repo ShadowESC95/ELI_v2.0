@@ -318,11 +318,15 @@ to be answered from.
 ## Vector store (`vector_store.py`)
 
 FAISS `IndexFlat`, embeddings from a local nomic embedder (llama.cpp).
-The embedder is kept wholly in RAM (`n_gpu_layers=0`, `offload_kqv` and `op_offload` off where the
-runtime has them), where its room is reserved (`embedder_footprint_gib`). With only its layers on the
-processor, llama.cpp still put its working buffers on the GPU (54 MB measured on a CUDA build) after the
-language model's plan had left that card a sliver, and the next reply aborted. Measured on one machine:
-on a GPU it embeds a memory in about 4 ms, in RAM in over a second while the processor is busy.
+Where the embedder runs (`embedder_placement`): on the GPU with the most room, discrete or sharing the
+machine's memory, when it takes its place before the language model is planned; the model loader asks
+the store to be `ready()` first, so the plan (`core/load_plan.py`) sees what it holds. Measured on one
+machine: on a GPU it embeds a memory in about 4 ms for about 130 MB of the card, in RAM in over a second
+while the processor is busy. In RAM, every part of it (`n_gpu_layers=0`, `offload_kqv` and `op_offload`
+off where the runtime has them, `embedder_in_ram`): with no GPU, once the language model is loaded, or
+when a GPU will not take it. With only its layers on the processor, llama.cpp had still put its working
+buffers on the GPU (54 MB on a CUDA build) after the plan had left the card a sliver, and the next reply
+aborted.
 
 - `_embed_lock` (RLock) serialises embedding: the embedder is not thread-safe, which is why
   orchestrator retrieval is sequential.

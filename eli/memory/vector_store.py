@@ -80,6 +80,31 @@ def reset_vector_store() -> None:
         _store = None
 
 
+def embedder_in_ram(Llama) -> Dict[str, Any]:
+    """Every part of the embedder in RAM, where its room is reserved (embedder_footprint_gib). With
+    every layer on the processor, llama.cpp still put its working buffers on the GPU: 54 MB measured on
+    a CUDA build, taken after the language model's plan had left the card that little, and the next
+    reply aborted. A runtime without these switches does not take them."""
+    import inspect
+    known = inspect.signature(Llama.__init__).parameters
+    return {"n_gpu_layers": 0, **{k: False for k in ("offload_kqv", "op_offload") if k in known}}
+
+
+def embedder_placement(Llama) -> Dict[str, Any]:
+    """Where the embedder runs. On a GPU it embeds a memory in about 4 ms against over a second in RAM
+    while the processor is busy, for about 130 MB of the card. It goes on the GPU with the most room
+    when it takes its place before the language model is planned (the model loader sees to that), so
+    the plan sees what it holds: discrete cards and shared-memory GPUs alike. In RAM with no GPU, or
+    once the language model is loaded: its plan left the cards only what its replies need."""
+    from eli.cognition import gguf_inference
+    from eli.core.load_plan import devices
+    cards = [] if gguf_inference.is_loaded() else devices()
+    if not cards:
+        return embedder_in_ram(Llama)
+    best = max(cards, key=lambda d: d.free_mb)
+    return {"n_gpu_layers": -1, "main_gpu": best.index, "split_mode": 0}    # 0: LLAMA_SPLIT_MODE_NONE, one card
+
+
 def get_vector_store() -> Optional["VectorStore"]:
     global _store
     if _store is not None:
@@ -306,6 +331,12 @@ class VectorStore:
             self._init_embedder()
         return self._embedder
 
+    def ready(self) -> bool:
+        """Load the embedder now if it is not: the model loader asks before the language model is
+        planned, so the embedder's place is taken first."""
+        with self._embed_lock:
+            return self._get_embedder() is not None
+
     def close(self) -> None:
         """Free the embedding model for good. Engine shutdown used to close the model underneath the
         store and leave it in place: the next embed (a late memory, a search, the document indexer)
@@ -334,22 +365,18 @@ class VectorStore:
                 _embed_threads = int(recommend_cpu_threads())
             except Exception:
                 _embed_threads = max(1, (os.cpu_count() or 1) - 1)
-            # In RAM only, which is where its room is reserved (embedder_footprint_gib). With every layer on
-            # the processor, llama.cpp still put its working buffers on the GPU: 54 MB measured on a CUDA
-            # build, taken after the language model's plan had left the card that little, and the next
-            # reply aborted. A runtime without these switches does not take them.
-            import inspect
-            _known = inspect.signature(Llama.__init__).parameters
-            _in_ram = {k: False for k in ("offload_kqv", "op_offload") if k in _known}
-            _llm = Llama(
-                model_path=_model_path,
-                embedding=True,
-                n_ctx=_embed_ctx,        # 0: llama.cpp uses the model's trained context
-                n_gpu_layers=0,
-                verbose=False,
-                n_threads=_embed_threads,
-                **_in_ram,
-            )
+            _common = dict(model_path=_model_path, embedding=True,
+                           n_ctx=_embed_ctx,        # 0: llama.cpp uses the model's trained context
+                           verbose=False, n_threads=_embed_threads)
+            _where = embedder_placement(Llama)
+            try:
+                _llm = Llama(**_common, **_where)
+            except (ValueError, RuntimeError) as _on_gpu:
+                if not _where.get("n_gpu_layers"):
+                    raise
+                log.warning("[VECTOR_STORE] the embedder did not load on the GPU (%s); in RAM", _on_gpu)
+                _where = embedder_in_ram(Llama)
+                _llm = Llama(**_common, **_where)
             class _EmbedShim:
                 def __init__(self, llm): self._llm = llm
                 def _get_llm(self): return self._llm
@@ -365,7 +392,8 @@ class VectorStore:
                         r = self._llm.create_embedding(pfx + text)
                     return r['data'][0]['embedding']
             self._embedder = _EmbedShim(_llm)
-            log.debug('[VECTOR_STORE] Embedder ready (nomic-embed-text-v1.5.Q4_K_M.gguf)')
+            _on = ("on GPU %d" % _where.get("main_gpu", 0)) if _where.get("n_gpu_layers") else "in RAM"
+            log.debug('[VECTOR_STORE] Embedder ready (%s, %s)', os.path.basename(_model_path), _on)
         except Exception as e:
             self._embedder_error = str(e)
             log.debug('[VECTOR_STORE] Embedder unavailable, keyword fallback: ' + str(e))

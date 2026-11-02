@@ -996,6 +996,14 @@ def _load_model_now(request=None):
     if not model_path.exists():
         raise FileNotFoundError(f"GGUF model not found: {model_path}")
 
+    # The embedder takes its place before the language model is planned, so the plan sees what it
+    # holds on a card (vector_store.embedder_placement): loaded after it, the embedder took the sliver
+    # the plan had left and the next reply aborted.
+    from eli.memory.vector_store import get_vector_store
+    _store = get_vector_store()
+    if _store is not None:
+        _store.ready()
+
     from eli.cognition.model_load_diagnostics import (
         ModelLoadError as _ModelLoadError,
         preflight_gguf_model as _preflight_gguf_model,

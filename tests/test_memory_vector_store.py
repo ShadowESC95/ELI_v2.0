@@ -155,22 +155,81 @@ def test_the_rebuild_button_indexes_what_the_policy_keeps_with_ids(tmp_path, mon
                for m in vs._meta)
 
 
-def test_the_embedder_keeps_every_part_of_itself_in_ram(monkeypatch):
-    """Its room is reserved in RAM. With every layer on the processor llama.cpp still put its working
-    buffers on the GPU (54 MB on a CUDA build), after the language model's plan had left that card a
-    sliver, and the next reply aborted."""
+def _embedder_built(monkeypatch, cards, *, model_loaded=False, gpu_refuses=False):
+    """The settings the embedder is built with, on a machine with these GPUs."""
     import sys
     import types
-    seen = {}
+    from eli.cognition import gguf_inference
+    from eli.core import load_plan
+    built = []
 
     class _Llama:
         def __init__(self, model_path, embedding=False, n_ctx=0, n_gpu_layers=-1, verbose=True, n_threads=None,
-                     offload_kqv=True, op_offload=True, **kwargs):
-            seen.update(n_gpu_layers=n_gpu_layers, offload_kqv=offload_kqv, op_offload=op_offload)
+                     offload_kqv=True, op_offload=True, main_gpu=0, split_mode=1, **kwargs):
+            built.append(dict(n_gpu_layers=n_gpu_layers, offload_kqv=offload_kqv, op_offload=op_offload,
+                              main_gpu=main_gpu, split_mode=split_mode))
+            if gpu_refuses and n_gpu_layers:
+                raise ValueError("Failed to create llama_context")
 
     monkeypatch.setitem(sys.modules, "llama_cpp", types.SimpleNamespace(Llama=_Llama))
     monkeypatch.setattr("eli.memory.vector_store.resolve_embedder_path", lambda: __file__)
+    monkeypatch.setattr(gguf_inference, "is_loaded", lambda: model_loaded)
+    monkeypatch.setattr(load_plan, "devices", lambda: cards)
     vs = _bare_store()
     vs._embedder = None
     vs._init_embedder()
-    assert seen == {"n_gpu_layers": 0, "offload_kqv": False, "op_offload": False}
+    return built
+
+
+def _card(index, free_mb):
+    from eli.core.load_plan import Device
+    return Device(index, f"CUDA{index}", "a GPU", free_mb, 8192, False)
+
+
+def test_with_no_gpu_the_embedder_keeps_every_part_of_itself_in_ram(monkeypatch):
+    """Its room is reserved in RAM. With every layer on the processor llama.cpp still put its working
+    buffers on the GPU (54 MB on a CUDA build), after the language model's plan had left that card a
+    sliver, and the next reply aborted."""
+    assert _embedder_built(monkeypatch, []) == [
+        {"n_gpu_layers": 0, "offload_kqv": False, "op_offload": False, "main_gpu": 0, "split_mode": 1}]
+
+
+def test_the_embedder_takes_the_card_with_most_room_before_the_model_is_planned(monkeypatch):
+    """On a GPU it embeds in milliseconds, in RAM in over a second while the processor is busy."""
+    built = _embedder_built(monkeypatch, [_card(0, 3000), _card(1, 7000)])
+    assert built == [{"n_gpu_layers": -1, "offload_kqv": True, "op_offload": True, "main_gpu": 1, "split_mode": 0}]
+
+
+def test_once_the_model_is_loaded_the_embedder_stays_in_ram(monkeypatch):
+    """The plan left the cards only what the replies need."""
+    built = _embedder_built(monkeypatch, [_card(0, 7000)], model_loaded=True)
+    assert built[0]["n_gpu_layers"] == 0 and built[0]["op_offload"] is False
+
+
+def test_a_gpu_that_will_not_take_the_embedder_leaves_it_in_ram(monkeypatch):
+    built = _embedder_built(monkeypatch, [_card(0, 7000)], gpu_refuses=True)
+    assert [b["n_gpu_layers"] for b in built] == [-1, 0] and built[-1]["op_offload"] is False
+
+
+def test_the_model_loader_gives_the_embedder_its_place_before_planning(monkeypatch, tmp_path):
+    from eli.cognition import gguf_inference
+    from eli.core import load_plan
+    import eli.memory.vector_store as vs_mod
+    order = []
+    model = tmp_path / "m.gguf"
+    model.write_bytes(b"GGUF")
+    monkeypatch.setattr(vs_mod, "get_vector_store", lambda: type("S", (), {"ready": lambda self: order.append("embedder")})())
+
+    class _Planned(Exception):
+        pass
+
+    def _plan(*a, **k):
+        order.append("plan")
+        raise _Planned()
+    monkeypatch.setattr(load_plan, "plan", _plan)
+    monkeypatch.setattr(load_plan, "Request", lambda *a, **k: None, raising=False)
+    try:
+        gguf_inference._load_model_now(type("R", (), {"model_path": str(model)})())
+    except Exception:
+        pass
+    assert order[:1] == ["embedder"], order
