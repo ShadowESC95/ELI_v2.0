@@ -35,7 +35,7 @@ def test_fix_file_uses_codeagent_for_python(workspace, monkeypatch):
 
     f = workspace / "broken.py"
     f.write_text("def main:\n  print('broken')\n")          # SyntaxError (bad-patch class)
-    r = EX.execute("FIX_FILE", {"path": str(f)})
+    r = EX.execute("FIX_FILE", {"path": str(f), "_no_background": True})
 
     assert r.get("ok") is True
     assert "broken.py" in called.get("task", "")            # the agent was actually used

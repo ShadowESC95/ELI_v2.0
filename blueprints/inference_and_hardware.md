@@ -184,6 +184,13 @@ bundled copy via `sys.path`.
   whether the marker file already said the pack was good.
 - Writes `runtime/gpu/.gpu_pack_ok` + `.gpu_pack.json` (backend, version) on
   success; respects `runtime/.gpu_choice` for CPU opt-out.
+- **One source for the runtime**: the bundled `llama-cpp-python` and every pack are built from
+  `packaging/llama_source.py`: pinned llama-cpp-python and llama.cpp archives checked against their
+  SHA-256, the binding changes a newer llama.cpp needs, and the version in
+  `packaging/llama_cpp_constraints.txt` (a label of its own, so installed packs are replaced when it
+  moves). A pack of a different build than the llama.cpp already running in the process is left for
+  the next start: the two share library names, and two builds in one process freed each other's
+  memory.
 - **One llama.cpp per build**: a pack is used only at the bundled runtime's exact version
   (`pack_matches_runtime`). When an update moves llama.cpp on, `outdated_pack()` names the old
   pack and the first-run chooser (`eli_entry._first_run_gpu_offer`) replaces it with the matching

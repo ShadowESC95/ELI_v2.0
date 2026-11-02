@@ -29,8 +29,6 @@ ALL_MODULES = [
     "eli.cognition.persona_updater",
     "eli.cognition.persona_values",
     "eli.cognition.reranker",
-    "eli.cognition.response_governance",
-    "eli.cognition.response_sanitizer",
     "eli.cognition.user_info_builder",
     # eli.cognition.working_memory — deleted module, removed from list
     # ── core ──────────────────────────────────────────────────────────────────

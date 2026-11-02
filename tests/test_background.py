@@ -4,6 +4,8 @@ and the CHECK_JOB / BACKGROUND_JOBS executor actions. No model required."""
 import pytest
 import time
 
+from eli.runtime.background_tasks import BackgroundTasks
+
 
 # ── background task manager ─────────────────────────────────────────────────
 
@@ -165,3 +167,101 @@ def test_a_job_reports_how_far_it_has_got_and_what_is_left():
     go.set()
     bt.wait(jid, timeout=5)
     assert bt.get(jid)["eta_s"] is None
+
+
+def test_a_job_whose_handler_reports_failure_failed():
+    bt = BackgroundTasks(max_workers=1)
+    jid = bt.submit("reads nothing", lambda: {"ok": False, "error": "the model returned nothing"})
+    job = bt.wait(jid, timeout=5)
+    assert job["status"] == "failed" and "returned nothing" in job["error"]
+
+
+def test_a_scheduled_job_has_not_been_working_while_it_waits():
+    bt = BackgroundTasks(max_workers=1)
+    jid = bt.schedule("overnight", lambda: 1, delay=3600)
+    assert bt.get(jid)["elapsed_s"] == 0.0
+    bt.cancel(jid)
+
+
+def test_the_record_outlives_the_session_and_a_cut_off_job_reads_as_cut_off(tmp_path):
+    import threading
+    ledger = str(tmp_path / "runtime" / "jobs.json")
+    release = threading.Event()
+    bt = BackgroundTasks(max_workers=2, ledger=ledger)
+    done = bt.submit("finished", lambda: {"ok": True, "content": "2 of 2 read"},
+                     meta={"targets": ["/a"]})
+    bt.wait(done, timeout=5)
+    cut = bt.submit("still going", release.wait, meta={"targets": ["/b"]})
+    for _ in range(200):
+        if bt.get(cut)["status"] == "running":
+            break
+        time.sleep(0.01)
+    again = BackgroundTasks(max_workers=1, ledger=ledger)     # what the next start finds
+    release.set()
+    bt.wait(cut, timeout=5)
+    assert again.get(done)["status"] == "done" and again.get(done)["note"] == "2 of 2 read"
+    assert again.get(cut)["status"] == "interrupted" and again.get(cut)["meta"]["targets"] == ["/b"]
+    assert again.submit("next", lambda: 1) > cut        # ids carry on
+
+
+def test_someone_is_told_when_their_job_ends():
+    heard = []
+    bt = BackgroundTasks(max_workers=1)
+    bt.add_listener(heard.append)
+    bt.wait(bt.submit("job", lambda: {"ok": True}, meta={"tell": True}), timeout=5)
+    time.sleep(0.05)
+    assert heard and heard[0]["status"] == "done" and heard[0]["meta"]["tell"] is True
+
+
+def test_what_is_going_on_is_a_line_and_the_result_is_there_when_asked_for():
+    from eli.execution.executor_enhanced import execute
+    from eli.runtime.background_tasks import get_background_tasks
+    bt = get_background_tasks()
+    long_report = "2 of 2 read.\n\n## Summary\n\n" + "a long report " * 40
+    jid = bt.submit("a report", lambda: {"ok": True, "content": long_report})
+    bt.wait(jid, timeout=5)
+    asked = execute("CHECK_JOB", {"text": "what is happening? eta on that job?"})["content"]
+    assert asked.startswith("Nothing is running.") and "a long report" not in asked
+    assert "a long report" in execute("CHECK_JOB", {"text": "show me the result"})["content"]
+    assert "a long report" in execute("CHECK_JOB", {"job_id": jid})["content"]
+
+
+def test_a_job_waits_for_the_model_and_a_call_cut_short_runs_again(monkeypatch):
+    from eli.cognition import gguf_inference as gi
+    calls = []
+
+    def fake(prompt="", system=None, **kw):
+        calls.append(prompt)
+        if len(calls) == 1:
+            gi._bg_tls.cut_short = True
+            return "part of an ans"
+        return "the whole answer"
+
+    monkeypatch.setattr(gi, "_chat_completion_impl", fake)
+    gi.set_job_inference(True)
+    try:
+        assert gi.chat_completion("read this", system="s") == "the whole answer"
+        assert len(calls) == 2
+    finally:
+        gi.set_job_inference(False)
+
+
+def test_what_fails_after_a_job_goes_on_the_jobs_own_record():
+    bt = BackgroundTasks(max_workers=1)
+    def _broken(job):
+        raise RuntimeError("no way to reach them")
+    bt.add_listener(_broken)
+    jid = bt.submit("job", lambda: {"ok": True})
+    bt.wait(jid, timeout=5)
+    deadline = time.monotonic() + 5
+    while "after_job_error" not in bt.get(jid)["meta"] and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert bt.get(jid)["meta"]["after_job_error"] == "no way to reach them"
+
+
+def test_a_read_that_fails_is_said_in_the_prompt_not_left_out(monkeypatch):
+    from eli.runtime import live_reads
+    def _no_session():
+        raise RuntimeError("bus unavailable")
+    monkeypatch.setattr(live_reads, "_media_line", _no_session)
+    assert "could not be read" in live_reads.live_facts("what song is this?")

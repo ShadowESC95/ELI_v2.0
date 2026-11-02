@@ -17,7 +17,7 @@ from __future__ import annotations
 import re
 import time
 from functools import lru_cache
-from typing import Any, Dict, Iterable, List, Optional
+from typing import Callable, Any, Dict, Iterable, List, Optional
 
 from eli.cognition.query_planner import days_named
 from eli.utils.log import get_logger
@@ -44,6 +44,12 @@ _OWN_BEHAVIOUR_RE = re.compile(
     r"|\b(?:how|why)\s+(?:come|is it that)\s+you\b"
     r"|\bwhat did you (?:just )?do\b|\bwhat have you (?:been doing|done)\b"
     r"|" + WHAT_JUST_HAPPENED + r"|\b(?:do|are) you (?:log|logging|record|recording|keep(?:ing)? (?:a )?(?:log|record|track))\b"
+    r"|\bwhat\s+(?:the\s+\w+\s+)?was\s+that\b|\bwhat(?:'?s| is)\s+with\s+(?:that|this|your)\b"
+    r"|\bwhy\s+(?:tell|say|claim)\b|\bwhy\s+is\s+(?:it|this|that)\s+(?:not|still\s+not)\b"
+    r"|\bwhat\s+did\s+you\s+(?:\w+\s+)?(?:search|look|find|say|run|read|check)\w*\b"
+    r"|^\s*(?:(?:so|and|but|wait|well)[,\s]+)?are\s+you\s+(?:\w+\s+)?\w+ing\b(?!\s+(?:ok|okay|well|good|alright|fine)\b)"
+    r"|\bdid\s+you\b(?!\s+know\b)|\byou\s+said\b"
+    r"|\byour\s+(?:\w+\s+)?(?:success|failure|error|hit)\s+rate\b|\bhow\s+(?:accurate|reliable)\s+are\s+you\b"
     r"|\byour\s+(?:logs?|logging|audit|records?)\b|\blog(?:ging|s)?\s+(?:for|of)\s+every",
     re.I)
 
@@ -67,6 +73,7 @@ _COMPLAINT_RE = re.compile(
     r"|\byou\s+(?:forgot|ignored|missed|lied|made\s+(?:that|it|this|shit|stuff)\s+up|got\s+(?:that|it|this)\s+wrong|hallucinat\w+)\b"
     r"|\bthat(?:'s|’s| is| was)\s+(?:wrong|incorrect|bullshit|not\s+(?:right|true|what\s+i\s+(?:asked|said)))\b"
     r"|\bi\s+asked\s+you\b|\bwhy\s+the\s+(?:fuck|hell)\b"
+    r"|\bi\s+(?:\w+\s+)?(?:told|gave|sent)\s+you\b"
     # an insult aimed at ELI is a complaint about its last reply ("you fucking idiot, you are talking shit")
     r"|\byou(?:'re|’re| are)?\s+(?:\w+\s+){0,2}(?:idiot|moron|stupid|useless|dumb|incompetent|clueless|clown|slow)\b"
     r"|\b(?:talking|talk|spouting|chatting)\s+(?:shit|bollocks|nonsense|rubbish|crap|garbage)\b"
@@ -256,21 +263,27 @@ write""".split())
 def _doing_forms() -> str:
     from eli.runtime.command_splitter import COMMAND_VERBS
     verbs = (set(COMMAND_VERBS) - _DONE_IN_WORDS) | {
-        "scan", "load", "wait", "queue", "index", "ingest", "restart", "trigger", "initiate", "initialise", "initialize"}
+        "scan", "load", "wait", "queue", "index", "ingest", "restart", "trigger", "initiate", "initialise", "initialize",
+        "process", "send", "start", "batch", "draft", "patch", "pull"}
     stems = sorted({v[:-1] if v.endswith("e") else v for v in verbs if len(v) > 2} | {"sent", "ran"},
                    key=len, reverse=True)
     return "(?:" + "|".join(stems) + r")\w{0,2}(?:ed|ing|d)?"
 
 
 _DOING = _doing_forms()
+_SAYS_NOTHING_IS = re.compile(r"\s*(?:nothing|none|no\s+\w+)\b", re.I)
 _REPORTS_ACTING = re.compile(
     # "I've opened ...", "I'm scanning ...", "I just ran ...". Not "I opened ..." or "I successfully
     # sent ...": the plain past tells of an earlier turn, and that account is held to the record.
     r"\bi(?:'ve|’ve| have|'m|’m| am| just)\s+(?:(?:now|just|already|successfully|currently)\s+)*"
     + _DOING + r"\b"
     # "Spotify is opening now", "the scan is running"
-    r"|\b[\w`'\"&.-]+(?:\s+[\w`'\"&.-]+){0,3}\s+is\s+(?:now\s+|currently\s+)?"
-    r"(?:open|launch|start|play|load|run|download|install|scan|execut|search|fetch)\w{0,2}ing\b",
+    r"|\b[\w`'\"&.-]+(?:\s+[\w`'\"&.-]+){0,3}\s+(?:is|are)\s+(?:now\s+|currently\s+)?"
+    r"(?:open|launch|start|play|load|run|download|install|scan|execut|search|fetch|pull|process|index|analys|analyz)"
+    r"\w{0,2}ing\b"
+    # "The three directories are now queued", "as we speak", "Validation update in progress", "Logic patch drafted"
+    r"|\b(?:is|are)\s+(?:now\s+)?queued\b|\bas\s+we\s+speak\b"
+    r"|\b(?:update|patch|fix|job|task|analysis|scan|simulation)\s+(?:is\s+)?(?:in\s+progress|underway|drafted|applied|deployed)\b",
     re.I)
 # "Done." on its own. It is a report when what follows it is one ("Done. Playing ...") or when
 # nothing follows; before something the reply made in words ("Done. Here is the email:") it is not.
@@ -314,6 +327,8 @@ def _reports_a_thing_done(sentence: str) -> bool:
 
 
 def _says_it_acted(sentence: str) -> bool:
+    if _SAYS_NOTHING_IS.match(sentence):
+        return False
     return bool(_REPORTS_ACTING.search(sentence)) or _names_an_act_under_way(sentence) or _reports_a_thing_done(sentence)
 
 
@@ -329,6 +344,19 @@ def _names_an_act_under_way(sentence: str) -> bool:
 
 # A fix ELI has no action for: "a hard reset on the media process manager", "re-indexing the
 # last 48 hours with stricter temporal weighting", "enable verbose logging in the config".
+# Saying it cannot read what it can. Told "I don't have a live feed", the next message read the feed in
+# a quarter of a second.
+_DENIES_A_READ = re.compile(
+    r"\bi\s+(?:do\s+not|don['’]t|can\s*not|can['’]t|have\s+no)\b[^.!?\n]{0,40}"
+    r"\b(?:(?:live\s+)?feed\s+of|live\s+feed|your\s+screen|file\s*system|your\s+files|"
+    r"what(?:['’]s|\s+is|\s+you['’]re|\s+you\s+are)\s+(?:playing|watching|on\s+your\s+screen))\b", re.I)
+# "I am updating the orchestration logic", "I'll tighten up the media flow": changing itself, from a reply.
+_CHANGING_ITSELF = re.compile(
+    r"\bi(?:'m|’m| am|'ll|’ll| will|'ve|’ve| have)\s+(?:now\s+|also\s+|currently\s+|already\s+)?"
+    r"(?:updat|add|patch|chang|fix|rewrit|tighten|adjust|broaden)\w*\b[^.!?\n]{0,60}"
+    r"\b(?:logic|agent|layer|parser|parsing|pipeline|code|router|routing|handler|flow|validation|filter|orchestrat\w*)\b", re.I)
+_READ_WORD = re.compile(r"\b(?:look|check|search|read|find|found|recall|remember|fetch|saw|see)\w*\b", re.I)
+
 _INVENTED_FIX = re.compile(
     r"\b(?:the|a|this)\s+fix\s+(?:requires?|needs?|is|would be|involves?)\b"
     r"|\bwe\s+need\s+to\s+(?:enable|re-?index|reset|recalibrate|rebuild|retrain|patch|flush|tighten|re-?embed)\b"
@@ -398,9 +426,13 @@ _EXPLAINS = re.compile(
 _INVENTED_SELF_METRIC = re.compile(
     r"\b\d{1,3}(?:\.\d+)?\s*%?\s*(?:success\s+rate|accuracy|reliab\w*|uptime|"
     r"error\s+rate|failure\s+rate|hit\s+rate|precision|recall)\b"
-    r"|\b(?:success\s+rate|accuracy|reliability|uptime|error\s+rate|failure\s+rate|hit\s+rate)\s+"
-    r"(?:of\s+|is\s+|at\s+|around\s+|about\s+|roughly\s+|~\s*|est\.?\s*)*\d{1,3}(?:\.\d+)?\s*%?",
+    r"|\b(?:success\s+rate|accuracy|reliability|uptime|error\s+rate|failure\s+rate|hit\s+rate)\b[^.!?\n]{0,40}?\d{1,3}(?:\.\d+)?\s*%?"
+    r"|\b\d{1,3}(?:\.\d+)?\s*%\s+(?:of\s+(?:\w+\s+){1,3})?(?:(?:is|are)\s+)?(?:fail\w*|succe\w*|complete\w*|done|finished|working)\b",
     re.I)
+_SPEAKS_OF_ITS_OWN = re.compile(r"\b(?:i|i['’]m|my|mine|our|eli['’]?s?|job|analysis|scan|task)\b", re.I)
+# "Did you open it?" "Yes." The record says whether it did.
+_ASKED_IF_IT_DID = re.compile(r"\b(?:did\s+you|have\s+you|you\s+said\s+you)\s+(?:\w+ly\s+)?(\w{3,})", re.I)
+_SAYS_YES = re.compile(r"\s*yes\b", re.I)
 _SUPPORT_NEEDED = 0.6
 _FILLER = frozenset("""that this these those with from have been were was your you're they them then than when what
 which will would could should there their about into over also just only some more most very because instead
@@ -538,7 +570,8 @@ def _unrecorded_internal(sentence: str, record_low: str) -> Optional[str]:
 class _Check:
     """One turn's claim check, fed a reply one unit (sentence or line) at a time."""
 
-    def __init__(self, evidence: str = ""):
+    def __init__(self, evidence: str = "", instructions: str = ""):
+        self._instructions = " ".join(str(instructions or "").lower().split())
         facts = _turn_context()
         self._facts = facts
         asked = str(facts.get("user_input") or "")
@@ -556,6 +589,10 @@ class _Check:
         self._record = str(facts.get("_record") or "").lower()
         self._fault = bool(self._record) and asks_about_fault(asked)
         self._evidence = f"{without_own_prose(evidence)}\n{self._record}\n{asked}".lower()
+        _did = _ASKED_IF_IT_DID.search(asked)
+        # Not the question itself: it holds the very word.
+        self._yes_unbacked = bool(_did) and _did.group(1)[:4].lower() not in (
+            f"{without_own_prose(evidence)}\n{self._record}\n{' '.join(facts.get('executed_actions') or [])}".lower())
         self._record_and_asked = f"{self._record}\n{asked.lower()}"
         self._record_stems = _stems(self._record_and_asked) if self._fault else set()
         self._heading: Optional[str] = None
@@ -569,13 +606,35 @@ class _Check:
         self._line_open = False  # served text since the last newline
         self.dropped: List[str] = []
         self.kept_words = 0
+        self.code_served = False
         self.claimed_acting = False
         self._lead: Optional[str] = None
+
+    def _backed(self, sentence: str) -> bool:
+        """Whether what ran this turn can stand behind the sentence. A memory lookup does not stand
+        behind "I am starting the background job for the three folders"."""
+        if _carried_out_before():
+            return True
+        ran = [str(a) for a in (self._facts.get("executed_actions") or [])]
+        if not ran:
+            return False
+        from eli.execution.route_contracts import changes_something
+        said = {w[:5] for w in re.findall(r"[a-z]+", sentence.lower())}
+        for action in ran:
+            if changes_something(action) or {w[:5] for w in action.lower().split("_")} & said:
+                return True
+        return bool(_READ_WORD.search(sentence))
 
     def why(self, unit: str) -> str:
         s = str(unit or "")
         if not s.strip():
             return ""
+        # Smaller models read their prompt back: "You always know today's weekday and date".
+        said = " ".join(s.lower().split())
+        if self._instructions and len(said) >= 30 and said in self._instructions:
+            return "reads its own instructions back"
+        if _DENIES_A_READ.search(s):
+            return "says it cannot read something it can"
         if self._period_window:
             named = days_named(s, self._period_window)
             missing = [d for d in named if d not in self._period_days]
@@ -590,7 +649,9 @@ class _Check:
                 return "says the model is wholly on the GPU, and the loader put part of it in RAM"
         except Exception:
             log.debug("loaded-placement check skipped", exc_info=True)
-        ran = self._ran_at_start or bool(self._facts.get("executed_actions"))
+        ran = self._backed(s)
+        if not ran and _CHANGING_ITSELF.search(s):
+            return "says it is changing its own code, and nothing did"
         if not ran and _ENABLED_CLAIM.search(s):
             return "reports a change nothing made"
         if not ran and _says_it_acted(s):
@@ -598,10 +659,13 @@ class _Check:
             return "says it did or is doing something, and nothing was carried out this turn"
         if not ran and _STANDING_PROMISE.search(s) and _SAYS_IT_DID.search(s):
             return "says it changed something so that it will not happen again, and nothing was changed"
+        if self._yes_unbacked and _SAYS_YES.match(s):
+            return "says yes to what the record does not show"
+        if _INVENTED_SELF_METRIC.search(s) and (self.about_self or _SPEAKS_OF_ITS_OWN.search(s)) and not all(
+                n in self._evidence for n in re.findall(r"\d+(?:\.\d+)?", s)):
+            return "states a figure about its own work that nothing recorded"
         if not self.about_self:
             return ""
-        if _INVENTED_SELF_METRIC.search(s):
-            return "states a self-performance metric ELI does not track"
         if not ran and _STANDING_PROMISE.search(s) and _COMMITS.search(s):
             return "promises a standing change a reply cannot make"
         name = _invented_identifier(s, self._evidence)
@@ -635,6 +699,10 @@ class _Check:
 
     def _dropped(self, unit: str) -> List[str]:
         self.dropped.append(unit)
+        # for the failure record: a reply that claimed what did not happen is a failure
+        from eli.kernel.request_context import note_turn_fact
+        note_turn_fact("claims_dropped", len(self.dropped))
+        note_turn_fact("claim_dropped", " ".join(unit.split()))
         # the dropped sentence ended its line: end the line for what was served before it
         return ["\n"] if (self._line_open and "\n" in unit[len(unit.rstrip()):]) else []
 
@@ -650,8 +718,7 @@ class _Check:
                 self.dropped.append(lead)
                 self.claimed_acting = True
                 return self._unit(unit)
-            self.kept_words += len(lead.split())
-            return [lead] + self._unit(unit)
+            return self._unit(lead) + self._unit(unit)
         if _DONE_LEAD.match(unit) and not (self._ran_at_start or self._facts.get("executed_actions")):
             self._lead = unit
             return []
@@ -695,6 +762,11 @@ class _Check:
                 self.claimed_acting = True
         return out
 
+    def fell_short(self) -> bool:
+        """Too little true was left to serve, or it said it had done what was asked and had not."""
+        return bool(self.dropped) and not self.unrecorded_days and (
+            self.kept_words < 4 or (self.claimed_acting and self.asked_to_act))
+
     def afterword(self) -> str:
         """What follows a reply that lost sentences: the record when little or nothing true was
         left, a line saying causes were left out when several were, otherwise nothing."""
@@ -721,17 +793,8 @@ class _Check:
                         + "I won't guess at a cause or promise a change a reply can't make. This is what the "
                           "audit ledger holds for the last turns:\n" + "\n".join(f"- {x}" for x in lines[-4:]))
             return "" if self.kept_words else "".join(self.dropped)  # never an empty reply
-        # A complaint is owed what the record holds as soon as anything was left out. One that also
-        # tells ELI to do something ("...look it up!") is owed that being done, not an account of
-        # past turns pasted under the reply.
-        said = self._facts.get("user_input") or ""
-        from eli.runtime.command_splitter import tells_eli_to_do
-        if tells_eli_to_do(said):
-            return ""
-        complaint = complains_about_eli(said)
-        if self._fault and lines and len(self.dropped) >= (1 if complaint else 3):
-            return ("\n\nI've left out what I can't back from my own records. What the audit ledger holds "
-                    "for the last turns:\n" + "\n".join(f"- {x}" for x in lines[-3:]))
+        # What is left stands by itself. The rows pasted under it read as "a random data dump" to the
+        # person who was complaining; they are in front of the model already, for it to answer from.
         return ""
 
 
@@ -777,13 +840,11 @@ def _turn_context() -> Dict[str, Any]:
         return {}
 
 
-def gate_stream(chunks: Iterable[str], evidence: str = ""):
-    """The claim check on a live stream: each sentence is held until it ends, then served or
-    dropped. Text inside ``` fences passes straight through."""
-    check = _Check(evidence)
+def _checked(chunks: Iterable[str], check: _Check):
+    """Each sentence held until it ends, then served or dropped. Text inside ``` fences passes
+    straight through."""
     buf = ""
     in_code = False
-    code_served = False
     for piece in chunks:
         buf += str(piece or "")
         while buf:
@@ -802,7 +863,7 @@ def gate_stream(chunks: Iterable[str], evidence: str = ""):
             if fence >= 0 and (unit is None or fence < len(unit)):
                 yield from check.feed(buf[:fence]) + check.close()
                 yield "```"
-                buf, in_code, code_served = buf[fence + 3:], True, True
+                buf, in_code, check.code_served = buf[fence + 3:], True, True
                 continue
             if unit is None:
                 break
@@ -814,7 +875,32 @@ def gate_stream(chunks: Iterable[str], evidence: str = ""):
         else:
             yield from check.feed(buf)
     yield from check.close()
-    after = "" if code_served else check.afterword()
+
+
+def holds_up(text: str, evidence: str = "") -> bool:
+    """Whether every sentence of `text` gets through the claim check."""
+    check = _Check(evidence)
+    list(_checked([text], check))
+    return not check.dropped
+
+
+def gate_stream(chunks: Iterable[str], evidence: str = "", rewrite: Optional[Callable[[List[str], str], str]] = None,
+                instructions: str = ""):
+    """The claim check on a live stream. When too little true is left, `rewrite(dropped, served)` asks
+    the model again from what actually happened; the record's own line is for when it can't."""
+    check = _Check(evidence, instructions)
+    served: List[str] = []
+    for out in _checked(chunks, check):
+        served.append(out)
+        yield out
+    if check.code_served:
+        return
+    if rewrite is not None and check.fell_short():
+        again = str(rewrite(list(check.dropped), "".join(served)) or "").strip()
+        if again and holds_up(again, evidence):
+            yield ("\n\n" if check.kept_words else "") + again
+            return
+    after = check.afterword()
     if after:
         yield after
 
@@ -825,11 +911,14 @@ def drop_invented_self_claims(text: str, evidence: str = "") -> str:
     body = str(text or "")
     if not body.strip():
         return body
-    kept = "".join(gate_stream([body], evidence))
+    def _note_for_the_engine(dropped: List[str], served: str) -> str:
+        # Nothing here can reach the model: the engine asks it again from what actually happened.
+        from eli.kernel.request_context import note_turn_fact
+        note_turn_fact("reply_fell_short", {"dropped": dropped, "served": served})
+        return ""
+
+    kept = "".join(gate_stream([body], evidence, rewrite=_note_for_the_engine))
     kept = re.sub(r"[ \t]+\n", "\n", kept)
     return re.sub(r"\n{3,}", "\n\n", kept).strip() or body
 
 
-def invented(sentence: str, *, evidence: str = "") -> str:
-    """Why this sentence is an invented claim about ELI itself this turn, or "" when it is fine."""
-    return _Check(evidence).why(sentence)

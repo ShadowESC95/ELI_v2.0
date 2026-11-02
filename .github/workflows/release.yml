@@ -132,10 +132,8 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip wheel
           pip install -r requirements-build.txt
+          pip install "$(python packaging/llama_source.py)"
           pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
-          pip install llama-cpp-python --prefer-binary \
-            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu \
-            || pip install llama-cpp-python
           for extra in $OPTIONAL_EXTRAS; do
             pip install ".[$extra]" \
               || echo "::warning::optional extra '$extra' has no installable wheels on windows — shipped build degrades cleanly without it"
@@ -285,10 +283,8 @@ jobs:
           set -euo pipefail
           python -m pip install --upgrade pip wheel
           pip install -r requirements-build.txt
+          pip install "$(python packaging/llama_source.py)"
           pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
-          pip install llama-cpp-python --prefer-binary \
-            --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/metal \
-            || pip install llama-cpp-python
           for extra in $OPTIONAL_EXTRAS; do
             pip install ".[$extra]" \
               || echo "::warning::optional extra '$extra' has no installable wheels on macos-arm64 — shipped build degrades cleanly without it"

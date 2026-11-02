@@ -32,6 +32,14 @@ produces on the Release page:
 Pushing a version tag also refreshes the **`gpu-packs`** pre-release (CUDA +
 Vulkan llama-cpp-python wheels used by `ELI --install-gpu-pack`).
 
+The bundles and the packs are built from one llama-cpp-python source,
+`packaging/llama_source.py`: upstream's release with a newer llama.cpp, under the
+version in `packaging/llama_cpp_constraints.txt`. To change it, change those two
+files, run the `gpu-packs` workflow, and tag once the packs are published. An app
+only takes a pack of its own version, so apps already installed keep the packs
+they have and the old assets stay on the release. Installs from source
+(`install.sh`, `install.ps1`) still take upstream's release from PyPI.
+
 All frozen bundles include the full Piper voice set (pulled at build time from
 the project's `local-assets-v2.1` release) and a second `ELI-Server`
 executable (console) for the phone/web server. GGUF chat/vision/image model
@@ -49,8 +57,8 @@ ELI --install-gpu-pack        # AppImage: ./ELI_v2-*.AppImage --install-gpu-pack
 
 (the Windows installer offers this as a checkbox when an NVIDIA driver is
 detected; `ELI-Server.exe --install-gpu-pack` shows console progress). The
-pack downloads the matching CUDA build from the official llama-cpp-python
-wheel index into `<ELI root>/runtime/gpu`, which shadows the bundled CPU
+pack downloads the matching CUDA build (from the `gpu-packs` pre-release, or
+the official llama-cpp-python wheel index when it has that version) into `<ELI root>/runtime/gpu`, which shadows the bundled CPU
 copy on the next launch (`llama_cpp` is collected as on-disk files via
 `module_collection_mode` precisely so sys.path priority can do this).
 AMD / Intel Arc GPUs use CI-built **Vulkan** wheels (no official prebuilt

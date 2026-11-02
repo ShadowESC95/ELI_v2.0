@@ -310,6 +310,12 @@ capability isn't available (e.g. area screenshots on some Windows installs).
 `analyze_pdfs`, `analyze_image`, `analyze_csv` — typed handlers behind the `ANALYZE_*` actions, feeding
 extracted content (text/OCR/structure) into the grounded pipeline.
 
+Several folders or files named in one message all go to one job (`paths_named`,
+`_route_several_paths`); a path that is missing is reported; with nothing named and no work in hand
+ELI asks which, never the current folder. Asked to analyse, a folder is read in full, in pieces; asked
+to summarise, from the opening of each document, and the report says which. A summary that comes back
+empty is a failed job: the documents are indexed and nothing has been analysed.
+
 A folder (`ANALYZE_PDF_FOLDER`, `eli/runtime/folder_analysis.py`) is read through the document
 index: every PDF is stored whole there, one summary covers all of them (in parts of what one call
 has always read, then joined), each call is told how many words its reply holds (the reply limit

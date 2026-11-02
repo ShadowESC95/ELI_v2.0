@@ -249,7 +249,6 @@ def _import_audit() -> str:
         "eli.cognition.gguf_inference",
         "eli.cognition.orchestrator",
         "eli.cognition.context_synthesiser",
-        "eli.cognition.response_governance",
         "eli.memory.memory_truth",
         "eli.runtime.truth_report",
     ]
@@ -298,7 +297,6 @@ def _component_status(name: str) -> str:
             "eli.cognition.orchestrator",
         ],
         "OUTPUT_GOVERNOR_STATUS": [
-            "eli.cognition.response_governance",
             "eli.cognition.output_governor",
         ],
     }

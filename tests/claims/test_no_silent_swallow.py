@@ -20,11 +20,11 @@ import glob
 import os
 
 # Current count of silent `except: pass` handlers across eli/. Ratchet DOWN only.
-CEILING = 169
+CEILING = 165
 # Catch-all handlers (bare, Exception, BaseException) that only log. Observable in a debug log, but
 # the caller still carries on as if the step worked: a failed run read as a clean one this way.
 # Ratchet DOWN only: a new one must decide what the failure means for the result.
-LOG_ONLY_CEILING = 1685
+LOG_ONLY_CEILING = 1678
 
 _ELI_ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "..", "eli"))
 _LOGGERS = {"log", "logger", "logging", "_log", "LOG", "_logger"}

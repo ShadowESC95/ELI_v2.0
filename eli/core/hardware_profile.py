@@ -1760,7 +1760,10 @@ def discover_models(models_dir: Optional[Path] = None,
         # a vision projector or a draft head is not a model to talk to either (by its metadata)
         if not include_embedders and (_is_embedder_path(f) or not_a_chat_model(f)):
             continue
-        size = f.stat().st_size
+        from eli.core.gguf_sizes import is_later_part, model_bytes
+        if is_later_part(f):
+            continue
+        size = model_bytes(f)
         out.append({
             "name": f.name,
             "path": str(f.resolve()),

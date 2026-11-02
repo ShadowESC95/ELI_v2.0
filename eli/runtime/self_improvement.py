@@ -394,6 +394,47 @@ def compare_runs(baseline: Dict[str, Any], candidate: Dict[str, Any]) -> str:
         return "fixed" if candidate["returncode"] == 0 else "regression"
     return "unchanged"
 
+def note_turn_anomalies(facts: Dict[str, Any], action: str, outcome: str) -> List[str]:
+    """Turns that went wrong without anything raising. The failure record only held actions that
+    returned an error, so asked to analyse its failures ELI found two in an afternoon where it had
+    promised work five times and done none, and every one of those turns says "ok" in the ledger.
+
+    Each goes on the same record self-analysis reads, with what the pipeline did:
+      - the person rejected the last reply (the turn being complained about is the one wrong);
+      - an action the model chose was turned into chat;
+      - the reply claimed something and the claim was dropped;
+      - the reply promised something and nothing ran.
+    """
+    said = str(facts.get("user_input") or "").strip()
+    if not said or facts.get("parent_request_id"):
+        return []
+    kinds: List[tuple] = []
+    from eli.cognition.self_claims import complains_about_eli
+    from eli.cognition.correction_patterns import is_correction_query
+    if complains_about_eli(said) or is_correction_query(said):
+        try:
+            from eli.runtime import orchestrator_audit_ledger as oal
+            last = next((r for r in oal.recent_turns(4) if not r.get("parent_request_id")), None)
+            if last:
+                kinds.append(("rejected", f"the person rejected the reply to the turn before: that turn was "
+                                          f"{last.get('action') or '?'}, {str(last.get('outcome') or '')}"))
+        except Exception as e:
+            kinds.append(("rejected", f"the person rejected the reply to the turn before, which could not be read: {e}"))
+    if facts.get("downgraded_from"):
+        kinds.append(("downgraded", f"the model chose {facts['downgraded_from']} and it was answered as chat"))
+    if facts.get("claim_dropped"):
+        kinds.append(("claim", f"the reply said what the record does not back: {facts['claim_dropped']}"))
+    if facts.get("promise_unkept"):
+        kinds.append(("promise", f"the reply promised something and nothing ran: {facts['promise_unkept']}"))
+    if not kinds:
+        return []
+    memory = get_self_improvement().memory
+    for kind, what in kinds:
+        memory.log_failure(said, error=f"anomaly ({kind}): {what}", context={"action": action, "outcome": outcome},
+                           source="anomaly")
+    return [k for k, _ in kinds]
+
+
 class SelfImprovementEngine:
     """
     Self-improvement engine: analyzes failures, generates code patches, and applies them.

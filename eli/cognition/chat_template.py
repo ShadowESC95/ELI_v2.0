@@ -29,6 +29,7 @@ log = get_logger(__name__)
 
 # Text no template produces by itself: where it lands in a rendering shows what surrounds it.
 _SENT_USER = "⁣ELI-USER-7f3a⁣"
+_SENT_SYSTEM = "⁣ELI-SYSTEM-7f3a⁣"
 _SENT_REASON = "⁣ELI-REASON-7f3a⁣"
 _SENT_ANSWER = "⁣ELI-ANSWER-7f3a⁣"
 
@@ -52,9 +53,10 @@ class Template:
     eos: str
     strip_bos: bool                   # llama.cpp adds BOS itself when tokenising this model's prompt
     thinking_switch: bool             # the template reads `enable_thinking`
-    folds_system: bool                # the template refuses a system turn: it goes into the user turn
+    folds_system: bool                # the template refuses or drops a system turn: it goes into the user turn
     reasoning: Optional[Tuple[str, str]]
     turn_end: str
+    content_parts: bool = False       # the template reads content as a list of parts, not a string
 
 
 _lock = threading.Lock()
@@ -116,7 +118,8 @@ def _compile(source: str):
 
 def _render(tpl_source: str, messages: List[Dict[str, Any]], *, bos: str, eos: str,
             add_generation_prompt: bool, think: Optional[bool]) -> str:
-    variables: Dict[str, Any] = dict(messages=messages, bos_token=bos, eos_token=eos,
+    # what a chat template is rendered with everywhere: some test `tools is none`, and fail undefined
+    variables: Dict[str, Any] = dict(messages=messages, bos_token=bos, eos_token=eos, tools=None, documents=None,
                                      add_generation_prompt=add_generation_prompt)
     if think is not None:
         variables["enable_thinking"] = bool(think)
@@ -145,38 +148,51 @@ def _adds_bos(llm, metadata: Dict[str, Any]) -> bool:
     return str(metadata.get("tokenizer.ggml.add_bos_token", "true")).strip().lower() in ("true", "1")
 
 
-def _messages(system: str, user: str, *, fold: bool) -> List[Dict[str, Any]]:
+def _messages(system: str, user: str, *, fold: bool, parts: bool = False) -> List[Dict[str, Any]]:
+    def _content(text: str) -> Any:
+        return [{"type": "text", "text": text}] if parts else text
+
     if not system:
-        return [{"role": "user", "content": user}]
+        return [{"role": "user", "content": _content(user)}]
     if fold:
-        return [{"role": "user", "content": f"{system}\n\n{user}"}]
-    return [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        return [{"role": "user", "content": _content(f"{system}\n\n{user}")}]
+    return [{"role": "system", "content": _content(system)}, {"role": "user", "content": _content(user)}]
+
+
+def _form_that_keeps_both(source: str, bos: str, eos: str) -> Optional[Tuple[bool, bool]]:
+    """(fold the system turn, content as parts): the first way of filling this template that keeps
+    both what the system says and what the person says. A template can refuse a system turn, ignore
+    it without a word (ELI's persona and everything it knows went missing), or want its content as
+    parts. None when no form holds the person's words: then it is no template to speak through."""
+    for fold, parts in ((False, False), (True, False), (False, True), (True, True)):
+        try:
+            text = _render(source, _messages(_SENT_SYSTEM, _SENT_USER, fold=fold, parts=parts), bos=bos, eos=eos,
+                           add_generation_prompt=True, think=None)
+        except Exception:
+            log.debug("chat_template: this form does not render", exc_info=True)
+            continue
+        if _SENT_USER in text and _SENT_SYSTEM in text:
+            return fold, parts
+    return None
 
 
 def _discover(source: str, bos: str, eos: str) -> Optional[Template]:
     """Render the template around sentinels: whether it renders at all, whether it takes a
     system turn, and the markers around reasoning and at the end of a turn."""
-    folds = False
-    try:
-        _render(source, _messages("S", _SENT_USER, fold=False), bos=bos, eos=eos,
-                add_generation_prompt=True, think=None)
-    except Exception:
-        try:
-            _render(source, _messages("S", _SENT_USER, fold=True), bos=bos, eos=eos,
-                    add_generation_prompt=True, think=None)
-            folds = True
-        except Exception:
-            log.debug("chat_template: the model's template does not render", exc_info=True)
-            return None
+    form = _form_that_keeps_both(source, bos, eos)
+    if form is None:
+        log.debug("chat_template: the model's template does not carry a conversation")
+        return None
+    folds, parts = form
 
     reasoning: Optional[Tuple[str, str]] = None
     turn_end = ""
     try:
-        head = _render(source, [{"role": "user", "content": _SENT_USER}], bos=bos, eos=eos,
+        head = _render(source, _messages("", _SENT_USER, fold=False, parts=parts), bos=bos, eos=eos,
                        add_generation_prompt=True, think=True)
         answer = {"role": "assistant", "content": _SENT_ANSWER}
         answer.update({k: _SENT_REASON for k in _REASONING_KEYS})
-        full = _render(source, [{"role": "user", "content": _SENT_USER}, answer], bos=bos, eos=eos,
+        full = _render(source, _messages("", _SENT_USER, fold=False, parts=parts) + [answer], bos=bos, eos=eos,
                        add_generation_prompt=False, think=True)
         at_answer = full.find(_SENT_ANSWER)
         if at_answer >= 0:
@@ -196,7 +212,7 @@ def _discover(source: str, bos: str, eos: str) -> Optional[Template]:
 
     return Template(source=source, bos=bos, eos=eos, strip_bos=False,
                     thinking_switch="enable_thinking" in source, folds_system=folds,
-                    reasoning=reasoning, turn_end=turn_end)
+                    reasoning=reasoning, turn_end=turn_end, content_parts=parts)
 
 
 def _common_prefix(a: str, b: str) -> str:
@@ -213,6 +229,9 @@ def for_model(llm, metadata: Optional[Dict[str, Any]] = None) -> Optional[Templa
     when it carries none that renders. Becomes the active template for output cleaning."""
     global _active
     md = metadata if metadata is not None else (getattr(llm, "metadata", None) or {})
+    if llm is not None:
+        from eli.cognition.model_output_tokens import learn_control_tokens
+        learn_control_tokens(llm)
     source = str(md.get("tokenizer.chat_template") or "")
     if not source.strip():
         _active = None
@@ -249,10 +268,12 @@ def render_prompt(tpl: Template, system: str, user: str, *, think: Optional[bool
     variable; a model whose template forces reasoning open gets it closed when it is not wanted."""
     try:
         text = _render(tpl.source, _messages(str(system or "").strip(), str(user or "").strip(),
-                                             fold=tpl.folds_system),
+                                             fold=tpl.folds_system, parts=tpl.content_parts),
                        bos=tpl.bos, eos=tpl.eos, add_generation_prompt=True,
                        think=think if tpl.thinking_switch else None)
     except Exception:
+        if think is False and tpl.thinking_switch:      # one that refuses to think less still answers
+            return render_prompt(tpl, system, user, think=None)
         log.debug("chat_template: rendering failed", exc_info=True)
         return None
     if tpl.strip_bos and tpl.bos and text.startswith(tpl.bos):

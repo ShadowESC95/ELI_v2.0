@@ -19,7 +19,7 @@ import struct
 import threading
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional, Tuple
+from typing import List, Any, Dict, Iterable, Optional, Tuple
 
 from eli.utils.log import get_logger
 
@@ -138,11 +138,55 @@ def _value(f, vtype: int):
     return struct.unpack(fmt, f.read(struct.calcsize(fmt)))[0]
 
 
+_PART = re.compile(r"^(.*)-(\d{5})-of-(\d{5})\.gguf$", re.I)
+
+
+def model_parts(model_path) -> List[Path]:
+    """Every file of a model, in order. Large GGUFs ship as name-00001-of-00004.gguf, and llama.cpp
+    loads them all from the first; one that is not split is its own only part."""
+    path = Path(str(model_path))
+    m = _PART.match(path.name)
+    if not m:
+        return [path]
+    return [path.with_name(f"{m.group(1)}-{i:05d}-of-{m.group(3)}.gguf") for i in range(1, int(m.group(3)) + 1)]
+
+
+def is_later_part(model_path) -> bool:
+    """A file past the first of a split model: part of a model, not one to choose."""
+    m = _PART.match(Path(str(model_path)).name)
+    return bool(m) and int(m.group(2)) > 1
+
+
+def first_part(model_path) -> Path:
+    return model_parts(model_path)[0]
+
+
+def missing_parts(model_path) -> List[str]:
+    return [p.name for p in model_parts(model_path) if not p.exists()]
+
+
+def model_bytes(model_path) -> int:
+    """The size of the whole model, all its parts."""
+    return sum(p.stat().st_size for p in model_parts(model_path) if p.exists())
+
+
 def _read_header(path: str) -> Optional[_Header]:
+    head = _read_one_header(path)
+    if head is not None and is_later_part(path) is False:
+        for part in model_parts(path)[1:]:
+            if part.exists():
+                later = _read_one_header(str(part))
+                if later is not None:
+                    head.tensors.update(later.tensors)
+    return head
+
+
+def _read_one_header(path: str) -> Optional[_Header]:
     with open(path, "rb") as f:
         if f.read(4) != b"GGUF":
             return None
-        f.read(4)                                            # version
+        if struct.unpack("<I", f.read(4))[0] > 0xFFFF:       # a big-endian file: not for this machine
+            return None
         n_tensors = struct.unpack("<Q", f.read(8))[0]
         n_kv = struct.unpack("<Q", f.read(8))[0]
         meta: Dict[str, Any] = {}

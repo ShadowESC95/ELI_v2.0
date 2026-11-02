@@ -44,6 +44,10 @@ GPU_PACKS_DOWNLOAD = (
 # Newest-first. ``py3-none`` wheels work on every CPython 3.x; cp311 tags are
 # legacy fallbacks from older CI builds.
 _GPU_PACK_FALLBACK_ASSETS: tuple[str, ...] = (
+    "vulkan-llama_cpp_python-0.3.36.1-py3-none-linux_x86_64.whl",
+    "vulkan-llama_cpp_python-0.3.36.1-py3-none-win_amd64.whl",
+    "cuda-llama_cpp_python-0.3.36.1-py3-none-linux_x86_64.whl",
+    "cuda-llama_cpp_python-0.3.36.1-py3-none-win_amd64.whl",
     "vulkan-llama_cpp_python-0.3.36-py3-none-linux_x86_64.whl",
     "vulkan-llama_cpp_python-0.3.36-py3-none-win_amd64.whl",
     "cuda-llama_cpp_python-0.3.36-py3-none-linux_x86_64.whl",
@@ -1655,6 +1659,13 @@ def activate_gpu_pack_runtime(dest: str | Path, *, verify: bool = True) -> bool:
     _mod = sys.modules.get("llama_cpp")
     if _mod is not None and str(getattr(_mod, "__file__", "") or "").startswith(pack_s):
         return True  # already active in this process; re-importing gains nothing
+    # The libraries of what is imported stay loaded, and the two share native library names. A newer
+    # libllama calling an older libggml ended in "double free or corruption" on the next close.
+    _running, _have = getattr(_mod, "__version__", None), pack_version(pack)
+    if _running and _have and _running != _have:
+        _say(f"llama_cpp {_running} is already running in this process: GPU pack {_have} takes effect on the "
+             f"next start")
+        return False
     for q in list(sys.path):
         if "runtime/gpu" in str(q).replace("\\", "/") and q != pack_s:
             try:

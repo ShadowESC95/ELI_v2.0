@@ -99,10 +99,8 @@ def auto_path() -> Path:
 
 
 def _fallback_persona() -> str:
-    return (
-        "You are ELI, a local reasoning and automation assistant. "
-        "Be direct, accurate, grounded, privacy-preserving, and useful."
-    )
+    from eli.core.config import DEFAULT_PERSONA
+    return DEFAULT_PERSONA
 
 
 def _file_signature(path: Path) -> tuple:

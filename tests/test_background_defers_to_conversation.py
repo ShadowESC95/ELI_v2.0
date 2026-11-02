@@ -128,3 +128,20 @@ def test_a_turn_that_never_uses_the_model_still_holds_background_work_back(monke
     monkeypatch.setattr(CognitiveEngine, "_process_impl", lambda self, *a, **k: "Closed settings.")
     assert object.__new__(CognitiveEngine).process("close settings") == "Closed settings."
     assert ib.foreground_recently_active(30.0)
+
+
+def test_a_job_someone_asked_for_waits_and_is_not_told_nothing(monkeypatch):
+    """A job is started by a message, so a conversation is always live when it begins: every model
+    call of a folder summary came back "" and the job finished in 4 s with a blank summary."""
+    _Llm.calls = 0
+    busy = [True, True, False]
+    monkeypatch.setattr(ib, "foreground_recently_active", lambda window=30.0: busy.pop(0) if busy else False)
+    monkeypatch.setattr(gi.time, "sleep", lambda s: None)
+    gi.set_background_inference(True)
+    gi.set_job_inference(True)
+    try:
+        assert _invoke()["choices"][0]["text"] == "generated"
+        assert _Llm.calls == 1
+    finally:
+        gi.set_job_inference(False)
+        gi.set_background_inference(False)

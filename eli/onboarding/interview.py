@@ -90,6 +90,14 @@ def _set_onboarding_state(step: str, data: Optional[Dict[str, Any]] = None) -> N
     _state_file().write_text(json.dumps(cur, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _offered_file() -> Path:
+    return _state_file().with_name("onboarding_offered")
+
+
+def _offered_before() -> bool:
+    return _offered_file().exists()
+
+
 def clear_onboarding_state() -> None:
     try:
         _state_file().unlink()
@@ -122,17 +130,6 @@ def _profile_missing(db_path=None) -> bool:
 def _is_blank_slate(db_path=None) -> bool:
     """Brand-new user profile — ignore stray session memories from a first greeting."""
     return _profile_missing(db_path=db_path)
-
-
-def _looks_substantive(text: str) -> bool:
-    """A real task/question — should pass through, not trigger the interview."""
-    t = (text or "").strip().lower()
-    if len(t) > 60:
-        return True
-    _verbs = ("fix", "open", "run", "write", "show", "list", "search", "play", "create",
-              "explain", "summar", "code", "debug", "install", "download", "set ", "make",
-              "build", "find", "read", "delete", "remove", "add ", "generate", "help me")
-    return any(t.startswith(v) or f" {v}" in t for v in _verbs)
 
 
 def _is_onboarding_meta_question(text: str) -> bool:
@@ -543,9 +540,11 @@ def _extract_name(text: str) -> str:
         return ""
     # Strip an explicit self-introduction lead.
     low = s.lower()
+    introduced = False
     for lead in _NAME_LEADS:
         if low.startswith(lead):
             s = s[len(lead):]
+            introduced = True
             break
     s = s.strip().strip(".!,").split("\n")[0].strip()
     # Drop a trailing form of address ("good day to you", "hi there friend").
@@ -561,6 +560,13 @@ def _extract_name(text: str) -> str:
     if all(w.strip(".,!'") .lower() in _NON_NAMES for w in s.split() if w.strip(".,!'")):
         return ""
     if not any(ch.isalpha() for ch in s):
+        return ""
+    # "clock off" answered "what should I call you?" and became the person's name. Unintroduced, a reply
+    # holding a word no name is made of is a remark.
+    from eli.runtime.command_splitter import COMPLETERS
+    from eli.execution.route_contracts import _GRAMMAR
+    words = {w.strip(".,!'").lower() for w in s.split()}
+    if not introduced and len(words) > 1 and words & (set(COMPLETERS) | _GRAMMAR):
         return ""
     return s[:40]
 
@@ -731,8 +737,12 @@ def onboarding_intercept(user_input: str, user_id: Optional[str] = None, db_path
     if _profile_missing(db_path=db_path) and _is_onboarding_meta_question(text):
         return _begin_or_resume(db_path=db_path)
 
-    if (_is_blank_slate(db_path=db_path) and not _looks_substantive(text)
+    # Offered once. It came back on every short message of a new profile, in place of the answer:
+    # "where are the pdfs?" got "what should I call you?", after "skip" too.
+    from eli.cognition.chat_grounding_gate import is_phatic_turn
+    if (_is_blank_slate(db_path=db_path) and not _offered_before() and is_phatic_turn(text)
             and not _is_a_command(None, text, route)):
+        _offered_file().touch()
         _set_onboarding_state("name", {})
         return _question("name", {})
     return None

@@ -8,7 +8,7 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from eli.cognition.response_sanitizer import sanitize_assistant_text
+from eli.cognition.output_governor import sanitize_assistant_text
 from eli.core.runtime_settings import load_settings, save_settings, _resolve_relative_model_paths
 from eli.core.paths import project_root, get_paths
 

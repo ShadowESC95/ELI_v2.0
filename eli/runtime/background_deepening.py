@@ -84,7 +84,7 @@ def schedule(engine: Any, user_input: str, intent: Dict[str, Any],
         from eli.runtime.background_tasks import get_background_tasks
         get_background_tasks().submit(
             f"deepen:{(user_input or '')[:40]}",
-            _worker, engine, user_input, dict(intent or {}), sig,
+            _worker, engine, user_input, dict(intent or {}), sig, kind="housekeeping",
         )
         log.debug(f"[DEEPEN] scheduled background deepen (grounding={grounding:.2f}) sig={sig}")
         return True

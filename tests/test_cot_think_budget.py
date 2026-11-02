@@ -98,7 +98,6 @@ def passes(monkeypatch):
     for name, fn in {"_build_enhanced_system": build, "_prepend_recent_exchange": lambda p: p,
                      "_current_provider": lambda: "gguf", "_generation_settings": lambda: {"max_tokens": 512, "temperature": 0.5},
                      "_runtime_n_ctx": lambda: 16128, "_use_compact_system": lambda *a, **k: False,
-                     "_maybe_apply_mode_runtime_adaptation": lambda *a, **k: None,
                      "_note_memory_trim": lambda *a, **k: None}.items():
         monkeypatch.setattr(me, name, fn, raising=False)
     token = rc.turn_facts_var.set({"user_input": "doing well, good redemption bud"})

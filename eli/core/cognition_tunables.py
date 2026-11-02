@@ -35,6 +35,24 @@ class Tunable:
 # to the loaded model's window, so a wider pool costs a ranking pass, not context.
 # Raised 2026-10-03; the maxima leave room for tier scaling on large models.
 TUNABLES: List[Tunable] = [
+    # ── Background jobs ─────────────────────────────────────────────────────
+    Tunable("cog.jobs_kept_days", "Jobs · days kept on record",
+            "How long finished background jobs stay on record across restarts.", 30, 1, 365, 1, "Background jobs"),
+    Tunable("cog.jobs_in_hand_hours", "Jobs · hours a job counts as work in hand",
+            "How recent a job's folders must be for \"the rest\" or \"them\" to refer to them.",
+            24, 1, 720, 1, "Background jobs"),
+    Tunable("cog.jobs_in_prompt_days", "Jobs · days of jobs the model is told about",
+            "How old a job can be and still be put in front of the model.", 3, 1, 90, 1, "Background jobs"),
+    Tunable("cog.jobs_in_prompt", "Jobs · jobs the model is told about",
+            "How many recent jobs are put in front of the model when a message is about work.",
+            6, 1, 40, 1, "Background jobs"),
+    Tunable("cog.job_report_chars", "Jobs · characters of a report the model reads",
+            "How much of the last job's report is put in front of the model when asked what it found.",
+            8000, 500, 60000, 500, "Background jobs"),
+    Tunable("cog.jobs_listed", "Jobs · jobs listed",
+            "How many jobs \"check jobs\" lists.", 15, 1, 200, 1, "Background jobs"),
+    Tunable("cog.job_line_chars", "Jobs · characters per job line",
+            "How much of a job's outcome is shown on its line.", 200, 40, 2000, 20, "Background jobs"),
     # ── Model context budget ────────────────────────────────────────────────
     Tunable(
         "cog.synth_max_prompt_chars", "Synthesis prompt cap (characters)",

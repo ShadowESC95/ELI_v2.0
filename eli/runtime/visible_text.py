@@ -4,30 +4,30 @@ from typing import Any
 
 
 def _consume_generator(gen: Any) -> str:
-    try:
-        from eli.kernel.engine import MAIN_REPLY_DONE_SENTINEL as _done
-    except Exception:
-        _done = "__MAIN_REPLY_DONE__"
+    from eli.kernel.engine import MAIN_REPLY_DONE_SENTINEL as _done
     parts: list[str] = []
-    for chunk in gen:
-        if chunk is None:
-            continue
-
-        if isinstance(chunk, str):
-            if chunk != _done:
+    try:
+        for chunk in gen:
+            if chunk is None or chunk == _done:
+                continue
+            if isinstance(chunk, str):
                 parts.append(chunk)
-            continue
-
-        if isinstance(chunk, dict):
-            for key in ("response", "content", "message", "text", "delta", "result", "answer", "output"):
-                value = chunk.get(key)
-                if value is not None and str(value).strip():
-                    parts.append(str(value))
-                    break
-            continue
-
-        parts.append(str(chunk))
-
+            elif isinstance(chunk, dict):
+                val = (
+                    chunk.get("response")
+                    or chunk.get("content")
+                    or chunk.get("text")
+                    or chunk.get("delta")
+                    or chunk.get("message")
+                    or chunk.get("result")
+                    or chunk.get("answer")
+                )
+                if val:
+                    parts.append(str(val))
+            else:
+                parts.append(str(chunk))
+    except Exception as e:
+        parts.append(f"[stream failed: {type(e).__name__}: {e}]")
     return "".join(parts).strip()
 
 

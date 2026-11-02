@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from eli.runtime.command_splitter import split_commands
+from eli.runtime.command_splitter import read_message, split_commands
 from eli.execution.router_enhanced import route
 
 
@@ -176,3 +176,23 @@ def test_restart_is_the_machine_s_only_when_it_has_no_other_object():
     assert route("restart")["action"] == "OPEN_POWER_SETTINGS"
     assert route("restart the computer")["action"] == "OPEN_POWER_SETTINGS"
     assert route('restart "North & South"')["action"] != "OPEN_POWER_SETTINGS"
+
+
+@pytest.mark.parametrize("text", [
+    "Write a complete Python module implementing a binary search tree with insert, delete and search, with unit tests.",
+    "write a function with add, remove and search",
+    "make a class with read and write methods",
+    "write a parser that can read and write csv",
+])
+def test_verbs_listed_inside_what_is_asked_for_are_not_instructions(text):
+    assert split_commands(text) is None
+    assert len(read_message(text, chains=True)) == 1
+
+
+@pytest.mark.parametrize("text, parts", [
+    ("open spotify and pause", ["open spotify", "pause"]),
+    ("remind me to call mum and open spotify", ["remind me to call mum", "open spotify"]),
+    ("set an alarm for 7am and open spotify", ["set an alarm for 7am", "open spotify"]),
+])
+def test_instructions_after_such_a_phrase_still_divide(text, parts):
+    assert split_commands(text) == parts

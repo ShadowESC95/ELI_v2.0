@@ -63,8 +63,16 @@ def _model_tokens(stem: str) -> set:
 
 
 def _is_projector(path) -> bool:
-    n = str(path).lower()
-    return any(k in n for k in ("mmproj", "clip", "projector", "-proj", "_proj", "mtmd"))
+    from eli.cognition.model_load_diagnostics import gguf_architecture
+    return str(gguf_architecture(path) or "").lower() == "clip"
+
+
+def _names_of(path) -> set:
+    """The model a GGUF says it is, by its metadata and by its file name."""
+    from eli.cognition.model_load_diagnostics import gguf_metadata
+    md = gguf_metadata(path) or {}
+    said = " ".join(str(md.get(k) or "") for k in ("general.basename", "general.name"))
+    return _model_tokens(Path(path).stem) | _model_tokens(said)
 
 
 def _discover_vl_pairs(models_dir):
@@ -77,17 +85,20 @@ def _discover_vl_pairs(models_dir):
         ggufs = list(Path(models_dir).rglob("*.gguf"))
     except Exception:
         return out
+    from eli.core.gguf_sizes import is_later_part
+    from eli.cognition.model_load_diagnostics import not_a_chat_model
+    ggufs = [p for p in ggufs if not is_later_part(p)]
     projectors = [p for p in ggufs if _is_projector(p)]
-    bases = [p for p in ggufs if not _is_projector(p)]
+    bases = [p for p in ggufs if not not_a_chat_model(p)]
     seen_base = set()
     for proj in projectors:
-        proj_tokens = _model_tokens(proj.stem)
+        proj_tokens = _names_of(proj)
         scored = []
-        for b in bases:
-            if b in seen_base or b.parent != proj.parent:
-                continue
-            affinity = len(proj_tokens & _model_tokens(b.stem))
-            if affinity > 0:
+        beside = [b for b in bases if b not in seen_base and b.parent == proj.parent]
+        for b in beside:
+            affinity = len(proj_tokens & _names_of(b))
+            # "mmproj-F16.gguf" names no model: with one language model beside it, that is the one
+            if affinity > 0 or len(beside) == 1:
                 scored.append((affinity, _safe_size(b), b))
         if not scored:
             continue
@@ -195,6 +206,10 @@ def _resolve_handler_class(model_path: str, explicit: str = ""):
     config override → architecture → filename → generic. Returns (cls, name)."""
     from llama_cpp import llama_chat_format as _lcf
     name = (explicit or "").strip()
+    # The generic handler reads the model's own template and projector, so it fits a vision model
+    # released after this was written. The named ones are for a build without it.
+    if not name and hasattr(_lcf, "MTMDChatHandler"):
+        name = "MTMDChatHandler"
     if not name:
         try:
             from eli.cognition.model_load_diagnostics import gguf_architecture

@@ -195,6 +195,19 @@ def _same_word(a: str, b: str) -> bool:
     return len(short) >= 3 and long_.startswith(short[:max(3, len(short) - 1)]) and len(long_) - len(short) <= 4
 
 
+_NEEDS_A_TIME = frozenset(("SET_ALARM", "SET_TIMER", "START_TIMER", "POMODORO"))
+_NAMES_A_TIME = re.compile(
+    r"\d|\b(?:one|two|three|four|five|six|seven|eight|nine|ten|twenty|thirty|half|quarter|an?\s+(?:hour|minute)|"
+    r"hours?|minutes?|mins?|seconds?|tomorrow|tonight|morning|noon|midnight|evening)\b", re.I)
+
+
+def has_what_it_needs(text: Any, intent: Any) -> bool:
+    """Whether the model's choice of action has anything to act on. Chosen for "clock off", an alarm
+    had no time, and the person was told "No duration or time specified" for something never asked."""
+    action = str((intent or {}).get("action") or "") if isinstance(intent, dict) else ""
+    return action not in _NEEDS_A_TIME or bool(_NAMES_A_TIME.search(str(text or "")))
+
+
 def fits(text: Any, intent: Any) -> bool:
     """Whether a message is telling ELI to do what the router matched in it.
 
@@ -209,10 +222,13 @@ def fits(text: Any, intent: Any) -> bool:
         (a search, a title, a note) is the command's own words. (A rule that passes the whole
         message along as an argument is therefore held to the first test only.)
 
-    Reading actions always fit: a report given by mistake changes nothing."""
-    if not isinstance(intent, dict) or not changes_something(intent.get("action")):
+    A reading action changes nothing, so it only has to be asked for: "i know what day it is" holds
+    the words of a date question, and answering it with the date is not a reply."""
+    from eli.runtime.command_splitter import instruction, says_rather_than_asks, sentences, starts_with_command
+    if not isinstance(intent, dict):
         return True
-    from eli.runtime.command_splitter import instruction, sentences, starts_with_command
+    if not changes_something(intent.get("action")):
+        return not (str(intent.get("action") or "") not in ("", "CHAT") and says_rather_than_asks(str(text or "")))
     own = set(_words(intent.get("args"))) | set(_words((intent.get("meta") or {}).get("entities")))
     own |= set(str(intent.get("action") or "").lower().split("_"))
     said, told_something = [], False

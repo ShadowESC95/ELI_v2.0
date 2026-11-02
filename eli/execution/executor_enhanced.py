@@ -2374,6 +2374,32 @@ def _duration(seconds) -> str:
     return f"{s // 3600} h {round(s % 3600 / 60)} min"
 
 
+def _wants_analysis(instruction) -> bool:
+    """Asked to analyse, not summarise: all of each document gets read, not its opening."""
+    return bool(re.search(r"\b(?:analy[sz]|evaluat|critiqu|assess|examin)", str(instruction or ""), re.I))
+
+
+def _stub_marker(code: str) -> str:
+    """What makes generated code a stub, or "". It says so in a comment, or it is the prompt coming
+    back. The words alone are not enough: a repo analyser that counts TODOs, 100 s of real code, was
+    thrown away for saying "TODO" in a string."""
+    for echo in ("Generate only the requested source code", "This is a request for"):
+        if echo.lower() in code.lower():
+            return echo
+    for n, line in enumerate(code.splitlines(), 1):
+        note = re.search(r"(?:^|\s)(?:#|//|--|/\*)\s*(.*)$", line)
+        if note and re.search(r"\b(?:TODO|add code here|placeholder)\b", note.group(1), re.I):
+            return f"“{line.strip()[:60]}” on line {n}"
+    return ""
+
+
+def _asks_which(action: str, what: str) -> dict:
+    """A file command with nothing named and nothing in hand. Never the current folder."""
+    msg = f"Which {what}? Give me the path."
+    return {"ok": False, "action": action, "error": "no path given", "content": msg, "response": msg,
+            "awaiting": {"command": "analyse {answer}", "action": action, "needs": "path"}}
+
+
 def _maybe_background_file_analysis(action, args):
     """Heavy folder/PDF analysis (many PDFs → extract + summarise) is slow and
     would block the UI. Run it on a background thread and return a job-id message
@@ -2384,35 +2410,42 @@ def _maybe_background_file_analysis(action, args):
             return None
         if os.environ.get("ELI_FILE_ANALYSIS_BACKGROUND", "1").strip().lower() in ("0", "false", "no", "off"):
             return None
+        targets = [str(t).strip() for t in (args.get("folders") or []) if str(t).strip()]
         folder = str(args.get("folder") or args.get("path") or "").strip()
-        if not folder:
+        targets = targets or ([folder] if folder else [])
+        if not targets:
             return None
         from pathlib import Path as _PB
-        exp = os.path.expanduser(folder)
-        if not os.path.isdir(exp):
+        exps = [os.path.expanduser(t) for t in targets]
+        if len(exps) == 1 and not os.path.isdir(exps[0]):
             return None  # single file is fast enough inline
         try:
-            _n_pdfs = sum(1 for _ in _PB(exp).rglob("*.pdf"))
+            _n_pdfs = sum(1 if not os.path.isdir(e) else sum(1 for _ in _PB(e).rglob("*.pdf")) for e in exps)
         except Exception:
             _n_pdfs = 0
         _threshold = int(os.environ.get("ELI_FILE_ANALYSIS_BG_THRESHOLD", "5") or 5)
         # Background when there are enough PDFs to be slow, OR the user asked.
         _asked = bool(args.get("_force_background"))
-        if _n_pdfs < _threshold and not _asked:
+        if _n_pdfs < _threshold and not _asked and len(exps) == 1:
             return None
         from eli.runtime.background_tasks import get_background_tasks
         bt = get_background_tasks()
         _bg_args = dict(args)
         _bg_args["_no_background"] = True
-        _bg_args["folder"] = folder
+        _bg_args["folders"] = targets
         from eli.kernel import request_context as _rc_bg
         _bg_args["_user_id"] = str(_rc_bg.user_id_var.get() or "")   # the job's thread has no request
-        _label = os.path.basename(folder.rstrip("/")) or folder
+        _label = (f"{len(targets)} folders" if len(targets) > 1
+                  else os.path.basename(targets[0].rstrip("/")) or targets[0])
+        _whole = _wants_analysis(args.get("instruction"))
         jid = bt.submit(f"Analyse {_n_pdfs} PDFs: {_label}",
-                        lambda: execute("ANALYZE_PDF_FOLDER", _bg_args))
-        msg = (f"That folder has {_n_pdfs} PDFs, so I've started reading them in the background as job "
-               f"#{jid}: each one goes into the document index, then one summary covering all of them is "
-               f"saved as a PDF. Ask how it's going any time, or say “check job {jid}”.")
+                        lambda: execute("ANALYZE_PDF_FOLDER", _bg_args),
+                        meta={"action": "ANALYZE_PDF_FOLDER", "targets": targets, "tell": True})
+        _there = f"Those {len(targets)} folders have" if len(targets) > 1 else "That folder has"
+        msg = (f"{_there} {_n_pdfs} PDFs, so I've started on them in the background as job "
+               f"#{jid}: each one goes into the document index, then one "
+               f"{'analysis of the whole text' if _whole else 'summary covering all of them'} is "
+               f"saved as a PDF. I'll tell you when it ends; ask how it's going any time, or say “check job {jid}”.")
         return {"ok": True, "action": "ANALYZE_PDF_FOLDER", "background": True, "job_id": jid,
                 "content": msg, "response": msg}
     except Exception as _bg_e:
@@ -3939,13 +3972,25 @@ def play_specific(query: str, target: str | None = None, *, browser: bool = Fals
                 msg = f"Playing “{_track_q}” on Spotify."
                 return {"ok": True, "action": "PLAY_MEDIA", "played": True,
                         "content": msg, "response": msg}
+            # The same request played a moment later, live, so it gets a second go before being
+            # called a failure.
+            try:
+                from eli.integrations.media.cross_platform import spotify_play_top_search_result as _sp_again
+                if _sp_again(_track_q, launch=False):
+                    _, _np_artist, _np_title = _spotify_live_meta()
+                    _np = f"{_np_artist} — {_np_title}" if _np_artist and _np_title else _track_q
+                    _set_now_playing("spotify", _np)
+                    msg = f"Playing “{_np}” on Spotify."
+                    return {"ok": True, "action": "PLAY_MEDIA", "played": True, "content": msg, "response": msg}
+            except (ImportError, OSError, subprocess.SubprocessError):
+                log.debug("second Spotify try failed", exc_info=True)
             _np_head, _np_artist, _np_title = _spotify_live_meta()
             if _np_head.startswith("▶") and (_np_artist or _np_title):
                 # Whatever is playing, it is not what was asked for: Spotify's top result for a
                 # different song, or an earlier track that carried on. Say which, claim nothing.
-                msg = (f"Spotify is playing “{_np_artist} — {_np_title}”, not “{_track_q}”. Give me "
-                       f"the artist as well, or say “play {_track_q} on youtube”.")
-                return {"ok": True, "action": "PLAY_MEDIA", "played": False, "mismatch": True,
+                msg = (f"Spotify is playing “{_np_artist} — {_np_title}”, not “{_track_q}”. It didn't "
+                       f"find that after two tries; say “play {_track_q} on youtube” for YouTube.")
+                return {"ok": False, "action": "PLAY_MEDIA", "played": False, "mismatch": True,
                         "search_only": True, "target": "spotify", "content": msg, "response": msg}
             msg = (f"Spotify didn't start anything for “{_track_q}”: it showed its search results "
                    f"but no song began playing, and its media controls didn't respond to play.")
@@ -6614,6 +6659,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             _mem_r = _get_mem_recall()
             hits = _mem_r.search_memory(q, limit=20) or []
             if isinstance(hits, list):
+                from eli.kernel.request_context import turn_facts_var
+                _said = str((turn_facts_var.get() or {}).get("user_input") or "").strip()
+                hits = [h for h in hits if str(h.get("text", "") or "").strip() != _said]
                 # Truncate each hit and cap total to prevent context overflow.
                 # Large hits (e.g. repeated conversation dumps) crash llama.cpp.
                 _PER_HIT_CHARS = 300
@@ -8586,6 +8634,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 ui = str(failure.get("user_input") or "")
                 err = str(failure.get("error") or "")
                 low = f"{ui}\n{err}".lower()
+                if err.startswith(("anomaly (", "background job failed")):
+                    return err      # what the pipeline recorded, not a guess at it
                 if "missing topic for document generation" in low:
                     return (
                         "CREATE_DOCUMENT was called without topic/name/target — "
@@ -9075,11 +9125,14 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             from eli.perception.analyze_pdfs import analyze
 
             path = str(args.get("path") or "").strip()
-            if not path:
-                return {"ok": False, "action": a, "error": "Missing path",
-                        "content": "Missing path", "response": "Missing path"}
-
             _instruction = str(args.get("instruction") or "").strip()
+            # No path, or a folder: not something to open as one PDF ("Not a PDF: /home/x").
+            if not path or path == "." or os.path.isdir(os.path.expanduser(path)):
+                _given = {"instruction": _instruction, "_force_background": bool(args.get("_force_background"))}
+                if path and path != ".":
+                    _given["folder"] = path
+                return _execute_impl("ANALYZE_PDF_FOLDER", _given)
+
             _instr_low = _instruction.lower()
 
             analysis = analyze(path)
@@ -9281,10 +9334,19 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     # ---- ANALYZE_PDF_FOLDER ----
     if a == "ANALYZE_PDF_FOLDER":
+        targets = [str(t).strip() for t in (args.get("folders") or []) if str(t).strip()]
         folder = str(args.get("folder") or args.get("path") or "").strip()
-        if not folder:
-            return {"ok": False, "action": a, "error": "Missing folder path",
-                    "content": "Missing folder path", "response": "Missing folder path"}
+        targets = targets or ([folder] if folder and folder != "." else [])
+        if not targets:     # the model chose this for "do the pdfs": the job in hand, if there is one
+            from eli.runtime.background_tasks import work_targets
+            targets = work_targets()
+        if not targets:
+            return _asks_which(a, "folder")
+        _missing = [t for t in targets if not os.path.exists(os.path.expanduser(t))]
+        if _missing:
+            msg = "I can't find " + ", ".join(_missing) + "."
+            return {"ok": False, "action": a, "error": msg, "content": msg, "response": msg}
+        args = dict(args, folders=targets)
         # Heavy folders → run async and hand back a job id (don't block).
         _bg = _maybe_background_file_analysis(a, args)
         if _bg is not None:
@@ -9292,7 +9354,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         try:
             from eli.kernel import request_context as _rc_fa
             from eli.runtime.folder_analysis import analyse
-            out = analyse(folder, recursive=bool(args.get("recursive", True)),
+            out = analyse(targets, recursive=bool(args.get("recursive", True)),
+                          whole=_wants_analysis(args.get("instruction")),
                           limit=int(args["limit"]) if args.get("limit") else None,
                           per_file=bool(args.get("per_file") or args.get("each_file")),
                           fmt=str(args.get("format") or "pdf"),
@@ -9704,12 +9767,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             )
             if any(p in _low for p in _refusal_phrases) and _code.count("\n") < 30:
                 return "model refused the task with prose instead of producing code"
-            _bad_markers = (
-                "TODO", "Add code here", "placeholder",
-                "Generate only the requested source code", "This is a request for",
-            )
-            if any(_m.lower() in _code.lower() for _m in _bad_markers):
-                return "output contained stub/template markers"
+            _stub = _stub_marker(_code)
+            if _stub:
+                return f"output contained stub/template markers ({_stub})"
             _lines_real = [l for l in _code.splitlines()
                            if l.strip() and not l.strip().startswith("#")
                            and not l.strip().startswith('"""')]
@@ -9906,13 +9966,14 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             if not jobs:
                 msg = "No background jobs."
             else:
-                msg = "Background jobs:\n" + "\n".join(
-                    f"  #{j['id']} [{j['status']}] {j['name']} ({j['elapsed_s']}s)" for j in jobs)
+                from eli.runtime.background_tasks import work_lines
+                msg = "Background jobs:\n" + "\n".join(f"  {ln}" for ln in work_lines())
             return {"ok": True, "action": a, "jobs": jobs, "content": msg, "response": msg}
         _jid = args.get("job_id") or args.get("id")
         if _jid is None:
             _m = _re_jb.search(r"\b(\d+)\b", str(args.get("text") or args.get("query") or args.get("description") or ""))
             _jid = _m.group(1) if _m else None
+        _named_job = _jid is not None
         if _jid is None:        # "how's it going?": the job that is running, else the latest
             _jobs = _bt.list(limit=1, status="running") or _bt.list(limit=1)
             _jid = _jobs[0]["id"] if _jobs else None
@@ -9930,16 +9991,31 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 extra = f" → {r.get('script_path')}"
                 if r.get("solved"):
                     extra += f" (verified, score {r.get('score')})"
-            msg = f"Job #{_jid} ({t['name']}) done in {t['elapsed_s']}s{extra}."
+            msg = f"Job #{_jid} ({t['name']}) done in {_duration(t['elapsed_s'])}{extra}."
             # Surface the actual result (e.g. the PDF-folder summary), not just a
-            # 'done' status — that's what the user is waiting for.
+            # 'done' status — that's what the user is waiting for. Not when they asked what is
+            # going on and this is only the latest job: "eta on that job?" got the whole report back.
             _job_content = ""
             if isinstance(r, dict):
                 _job_content = str(r.get("content") or r.get("response") or "").strip()
-            if _job_content and _job_content not in (msg,):
+            _job_content = _job_content or " ".join(
+                x for x in (t.get("note"), (t.get("meta") or {}).get("document_path")) if x)
+            _result_asked = _named_job or re.search(
+                r"\b(?:results?|summary|analysis|show|read|output)\b", str(args.get("text") or ""), re.I)
+            if not _result_asked:
+                msg = "Nothing is running. " + msg + (f" {_job_content.splitlines()[0]}" if _job_content else "")
+            elif _job_content and _job_content not in (msg,):
                 msg += "\n\n" + _job_content
         elif t["status"] == "failed":
-            msg = f"Job #{_jid} failed: {(t.get('error') or '')[:200]}"
+            msg = f"Job #{_jid} ({t['name']}) failed: {(t.get('error') or '')}"
+        elif t["status"] == "interrupted":
+            msg = (f"Job #{_jid} ({t['name']}) was cut off when ELI closed, after {_duration(t['elapsed_s'])}. "
+                   "Say “do them again” to start it over.")
+        elif t["status"] == "scheduled":
+            import time as _time_jb
+            msg = f"Job #{_jid} ({t['name']}) is scheduled" + (
+                _time_jb.strftime(" for %A %H:%M.", _time_jb.localtime(float(t["scheduled_for"])))
+                if t.get("scheduled_for") else ".")
         else:
             msg = f"Job #{_jid} ({t['name']}) is {t['status']}, {_duration(t['elapsed_s'])} in."
             _p = t.get("progress") or {}
@@ -10857,7 +10933,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             import glob as _glob
             _pdfs = _glob.glob(_os2.path.join(expanded, "**", "*.pdf"), recursive=True)
             if _pdfs:
-                return _execute_impl("ANALYZE_PDF_FOLDER", {"folder": expanded, "recursive": True})
+                return _execute_impl("ANALYZE_PDF_FOLDER", {"folder": expanded, "recursive": True,
+                                                            "instruction": _sf_instruction})
             # No PDFs: fall back to ls -R + GGUF description
             try:
                 _ls_result = _sfsp.run(
@@ -12690,11 +12767,12 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
             log.debug("runtime_health assessment failed", exc_info=True)
         txt = json.dumps(ev, ensure_ascii=False, indent=2)
         model_name = (runtime_eff.get('model_path') or rep.get('model_path', '')).split('/')[-1]
+        from eli.runtime.live_reads import measured_health as _measured_health
         summary = (
             f"I'm ELI (Enhanced Learning Interface), running {model_name} locally "
             f"on GPU ({runtime_eff.get('n_gpu_layers', '?')} layers offloaded). "
             f"Context window: {runtime_eff.get('n_ctx', '?')} tokens. "
-            f"All core systems nominal."
+            + _measured_health(ev)
         )
         if _active_user:
             summary += f" You're {_active_user}."
@@ -13758,17 +13836,11 @@ except NameError:
         if not code:
             return _eli_v3_error(action_name, "Script generation returned no source code.")
 
-        bad_markers = (
-            "TODO",
-            "Add code here",
-            "placeholder",
-            "Generate only the requested source code",
-            "This is a request for",
-        )
-        if any(marker.lower() in code.lower() for marker in bad_markers):
+        _stub = _stub_marker(code)
+        if _stub:
             return _eli_v3_error(
                 action_name,
-                "Generated script rejected: output contained stub/template markers.",
+                f"Generated script rejected: output contained stub/template markers ({_stub}).",
             )
         if re.fullmatch(r"\s*(?:pass|return\s+None)\s*", code):
             return _eli_v3_error(
@@ -15201,11 +15273,11 @@ try:
         return lines[:limit]
 
     def _eli_self_installed_version():
+        from importlib.metadata import PackageNotFoundError, version as _pkg_version
         try:
-            from importlib.metadata import version as _pkg_version
             return str(_pkg_version("eli"))
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
+        except PackageNotFoundError:   # a bundle has no package record: normal, and printed a traceback every time
+            log.debug("no package record")
         try:
             import tomllib as _toml
             pp = _eli_self_Path(__file__).resolve().parents[2] / "pyproject.toml"

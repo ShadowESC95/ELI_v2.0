@@ -99,16 +99,6 @@ def test_cognition_reranker_loadable():
     assert mod is not None
 
 
-def test_cognition_response_governance_loadable():
-    mod = importlib.import_module("eli.cognition.response_governance")
-    assert mod is not None
-
-
-def test_cognition_response_sanitizer_loadable():
-    mod = importlib.import_module("eli.cognition.response_sanitizer")
-    assert mod is not None
-
-
 def test_cognition_user_info_builder_loadable():
     mod = importlib.import_module("eli.cognition.user_info_builder")
     assert mod is not None

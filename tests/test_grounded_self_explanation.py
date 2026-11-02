@@ -161,15 +161,16 @@ def test_a_conclusion_drawn_from_a_dropped_sentence_goes_with_it(fault_turn):
     assert "That is why" not in out and "The search ran at 18:34." in out and "Nothing else is recorded" in out
 
 
-def test_a_reply_that_lost_its_explanations_says_so_and_gives_the_record(fault_turn):
+def test_a_reply_that_lost_its_explanations_stands_by_what_is_left(fault_turn):
     reply = ("You asked what had been going on and I searched the web for it. The vector index conflates the artists. "
              "My command executor has no concept of sequence. The system prioritized vibe over chronology. "
              "That search found nothing that matched.")
     out = sc.drop_invented_self_claims(reply)
     assert out.startswith("You asked what had been going on and I searched the web for it. That search found nothing")
-    assert "I've left out what I can't back from my own records" in out and "grounding was 0.26" in out
+    # the rows under a reply read as a random data dump to the person complaining
+    assert "audit ledger" not in out and "grounding was 0.26" not in out
     streamed = "".join(sc.gate_stream(reply[i:i + 7] for i in range(0, len(reply), 7)))
-    assert "left out what I can't back" in streamed and "vector" not in streamed
+    assert "audit ledger" not in streamed and "vector" not in streamed
 
 
 def test_the_ledger_answer_reworded_by_the_model_is_held_to_its_rows(monkeypatch):
@@ -222,8 +223,7 @@ def test_a_fix_eli_has_no_action_for_goes_with_the_offer_to_run_it(fault_turn):
     reply = ("The web search was not needed. The fix requires a hard reset on the media process manager and a "
              "re-indexing of the last 48 hours of memory. Want me to run that now?")
     out = sc.drop_invented_self_claims(reply)
-    assert out.startswith("The web search was not needed.\n\nI've left out what I can't back from my own records")
-    assert "hard reset" not in out and "Want me to run that now" not in out
+    assert out.strip() == "The web search was not needed."
 
 
 def test_a_section_left_empty_loses_its_heading_and_lines_stay_lines(fault_turn):
@@ -406,9 +406,7 @@ def test_troubleshooting_eli_is_not_stored_as_the_users_work(tmp_path):
 ])
 def test_a_standing_change_promised_in_a_reply_is_not_served(sentence, fault_turn):
     out = sc.drop_invented_self_claims(f"Understood. {sentence} The record shows that turn searched the web at 18:34.")
-    assert sentence not in out and "searched the web at 18:34" in out
-    # a complaint gets the record as soon as anything was left out
-    assert "What the audit ledger holds for the last turns" in out and "grounding was 0.26" in out
+    assert sentence not in out and "searched the web at 18:34" in out and "audit ledger" not in out
 
 
 def test_a_heading_that_names_an_unrecorded_cause_goes_and_its_section_stays(fault_turn):
@@ -643,7 +641,7 @@ def test_the_account_given_for_a_stopped_song_is_held_to_the_record():
         rc.turn_facts_var.reset(token)
     for invented in ("housekeeping", "leaking", "I have isolated", "won't happen again", "because it wasn't told"):
         assert invented not in out
-    assert "media.play_song_by_artist_contract" in out, "what the record holds is given instead"
+    assert "audit ledger" not in out
 
 
 def test_a_fix_said_to_be_made_so_it_will_not_happen_again_is_dropped_on_any_turn(chat_turn):
@@ -693,3 +691,210 @@ def test_banter_ending_on_a_tag_question_is_not_a_complaint():
     assert not sc.complains_about_eli("All tidied, you didn't flood the kitchen while i was out, did you?")
     assert sc.complains_about_eli("you didn't open spotify")
     assert sc.complains_about_eli("YOU DON'T HAVE TO SEARCH THE FUCKING WEB FOR SIMPLE THINGS!!")
+
+
+@pytest.mark.parametrize("sentence", [
+    "The index is pulling in the rest of the files as we speak.",
+    "The three remaining directories are now queued for analysis.",
+    "They are running as background tasks now.",
+    "Processing the remaining files now.",
+    "Validation layer update in progress.",
+    "I am starting the background job for the three remaining folders now.",
+])
+def test_work_a_memory_lookup_cannot_stand_behind_is_not_served(sentence):
+    facts = {"user_input": "give me those files", "executed_actions": ["MEMORY_RECALL"]}
+    token = rc.turn_facts_var.set(facts)
+    try:
+        out = sc.drop_invented_self_claims(f"Right. {sentence} Tell me if that is wrong.")
+    finally:
+        rc.turn_facts_var.reset(token)
+    assert sentence not in out and "Tell me if that is wrong" in out
+
+
+def test_what_did_run_can_still_be_reported():
+    facts = {"user_input": "open the editor", "executed_actions": ["OPEN_APP"]}
+    token = rc.turn_facts_var.set(facts)
+    try:
+        assert "I've opened the editor." in sc.drop_invented_self_claims("I've opened the editor.")
+    finally:
+        rc.turn_facts_var.reset(token)
+    facts = {"user_input": "find my notes", "executed_actions": ["MEMORY_RECALL"]}
+    token = rc.turn_facts_var.set(facts)
+    try:
+        assert "I've looked through your notes." in sc.drop_invented_self_claims("I've looked through your notes.")
+    finally:
+        rc.turn_facts_var.reset(token)
+
+
+@pytest.mark.parametrize("sentence", [
+    "I don't have a live feed of your screen.",
+    "I can't see what you're watching.",
+    "I do not have access to the file system.",
+])
+def test_saying_it_cannot_read_what_it_can_is_not_served(sentence, chat_turn):
+    out = sc.drop_invented_self_claims(f"{sentence} Tell me the title and I will note it.")
+    assert sentence not in out and "Tell me the title" in out
+
+
+@pytest.mark.parametrize("text", [
+    "what the hell was that? i told you it was the other one",
+    "what is with that long reply?",
+    "why tell me you could not?",
+    "what did you actually search for?",
+    "why is it still not done?",
+])
+def test_these_are_about_eli_and_answered_from_its_record(text):
+    assert sc.asks_about_own_behaviour(text)
+
+
+@pytest.mark.parametrize("sentence", [
+    "I am updating the orchestration logic for media playback.",
+    "I'll adjust the parsing logic for files.",
+    "I'll tighten up the media execution flow.",
+])
+def test_changing_its_own_code_from_a_reply_is_not_served(sentence):
+    facts = {"user_input": "analyse your errors", "executed_actions": ["SELF_ANALYZE"]}
+    token = rc.turn_facts_var.set(facts)
+    try:
+        out = sc.drop_invented_self_claims(f"Two things failed today. {sentence}")
+    finally:
+        rc.turn_facts_var.reset(token)
+    assert sentence not in out and "Two things failed today" in out
+
+
+def _gated(reply, said="open the report", ran=(), **kw):
+    facts = {"user_input": said, "executed_actions": list(ran)}
+    token = rc.turn_facts_var.set(facts)
+    try:
+        return "".join(sc.gate_stream([reply], **kw))
+    finally:
+        rc.turn_facts_var.reset(token)
+
+
+def test_a_reply_that_fails_the_check_is_said_again_by_the_model():
+    asked = []
+
+    def again(dropped, served):
+        asked.append((dropped, served))
+        return "That has not been opened yet."
+
+    out = _gated("I've opened the report.", rewrite=again)
+    assert out == "That has not been opened yet."
+    assert "I've opened the report" in asked[0][0][0]
+
+
+@pytest.mark.parametrize("rewrite", [lambda d, s: "", lambda d, s: "I've opened the report for you."])
+def test_the_record_speaks_only_when_the_model_cannot_or_will_not(rewrite):
+    assert "Nothing was carried out" in _gated("I've opened the report.", rewrite=rewrite)
+
+
+def test_a_reply_that_holds_up_is_not_asked_for_again():
+    def never(dropped, served):
+        raise AssertionError("asked again")
+
+    assert _gated("It rained all week, so the field is soft.", said="how is the field?", rewrite=never)
+
+
+@pytest.mark.parametrize("sentence", [
+    "My lookups run at 67% accuracy lately.",
+    "The job is 30% complete already.",
+    "About 40% of my searches are failing.",
+])
+def test_a_figure_about_its_own_work_needs_a_record(sentence):
+    out = _gated(f"The field is soft. {sentence}", said="how is it going?")
+    assert sentence not in out and "The field is soft" in out
+
+
+def test_a_figure_on_record_or_about_the_world_stands():
+    out = _gated("The job is 30% complete.", said="how is it going?", evidence="#2 report: running 30%")
+    assert "30% complete" in out
+    assert "90% accuracy" in _gated("That test has 90% accuracy on rare cases.", said="is the test good?")
+
+
+def test_a_failed_read_is_not_followed_by_a_made_up_one():
+    assert sc.holds_up("The field is soft.")
+    assert not sc.holds_up("I've opened the report and it says 67% accuracy.")
+
+
+@pytest.mark.parametrize("text", [
+    "are you updating your own code right now?",
+    "you said you opened the report, did you?",
+    "what's your success rate lately?",
+    "did you read all of them?",
+])
+def test_these_are_about_what_eli_did(text):
+    assert sc.asks_about_own_behaviour(text)
+
+
+@pytest.mark.parametrize("text", ["are you doing ok?", "did you know the sea is salty?", "what is a success rate?"])
+def test_these_are_not(text):
+    assert not sc.asks_about_own_behaviour(text)
+
+
+@pytest.mark.parametrize("sentence", ["Nothing is running.", "No job is running right now.", "None are queued."])
+def test_saying_nothing_is_going_on_claims_nothing(sentence):
+    assert sc.holds_up(sentence)
+
+
+def test_the_status_report_says_what_was_measured():
+    from eli.runtime.live_reads import measured_health
+    assert measured_health({}) == ""
+    assert "within" in measured_health({"runtime_health": {"concerns": ["none — within bounds"]}})
+    assert "only 1 GPU layer" in measured_health({"runtime_health": {"concerns": ["only 1 GPU layer offloaded"]}})
+
+
+def test_its_own_work_is_not_a_question_for_the_web(monkeypatch):
+    from eli.runtime import background_tasks, live_reads
+    monkeypatch.setattr(background_tasks, "work_block", lambda: "#1 Analyse 3 PDFs: done")
+    assert live_reads.about_own_work("where are the pdfs?")
+    assert not live_reads.about_own_work("where is the Eiffel Tower?")
+    monkeypatch.setattr(background_tasks, "work_block", lambda: "")
+    assert not live_reads.about_own_work("where are the pdfs?")
+
+
+@pytest.mark.parametrize("said, name", [("clock off", ""), ("take it up", ""), ("Sam", "Sam"), ("john smith", "john smith"),
+                                        ("call me the boss", "the boss")])
+def test_a_name_is_not_made_of_function_words(said, name):
+    from eli.onboarding.interview import _extract_name
+    assert _extract_name(said) == name
+
+
+def test_a_yes_needs_the_record_to_show_it():
+    out = _gated("Yes. The job finished.", said="did you open the report?", evidence="#1 Analyse: done")
+    assert not out.startswith("Yes")
+    assert _gated("Yes. It is in the folder.", said="did you save the report?", evidence="saved as /x/report.pdf").startswith("Yes")
+
+
+def test_a_rate_in_any_phrasing_is_a_figure():
+    out = _gated("The field is soft. My success rate has been around 80-90% lately.", said="how is it going?")
+    assert "80-90" not in out and "The field is soft" in out
+
+
+def test_what_it_found_is_put_in_front_of_the_model(monkeypatch):
+    from eli.runtime import background_tasks as bt, live_reads
+    box = bt.BackgroundTasks(max_workers=1)
+    monkeypatch.setattr(bt, "get_background_tasks", lambda: box)
+    box.wait(box.submit("Analyse", lambda: {"ok": True, "content": "1 of 1 read.\nTides reach fourteen metres."}), timeout=5)
+    assert "fourteen metres" in live_reads.live_facts("what did you find in them?")
+    assert "fourteen metres" not in live_reads.live_facts("is the job done?")
+
+
+def test_housekeeping_is_not_somebodys_job(monkeypatch):
+    from eli.runtime import background_tasks as bt
+    box = bt.BackgroundTasks(max_workers=1)
+    box.wait(box.submit("Analyse", lambda: 1), timeout=5)
+    box.wait(box.submit("deepen:x", lambda: None, kind="housekeeping"), timeout=5)
+    assert [j["name"] for j in box.list()] == ["Analyse"]
+    assert len(box.list(housekeeping=True)) == 2
+
+
+def test_a_held_yes_is_still_checked():
+    out = _gated("Yes. The job finished an hour ago, all of it.", said="you said you opened the report, did you?")
+    assert not out.startswith("Yes") and "finished" in out
+
+
+def test_a_model_guess_needs_something_to_act_on():
+    from eli.execution.route_contracts import has_what_it_needs as needs
+    assert not needs("clock off", {"action": "SET_ALARM"})
+    assert needs("wake me at 7", {"action": "SET_ALARM"}) and needs("timer for ten minutes", {"action": "SET_TIMER"})
+    assert needs("halt the tunes please", {"action": "STOP_MEDIA"})

@@ -1111,8 +1111,17 @@ def _eli_runtime_clear_stale_env_paths():
 
 
 
+_STALE_ENV_CHECKED = False
+
+
 def _eli_portability_load_settings(*args, **kwargs):
-    _eli_runtime_clear_stale_env_paths()
+    global _STALE_ENV_CHECKED
+    if not _STALE_ENV_CHECKED:
+        # What a copied install inherits is there when the process starts. A path set since, by ELI
+        # or by a test, was set on purpose: removed by whichever thread read the settings next, it
+        # sent a test's config writes into the project's own config folder.
+        _STALE_ENV_CHECKED = True
+        _eli_runtime_clear_stale_env_paths()
     settings = _load_settings_unsanitized(*args, **kwargs)
     explicit_settings_file = bool(
         str(os.environ.get("ELI_SETTINGS_FILE") or os.environ.get("ELI_SETTINGS_PATH") or "").strip()

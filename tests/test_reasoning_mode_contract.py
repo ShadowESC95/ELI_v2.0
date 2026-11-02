@@ -8,7 +8,7 @@ from eli.cognition.reasoning_modes import (
     mode_display,
     system_instruction_for_mode,
 )
-from eli.cognition.response_sanitizer import sanitize_assistant_text
+from eli.cognition.output_governor import sanitize_assistant_text
 from eli.cognition.output_governor import govern_output, normalize_assistant_text
 
 PRIVATE_MODES = ["chain_of_thought", "self_consistency", "tree_of_thoughts", "constitutional_ai"]

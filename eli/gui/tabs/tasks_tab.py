@@ -26,6 +26,7 @@ log = get_logger(__name__)
 _STATUS_COLOR = {
     "scheduled": "#88c0d0", "running": "#ebcb8b", "done": "#a3be8c",
     "failed": "#bf616a", "cancelled": "#6c7086", "queued": "#b48ead",
+    "interrupted": "#d08770",
 }
 
 
@@ -114,7 +115,7 @@ class TasksTab(QWidget):
         if bt is None:
             return
         try:
-            tasks = bt.list(limit=50)
+            tasks = bt.list(limit=50, housekeeping=True)
         except Exception as e:
             log.debug(f"[TASKS] list failed: {e}")
             return

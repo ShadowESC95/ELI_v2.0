@@ -124,15 +124,18 @@ def test_the_opt_out_still_exists():
 
 # ── live: the pack installed on this machine must satisfy the contract ─────
 def test_installed_pack_reports_offload_after_preload(machine_gpu):
+    """In a process of its own: a pack's native libraries never leave the process that loads them, and
+    this run has others. Two builds in one process end in a double free."""
+    import subprocess
     import sys
     gpu_dir = Path.home() / ".local/share/ELI_v2/runtime/gpu"
     if not (gpu_dir / "llama_cpp").is_dir():
         pytest.skip("no GPU pack installed on this machine")
-    sys.path.insert(0, str(PACK.parent))
-    import eli_gpu_pack
-    eli_gpu_pack.preload_native_libs(gpu_dir)
-    ok, detail = eli_gpu_pack._verify(gpu_dir)
-    assert ok, f"the installed pack fails its own contract: {detail[:200]}"
+    check = ("import sys; sys.path.insert(0, sys.argv[1]); import eli_gpu_pack as g; g.preload_native_libs(sys.argv[2]); "
+             "ok, detail = g._verify(__import__('pathlib').Path(sys.argv[2])); print(detail[:200]); sys.exit(0 if ok else 1)")
+    done = subprocess.run([sys.executable, "-c", check, str(PACK.parent), str(gpu_dir)],
+                          capture_output=True, text=True, timeout=300)
+    assert done.returncode == 0, f"the installed pack fails its own contract: {done.stdout[-200:]} {done.stderr[-200:]}"
 
 
 # ── layer 3: a pack that cannot READ the model must step aside by itself ───

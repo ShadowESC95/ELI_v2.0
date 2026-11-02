@@ -7,7 +7,11 @@ so on a short turn the model can latch onto its own last line; token-level
 repeat_penalty cannot see across turns.
 """
 from __future__ import annotations
-from eli.cognition.output_governor import is_echo_of_recent
+from eli.kernel.engine import _is_repeat_of_recent
+
+
+def is_echo_of_recent(text, recent):
+    return _is_repeat_of_recent(text, recent, whole_reply=True)
 
 PREV = ["Sahns. Still glitchy, still running on the same old code. How's it going?"]
 

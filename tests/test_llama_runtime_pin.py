@@ -69,11 +69,67 @@ def test_the_lock_constraints_leave_out_only_what_the_build_tools_do_not_allow(t
 
 
 def test_gpu_packs_are_built_at_the_pinned_version():
+    """The packs and the bundles come from one source, whose version is the pin."""
     text = (ROOT / ".github/workflows/gpu-packs.yml").read_text()
-    wf = yaml.safe_load(text)
-    on = wf.get("on") or wf.get(True)
-    assert on["workflow_dispatch"]["inputs"]["llama_version"]["default"] == _pinned()
-    assert f"|| '{_pinned()}'" in wf["env"]["LLAMA_VERSION"]
+    assert text.count('pip wheel "$(python packaging/llama_source.py)"') == 2
+    assert "llama-cpp-python==" not in text
+    assert text.count("actions/checkout") == 2
+
+
+@pytest.mark.parametrize("path, installs", [(".github/workflows/release.yml", 2), ("packaging/ci_linux_deps.sh", 1),
+                                            (".github/workflows/cross-platform-smoke.yml", 1)])
+def test_everything_that_installs_the_runtime_takes_it_from_that_source(path, installs):
+    text = (ROOT / path).read_text()
+    assert text.count('pip install "$(python packaging/llama_source.py)"') == installs
+    assert "pip install llama-cpp-python" not in text
+
+
+@pytest.mark.parametrize("path", [".github/workflows/release.yml", "packaging/ci_linux_deps.sh"])
+def test_the_runtime_goes_in_before_the_extra_that_asks_for_it(path):
+    """Held to a version PyPI does not have, the llm extra only finds it already installed."""
+    lines = (ROOT / path).read_text().splitlines()
+    source = [i for i, line in enumerate(lines) if "packaging/llama_source.py" in line]
+    extras = [i for i, line in enumerate(lines) if "REQUIRED_EXTRAS | tr" in line]
+    assert len(source) == len(extras) and all(0 < e - s <= 2 for s, e in zip(source, extras))
+
+
+def _source_module():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("llama_source", ROOT / "packaging" / "llama_source.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_the_pin_is_not_a_version_upstream_publishes_and_every_parser_reads_it():
+    """Under upstream's number an installed pack of the old build would look current and be mixed in."""
+    sys.path.insert(0, str(ROOT / "packaging" / "pyinstaller"))
+    import eli_gpu_pack as gp
+    pin = _source_module().pinned_version()
+    assert pin == _pinned() and pin != "0.3.36"
+    assert ".".join(str(n) for n in gp._ver_tuple(pin)) == pin
+    assert re.fullmatch(r"\d+(?:\.\d+)+", pin)  # the wheel patterns in eli_gpu_pack stop at anything else
+
+
+def test_a_binding_change_that_no_longer_applies_stops_the_build(tmp_path):
+    source = _source_module()
+    (tmp_path / "llama_cpp").mkdir()
+    for name, old, _new in source.BINDING_CHANGES:
+        path = tmp_path / name
+        path.write_text((path.read_text() if path.exists() else "") + old)
+    source.apply_binding_changes(tmp_path)
+    text = (tmp_path / "llama_cpp" / "llama_cpp.py").read_text()
+    assert '("moe_cache_size", ctypes.c_size_t)' in text and "LLAMA_STATE_SEQ_VERSION = 4" in text
+    with pytest.raises(SystemExit):
+        source.apply_binding_changes(tmp_path)
+
+
+def test_the_version_is_stamped_on_the_source(tmp_path):
+    source = _source_module()
+    (tmp_path / "llama_cpp").mkdir()
+    (tmp_path / "llama_cpp" / "__init__.py").write_text('__version__ = "0.3.36"\n')
+    source.stamp_version(tmp_path, "9.9.9.1")
+    assert '__version__ = "9.9.9.1"' in (tmp_path / "llama_cpp" / "__init__.py").read_text()
 
 
 def test_offline_fallback_assets_include_the_pinned_version():
@@ -94,7 +150,8 @@ def gp(tmp_path, monkeypatch):
     (meipass / "llama_cpp").mkdir(parents=True)
     (meipass / "llama_cpp" / "__init__.py").write_text('__version__ = "0.3.36"\n')
     monkeypatch.setattr(sys, "_MEIPASS", str(meipass), raising=False)
-    monkeypatch.setenv("ELI_PROJECT_ROOT", str(tmp_path / "root"))
+    # not through ELI_PROJECT_ROOT: any thread's load_settings() removes a path outside the install
+    monkeypatch.setattr(eli_gpu_pack, "_eli_root", lambda: tmp_path / "root")
     return eli_gpu_pack
 
 
@@ -155,6 +212,19 @@ def test_a_lost_marker_is_restored_by_reverifying_not_by_downloading(gp, tmp_pat
     monkeypatch.setattr(gp, "_verify", lambda *a, **k: (True, "ok"))
     assert gp.gpu_pack_operational(dest) is True
     assert (dest / ".gpu_pack_ok").is_file()
+
+
+def test_a_pack_is_not_loaded_over_a_different_build_already_running(gp, tmp_path, monkeypatch):
+    dest = _pack(tmp_path, "0.3.36")
+    running = types.ModuleType("llama_cpp")
+    running.__file__ = str(tmp_path / "elsewhere" / "llama_cpp" / "__init__.py")
+    running.__version__ = "0.3.35"
+    monkeypatch.setitem(sys.modules, "llama_cpp", running)
+    monkeypatch.setattr(gp, "preload_native_libs",
+                        lambda *_: pytest.fail("loaded a second build into the process"))
+    before = list(sys.path)
+    assert gp.activate_gpu_pack_runtime(dest, verify=True) is False
+    assert sys.path == before and sys.modules["llama_cpp"] is running
 
 
 def test_activation_is_idempotent(gp, tmp_path, monkeypatch):

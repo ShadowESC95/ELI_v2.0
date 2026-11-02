@@ -2,6 +2,8 @@
 EXPLAIN_MEMORY_RUNTIME."""
 from __future__ import annotations
 
+import pytest
+
 from eli.execution.router_enhanced import route
 
 # The actual pasted GUI log from the bug report (trimmed to the load-ladder
@@ -109,3 +111,107 @@ def test_a_reply_pointed_at_by_count_is_an_earlier_reply():
     assert refers_to_earlier_reply("look at your message from 2 messages ago- you answered fine in the first half")
     assert refers_to_earlier_reply("a few replies back you said")
     assert not refers_to_earlier_reply("I have two messages for you")
+
+
+@pytest.mark.parametrize("message", [
+    "well don't get ahead of yourself, i am still waiting for my other 29 files.. the show is not paused, it's playing",
+    "got anything else to say before i clock off for a bit?",
+    "it's tuesday, i know what day it is.. i'm going to unplug you",
+    "i know what the date is dude, you don't need to spar with me",
+    "what did you actually search for?",
+])
+def test_said_or_asked_about_eli_is_not_a_command(message):
+    from eli.execution.router_enhanced import route
+    assert route(message)["action"] == "CHAT", message
+
+
+def test_look_at_what_is_on_reads_the_media_session():
+    from eli.execution.router_enhanced import route
+    assert route("look at what i'm watching")["action"] == "NOW_PLAYING"
+
+
+def test_every_folder_a_message_names_is_read(tmp_path):
+    from eli.execution.router_enhanced import route
+    dirs = [tmp_path / "1. First (a b)", tmp_path / "2. Second + more", tmp_path / "3. Third, thing"]
+    for d in dirs:
+        d.mkdir()
+        (d / "paper.pdf").write_bytes(b"")
+    for lead in ("analyse", "Eli! please analyse the 3 remaining folders"):
+        got = route(lead + "\n" + "\n".join(str(d) for d in dirs))
+        assert got["action"] == "ANALYZE_PDF_FOLDER", lead
+        assert got["args"]["folders"] == [str(d) for d in dirs], lead
+
+
+def test_a_path_with_nothing_asked_of_it_is_left_alone(tmp_path):
+    from eli.execution.router_enhanced import paths_named
+    a, b = tmp_path / "a b", tmp_path / "c"
+    a.mkdir()
+    b.mkdir()
+    assert [p for _, p in paths_named(f"{a} and also {b}, ok")] == [str(a), str(b)]
+    assert paths_named("this and/or that / other") == []
+
+
+def test_analyse_them_is_the_job_in_hand_and_never_the_current_folder(tmp_path, monkeypatch):
+    from eli.execution.router_enhanced import route
+    from eli.runtime import background_tasks as bt
+    monkeypatch.setattr(bt, "work_targets", lambda unfinished_only=False: [str(tmp_path)])
+    got = route("analyse them")
+    assert got["action"] == "ANALYZE_PDF_FOLDER" and got["args"]["folders"] == [str(tmp_path)]
+    monkeypatch.setattr(bt, "work_targets", lambda unfinished_only=False: [])
+    got = route("well analyse the remaining pdf files as a background task")
+    assert got["args"].get("path") != "."
+
+
+def test_a_topic_is_summarised_from_memory_but_analysing_a_thing_is_not_recall():
+    from eli.execution.router_enhanced import route
+    assert route("summarise the plan we talked about")["action"] == "MEMORY_RECALL"
+    assert route("please analyse the budget idea")["action"] != "MEMORY_RECALL"
+
+
+def test_a_pdf_command_with_no_path_asks_instead_of_opening_the_current_folder(monkeypatch):
+    from eli.execution.executor_enhanced import execute
+    from eli.runtime import background_tasks as bt
+    monkeypatch.setattr(bt, "work_targets", lambda unfinished_only=False: [])
+    for args in ({"path": ""}, {"path": "."}):
+        got = execute("ANALYZE_PDF", args)
+        assert got["ok"] is False and "Not a PDF" not in got["content"] and got["awaiting"]["needs"] == "path"
+
+
+def test_a_script_that_only_names_a_marker_is_not_a_stub():
+    from eli.execution.executor_enhanced import _stub_marker
+    assert _stub_marker('count = text.count("TODO")\nname = "placeholder"\n') == ""
+    assert "line 2" in _stub_marker("def f():\n    # TODO: implement this\n    pass\n")
+    assert _stub_marker("Generate only the requested source code\nprint(1)\n")
+
+
+def test_two_remarks_joined_by_and_are_not_two_commands():
+    assert route("get out of your room and do some work")["action"] != "MULTI_COMMAND"
+    got = route("pause and close spotify")
+    assert got["action"] == "MULTI_COMMAND" and got["args"]["commands"] == ["pause", "close spotify"]
+
+
+def test_the_record_of_a_file_is_not_the_reply():
+    from eli.kernel.engine import _plain_artifact_reply
+    record = '{"event": "artifact_generated", "kind": "script", "path": "/x/y.py", "verified": true}'
+    got = _plain_artifact_reply({"ok": True, "action": "GENERATE_SCRIPT", "content": record, "response": record})
+    assert got["content"] == "Saved the script as /x/y.py. It ran and passed its checks."
+    assert got["artifact"]["path"] == "/x/y.py"
+    plain = {"ok": True, "content": "{not a record}"}
+    assert _plain_artifact_reply(plain) is plain
+
+
+@pytest.mark.parametrize("said", [
+    "clock off", "i'll clock off at five", "i know what day it is", "i know what the date is",
+    "it's okay, you can see what i'm watching", "you can see the weather from here", "i need time",
+    "i said it's raining", "i'm looking at the weather from here",
+])
+def test_a_word_of_a_question_in_a_statement_asks_nothing(said):
+    assert route(said)["action"] == "CHAT"
+
+
+@pytest.mark.parametrize("asked, action", [
+    ("clock", "TIME"), ("check the clock", "TIME"), ("what does the clock say", "TIME"), ("i need the time", "TIME"),
+    ("the date please", "DATE"), ("what day is it", "DATE"), ("vol don", "VOLUME"), ("is it raining", "GET_WEATHER"),
+])
+def test_the_same_words_asking_still_get_the_answer(asked, action):
+    assert route(asked)["action"] == action

@@ -1,6 +1,9 @@
 """Scheduled/timed background tasks (overnight jobs)."""
 from __future__ import annotations
 import time
+
+import pytest
+
 from eli.runtime.background_tasks import BackgroundTasks
 # The schedule store lives under the in-project test artifacts dir (conftest sets
 # ELI_ARTIFACTS_DIR); _store_path() honours it, so these tests never touch the real
@@ -230,3 +233,25 @@ def test_wait_foreground_idle_defers_when_busy(monkeypatch):
     )
     out = ST._wait_foreground_idle()
     assert out == {"ok": False, "skipped": True, "reason": "foreground_busy"}
+
+
+@pytest.mark.parametrize("text", [
+    "you think i want to run the tests at 8am",
+    "stop being so dramatic about the 9am meeting",
+    "stop it. you think i want to open that at 8:30 on a sunday? go back to sleep haha",
+])
+def test_banter_with_a_clock_time_is_not_a_job(text):
+    from eli.execution.router_enhanced import _eli_schedule_prepass
+    assert _eli_schedule_prepass(text) is None
+
+
+def test_a_verb_in_another_sentence_does_not_make_a_job():
+    from eli.execution.router_enhanced import _eli_schedule_prepass
+    assert _eli_schedule_prepass("Download finished fine. The meeting is at 8am") is None
+
+
+def test_the_parser_gets_the_time_not_the_paragraph():
+    from eli.execution.router_enhanced import _eli_schedule_prepass
+    r = _eli_schedule_prepass("It rained this morning. Schedule a code review task for 8:45am today")
+    assert r["args"]["when"] == "for 8:45am today"
+    assert _eli_schedule_prepass("can you open the music app at 8pm?")["args"]["when"] == "at 8pm"

@@ -352,11 +352,22 @@ def _world_fact_question(low: str) -> bool:
     return False
 
 
+
+# ELI_CLOSED_WORLD_GROUNDING_V1
+# ELI_V6_GROUNDING_CLOSED_WORLD_V2
+# Whether to go to the outside world at all: facts supplied in the turn are reasoned from, without
+# being certified as true.
+from eli.cognition.supplied_in_message import corrected_earlier as _eli_v6_recent_user_correction  # noqa: E402
+from eli.cognition.supplied_in_message import holds_its_own_answer as _is_closed_world_question  # noqa: E402
+
+
 def classify_factual(text: str) -> Tuple[bool, str]:
     """Return (is_checkable_fact, domain) where domain ∈ {"external","local","none"}."""
     raw = (text or "").strip()
     low = raw.lower()
     if len(low.split()) < 2:
+        return (False, "none")
+    if _is_closed_world_question(raw):
         return (False, "none")
     if _turn_excluded_from_factual(raw):
         return (False, "none")
@@ -384,6 +395,8 @@ def classify_web_candidate(text: str) -> bool:
     raw = (text or "").strip()
     low = raw.lower()
     if len(low.split()) < 3:
+        return False
+    if _is_closed_world_question(raw):
         return False
     if _turn_excluded_from_factual(raw, include_local=True):
         return False
@@ -490,6 +503,11 @@ def _hedge(domain: str, online: bool, *, searched: bool = False) -> str:
 # --------------------------------------------------------------------------- #
 # The ladder                                                                  #
 # --------------------------------------------------------------------------- #
+def _about_its_own_work(text: str) -> bool:
+    from eli.runtime.live_reads import about_own_work
+    return about_own_work(text)
+
+
 def escalate(
     engine: Any,
     user_input: str,
@@ -503,6 +521,12 @@ def escalate(
     None to let normal CHAT synthesis proceed."""
     if not _enabled():
         return None
+    # Prior user-supplied correction is local evidence, not an external lookup.
+    if _eli_v6_recent_user_correction(user_input, recent_turns):
+        return None
+    # Do not force an external-fact hedge for reasoning from in-turn premises.
+    if _is_closed_world_question(user_input) or _about_its_own_work(user_input):
+        return None
     grounding = effective_grounding_score(bus_result)
     target = _mode_target(reasoning_mode)
     very_low = grounding < _very_low_grounding_floor()
@@ -510,9 +534,20 @@ def escalate(
     # Why ELI did something, or a complaint about it, is answered from its own audit record.
     # Nothing on the web explains it: "why did it take you so long to answer that?" was searched.
     try:
-        from eli.cognition.self_claims import asks_about_own_behaviour as _about_eli
-        if _about_eli(user_input):
+        from eli.cognition.self_claims import asks_about_own_behaviour as _about_eli, turn_record_lines
+        # "did you save it?" is answered from the record when there is one; with none, the hedge below.
+        _memory = getattr(engine, "memory", None)
+        _unsure = bool(_SELF_ACTION_STATE_RE.search((user_input or "").lower())) and grounding < _self_claim_floor()
+        if _about_eli(user_input) and (not _unsure or (_memory is not None and turn_record_lines(_memory, limit=1))):
             log.debug("[ESCALATION] question about ELI's own behaviour: answered from the turn record")
+            return None
+        # Telling ELI something is not asking it to look something up: "Rick doesn't use a crossbow"
+        # was searched, and answered "I searched the web but couldn't find anything".
+        from eli.cognition.llm_intent import is_plain_statement
+        if (is_plain_statement(user_input) and not re.match(
+                r"\W*(?:what|who|whom|whose|when|where|why|how|which|is|are|was|were|do|does|did|can|could|will|would|should)\b",
+                str(user_input or ""), re.I)):
+            log.debug("[ESCALATION] a statement, not a question: no lookup")
             return None
     except Exception:
         log.debug("suppressed exception", exc_info=True)
@@ -703,6 +738,8 @@ def escalate(
 
             if tier == "hedge":
                 msg = _hedge(domain, online, searched=web_searched)
+                _own = getattr(engine, "_say_in_own_words", None)
+                msg = (_own(user_input, msg, reasoning_mode=reasoning_mode) if _own else "") or msg
                 _note_escalation(
                     ("searched the web, the results did not match the question, so declined to guess"
                      if web_searched else

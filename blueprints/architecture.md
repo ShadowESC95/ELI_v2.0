@@ -267,7 +267,7 @@ wider `mode_chat_agent_profile()` fan-out. Quick still runs the orchestrator.
   `user_visible_response_surface.py`**: shape and clean the user-visible answer.
 - **`truth_report.py`, `eli_identity_audit.py`, `control_contracts.py`**: runtime truth,
   identity grounding, control-action contracts.
-- **`cognition/output_governor.py`, `response_governance.py`, `response_sanitizer.py`,
+- **`cognition/output_governor.py`,
   `persona_hygiene.py`**: the final governance pass, including removal of false diagnoses when
   retrieval demonstrably ran.
 

@@ -241,6 +241,10 @@ def set_persona(text: str):
     set("eli_persona", text)
 
 
+DEFAULT_PERSONA = ("You are ELI, a local reasoning and automation assistant. "
+                   "Be direct, accurate, grounded, privacy-preserving, and useful.")
+
+
 def get_persona() -> str:
     try:
         from eli.cognition.persona import get_persona as _get_persona
@@ -249,11 +253,7 @@ def get_persona() -> str:
             return val
     except Exception:
         log.debug("suppressed exception", exc_info=True)
-    default = (
-        "You are ELI, a local reasoning and automation assistant. "
-        "Be direct, accurate, grounded, privacy-preserving, and useful."
-    )
-    return get("eli_persona", default)
+    return get("eli_persona", DEFAULT_PERSONA)
 
 
 def get_eli_persona() -> str:

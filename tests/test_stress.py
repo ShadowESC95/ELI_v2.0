@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import pytest
 
-from eli.cognition.response_sanitizer import sanitize_assistant_text
+from eli.cognition.output_governor import sanitize_assistant_text
 from eli.core.runtime_settings import load_settings, save_settings, _coerce_value
 from eli.execution.router_enhanced import route
 

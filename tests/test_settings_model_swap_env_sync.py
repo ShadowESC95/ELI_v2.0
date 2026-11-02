@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import threading
 from pathlib import Path
 
 import pytest
@@ -129,3 +130,23 @@ def test_a_model_outside_elis_folder_that_exists_is_kept(tmp_path, monkeypatch):
     loaded = rs.load_settings()
     assert loaded["model_path"] == str(model.resolve())
     assert loaded["custom_model_path"] == "" and loaded["gguf_model_path"] == ""
+
+
+def test_a_path_set_while_running_stays_through_later_settings_reads(tmp_path, monkeypatch):
+    """A test pointed ELI_CONFIG_DIR at its own folder, another thread read the settings, and the
+    check for paths a copied install inherits took the variable away: the writes went to the project."""
+    from eli.core import runtime_settings as rs
+    rs.load_settings()
+    monkeypatch.setenv("ELI_CONFIG_DIR", str(tmp_path / "cfg"))
+    reader = threading.Thread(target=rs.load_settings)
+    reader.start()
+    reader.join()
+    assert os.environ["ELI_CONFIG_DIR"] == str(tmp_path / "cfg")
+
+
+def test_a_path_inherited_from_another_install_is_dropped_at_start(tmp_path, monkeypatch):
+    from eli.core import runtime_settings as rs
+    monkeypatch.setattr(rs, "_STALE_ENV_CHECKED", False)
+    monkeypatch.setenv("ELI_CONFIG_DIR", str(tmp_path / "another-install" / "config"))
+    rs.load_settings()
+    assert "ELI_CONFIG_DIR" not in os.environ

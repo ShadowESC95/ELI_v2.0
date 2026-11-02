@@ -243,7 +243,6 @@ def import_health(modules: list[str] | None = None) -> Dict[str, Any]:
         "eli.cognition.gguf_inference",
         "eli.cognition.orchestrator",
         "eli.cognition.context_synthesiser",
-        "eli.cognition.response_governance",
         "eli.memory.memory_truth",
         "eli.runtime.truth_report",
     ]

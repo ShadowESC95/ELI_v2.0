@@ -55,3 +55,26 @@ def test_the_real_helper_speaks_json():
         pytest.skip("no system interpreter")
     res = u._via_system_python({"op": "probe"})
     assert res is None or isinstance(res, dict) and "available" in res
+
+
+def test_nothing_touches_the_accessibility_bus_without_a_session(monkeypatch):
+    """With no graphical session, or a session bus that is not running, Atspi.init() aborts the whole
+    process (SIGABRT in _atspi_bus): the system-python probe died that way in a test run and the desktop's
+    crash dialog came up. No probe is started then, and the reason says why."""
+    import subprocess
+
+    def _started(*_a, **_k):
+        raise AssertionError("an accessibility probe was started with no session to talk to")
+
+    monkeypatch.setattr(subprocess, "run", _started)
+    monkeypatch.delenv(u._INPROC_ENV, raising=False)
+    monkeypatch.delenv("DISPLAY", raising=False)
+    monkeypatch.delenv("WAYLAND_DISPLAY", raising=False)
+    assert u._via_system_python({"op": "probe"}) is None
+    assert "graphical session" in u._no_accessibility_bus()
+
+    monkeypatch.setenv("DISPLAY", ":0")
+    monkeypatch.setenv("DBUS_SESSION_BUS_ADDRESS", "unix:path=/nonexistent/eli-test/bus")
+    monkeypatch.delenv("AT_SPI_BUS_ADDRESS", raising=False)
+    assert u._via_system_python({"op": "probe"}) is None
+    assert "not running" in u._no_accessibility_bus()

@@ -18,7 +18,7 @@ checkouts.
 | Component | License | Notes |
 |---|---|---|
 | **PySide6** (Qt GUI) | LGPL-3.0 | Canonical Qt binding for packaged ELI |
-| **llama-cpp-python** | MIT | GGUF inference |
+| **llama-cpp-python** | MIT | GGUF inference; built with llama.cpp (MIT) v0.8.0 by `packaging/llama_source.py` |
 | **faiss-cpu** | MIT | Vector memory index |
 | **faster-whisper** | MIT | Local speech-to-text |
 | **piper-tts** / **onnxruntime** | MIT | Local TTS runtime |

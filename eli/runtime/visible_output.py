@@ -62,27 +62,11 @@ def visible_text(
     is_grounded: bool = False,
     evidence: str | None = None,
 ) -> str:
-    raw = _extract_explicit_final("" if text is None else str(text))
-
-    try:
-        from eli.cognition.response_sanitizer import sanitize_assistant_text
-        raw = sanitize_assistant_text(raw)
-    except Exception:
-        pass
-
-    try:
-        from eli.cognition.output_governor import govern_output, normalize_assistant_text
-        raw = normalize_assistant_text(user_input or "", raw)
-        raw = govern_output(raw, is_grounded=is_grounded, evidence=evidence or "")
-    except Exception:
-        pass
-
-    try:
-        from eli.cognition.response_sanitizer import sanitize_assistant_text
-        raw = sanitize_assistant_text(raw)
-    except Exception:
-        pass
-
+    from eli.cognition.output_governor import govern_output, normalize_assistant_text, sanitize_assistant_text
+    raw = sanitize_assistant_text(_extract_explicit_final("" if text is None else str(text)))
+    raw = normalize_assistant_text(user_input or "", raw)
+    raw = govern_output(raw, is_grounded=is_grounded, evidence=evidence or "")
+    raw = sanitize_assistant_text(raw)
     return str(raw or "").strip()
 
 

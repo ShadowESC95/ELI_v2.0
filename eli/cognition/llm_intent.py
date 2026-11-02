@@ -370,7 +370,8 @@ def parse_with_llm(text: str) -> Dict[str, Any]:
                 "meta": {"matched_by": "llm_intent.resolver"}}
     except Exception as e:
         log.debug(f"[LLM_INTENT] resolve failed: {e}")
-        return {"action": "CHAT", "args": {"message": text}, "confidence": 0.5}
+        return {"action": "CHAT", "args": {"message": text}, "confidence": 0.5,
+                "meta": {"matched_by": "llm_intent.failed"}}
 
 
 def parse_cached(text: str) -> Dict[str, Any]:

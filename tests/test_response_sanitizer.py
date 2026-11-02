@@ -1,29 +1,8 @@
-"""Tests for eli.cognition.response_sanitizer — ~220 tests."""
+"""Tests for eli.cognition.output_governor.sanitize_assistant_text — ~220 tests."""
 from __future__ import annotations
 
 import pytest
-from eli.cognition.response_sanitizer import (
-    sanitize_assistant_text,
-    normalize_assistant_text,
-    clean_assistant_text,
-)
-
-# ── Alias tests (all three functions must behave identically) ─────────────
-
-def test_aliases_identical():
-    text = "Hello world"
-    assert sanitize_assistant_text(text) == normalize_assistant_text(text) == clean_assistant_text(text)
-
-
-def test_aliases_on_empty():
-    for fn in (sanitize_assistant_text, normalize_assistant_text, clean_assistant_text):
-        result = fn("")
-        assert result == "..."
-
-def test_aliases_on_none():
-    for fn in (sanitize_assistant_text, normalize_assistant_text, clean_assistant_text):
-        result = fn(None)
-        assert result == "..."
+from eli.cognition.output_governor import sanitize_assistant_text
 
 
 # ── Stage prefix stripping ────────────────────────────────────────────────

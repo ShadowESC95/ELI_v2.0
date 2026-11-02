@@ -17,6 +17,7 @@ def _clean_onboarding_state():
 
 @pytest.fixture
 def db(tmp_path, monkeypatch):
+    monkeypatch.setattr(iv, "_state_file", lambda: tmp_path / "onboarding_state.json")
     p = tmp_path / "user.sqlite3"
     ensure_profile_tables(p)
     # Force a true blank slate: no stored name.

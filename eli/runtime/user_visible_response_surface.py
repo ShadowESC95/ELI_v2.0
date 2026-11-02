@@ -4,6 +4,8 @@ import inspect
 import json
 import re
 from pathlib import Path
+
+from eli.runtime.visible_text import _consume_generator
 from typing import Any
 
 from eli.utils.log import get_logger
@@ -160,29 +162,6 @@ def format_name_source_audit(text: Any = "") -> str:
     )
 
 
-def _consume_generator(gen: Any) -> str:
-    parts: list[str] = []
-    try:
-        for chunk in gen:
-            if chunk is None:
-                continue
-            if isinstance(chunk, str):
-                parts.append(chunk)
-            elif isinstance(chunk, dict):
-                val = (
-                    chunk.get("response")
-                    or chunk.get("content")
-                    or chunk.get("text")
-                    or chunk.get("delta")
-                    or chunk.get("message")
-                )
-                if val:
-                    parts.append(str(val))
-            else:
-                parts.append(str(chunk))
-    except Exception as e:
-        parts.append(f"[stream failed: {type(e).__name__}: {e}]")
-    return "".join(parts).strip()
 
 
 def coerce_user_visible(result: Any, user_input: Any = "", mode: Any = "") -> str:
@@ -327,15 +306,3 @@ def _coerce_streaming_result(result: Any, user_input: Any = "", mode: Any = "") 
     return coerce_user_visible(result, user_input=user_input, mode=mode)
 
 
-def install_engine_response_surface(CognitiveEngine: Any) -> None:
-    """
-    Deprecated no-op.
-
-    The global CognitiveEngine.process response-surface wrapper has been retired.
-    User-visible coercion now belongs at consumer boundaries, using
-    eli.runtime.visible_text.to_user_visible_text().
-
-    This function remains only as a compatibility shim for older imports.
-    It must not mutate CognitiveEngine.process.
-    """
-    return None

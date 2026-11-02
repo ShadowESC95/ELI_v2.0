@@ -648,6 +648,8 @@ def _kg_entity_from_pattern(text: str, ptype: str) -> str:
                       r"creating)\s+(?:the\s+|a\s+|an\s+)?([A-Za-z][\w\-+ ]{1,34})", raw, re.I)
         if m:
             raw = m.group(1)
+        elif re.match(r"[A-Za-z]+ing\b", raw) or raw.count('"') % 2:
+            return ""       # what they were doing (watching, listening): not something they work on
     # For preferences, grab the preference token.
     elif ptype == "preference":
         m = re.search(r"prefers?\s+(in[- ]depth|brief|executable|thorough|detailed|"

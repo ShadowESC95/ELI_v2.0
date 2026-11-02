@@ -143,23 +143,23 @@ def test_persona_values_importable():
 # ── Response sanitizer alignment with persona ────────────────────────────
 
 def test_sanitizer_aligns_with_persona_no_of_course():
-    from eli.cognition.response_sanitizer import sanitize_assistant_text
+    from eli.cognition.output_governor import sanitize_assistant_text
     # If persona says don't use "Of course", sanitizer should strip it
     result = sanitize_assistant_text("Of course, let me help you.")
     assert "Of course" not in result
 
 def test_sanitizer_aligns_with_persona_no_great_question():
-    from eli.cognition.response_sanitizer import sanitize_assistant_text
+    from eli.cognition.output_governor import sanitize_assistant_text
     result = sanitize_assistant_text("Great question! The answer is yes.")
     assert "Great question" not in result
 
 def test_sanitizer_aligns_with_persona_no_short_answer():
-    from eli.cognition.response_sanitizer import sanitize_assistant_text
+    from eli.cognition.output_governor import sanitize_assistant_text
     result = sanitize_assistant_text("Short answer: yes, that's correct.")
     assert "Short answer:" not in result
 
 def test_sanitizer_preserves_dry_tone():
-    from eli.cognition.response_sanitizer import sanitize_assistant_text
+    from eli.cognition.output_governor import sanitize_assistant_text
     text = "Incorrect. The value is 42, not 43."
     result = sanitize_assistant_text(text)
     assert "Incorrect" in result

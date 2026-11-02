@@ -65,7 +65,8 @@ _DATE_ARITHMETIC = re.compile(
 
 def asks_date_arithmetic(text: str) -> bool:
     """"What date is it, and how many days ago was 09-09-2026?" wants more than the date."""
-    return bool(_DATE_ARITHMETIC.search(str(text or "")))
+    from eli.cognition.supplied_in_message import is_date_arithmetic as _counts_from_a_given_date
+    return bool(_DATE_ARITHMETIC.search(str(text or ""))) or _counts_from_a_given_date(text)
 
 
 def _ruled_out(low: str, pos: int) -> bool:
@@ -220,8 +221,15 @@ def _day_cues(low: str, n: datetime, sod: datetime) -> list:
     return out
 
 
+# ELI_V6_DATE_ARITHMETIC_RETRIEVAL_BOUNDARY_V1
+from eli.cognition.supplied_in_message import is_date_arithmetic as is_self_contained_date_arithmetic  # noqa: E402
+
+
 def parse_window(text: str, now: Optional[float] = None) -> Optional[Window]:
     """(start, end) epoch seconds for the period a question refers to, or None if it names none."""
+    # A computation about an ISO date, not an audit of that day's history.
+    if is_self_contained_date_arithmetic(text):
+        return None
     low = _TODAY_IS.sub(" ", str(text or "").lower())
     n = datetime.fromtimestamp(time.time() if now is None else float(now))
     sod = _start_of_day(n)

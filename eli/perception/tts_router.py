@@ -924,12 +924,12 @@ def _eli_tts_visible_text(text) -> str:
     TTS must never read private reasoning scaffolds. Use the central visible
     output contract and return its result directly.
     """
+    from eli.runtime.visible_output import visible_text as _eli_visible_text
     try:
-        from eli.runtime.visible_output import visible_text as _eli_visible_text
         clean = _eli_visible_text(text)
     except Exception:
-        clean = str(text or "").strip()
-
+        log.warning("speech skipped: the text could not be checked", exc_info=True)
+        return ""
     return clean if clean else "..."
 
 

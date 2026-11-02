@@ -171,3 +171,13 @@ def test_the_engine_gives_the_interview_the_router_s_answer():
     source = (Path(__file__).resolve().parents[1] / "eli/kernel/engine.py").read_text(encoding="utf-8")
     call = source[source.index("_ob_intercept(user_input"):][:240]
     assert "route=_route_once" in call, "asked once per turn: routing a message is not free of effects"
+
+
+def test_it_is_offered_once_and_a_question_is_answered_not_met_with_it(interview, monkeypatch):
+    from eli.execution.router_enhanced import route
+    monkeypatch.setattr(I, "_profile_missing", lambda db_path=None: True)
+    assert I.onboarding_intercept("where are the pdfs?", route=route) is None
+    assert "call you" in I.onboarding_intercept("hi there", route=route)
+    assert I.onboarding_intercept("skip", route=route)
+    assert I.onboarding_intercept("hi there", route=route) is None
+    assert I.onboarding_intercept("i know what day it is", route=route) is None

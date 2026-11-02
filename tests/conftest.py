@@ -17,6 +17,14 @@ sys.path.insert(0, str(ROOT))
 for _desktop_var in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_SESSION_TYPE"):
     os.environ.pop(_desktop_var, None)
 os.environ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + str(ROOT / "artifacts" / "_pytest" / "no-session-bus")
+# Nor is a file opened on it: with no display xdg-open still started LibreOffice on a summary and it
+# stayed running after the tests. These launchers do nothing here; a test of one stubs its own.
+_no_launchers = ROOT / "artifacts" / "_pytest" / "no-launchers"
+_no_launchers.mkdir(parents=True, exist_ok=True)
+for _launcher in ("xdg-open", "gio", "gtk-launch", "open"):
+    (_no_launchers / _launcher).write_text("#!/bin/sh\nexit 0\n")
+    (_no_launchers / _launcher).chmod(0o755)
+os.environ["PATH"] = str(_no_launchers) + os.pathsep + os.environ.get("PATH", "")
 # Nor its sound or mixer: the real audio libraries load in tests, so the sound servers are out of
 # reach and ALSA knows only a null device (as on a CI runner, PortAudio then does not start). Nor the internet: a request that is not stubbed fails at once.
 (ROOT / "artifacts" / "_pytest").mkdir(parents=True, exist_ok=True)

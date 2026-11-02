@@ -68,6 +68,7 @@ import json
 import re
 import threading
 import time
+import zlib
 
 # Logger for safety-wrapper suppressed-exception reporting (used before the
 # module's main logger exists; must be defined at the top of the file).
@@ -166,7 +167,9 @@ def get_model_path() -> Optional[Path]:
     from eli.core.paths import resolve_runtime_path
 
     # Strongest override: explicit file path. If explicitly set and missing, do not silently fall back.
+    from eli.core.gguf_sizes import first_part
     env_path = os.environ.get("ELI_GGUF_MODEL_PATH")
+    env_path = str(first_part(env_path)) if env_path else env_path
     if env_path:
         p = resolve_runtime_path(env_path)
         if p.exists():
@@ -420,7 +423,12 @@ def _canonical_eli_persona() -> str:
     except Exception:
         _SWLOG.debug("suppressed exception", exc_info=True)
 
-    return "You are ELI, a local reasoning and automation assistant. Be direct, accurate, grounded, privacy-preserving, and useful."
+    from eli.core.config import DEFAULT_PERSONA
+    return DEFAULT_PERSONA
+
+# A hypothetical answer to search with, or a bare factual one: no persona, no filler.
+FACTUAL_ANSWER_SYSTEM = "You are a knowledge assistant. Write a short factual answer (2-3 sentences, no roleplay, no filler)."
+
 
 def _marker_pattern(marker: str, *, closing: bool) -> str:
     """A reasoning marker as a pattern: a tag-like marker (`<think>`) also matches its attribute
@@ -719,6 +727,12 @@ def is_background_inference() -> bool:
     return bool(getattr(_bg_tls, "background", False))
 
 
+def set_job_inference(flag: bool) -> None:
+    """Mark the CURRENT thread as running a job someone asked for. Daemons skip a round when a
+    conversation is live; a job waits for its turn and runs a call again if a turn cut it short."""
+    _bg_tls.job = bool(flag)
+
+
 def _fg_preempt_enabled() -> bool:
     return os.environ.get("ELI_FG_PREEMPT", "1").strip().lower() not in ("0", "false", "no", "off")
 
@@ -733,7 +747,10 @@ def _should_abort_generation(background: bool) -> bool:
         return True
     if _SHUTDOWN.is_set() and not getattr(_bg_tls, "allow_during_shutdown", False):
         return True
-    return bool(background) and _fg_preempt_enabled() and _FG_PRIORITY.is_set()
+    if bool(background) and _fg_preempt_enabled() and _FG_PRIORITY.is_set():
+        _bg_tls.cut_short = True
+        return True
+    return False
 
 
 def _install_llama_abort_callback(llm) -> None:
@@ -929,17 +946,45 @@ def _requested_and_effective(plan, llm) -> tuple:
     return requested, effective
 
 
+# One load at a time, and a model is only handed out once it is whole. An unload does not wait for a
+# load, which can take minutes and has no way to be stopped: closing the app must not. It counts instead,
+# and a load that finishes behind an unload closes what it made. A job that started a load as the
+# engine shut down used to have its model freed under it (SIGSEGV).
+_LOADING = threading.RLock()
+_HANDING_OVER = threading.Lock()
+_unloads = 0
+
+
 def load_model(force_reload: bool = False, *, request=None):
     """The loaded model, loading it if needed: the configured model, or `request`
     (eli/core/load_plan.Request), with the plan for this machine now (eli/core/load_plan.py)."""
+    global _llm
+
+    if _llm is not None and not force_reload and request is None:
+        return _llm
+    with _LOADING:
+        if _llm is not None and not force_reload and request is None:
+            return _llm
+        if _SHUTDOWN.is_set() and not getattr(_bg_tls, "allow_during_shutdown", False):
+            raise RuntimeError("ELI is shutting down: the model is not being loaded")
+        unloads_before = _unloads
+        llm = _load_model_now(request)
+        with _HANDING_OVER:
+            if _unloads == unloads_before:
+                _llm = llm
+                return llm
+    with _LLM_CALL_LOCK:
+        llm.close()
+    raise RuntimeError("the model was unloaded while it was loading")
+
+
+def _load_model_now(request=None):
+    """A new model, not yet handed to anyone."""
     global _llm, _ELI_EFFECTIVE_RUNTIME_REPORT
 
     import time as _time
     from pathlib import Path as _Path
     from eli.core import load_plan
-
-    if _llm is not None and not force_reload and request is None:
-        return _llm
 
     # Resolve the path before dropping the handle: a reload that can't succeed must not destroy the
     # model that is loaded.
@@ -970,7 +1015,8 @@ def load_model(force_reload: bool = False, *, request=None):
         _ce.retryable = False
         raise _ce
 
-    _llm = None
+    with _HANDING_OVER:
+        _llm = None
 
     # Co-resident vision: the small fast model loads first so the plan below sees the memory it takes.
     if bool(_runtime_value(settings, "vision_coresident", default=False)):
@@ -996,7 +1042,7 @@ def load_model(force_reload: bool = False, *, request=None):
     except Exception:
         log.debug("[GGUF] pre-load RSS capture skipped", exc_info=True)
 
-    _llm, _load_log, plan, req = _build_with_plan(plan, req, model_path)
+    llm, _load_log, plan, req = _build_with_plan(plan, req, model_path)
     try:
         load_plan.watch_headroom(plan)       # what llama.cpp takes on each card from here is measured
     except Exception:
@@ -1022,7 +1068,7 @@ def load_model(force_reload: bool = False, *, request=None):
             log.warning(f"[LOAD_PLAN] other programs are using GPU memory: {_held}. Close them or have "
                         f"them release the GPU, then reload the model to get the rest of your settings.")
 
-    requested, effective = _requested_and_effective(plan, _llm)
+    requested, effective = _requested_and_effective(plan, llm)
     gpu_supported = bool(plan.devices)
     payload = {
         "provider": "gguf",
@@ -1070,15 +1116,15 @@ def load_model(force_reload: bool = False, *, request=None):
     }
     try:
         from eli.runtime.inference_footprint import record_load_memory as _rec_mem
-        payload["live_inference_memory"] = _rec_mem(_llm, pre_load_rss_bytes=_pre_load_rss)
+        payload["live_inference_memory"] = _rec_mem(llm, pre_load_rss_bytes=_pre_load_rss)
     except Exception:
         log.debug("[GGUF] live inference memory record skipped", exc_info=True)
     globals()["_live_runtime_params"] = dict(payload)
     globals()["_last_load_error"] = None
     _ELI_EFFECTIVE_RUNTIME_REPORT = dict(payload)
     _write_shared_runtime_snapshot(payload)
-    _install_llama_abort_callback(_llm)
-    return _llm
+    _install_llama_abort_callback(llm)
+    return llm
 
 
 def _format_prompt(system: Optional[str], user: str, *, think: Optional[bool] = None) -> str:
@@ -1390,6 +1436,43 @@ def _drop_saved_states_for(llm) -> None:
         _SWLOG.debug("suppressed exception", exc_info=True)
 
 
+_RUNAWAY_TOKENS = 512          # how much of a reply is judged at a time
+_RUNAWAY_MIN_CHARS = 1000      # below this nothing can be told
+# measured on real replies at this length: prose 0.5, tables and CSV 0.42, JSON rows 0.27, counting 0.28,
+# 40 near-identical test methods 0.18; a model that had lost the thread settled at 0.14 in every run
+_RUNAWAY_COMPRESSES_TO = 0.15
+
+
+def reads_as_runaway(text: str) -> bool:
+    """A model that will not stop: the same thing over and over, or words with no sentence or line
+    ever ending. A small model on a large context wrote for 40 minutes against a budget of 27,878
+    tokens, and to the person that is a hang."""
+    if len(text) < _RUNAWAY_MIN_CHARS:
+        return False
+    raw = text.encode("utf-8", "replace")
+    return (len(zlib.compress(raw)) / len(raw) < _RUNAWAY_COMPRESSES_TO
+            or not re.search(r"[.!?:;\n。！？；：।]", text))
+
+
+def _runaway_stop(llm):
+    """Read the reply so far every so often, for every call that goes through here, streamed or not."""
+    made = [0]
+
+    def stop(input_ids, _logits) -> bool:
+        made[0] += 1
+        if made[0] < _RUNAWAY_TOKENS or made[0] % (_RUNAWAY_TOKENS // 4):
+            return False
+        text = llm.detokenize([int(t) for t in input_ids[-_RUNAWAY_TOKENS:]]).decode("utf-8", "replace")
+        if not reads_as_runaway(text):
+            return False
+        log.warning("[GGUF] stopped a reply that was not going anywhere, after %d tokens", made[0])
+        from eli.kernel.request_context import note_turn_fact
+        note_turn_fact("reply_ran_away", made[0])
+        return True
+
+    return stop
+
+
 def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, top_k, repeat_penalty, stop, stream, grammar):
     """
     Invoke llama.cpp safely:
@@ -1419,9 +1502,14 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
         # single model the next message needs, and prompt evaluation cannot be interrupted once begun.
         try:
             from eli.cognition.inference_broker import foreground_recently_active
-            if float(os.environ.get("ELI_BG_DEFER_WINDOW", "30")) > 0 and foreground_recently_active(
-                    float(os.environ.get("ELI_BG_DEFER_WINDOW", "30"))):
-                return iter(()) if stream else {"choices": [{"text": ""}]}
+            _defer = float(os.environ.get("ELI_BG_DEFER_WINDOW", "30"))
+            if _defer > 0 and foreground_recently_active(_defer):
+                if not getattr(_bg_tls, "job", False):
+                    return iter(()) if stream else {"choices": [{"text": ""}]}
+                # A job is started by a message, so a conversation is always live when it begins:
+                # told "" here, 17 PDFs were "summarised" in 4 s with a blank summary.
+                while foreground_recently_active(_defer) and not _SHUTDOWN.is_set():
+                    time.sleep(1.0)
         except Exception:
             _SWLOG.debug("background deferral check failed", exc_info=True)
     # Every generation carries a cooperative abort: it yields at the next token when
@@ -1429,6 +1517,9 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
     # background work, when a foreground turn announces priority on the shared lock.
     extra = {}
     _sc = _make_stopping_criteria(bg)
+    # A reply held to a grammar has its own shape, and is left alone.
+    if _sc is not None and grammar is None and hasattr(llm, "detokenize"):
+        _sc.append(_runaway_stop(llm))
     if _sc is not None:
         extra["stopping_criteria"] = _sc
 
@@ -1474,6 +1565,10 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
     _skip_resume = [False]   # set after a KV-slot failure so the retry decodes fresh, not from a reloaded state
 
     def _resume():
+        # Taken from load_model() before this call had the lock, and closed by an unload since: a
+        # native call on it would be on freed memory.
+        if getattr(getattr(llm, "_ctx", None), "ctx", llm) is None:
+            raise RuntimeError("the model was unloaded before this call could run")
         if _skip_resume[0]:
             return
         _how = _resume_from_saved_state(llm, full_prompt, create=not bg)
@@ -2098,7 +2193,18 @@ def _normalize_call_args(*args, **kwargs):
 
 def chat_completion(*args, **kwargs) -> str:
     system_prompt, user_prompt, rest = _normalize_call_args(*args, **kwargs)
-    return _chat_completion_impl(prompt=user_prompt, system=system_prompt, **rest)
+    if not getattr(_bg_tls, "job", False):
+        return _chat_completion_impl(prompt=user_prompt, system=system_prompt, **rest)
+    while True:         # a turn that took the model mid-call leaves part of an answer, not an answer
+        _bg_tls.cut_short = False
+        try:
+            text = _chat_completion_impl(prompt=user_prompt, system=system_prompt, **rest)
+        except Exception:
+            if not getattr(_bg_tls, "cut_short", False) or _SHUTDOWN.is_set():
+                raise
+            continue
+        if not getattr(_bg_tls, "cut_short", False) or _SHUTDOWN.is_set():
+            return text
 
 
 def generate(*args, **kwargs):
@@ -2150,15 +2256,17 @@ def gguf_try_infer(
 
 def unload_model() -> None:
     """Cleanly unload the GGUF model to avoid Llama.__del__ crash on exit."""
-    global _llm, _load_failed, _last_error
+    global _llm, _load_failed, _last_error, _unloads
     with _LLM_CALL_LOCK:
         forget_saved_states()
-        if _llm is not None:
+        with _HANDING_OVER:
+            _unloads += 1
+            closing, _llm = _llm, None
+        if closing is not None:
             try:
-                _llm.close()
+                closing.close()
             except Exception:
                 _SWLOG.debug("suppressed exception", exc_info=True)
-            _llm = None
         _load_failed = False
         _last_error = None
 

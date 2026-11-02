@@ -1,5 +1,7 @@
 """Reading a folder: each PDF into the document index (not personal memory), one summary over all of them,
 the whole result saved as a document, and progress the job can report."""
+from pathlib import Path
+
 import pytest
 
 from eli.runtime import folder_analysis as fa
@@ -88,3 +90,55 @@ def test_installed_software_in_the_folder_is_not_read_as_documents(tmp_path):
     (tmp_path / ".cache" / "old.pdf").write_bytes(b"x")
     (tmp_path / "notes.txt").write_text("x")
     assert [p.name for p in document_files(tmp_path)] == ["thesis.pdf"]
+
+
+def _two_folders(tmp_path, monkeypatch, reply):
+    from eli.runtime import folder_analysis as fa
+    made = []
+    for name in ("one", "two"):
+        d = tmp_path / name
+        d.mkdir()
+        made.append(str(d))
+
+    class _Index:
+        def add(self, path, **kw):
+            return {"ok": True, "doc_id": str(path)}
+
+        def outline(self, doc_id, share):
+            return {"title": Path(doc_id).name, "path": doc_id, "pages": 1, "chars": 3000, "opening": ("w " * 1500)[:share]}
+
+        def note(self, *a, **k):
+            pass
+
+    seen = []
+
+    def call(text, tokens):
+        seen.append(text)
+        return reply
+
+    monkeypatch.setattr(fa, "_model", lambda: (call, 100000))
+    monkeypatch.setattr("eli.memory.document_index.get_document_index", lambda: _Index())
+    monkeypatch.setattr("eli.memory.document_index.document_files",
+                        lambda root, *a: [Path(root) / "paper.pdf"])
+    monkeypatch.setattr("eli.runtime.rich_document.write_document", lambda md, path, title="": path)
+    return fa, made, seen
+
+
+def test_several_folders_are_one_piece_of_work(tmp_path, monkeypatch):
+    fa, made, _ = _two_folders(tmp_path, monkeypatch, "What they cover.")
+    out = fa.analyse(made)
+    assert out["ok"] and out["count"] == 2 and "one/paper.pdf" in out["content"] and "two/paper.pdf" in out["content"]
+
+
+def test_reading_into_the_index_is_not_analysing(tmp_path, monkeypatch):
+    fa, made, _ = _two_folders(tmp_path, monkeypatch, "")
+    out = fa.analyse(made)
+    assert out["ok"] is False and out["summarised"] is False and out["indexed"] == 2
+    assert "## Summary" not in out["content"] and "nothing has been analysed" in out["content"]
+
+
+def test_asked_to_analyse_the_whole_text_is_read(tmp_path, monkeypatch):
+    fa, made, seen = _two_folders(tmp_path, monkeypatch, "Claim and method.")
+    out = fa.analyse(made, whole=True)
+    assert out["ok"] and "read in full" in out["content"] and "## Analysis" in out["content"]
+    assert sum(t.count("w ") for t in seen) >= 2 * 1400     # all of both, not their openings

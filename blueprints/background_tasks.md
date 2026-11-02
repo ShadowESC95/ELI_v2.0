@@ -32,6 +32,22 @@ runs live in-process Python work (agent runs) for the session.
   `queued → running → done/failed/cancelled`, result, error, elapsed, note.
 - `get(id)`, `list()`, `cancel(id)` (best-effort), `wait(id)`, `stats()`.
 - Singleton `get_background_tasks()`; thread-safe.
+- **What a job's status means.** A handler that returns `ok: False` failed, whatever the thread did;
+  `skipped` is not a failure. `elapsed` counts from the start, so a job waiting for its time reads 0.
+- **The record outlives the session.** Jobs are kept in `data_dir/runtime/background_jobs.json` for
+  30 days; numbers carry on, and a job that was queued or running when ELI closed loads as
+  `interrupted`: reported, not resumed. `work_lines` and `work_block` read it for job questions and
+  for any message about files, folders, jobs or progress (`eli/runtime/live_reads.py`), so the model
+  answers from the record, and `work_targets` is what "the rest" or "them" refers to.
+- **Jobs are the person's.** ELI's own housekeeping (kind `housekeeping`) stays out of `list()`, so "did
+  the job finish?" is never answered about one; the Tasks tab asks for it. Sizes and windows are the
+  `cog.jobs_*` tunables. Asked what a job found, the model reads its report (`latest_report`).
+- **When a job ends** (`add_listener`). A failed one goes on the failure record self-analysis reads
+  (`_record_failed_job`); one someone asked for reaches them by desktop notification and the proactive
+  queue (`_tell_the_person`). What goes wrong after a job is kept on the job, `meta.after_job_error`.
+- **Model calls from a job.** Daemons get an empty reply while a person is talking
+  (`ELI_BG_DEFER_WINDOW`). A job is started by a turn, so that blanked every job: it now waits, and
+  re-runs a call that a turn cut short (`gguf_inference.set_job_inference`).
 
 ### When ELI backgrounds a task (`eli/coding/cost.py`)
 

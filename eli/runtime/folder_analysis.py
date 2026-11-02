@@ -32,6 +32,16 @@ _JOIN_ASK = ("Below are {n} summaries, each of a share of the {docs} documents i
              "documents relate. Use only what the summaries say, and do not mention the summaries or how the "
              "folder was split. Write formulas in LaTeX between $ signs. Keep it within about {words} words, so it "
              "ends complete.\n\n")
+# Asked to analyse, the whole text is read, piece by piece, instead of each document's opening.
+_READ_ASK = ("Below is part of the text of the documents in “{folder}”{part}. Note what it establishes: claims, "
+             "methods and formalism, equations and results, and anything that sits badly with another part. Be "
+             "specific and grounded ONLY in the text shown; do not invent results. Write formulas in LaTeX between "
+             "$ signs. Keep it within about {words} words, so it ends complete.\n\n")
+_WEIGH_ASK = ("Below are {n} sets of notes on the {docs} documents in “{folder}”. Write one analysis of the whole: "
+              "the central claims and the methods behind them, how the documents build on or disagree with each "
+              "other, and what is left open. Use only what the notes say, and do not mention the notes or how the "
+              "documents were split. Write formulas in LaTeX between $ signs. Keep it within about {words} words, "
+              "so it ends complete.\n\n")
 _FILE_ASK = ("Summarise this single research document titled “{name}”. Cover: (1) the central topic/claim, "
              "(2) the methods/formalism used, (3) key findings or conclusions, and (4) any notable equations "
              "or results named in the text. Be specific and grounded ONLY in the text below; do not invent "
@@ -102,31 +112,48 @@ def _pack(items: List[str], limit: int) -> List[List[str]]:
     return parts
 
 
-def _summary(openings: List[str], folder: str, call, room: int, report) -> str:
+def _summary(openings: List[str], folder: str, call, room: int, report, *, docs: int = 0,
+             stage: str = "summarising", part_ask: str = _PART_ASK, join_ask: str = _JOIN_ASK) -> str:
     """One summary over every document: in parts of what a call can read, then the parts joined."""
-    parts = _pack(openings, max(1, room - len(_PART_ASK)))
+    docs = docs or len(openings)
+    parts = _pack(openings, max(1, room - len(part_ask)))
     notes = []
     for i, part in enumerate(parts, 1):
-        report(i - 1, len(parts), "summarising")
+        report(i - 1, len(parts), stage)
         where = f" (part {i} of {len(parts)})" if len(parts) > 1 else ""
         text = "\n\n".join(part)
-        notes.append(call(_PART_ASK.format(n=len(part), folder=folder, part=where,
-                                           words=_words(SUMMARY_TOKENS, text)) + text, SUMMARY_TOKENS))
-    report(len(parts), len(parts), "summarising")
+        notes.append(call(part_ask.format(n=len(part), folder=folder, part=where,
+                                          words=_words(SUMMARY_TOKENS, text)) + text, SUMMARY_TOKENS))
+    report(len(parts), len(parts), stage)
+    notes = [n for n in notes if str(n or "").strip()]
     while len(notes) > 1:
-        groups = _pack(notes, max(1, room - len(_JOIN_ASK)))
+        groups = _pack(notes, max(1, room - len(join_ask)))
         if len(groups) == len(notes):
             break       # each summary alone fills a call: nothing left to join
-        notes = [call(_JOIN_ASK.format(n=len(g), folder=folder, docs=len(openings),
-                                       words=_words(SUMMARY_TOKENS, "\n\n".join(g))) + "\n\n---\n\n".join(g),
+        notes = [call(join_ask.format(n=len(g), folder=folder, docs=docs,
+                                      words=_words(SUMMARY_TOKENS, "\n\n".join(g))) + "\n\n---\n\n".join(g),
                       SUMMARY_TOKENS) for g in groups]
     return "\n\n".join(notes)
 
 
+def _pieces(title: str, text: str, limit: int) -> List[str]:
+    """A document's whole text in pieces one call can read, each saying whose it is."""
+    size = max(1, limit - len(title) - len("### \n"))
+    return [f"### {title}\n{text[i:i + size]}" for i in range(0, len(text), size)]
+
+
+def _named(folder: Any) -> List[Path]:
+    """One folder or file, or several: four folders named in one message are one piece of work."""
+    many = folder if isinstance(folder, (list, tuple)) else [folder]
+    return [Path(str(f)).expanduser() for f in many if str(f or "").strip()]
+
+
 def analyse(folder: Any, *, recursive: bool = True, limit: Optional[int] = None, per_file: bool = False,
-            user_id: str = "", fmt: str = "pdf",
+            user_id: str = "", fmt: str = "pdf", whole: bool = False,
             progress: Optional[Callable[[int, int, str], None]] = None) -> Dict[str, Any]:
-    """`progress` defaults to the background job this runs in (its "check job" answer and ETA)."""
+    """`folder` is one path or several. `whole`: read all of every document and weigh them against
+    each other, not the opening of each. `progress` defaults to the background job this runs in (its
+    "check job" answer and ETA)."""
     from eli.memory.document_index import _PASSAGE_CHARS, document_files, get_document_index
     from eli.runtime.background_tasks import report as job_report
     from eli.runtime.rich_document import write_document
@@ -137,22 +164,28 @@ def analyse(folder: Any, *, recursive: bool = True, limit: Optional[int] = None,
         except Exception:
             log.debug("progress report failed", exc_info=True)
 
-    root = Path(str(folder)).expanduser()
-    name = root.name or str(root)
+    roots = _named(folder)
+    name = (roots[0].name or str(roots[0])) if len(roots) == 1 else f"{len(roots)} folders"
 
     def shown(path) -> str:
         """Where a file sits in the folder: three subfolders each held a symbolism_interpretation.pdf."""
-        try:
-            return Path(path).resolve().relative_to(root.resolve()).as_posix()
-        except (ValueError, OSError):
-            return Path(path).name
+        for root in roots:
+            try:
+                inside = Path(path).resolve().relative_to(root.resolve()).as_posix()
+            except (ValueError, OSError):
+                continue
+            return f"{root.name}/{inside}" if len(roots) > 1 else inside
+        return Path(path).name
 
-    files = document_files(root, (".pdf",), recursive)
+    files = list(dict.fromkeys(f for root in roots
+                               for f in ([root] if root.is_file() else document_files(root, (".pdf",), recursive))))
     if limit:
         files = files[: int(limit)]
     call, room = _model()
     # every document's opening gets an equal share of one call, and at least one whole passage
     share = max(_PASSAGE_CHARS, PART_CHARS // max(1, len(files))) if not per_file else max(_PASSAGE_CHARS, room)
+    if whole and not per_file:
+        share = sum(f.stat().st_size for f in files if f.exists()) or share  # no text is longer than all the files
     index = get_document_index()
     docs: List[Dict[str, Any]] = []
     unreadable: List[tuple] = []
@@ -189,17 +222,31 @@ def analyse(folder: Any, *, recursive: bool = True, limit: Optional[int] = None,
                           + (text or "(No model loaded: no summary.)"))
         report(len(docs), len(docs), "summarising")
         summary = "\n\n".join(blocks)
-    elif call and docs:
+    elif call and whole:
+        summary = _summary([p for d in docs for p in _pieces(d["title"], d["opening"], PART_CHARS - len(_READ_ASK))],
+                           name, call, PART_CHARS, report, docs=len(docs), stage="analysing",
+                           part_ask=_READ_ASK, join_ask=_WEIGH_ASK)
+    elif call:
         summary = _summary([f"### {d['title']}\n{d['opening']}" for d in docs], name, call, PART_CHARS, report)
     else:
-        summary = "No model is loaded, so there is no summary; the documents are in the index."
+        return {"ok": False, "count": len(docs), "indexed": len(docs), "summarised": False,
+                "unreadable": [n for n, _ in unreadable], "error": "no model is loaded",
+                "content": f"{len(docs)} of {len(files)} documents went into the index, but no model is loaded, "
+                           "so nothing has been analysed yet."}
+    if not summary.strip():
+        # Reading into the index is not analysing: this said "done" over an empty heading.
+        return {"ok": False, "count": len(docs), "indexed": len(docs), "summarised": False,
+                "unreadable": [n for n, _ in unreadable], "error": "the model returned nothing",
+                "content": f"{len(docs)} of {len(files)} documents went into the index, but the model returned "
+                           "nothing for them, so nothing has been analysed yet."}
 
     when = time.strftime("%d %B %Y")
     rows = "\n".join(f"| {i} | {shown(d['path']).replace('|', '/')} | {d['pages'] or ''} | {d['chars']:,} |"
                      for i, d in enumerate(docs, 1))
-    md = (f"{len(docs)} of {len(files)} documents read on {when}"
+    read_as = "read in full" if whole or per_file else "indexed, and summarised from the opening of each,"
+    md = (f"{len(docs)} of {len(files)} documents {read_as} on {when}"
           + (f"; {len(unreadable)} could not be read." if unreadable else ".")
-          + f"\n\n## {'Summaries' if per_file else 'Summary'}\n\n{summary}\n\n"
+          + f"\n\n## {'Summaries' if per_file else 'Analysis' if whole else 'Summary'}\n\n{summary}\n\n"
           + f"## Documents\n\n| # | Document | Pages | Characters |\n|---|---|---|---|\n{rows}\n")
     if unreadable:
         md += "\n## Could not be read\n\n" + "\n".join(f"- {n}: {why}" for n, why in unreadable) + "\n"
@@ -217,5 +264,6 @@ def analyse(folder: Any, *, recursive: bool = True, limit: Optional[int] = None,
     if index is not None:
         for d in docs:          # meaning search: embedded by the index's worker, which yields to chat
             index.note(d["path"], user_id=user_id, source="folder analysis")
-    return {"ok": True, "count": len(docs), "unreadable": [n for n, _ in unreadable], "document_path": str(path or ""),
+    return {"ok": True, "count": len(docs), "indexed": len(docs), "summarised": True,
+            "unreadable": [n for n, _ in unreadable], "document_path": str(path or ""),
             "content": md + (f"\nSaved as {path}" if path else ""), "title": title, "markdown": md}

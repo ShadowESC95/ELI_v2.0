@@ -72,6 +72,19 @@ _ALSO_STARTS = "call|delete|describe|forget|give|improve|look|remember|save|stor
 _COMMAND_START = re.compile(r"^\s*(" + _SPLIT_VERBS + "|" + _ALSO_STARTS + r")\b", re.I)
 COMMAND_VERBS = tuple(sorted({v for v in (_SPLIT_VERBS + "|" + _ALSO_STARTS).split("|") if " " not in v}))
 
+# "write a module with insert, delete and search", "a parser that can read and write csv": verbs in a
+# list inside what is being asked for, not instructions of their own. Run together, a sentence goes to
+# the router whole; divided wrongly, each half is carried out.
+_INSIDE_A_PHRASE = r"\b(?:with|that|which|to|can|could|using|supporting|implementing|including)\s+(?:[\w-]+,\s*)*"
+_ENDS_ON_A_LISTED_VERB = re.compile(_INSIDE_A_PHRASE + r"(?:" + _SPLIT_VERBS + "|" + _ALSO_STARTS + r")\s*$", re.I)
+_ENDS_ON_A_LISTED_WORD = re.compile(_INSIDE_A_PHRASE + r"[\w-]+\s*$", re.I)
+_LISTED_VERB_GOES_ON = re.compile(r"^\s*(?:" + _SPLIT_VERBS + "|" + _ALSO_STARTS + r")\s*(?:,|and\b)", re.I)
+
+
+def _same_list(before: str, after: str) -> bool:
+    return bool(_ENDS_ON_A_LISTED_VERB.search(before)
+                or (_ENDS_ON_A_LISTED_WORD.search(before) and _LISTED_VERB_GOES_ON.match(after)))
+
 
 def _trim_trailing_chatter(seg: str) -> str:
     """Drop a conversational sentence fused onto the end of a command segment, e.g.
@@ -99,7 +112,12 @@ def split_commands(text: str, *, max_parts: int = 5) -> Optional[List[str]]:
         return None
     if not _IMP_START.search(t):
         return None
-    parts = [p.strip(" ,.") for p in _CONJ_RX.split(t) if p.strip(" ,.")]
+    parts, start = [], 0
+    for brk in _CONJ_RX.finditer(t):
+        if not _same_list(t[start:brk.start()], t[brk.end():]):
+            parts.append(t[start:brk.start()])
+            start = brk.end()
+    parts = [p.strip(" ,.") for p in parts + [t[start:]] if p.strip(" ,.")]
     if not (2 <= len(parts) <= max_parts):
         return None
     if not all(_IMP_START.search(p) for p in parts):
@@ -191,7 +209,8 @@ def _instructions_in(sentence: str) -> List[str]:
         # both sides must be instructions: "so, you can see my screen?" is one question, not "so" and
         # a request
         if (brk.start() > start and _starts_instruction(sentence[brk.end():])
-                and _starts_instruction(sentence[start:brk.start()])):
+                and _starts_instruction(sentence[start:brk.start()])
+                and not _same_list(sentence[start:brk.start()], sentence[brk.end():])):
             parts.append(sentence[start:brk.start()])
             start = brk.end()
     parts.append(sentence[start:])
@@ -228,6 +247,29 @@ _ASKS_ELI = re.compile(
 def is_request(sentence: str) -> bool:
     """Whether the sentence asks ELI for something by its frame: "could you ...", "i'd like you to ..."."""
     return bool(_ASKS_ELI.match(_LEAD.sub("", str(sentence or "").strip(), count=1)))
+
+
+# Someone saying something, by how it starts: "i know what day it is", "you can see what i'm watching".
+_SAYS = re.compile(r"^(?:i|i'm|i've|i'll|we|we're|you|you're|he|she|they|they're|it|it's|that|that's|there|there's|"
+                   r"this|don't|dont|do not)\b", re.I)
+_SAYS_WHAT_THEY_WANT = re.compile(
+    r"^(?:i|we)\s+(?:want|need|wonder|would\s+like|'d\s+like)\b|^i'd\s+like\b|^you\s+tell\b"
+    r"|^(?:i\s+am|i'?m|we\s+are|we'?re)\s+(?:looking\s+for|after|trying\s+to\s+(?:find|get|see))\b"
+    # the same question again, "i said the day and time"; not "i said it's raining"
+    r"|^i\s+(?:said|asked|meant)\b(?!\s+(?:i|i'm|we|you|you're|he|she|they|it|it's|that)\b)", re.I)
+
+
+def says_rather_than_asks(text: str) -> bool:
+    """A message that states something and asks for nothing: no question in it, no instruction, and
+    every sentence opens on who or what it is about. A word in it is not a request for that thing."""
+    said = str(text or "").strip()
+    if not said or "?" in said:
+        return False
+    for sentence in sentences(said):
+        rest = _LEAD.sub("", sentence, count=1)
+        if instruction(sentence) or is_request(sentence) or _SAYS_WHAT_THEY_WANT.match(rest) or not _SAYS.match(rest):
+            return False
+    return True
 
 
 def instruction(sentence: str) -> str:
@@ -280,7 +322,7 @@ def without_correction_lead(text: str) -> str:
 
 # The closed class of words that complete a command after its verb or noun: "volume down", "turn it
 # off", "skip back".
-_COMPLETERS = ("up", "down", "on", "off", "in", "out", "back", "forward", "next", "previous", "louder", "quieter",
+COMPLETERS = ("up", "down", "on", "off", "in", "out", "back", "forward", "next", "previous", "louder", "quieter",
                "higher", "lower", "more", "less", "again", "all", "full", "half")
 
 
@@ -289,7 +331,7 @@ def _command_words() -> frozenset:
     example phrases (eli/tools/registry/capabilities_doc.py), and the completers."""
     global _COMMAND_WORDS
     if _COMMAND_WORDS is None:
-        words = set(COMMAND_VERBS) | set(_COMPLETERS)
+        words = set(COMMAND_VERBS) | set(COMPLETERS)
         try:
             from eli.tools.registry.capabilities_doc import _C
             for action, (_cat, _desc, phrases) in _C.items():

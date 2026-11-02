@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import pytest
-from eli.cognition.response_sanitizer import sanitize_assistant_text as san
+from eli.cognition.output_governor import sanitize_assistant_text as san
 
 # ── 100 varied filler+content combinations ────────────────────────────────
 

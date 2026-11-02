@@ -206,6 +206,29 @@ def glm_filename_hint(path: str) -> bool:
         return any(x in name for x in ("glm-", "glm_", "chatglm", "glm4", "glm-4", "glm."))
 
 
+_LOADED_MODEL_TOKENS: Tuple[str, ...] = ()
+_CONTROL_ATTR = 1 << 3      # llama.cpp's LLAMA_TOKEN_ATTR_CONTROL
+
+
+def learn_control_tokens(llm) -> None:
+    """The loaded model's own control tokens, read from its vocabulary. The lists above can only hold
+    the families that existed when they were written; these keep a new family's scaffolding out of
+    the reply too."""
+    global _LOADED_MODEL_TOKENS
+    found = set()
+    model = getattr(llm, "_model", None)
+    if model is None or not hasattr(model, "token_get_attr"):
+        _LOADED_MODEL_TOKENS = ()
+        return
+    for token in range(int(llm.n_vocab())):
+        if int(model.token_get_attr(token)) & _CONTROL_ATTR:
+            text = model.token_get_text(token)
+            text = text.decode("utf-8", "replace") if isinstance(text, bytes) else str(text or "")
+            if len(text) > 2 and not text[0].isalnum():     # a marker, never a word
+                found.add(text)
+    _LOADED_MODEL_TOKENS = tuple(sorted(found, key=len, reverse=True))
+
+
 def strip_special_tokens(text: str, *, strip_edges: bool = True) -> str:
     """Remove chat-template scaffolding from model output (all families).
 
@@ -216,6 +239,9 @@ def strip_special_tokens(text: str, *, strip_edges: bool = True) -> str:
     t = str(text or "")
     if not t:
         return ""
+    for token in _LOADED_MODEL_TOKENS:
+        if token in t:
+            t = t.replace(token, "")
     # Multimodal / thinking channel leaks: keep only content BEFORE the first
     # hard-cut marker so a flood of `<image|>` never reaches the chat UI.
     cut_at = -1

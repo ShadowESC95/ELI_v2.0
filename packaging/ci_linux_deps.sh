@@ -26,10 +26,8 @@ pip install -r requirements-build.txt
 pip install torch torchaudio --index-url https://download.pytorch.org/whl/cpu
 # an extra that pins its own torch version gets the CPU build of that version too
 export PIP_EXTRA_INDEX_URL=https://download.pytorch.org/whl/cpu
+pip install "$(python packaging/llama_source.py)"
 pip install ".[$(echo $REQUIRED_EXTRAS | tr ' ' ',')]"
-pip install llama-cpp-python --prefer-binary \
-  --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu \
-  || pip install llama-cpp-python
 for extra in $OPTIONAL_EXTRAS; do
   pip install ".[$extra]" \
     || echo "::warning::optional extra '$extra' has no installable wheels on linux — shipped build degrades cleanly without it"

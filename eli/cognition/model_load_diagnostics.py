@@ -480,6 +480,8 @@ def not_a_chat_model(model_path, arch: Optional[str] = None, metadata: Optional[
     md = metadata if metadata is not None else (gguf_metadata(model_path) or {})
     if arch == "clip" or any(str(k).startswith("clip.") for k in md):
         return "a vision projector, used beside its language model"
+    if md and not any(str(k).startswith("tokenizer.") for k in md):
+        return "not a language model: it has no tokenizer (an image, video or audio model)"
     try:
         if int(md.get(f"{arch}.pooling_type") or 0) > 0:
             return "an embedding model"
@@ -629,6 +631,10 @@ def explain_load_failure(exc: BaseException, log_lines, model_path,
     low = text.lower()
     name = Path(str(model_path)).name
     arch = gguf_architecture(model_path) or "unknown"
+    from eli.core.gguf_sizes import missing_parts, model_parts
+    absent = missing_parts(model_path)
+    if absent and len(model_parts(model_path)) > 1:
+        return f"{name} is split into parts and these are missing beside it: {', '.join(absent)}. Download them to the same folder."
 
     # The precise llama.cpp line, if it emitted one.
     detail = ""

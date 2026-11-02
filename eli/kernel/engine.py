@@ -73,7 +73,7 @@ def _eli_test_mode() -> bool:
 
 # Response governance (coverage patch)
 try:
-    from eli.cognition.response_governance import normalize_response, should_store_as_memory
+    from eli.cognition.output_governor import clean_gguf_artifacts as normalize_response, should_store_as_memory
     _HAS_GOVERNANCE = True
 except ImportError:
     _HAS_GOVERNANCE = False
@@ -229,6 +229,46 @@ _LIVE_STATE_ACTIONS = frozenset({
 def _is_live_state_action(a: str) -> bool:
     """True when the action answers by reading real live state. Never downgradeable."""
     return a in _LIVE_STATE_ACTIONS or a.endswith(_LIVE_STATE_ACTION_SUFFIXES)
+
+
+def _plain_artifact_reply(result):
+    """The executor's record of a file it made is for code, and was shown to the person as it stood:
+    {"event": "artifact_generated", "kind": "script", ...}. The record stays on the result."""
+    if not isinstance(result, dict):
+        return result
+    text = str(result.get("response") or result.get("content") or "").strip()
+    if not text.startswith("{") or '"artifact_generated"' not in text:
+        return result
+    try:
+        info = json.loads(text)
+    except ValueError:
+        return result
+    kind = str(info.get("kind") or "file").replace("_", " ")
+    said = f"Saved the {kind} as {info.get('path') or info.get('filename') or 'a file'}."
+    if info.get("verified") or info.get("solved"):
+        said += " It ran and passed its checks."
+    return dict(result, content=said, response=said, artifact=info)
+
+
+def _held_to_requested_format(user_input: str, reply: str, trace: Any) -> str:
+    """"YES or NO only", "YYYY-MM-DD only" and the like, when the reply already holds that answer."""
+    from eli.cognition.explicit_output_contract import enforce_explicit_output_contract
+    held, kind = enforce_explicit_output_contract(user_input, reply)
+    if kind and held != reply and isinstance(trace, dict):
+        trace["explicit_output_contract"] = {"kind": kind, "changed": True}
+    return held if kind else reply
+
+
+def _told_to_do_it(text) -> bool:
+    """Grounding says how well memory backs an answer. An instruction has nothing to be backed by
+    until it has run: "do the pdfs!!!" was read rightly as the folder analysis and then turned into
+    chat for want of evidence, and the model wrote "Processing the remaining 29 PDFs now"."""
+    try:
+        from eli.runtime.command_splitter import tells_eli_to_do
+        return bool(tells_eli_to_do(text))
+    except Exception:
+        logging.getLogger(__name__).debug("suppressed exception", exc_info=True)
+        return False
 
 
 def _is_soft_informational_action(action) -> bool:
@@ -582,20 +622,7 @@ def _strip_reasoning_scaffold(text: str) -> str:
     return t
 
 
-def _strip_special_tokens(text: str) -> str:
-    try:
-        from eli.cognition.model_output_tokens import strip_special_tokens as _strip_all
-        return _strip_all(text)
-    except Exception:
-        t = text or ""
-        for tok in ("[INST]", "[/INST]", "<s>", "</s>",
-                    "<|im_start|>", "<|im_end|>", "<|endoftext|>",
-                    "<|end_of_turn|>", "<end_of_turn>", "<start_of_turn>", "</start_of_turn>"):
-            t = t.replace(tok, "")
-        t = re.sub(r"<\|end_of_turn\|>", "", t, flags=re.I)
-        t = re.sub(r"</?start_of_turn>", "", t, flags=re.I)
-        t = re.sub(r"^(?:system|user|assistant)\n", "", t, flags=re.I)
-        return t.strip()
+from eli.cognition.model_output_tokens import strip_special_tokens as _strip_special_tokens
 
 
 _ELI_MAX_INPUT_LEN = int(__import__("os").environ.get("ELI_MAX_INPUT_LEN", "8192"))
@@ -4179,6 +4206,7 @@ _REPEAT_HEAD_CHARS = 200      # buffered before first paint — see the streamin
 # not grow into the largest thing under artifacts/.
 _TRACE_TEXT_CHARS = 1200
 _REPEAT_RATIO = 0.86          # difflib ratio over normalised text
+_REPEAT_TERM_OVERLAP = 0.82   # share of a whole reply's terms already in an earlier one
 _REPEAT_COMPARE_AGAINST = 4   # how many recent ELI turns to test
 _REPEAT_RETRY_TEMP_BUMP = 0.35  # widen sampling on the retry — see the retry path
 
@@ -4395,7 +4423,7 @@ def _opening_stem(text: str) -> str:
 
 
 def _is_repeat_of_recent(candidate: str, prior_replies, *,
-                         ratio: float = _REPEAT_RATIO) -> bool:
+                         ratio: float = _REPEAT_RATIO, whole_reply: bool = False) -> bool:
     """True when `candidate` restates something ELI already said.
 
     Compared head-to-head over the same number of characters: a reply that opens
@@ -4452,6 +4480,20 @@ def _is_repeat_of_recent(candidate: str, prior_replies, *,
         restated = sum(1 for line in lines if _sentence_seen_before(line, prior_sents, partial=False))
         if restated >= _REPEAT_MIN_RESTATED and 2 * restated >= len(lines):
             return True
+
+    # Two more that only a whole reply can show (an opening shares its terms with anything): the
+    # same terms reworded, and a long run lifted from the last reply with a cosmetic prefix on it.
+    if whole_reply:
+        from eli.cognition.scoring import term_overlap
+        low = cand.lower()
+        for prior in list(prior_replies or [])[:_REPEAT_COMPARE_AGAINST]:
+            p = str(prior or "").strip()
+            if len(p) < 40:
+                continue
+            plow = p.lower()
+            run = difflib.SequenceMatcher(None, low, plow, autojunk=False).find_longest_match(0, len(low), 0, len(plow))
+            if term_overlap(cand, p) >= _REPEAT_TERM_OVERLAP or run.size >= max(40, len(plow) // 2):
+                return True
     return False
 
 
@@ -6382,10 +6424,10 @@ Answer:"""
 
                                 def _quick_infer(p: str) -> str:
                                     try:
-                                        from eli.cognition.gguf_inference import gguf_try_infer
+                                        from eli.cognition.gguf_inference import FACTUAL_ANSWER_SYSTEM, gguf_try_infer
                                         _hyp = gguf_try_infer(
                                             p,
-                                            system="You are a knowledge assistant. Write a short factual answer (2-3 sentences, no roleplay, no filler).",
+                                            system=FACTUAL_ANSWER_SYSTEM,
                                             max_tokens=96,
                                             temperature=0.4,
                                             lock_timeout=2.0,
@@ -6459,7 +6501,6 @@ Answer:"""
                     # because the model was told it was knowledge to report. Drop any recalled memory that ELI
                     # said; the user's own words stay.
                     try:
-                        from eli.cognition.output_governor import is_echo_of_recent
                         _own = []
                         for _t in (self.memory.get_recent_conversation(limit=30) or []):
                             if str((_t or {}).get("role", "")).lower() in ("assistant", "eli"):
@@ -6468,7 +6509,8 @@ Answer:"""
                                     _own.append(_c)
                         if _own and mem_results:
                             _kept = [m for m in mem_results
-                                     if not is_echo_of_recent(str(m.get("text") or ""), _own)]
+                                     if not _is_repeat_of_recent(str(m.get("text") or ""), _own[::-1],
+                                                                 whole_reply=True)]
                             if len(_kept) != len(mem_results):
                                 log.debug(f"[MEMORY] dropped {len(mem_results) - len(_kept)} "
                                           "recalled memories that were ELI's own replies")
@@ -7410,13 +7452,6 @@ Answer:"""
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
 
-        try:
-            _mode_contract = dict(getattr(self, "_last_mode_execution_contract", {}) or {})
-            if _mode_contract:
-                self._maybe_apply_mode_runtime_adaptation(reasoning_mode, _mode_contract)
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
         if self._gguf_available:
             try:
                 if gguf_inference is None:
@@ -7734,12 +7769,6 @@ Answer:"""
                 self._gguf_load_error = None
         if self._gguf_available and gguf_inference is not None:
             try:
-                try:
-                    _mode_contract = dict(getattr(self, "_last_mode_execution_contract", {}) or {})
-                    if _mode_contract:
-                        self._maybe_apply_mode_runtime_adaptation(reasoning_mode, _mode_contract)
-                except Exception:
-                    log.debug("suppressed exception", exc_info=True)
                 # Context size guard (same logic as the non-streaming path). Use the model's real usable
                 # ceiling (min of loaded n_ctx and n_ctx_train), not the config default: a model trained on less
                 # than the requested ctx must be sized to its trained length or the prompt overflows. Config
@@ -8972,71 +9001,6 @@ Answer:"""
         overrides["max_tokens"] = min(2200, max(768, base_max))
         return overrides
 
-    def _maybe_apply_mode_runtime_adaptation(self, reasoning_mode: Optional[str], mode_contract: Dict[str, Any]) -> None:
-        """
-        Apply non-quick runtime pressure adaptation when the mode contract
-        recommends a reload (lower batch / lower GPU layers for VRAM headroom).
-        """
-        if not isinstance(mode_contract, dict):
-            return
-        mode = str(mode_contract.get("mode") or reasoning_mode or "quick").strip().lower() or "quick"
-        if mode == "quick":
-            return
-        runtime = dict(mode_contract.get("runtime") or {})
-        if not runtime.get("reload_recommended"):
-            return
-        if gguf_inference is None or not bool(getattr(self, "_gguf_available", False)):
-            return
-
-        now_ts = time.time()
-        last_ts = float(getattr(self, "_last_runtime_retune_ts", 0.0) or 0.0)
-        # Cooldown to avoid thrashing across turns.
-        if (now_ts - last_ts) < 45.0:
-            return
-
-        target_ctx = int(runtime.get("target_n_ctx") or runtime.get("n_ctx") or 0)
-        target_batch = int(runtime.get("target_n_batch") or runtime.get("n_batch") or 0)
-        target_gpu = int(runtime.get("target_n_gpu_layers") or runtime.get("n_gpu_layers") or 0)
-        if target_ctx <= 0 or target_batch <= 0 or target_gpu < 0:
-            return
-
-        live = self._live_runtime_snapshot()
-        live_ctx = int(live.get("n_ctx") or 0)
-        live_batch = int(live.get("batch") or 0)
-        live_gpu = int(live.get("gpu_layers") or 0)
-
-        # Reload only when a meaningful runtime shift is requested.
-        if (
-            target_ctx == live_ctx
-            and target_batch == live_batch
-            and target_gpu == live_gpu
-        ):
-            return
-
-        try:
-            with self._gguf_lock:
-                gguf_inference.load_model(
-                    force_reload=True,
-                    n_ctx=target_ctx,
-                    n_batch=target_batch,
-                    n_gpu_layers=target_gpu,
-                )
-            refreshed = self._live_runtime_snapshot()
-            try:
-                self._ctx = int(refreshed.get("n_ctx") or self._ctx)
-                self._gpu_layers = int(refreshed.get("gpu_layers") or self._gpu_layers)
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
-            self._last_runtime_retune_ts = now_ts
-            log.debug(
-                "[MODE][RUNTIME_ADAPT] "
-                f"mode={mode} ctx={live_ctx}->{target_ctx} "
-                f"batch={live_batch}->{target_batch} "
-                f"gpu_layers={live_gpu}->{target_gpu}"
-            )
-        except Exception as _mode_reload_err:
-            log.debug(f"[MODE][RUNTIME_ADAPT] reload failed: {_mode_reload_err}")
-
     def _runtime_memory_snapshot(self) -> Dict[str, Any]:
         snap: Dict[str, Any] = {
             "conversation_turns": 0,
@@ -9451,11 +9415,18 @@ Answer:"""
         response = govern_output(response, is_grounded=evidence_used, history=_gov_hist,
                                  memory_diag=getattr(self, "_memory_diag", None))
         response = str(response or "").strip()
+        _facts_now = _request_context.turn_facts_var.get()
+        _short = _facts_now.pop("reply_fell_short", None) if isinstance(_facts_now, dict) else None
+        if _short:
+            _again = self._say_in_own_words(user_input, self._what_actually_happened(),
+                                            not_this=" ".join(_short["dropped"]), already_said=_short["served"],
+                                            reasoning_mode=reasoning_mode)
+            if _again:
+                response = f"{_short['served'].strip()}\n\n{_again}".strip()
         # Anti-echo: never serve ELI's previous reply back to the user. Replies get stored and recalled,
         # so on a short turn the model latches onto its own last line. repeat_penalty can't see across
         # turns. Regenerate once with a do-not-repeat instruction; if it still echoes keep the original.
         try:
-            from eli.cognition.output_governor import is_echo_of_recent
             _prev_replies = []
             try:
                 for _t in (self.memory.get_recent_conversation(limit=8) or []):
@@ -9465,7 +9436,7 @@ Answer:"""
                         _prev_replies.append(str(_content))
             except Exception:
                 log.debug("[ECHO] recent-reply lookup failed", exc_info=True)
-            if _prev_replies and is_echo_of_recent(response, _prev_replies):
+            if _prev_replies and _is_repeat_of_recent(response, _prev_replies[::-1], whole_reply=True):
                 log.debug("[ECHO] reply repeated a recent one — regenerating once")
                 trace["echo_repaired"] = True
                 _fresh = self._get_chat_response(
@@ -9480,7 +9451,7 @@ Answer:"""
                     gen_overrides={"max_tokens": 320, "temperature": 0.7},
                 )
                 _fresh = govern_output(str(_fresh or "").strip(), is_grounded=evidence_used).strip()
-                if _fresh and not is_echo_of_recent(_fresh, _prev_replies):
+                if _fresh and not _is_repeat_of_recent(_fresh, _prev_replies[::-1], whole_reply=True):
                     response = _fresh
         except Exception:
             log.debug("[ECHO] anti-echo guard skipped", exc_info=True)
@@ -9579,11 +9550,13 @@ Answer:"""
             log.debug(f"[COGNITIVE] Dynamic-status guard skipped: {_dyn_guard_err}")
         # Strip role-leakage artefacts ([HH:MM] User: …, "Assistant:", etc.)
         try:
-            from eli.cognition.response_sanitizer import sanitize_assistant_text as _san
+            from eli.cognition.output_governor import sanitize_assistant_text as _san
             response = _san(response) or response
         except Exception:
             log.debug("suppressed exception", exc_info=True)
         grounded = bool(evidence_used)
+        # ELI_V6_EXPLICIT_OUTPUT_CONTRACT_V1_FINAL
+        response = _held_to_requested_format(user_input, response, trace)
 
         if threshold is None or float(threshold) <= 0.0:
             threshold = self._required_confidence_threshold(
@@ -11150,6 +11123,16 @@ Answer:"""
         _result_is_generator = isinstance(result, (_types.GeneratorType,)) or hasattr(result, '__next__')
 
         if not stream or not _result_is_generator:
+            # ELI_V6_EXPLICIT_OUTPUT_CONTRACT_V1_ORCH
+            # Native orchestrator results return directly instead of passing through
+            # _finalize_chat_result. Only explicit format requests, never tool results.
+            if isinstance(result, str):
+                result = _held_to_requested_format(user_input, result, None)
+            elif isinstance(result, dict) and result.get("ok", True) and str(result.get("action") or "").upper() == "CHAT":
+                _raw_answer = str(result.get("response") or result.get("content") or "")
+                _visible_answer = _held_to_requested_format(user_input, _raw_answer, result.get("trace"))
+                if _visible_answer != _raw_answer:
+                    result = dict(result, response=_visible_answer, content=_visible_answer)
             # Every non-streamed orchestrated turn exits here — publish its meta so the badge and
             # last_trace.json are not left stale. The GUI always calls process(..., stream=True)
             # regardless of reasoning mode (eli_pro_audio_gui_v2_0.py's generate_worker), but a
@@ -11406,10 +11389,7 @@ Answer:"""
         if raw_direct:
             try:
                 from eli.cognition.gguf_inference import gguf_try_infer
-                _raw_system = (
-                    "You are a knowledge assistant. Write a short factual answer "
-                    "(2-3 sentences, no roleplay, no filler)."
-                )
+                _raw_system = gguf_inference.FACTUAL_ANSWER_SYSTEM
                 response = gguf_try_infer(
                     prompt,
                     system=_raw_system,
@@ -11561,6 +11541,35 @@ Answer:"""
             log.debug(f"[REPLAN] Re-plan attempt failed: {_replan_err}")
             return failed_result
 
+    def _say_in_own_words(self, user_input: str, what_to_say: str, *, not_this: str = "", already_said: str = "",
+                          reasoning_mode: Optional[str] = None) -> str:
+        """The model's own wording of something ELI knows to be so, checked before it is served.
+        "" when no model is loaded or what it wrote does not hold up, for the caller's plain fact."""
+        from eli.cognition import gguf_inference as _ggi
+        from eli.cognition.self_claims import holds_up
+        facts = _request_context.turn_facts_var.get()
+        if not _ggi.is_loaded() or (isinstance(facts, dict) and facts.get("_said_in_own_words")):
+            return ""
+        if isinstance(facts, dict):
+            facts["_said_in_own_words"] = True
+        prompt = (f"WHAT THEY JUST SAID:\n{user_input}\n\nWHAT IS TRUE:\n{what_to_say}\n\n"
+                  + (f"You were about to say this, and nothing backs it, so do not say it:\n{not_this}\n\n" if not_this else "")
+                  + (f"You have already told them:\n{already_said}\nGo on from there.\n\n" if already_said else "")
+                  + "Reply to them in your own voice, as you would to someone you know, using only what is true "
+                    "above. Add no other facts and promise nothing that has not happened.")
+        reply = str(self._get_chat_response(prompt, "", reasoning_mode=reasoning_mode) or "").strip()
+        return reply if reply and holds_up(reply, what_to_say) else ""
+
+    def _what_actually_happened(self) -> str:
+        """This turn as the pipeline recorded it, for a reply that has to be said again."""
+        facts = _request_context.turn_facts_var.get() or {}
+        ran = [a for a in dict.fromkeys(facts.get("executed_actions") or []) if a]
+        lines = [f"Carried out this turn: {', '.join(ran)}." if ran else "Nothing was carried out this turn."]
+        if facts.get("_live_facts"):
+            lines.append(str(facts["_live_facts"]))
+        lines.extend(str(x) for x in (facts.get("_record_lines") or []))
+        return "\n".join(lines)
+
     def _maybe_fail_closed_chat(
         self,
         user_input: str,
@@ -11571,12 +11580,13 @@ Answer:"""
     ) -> Optional[str]:
         try:
             from eli.cognition.chat_grounding_gate import evaluate_chat_grounding_gate
-            return evaluate_chat_grounding_gate(
+            fact = evaluate_chat_grounding_gate(
                 user_input,
                 query_class=query_class,
                 memory_context=memory_context,
                 bus_result=bus_result,
             )
+            return (self._say_in_own_words(user_input, fact) or fact) if fact else None
         except Exception as _fc_err:
             log.debug(f"[COGNITIVE] chat fail-closed gate skipped: {_fc_err}")
             return None
@@ -11839,6 +11849,12 @@ Answer:"""
         # held back as they stream (the buffered modes get the same check in govern_output).
         from eli.cognition.self_claims import gate_stream as _gate
         _claims_evidence = f"{memory_context or ''}\n{situation_brief or ''}"
+
+        def _say_again(dropped, served):
+            said = str((_request_context.turn_facts_var.get() or {}).get("user_input") or prompt)
+            return self._say_in_own_words(said, self._what_actually_happened(), not_this=" ".join(dropped),
+                                          already_said=served, reasoning_mode=reasoning_mode)
+
         try:
             yield from _gate(_stream_holding_back_repeats(
                 stream_factory(situation_brief, memory_context, None),
@@ -11846,7 +11862,7 @@ Answer:"""
                 allow_retry=True,
                 echo_sources=_echo_sources,
                 leak=_leak,
-            ), _claims_evidence)
+            ), _claims_evidence, rewrite=_say_again, instructions=situation_brief)
             return
         except _RepeatDetected:
             log.debug("[ANTI-REPEAT] opening matched a recent reply — regenerating")
@@ -12196,6 +12212,7 @@ Answer:"""
             raise
         if inspect.isgenerator(result):
             return self._context_bound_stream(result, ctx, facts)
+        result = _plain_artifact_reply(result)
         ctx.run(self._finalize_turn_backstop, facts, _visible_reply_text(result), result)
         ok, outcome = _audit_result_outcome(result)
         self._commit_turn_audit(ctx, facts, ok=ok, outcome=outcome, result=result)
@@ -13864,7 +13881,8 @@ Answer:"""
                     and os.environ.get("ELI_LOWGROUND_DOWNGRADE", "1").strip().lower()
                         not in ("0", "false", "no", "off")
                     and str((intent.get("meta") or {}).get("matched_by") or "") == "llm_intent.resolver"
-                    and _is_soft_informational_action(action)):
+                    and _is_soft_informational_action(action)
+                    and not _told_to_do_it(user_input)):
                 try:
                     from eli.runtime.grounding_escalation import _mode_target as _gt
                     _gconf = float((trace or {}).get("grounding_confidence") or 0.0)
@@ -13965,6 +13983,18 @@ Answer:"""
                             or _chosen_payload.get("result")
                             or ""
                         ).strip()
+                        # ELI_V6_RECALL_SCALAR_FROM_HITS_V1
+                        # MEMORY_RECALL is a direct action; its visible output
+                        # bypasses the CHAT/output-contract finalizer. Only use
+                        # uniquely supported structured memory hits, never text
+                        # mined from a transcript or from the current question.
+                        if _action_upper == "MEMORY_RECALL" and bool(_chosen_payload.get("ok", True)):
+                            from eli.cognition.exact_recall_value import exact_value_from_hits
+                            _eli_code = exact_value_from_hits(user_input, _chosen_payload)
+                            if _eli_code is not None:
+                                _direct_content = _eli_code
+                                if isinstance(trace, dict):
+                                    trace["exact_recall_value"] = {"from_structured_hits": True}
                         # Tool/control results are the evidence, so return the deterministic result directly in every
                         # mode. Synthesis stuffed 5K+ of evidence into 6K+ of persona, truncated, produced garbage and
                         # hit a CUDA OOM assertion.
@@ -15495,14 +15525,19 @@ Answer:"""
         try:
             from eli.cognition.llm_intent import is_plain_statement, is_social_checkin
             from eli.cognition.self_claims import asks_about_own_behaviour
+            from eli.cognition.supplied_in_message import holds_its_own_answer
             # A remark, a check-in, or a question/complaint about ELI's own last reply is never a
             # command: asking the model which action an exasperated "what is going on" was cost 45 s.
             if router_intent and _matched_by == "fallback.chat" and (
-                    is_plain_statement(text) or is_social_checkin(text) or asks_about_own_behaviour(text)):
+                    is_plain_statement(text) or is_social_checkin(text) or asks_about_own_behaviour(text)
+                    or holds_its_own_answer(text)):
                 return router_intent
         except Exception:
             log.debug("statement check failed", exc_info=True)
         try:
+            from eli.cognition.action_trust import may_choose_actions
+            if not may_choose_actions():
+                return router_intent
             from eli.cognition.llm_intent import parse_cached
             li = parse_cached(text)
             # Banter guard: the resolver sometimes maps playful input ("use your imagination!") to a
@@ -15577,8 +15612,8 @@ Answer:"""
             # What the model resolves is held to the same test as what a rule matches: an action
             # that changes something is carried out only when the sentence tells ELI to do it.
             try:
-                from eli.execution.route_contracts import fits as _fits
-                if li and not _fits(text, li):
+                from eli.execution.route_contracts import fits as _fits, has_what_it_needs
+                if li and not (_fits(text, li) and has_what_it_needs(text, li)):
                     log.debug(f"[COGNITIVE] {li.get('action')} not carried out: the message does not tell ELI to do it")
                     li = {"action": "CHAT", "args": {"message": text}, "confidence": 0.6}
             except Exception:
@@ -15667,6 +15702,12 @@ Answer:"""
             ran = [a for a in dict.fromkeys(facts.get("executed_actions") or []) if a and a != action]
             if ran:
                 outcome = f"{outcome or 'ok'}; also executed: {','.join(ran)}"
+            try:
+                from eli.runtime.self_improvement import note_turn_anomalies
+                note_turn_anomalies(facts, action, outcome)
+            except Exception as _anomaly_err:
+                log.debug("anomaly record skipped", exc_info=True)
+                outcome = f"{outcome or 'ok'}; failure record not written: {_anomaly_err}"
             agents = (meta.get("agents_used") or trace.get("agents_used")
                       or getattr(bus, "agents_used", None) or [])
             # None, not 0.0, when the turn measured nothing — a 0.0 reads as
@@ -15735,6 +15776,13 @@ Answer:"""
         # The commands in a message of commands and talk were typed by the user: each is shown
         # with its result when there are several. One command, or steps ELI offered, show the result.
         _typed = bool(agreed.get("rest_of_message"))
+        # ELI_V6_UNTRUSTED_AGREED_BOUNDARY_V2
+        # A quoted instruction in a message that says it is material is data, whatever a router found.
+        if _typed and commands:
+            from eli.cognition.supplied_in_message import supplied_as_data
+            if supplied_as_data(said):
+                log.warning("[COGNITIVE] ignored embedded commands inside text supplied as data")
+                commands = []
         if commands:
             try:
                 ran = execute_action("MULTI_COMMAND", {"commands": commands, "raw": " and ".join(commands),
@@ -15867,8 +15915,8 @@ Answer:"""
                           f"({_ft_action or 'no action'}: not a read, and not what the user asked for)")
                 # The promise is already on screen; it must not stand as if kept ("I am going to check the
                 # current load…", and nothing checked anything).
-                _not_done = (f"(I haven't done that: nothing ran for “{str(commit['clause']).strip().rstrip('.')}”. "
-                             "Ask and I'll do it.)")
+                _not_done = f"(I haven't done that: nothing ran for “{str(commit['clause']).strip().rstrip('.')}”.)"
+                _request_context.note_turn_fact("promise_unkept", str(commit["clause"]).strip())
                 yield "\n\n" + _not_done
                 self._store_followthrough_reply(full, _not_done)
                 return

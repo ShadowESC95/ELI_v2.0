@@ -90,8 +90,29 @@ print("" + json.dumps(r))
 _system_probe: Optional[bool] = None
 
 
+def _no_accessibility_bus() -> str:
+    """Why AT-SPI cannot be reached in this session, or "" when it can. Asked before anything touches the
+    accessibility bus: with no graphical session or no session bus to find it on, Atspi.init() aborts the
+    whole process (SIGABRT in _atspi_bus). The system-python probe died that way in a test run and the
+    desktop's crash dialog came up; on a headless or SSH session every click by name would have done the same."""
+    import sys
+    if not sys.platform.startswith("linux"):
+        return "AT-SPI is the Linux accessibility bus"
+    if not (os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")):
+        return "no graphical session here (DISPLAY and WAYLAND_DISPLAY are unset)"
+    address = os.environ.get("AT_SPI_BUS_ADDRESS") or os.environ.get("DBUS_SESSION_BUS_ADDRESS")
+    if not address and os.environ.get("XDG_RUNTIME_DIR"):
+        address = "unix:path=" + os.path.join(os.environ["XDG_RUNTIME_DIR"], "bus")   # where D-Bus looks itself
+    if not address:
+        return "no session bus in this session"
+    paths = [kv[len("path="):] for kv in re.split(r"[;,:]", address) if kv.startswith("path=")]
+    if paths and not any(os.path.exists(p) for p in paths):
+        return f"the session bus is not running ({address})"
+    return ""
+
+
 def _via_system_python(payload: Dict[str, Any], timeout: float = 20.0) -> Any:
-    if os.environ.get(_INPROC_ENV) or not os.path.exists(_SYSTEM_PYTHON):
+    if os.environ.get(_INPROC_ENV) or not os.path.exists(_SYSTEM_PYTHON) or _no_accessibility_bus():
         return None
     env = dict(os.environ, **{_INPROC_ENV: "1", "ELI_UI_ROOT": str(Path(__file__).resolve().parents[2])})
     try:
@@ -154,6 +175,10 @@ def _system_gi_path() -> Optional[str]:
 def _atspi():
     """Import Atspi, or return None with the reason recorded. Never raises."""
     global _UNAVAILABLE_REASON
+    _no_bus = _no_accessibility_bus()
+    if _no_bus:
+        _UNAVAILABLE_REASON = _no_bus
+        return None
     try:
         try:
             import gi  # noqa: F401

@@ -241,8 +241,21 @@ exist, and said "the audit trail is now active" for logging that was always on.
   carry (most of the sentence's content has to be written in the audit rows or the period
   log). A sentence that rests on a dropped one ("That is why...", "Want me to run that now?")
   goes with it, and a heading left with nothing under it is removed. ELI's own earlier
-  replies are never counted as evidence. When sentences were dropped the reply says so and
-  gives the recorded rows instead; code blocks are never touched.
+  replies are never counted as evidence. Code blocks are never touched.
+- **A reply that fails is said again.** When too little is left, or it said it did what was asked and had
+  not, the model gets one more go from what actually happened (`gate_stream(rewrite=)`,
+  `engine._say_in_own_words`), and the new text has to pass the same check. The record's own line is for
+  when no model is loaded or the second reply fails too. Hedges go through the same wording.
+- **What a message brings** (`cognition/supplied_in_message.py`). A question that holds its own facts
+  skips the web and the intent model; text quoted or called material is never read for orders; sums and
+  date offsets are worked out and handed to the model (`live_reads.live_facts`), which is not a calculator.
+- **What backs a claim** (`_Check._backed`). An action that ran backs a sentence only if it changes
+  something, shares a word with the sentence, or the sentence is about reading. A memory lookup does
+  not back "I am starting the job". Also dropped: saying it cannot read what it can (`_DENIES_A_READ`),
+  saying it is changing its own code when nothing did (`_CHANGING_ITSELF`).
+- **Turns that went wrong without an error** (`self_improvement.note_turn_anomalies`). A rejected reply,
+  an action turned into chat, a dropped claim and an unkept promise go on the failure record, so
+  self-analysis sees them; every one of those turns reads "ok" in the ledger.
 - **A reply cannot say it did something when nothing ran.** On a turn in which no action was
   carried out, a sentence is dropped when it reports an act on the machine: "I've opened ...",
   "Spotify is opening now", "Scanning `/path` ...", "(Waiting for system execution
