@@ -126,3 +126,40 @@ def test_adaptation_is_on_by_default_and_decoupled_from_startup_calibration():
         "the startup cap of 2000 cannot gate out ~8000 RMS speaker bleed"
     )
     assert audio_stt._STT_NOISE_STUCK_CYCLES >= 2, "one loud bang must not retune the mic"
+
+
+def test_the_speaking_lock_holds_for_as_long_as_the_voice_speaks(tmp_path):
+    """Taken as stale after 30 seconds, a minute-long reply was heard by the mic and transcribed."""
+    import os
+    import subprocess
+    import sys
+    import time
+    from eli.perception.audio_stt import speaking_lock_held
+    lock = tmp_path / "speaking.lock"
+    assert not speaking_lock_held(lock)
+    lock.write_text(str(os.getpid()))
+    long_ago = time.time() - 3600
+    os.utime(lock, (long_ago, long_ago))
+    assert speaking_lock_held(lock), "a long reply is still being spoken"
+    ended = subprocess.run([sys.executable, "-c", "import os; print(os.getpid())"],
+                           capture_output=True, text=True, check=True).stdout.strip()
+    lock.write_text(ended)
+    assert not speaking_lock_held(lock) and not lock.exists(), "left by a process that has ended"
+
+
+def test_a_voice_command_said_during_a_reply_is_sent_after_it(monkeypatch):
+    """"computer, one more" said while a reply was coming was dropped."""
+    import types
+    import eli.gui.eli_pro_audio_gui_v2_0 as gui
+    from eli.gui.eli_pro_audio_gui_v2_0 import EliMainWindow as _Window
+    later, sent = [], []
+    monkeypatch.setattr(gui.QTimer, "singleShot", lambda ms, fn: later.append(fn))
+    box = types.SimpleNamespace(text="", setPlainText=lambda t: setattr(box, "text", t))
+    win = types.SimpleNamespace(is_generating=True, _voice_waiting=["one more"], chat_input=box,
+                                send_message=lambda: sent.append(box.text))
+    win._send_waiting_voice = lambda: _Window._send_waiting_voice(win)
+    _Window._send_waiting_voice(win)
+    assert sent == [] and later, "waits while the reply is coming"
+    win.is_generating = False
+    later.pop()()
+    assert sent == ["one more"] and win._voice_waiting == []

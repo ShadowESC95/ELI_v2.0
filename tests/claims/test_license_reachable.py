@@ -74,3 +74,10 @@ def test_license_resolves_at_runtime():
     text = license_text()
     assert "PolyForm Noncommercial License 1.0.0" in text
     assert "Jason Fitzgibbon Bridgeman" in text
+
+
+def test_who_made_eli_is_read_from_the_licence_it_ships_with():
+    """Asked who made it, the model invented a company; the licence names the maker."""
+    from eli.runtime.license_info import license_text, made_by
+    maker = made_by()
+    assert maker and maker in license_text() and "rights" not in maker.lower()

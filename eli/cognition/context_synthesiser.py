@@ -572,6 +572,16 @@ def build_persona_handoff(
     except Exception:
         log.debug("live runtime brief unavailable", exc_info=True)
 
+    # Asked who made it, with nothing here to say, a model invented "ELI Systems, the local architecture team".
+    from eli.runtime.license_info import made_by
+    _maker = made_by()
+    if _maker:
+        parts.append(f"WHO MADE YOU: {_maker} wrote ELI, the software you are. The language model you speak "
+                     "through was trained by its own publisher.")
+    from eli.core.config import network_allowed
+    if not network_allowed():
+        parts.append("NETWORK: off. Nothing can be looked up live this turn.")
+
     # ELI's World: the full 9-room topology and current state, so ELI can answer "what is the
     # reflection chamber?". The header is deliberately directive: a 7B model reads "room" as a
     # physical place unless told otherwise.

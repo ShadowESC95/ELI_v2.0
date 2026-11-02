@@ -346,3 +346,15 @@ def test_speaking_works_with_no_piper_program(monkeypatch, tmp_path):
     assert said and said[0][2] and "length_scale" in said[0][2], "the program's prosody is not passed on"
     with wave.open(io.BytesIO(played[0])) as w:
         assert w.getnframes() > 2 * 22050, "no pause between the sentences"
+
+
+def test_the_speaking_lock_is_held_for_the_whole_reply(tmp_path, monkeypatch):
+    """Only Piper set it, and only per chunk: other voices, and the gaps between chunks, reached the mic."""
+    import eli.perception.tts_router as tr
+    lock = tmp_path / "speaking.lock"
+    monkeypatch.setenv("ELI_TTS_SPEAKING_LOCK", str(lock))
+    seen = []
+    monkeypatch.setattr(tr, "_run_tts_impl", lambda text, voice_name=None: seen.append(lock.read_text()) or True)
+    assert tr._run_tts("hello there", voice_name="any") is True
+    assert seen == [str(os.getpid())] and not lock.exists()
+

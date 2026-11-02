@@ -91,7 +91,7 @@ def test_an_app_is_asked_to_quit_from_its_top_process_first(monkeypatch):
     monkeypatch.setattr(pg, "_parent_pid", lambda pid: {100: 1, 101: 100, 102: 100}[pid])
     signalled = []
     monkeypatch.setattr(pg.os, "kill", lambda pid, sig: signalled.append(pid))
-    monkeypatch.setattr(pg, "_alive", lambda pid: pid == 102 and signalled == [100])  # 101 closed with its parent
+    monkeypatch.setattr(pg, "pid_alive", lambda pid: pid == 102 and signalled == [100])  # 101 closed with its parent
     res = pg.safe_pkill("spotify", full_cmdline=True, timeout=0.3)
     assert signalled[0] == 100 and signalled.count(101) == 0
     assert res["ok"] and res["pids"] == [100, 101, 102]

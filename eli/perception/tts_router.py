@@ -219,18 +219,14 @@ def _play_wav_blocking(wav_path, *, post_play_tail: float | None = None) -> bool
                 rms = float(_np.sqrt(_np.mean(chunk ** 2)))
                 _es.set_amplitude(min(1.0, rms * 4.0))
 
-        try:
-            _stream = _sd.OutputStream(samplerate=int(sr), channels=1, callback=_callback)
-        except _sd.PortAudioError:
-            # A device that takes only its own rate (a USB headset's ALSA device refused 22,050 Hz,
-            # "Invalid sample rate"): play the voice resampled to that rate.
+        # The device's own rate from the start: a device that takes only that (a USB headset's ALSA
+        # device refused 22,050 Hz) failed first on every reply, three ALSA errors each time.
+        _dev_sr = int(_sd.query_devices(kind="output")["default_samplerate"] or 0)
+        if _dev_sr > 0 and _dev_sr != int(sr):
             from eli.perception.audio_samples import resample as _resample
-            _dev_sr = int(_sd.query_devices(kind="output")["default_samplerate"])
-            if _dev_sr <= 0 or _dev_sr == int(sr):
-                raise
             data = _resample(data, int(sr), _dev_sr)
             sr = _dev_sr
-            _stream = _sd.OutputStream(samplerate=sr, channels=1, callback=_callback)
+        _stream = _sd.OutputStream(samplerate=int(sr), channels=1, callback=_callback)
         with _stream:
             _sd.sleep(int((data.size / float(sr)) * 1000) + 80)
         if _es is not None:
@@ -840,10 +836,6 @@ def _speak_piper_cli(text, voice_name=None):
     _no_program = not piper_bin or not (_Path(piper_bin).exists() or _shutil.which(piper_bin))
 
     cfg = _find_piper_config(model)
-    lock_path = _Path(
-        _os.environ.get("ELI_TTS_SPEAKING_LOCK")
-        or __import__("eli.core.paths", fromlist=["temp_path"]).temp_path("tts_speaking.lock")
-    )
 
     with _tempfile.NamedTemporaryFile(prefix="eli_piper_final_", suffix=".wav", delete=False) as tmp:
         wav = _Path(tmp.name)
@@ -866,11 +858,6 @@ def _speak_piper_cli(text, voice_name=None):
         )
 
     try:
-        try:
-            lock_path.write_text(str(_os.getpid()), encoding="utf-8")
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
         if _no_program:
             # No piper program to run (the packaged app ships none): the library it does ship.
             _data = _piper_lib_render(text, model, cfg)
@@ -909,10 +896,6 @@ def _speak_piper_cli(text, voice_name=None):
     finally:
         try:
             wav.unlink(missing_ok=True)
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-        try:
-            lock_path.unlink(missing_ok=True)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
@@ -973,6 +956,14 @@ def _speak_pyttsx3(text: str, voice_name: str) -> bool:
         return False
 
 
+def _speaking_lock():
+    """The file that tells the microphone ELI is speaking (audio_stt reads it), holding this process's id."""
+    import os as _os
+    from pathlib import Path as _Path
+    from eli.core.paths import temp_path
+    return _Path(_os.environ.get("ELI_TTS_SPEAKING_LOCK") or temp_path("tts_speaking.lock"))
+
+
 def _run_tts(text: str, voice_name: str | None = None) -> bool:
     # Mark the avatar "speaking" for the whole synth+play so the face lip-syncs;
     # cleared in every exit path. Best-effort — never let it block TTS.
@@ -982,9 +973,19 @@ def _run_tts(text: str, voice_name: str | None = None) -> bool:
     except Exception:
         _es = None
         log.debug("[TTS] speaking-state set failed", exc_info=True)
+    # Held for the whole reply, every chunk and every voice: only Piper set it, and only per chunk.
+    _lock = _speaking_lock()
+    try:
+        _lock.write_text(str(__import__("os").getpid()), encoding="utf-8")
+    except OSError:
+        log.debug("[TTS] speaking lock not written", exc_info=True)
     try:
         return _run_tts_impl(text, voice_name=voice_name)
     finally:
+        try:
+            _lock.unlink(missing_ok=True)
+        except OSError:
+            log.debug("[TTS] speaking lock not removed", exc_info=True)
         if _es is not None:
             try:
                 _es.set_speaking(False)

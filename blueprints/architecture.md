@@ -259,7 +259,11 @@ wider `mode_chat_agent_profile()` fan-out. Quick still runs the orchestrator.
   ordered pipeline of layers (`_stack`), not captured copies.
 - **`grounding_escalation.py`**: a checkable factual turn with low grounding escalates
   (external fact → web agent, self or project fact → broad local fan-out) and hedges honestly
-  if nothing grounds it. Env: `ELI_GROUNDING_ESCALATION`.
+  if nothing grounds it. Offline (the default), a question about what does not change (a
+  definition, history, who wrote a book) is answered from the model's own knowledge, the prompt
+  saying the network is off; only one about what changes after a model is trained (news, prices,
+  results, office-holders, release dates, this year or last: `changes_over_time`) is hedged.
+  Env: `ELI_GROUNDING_ESCALATION`.
 - **`evidence_ledger.py`, `evidence_arbitration.py`**: what counts as evidence, where it is
   recorded (the ledger also records every executed action), and conflict resolution.
 - **`persistence_gate.py`**: keeps internal report dumps out of memory.

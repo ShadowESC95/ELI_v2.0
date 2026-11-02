@@ -7715,6 +7715,13 @@ def _eli_phase38_open_typo_or_core_route(raw, *args, **kwargs):
     }
 
 
+# What follows "by" in a phrase, not an artist: "who is that by the way", "by now", "what did you mean by that".
+_NOT_AN_ARTIST = re.compile(
+    r"(?:the\s+(?:way|time|end)|now|then|far|default|chance|accident|mistake|hand)\b.*"
+    r"|(?:me|you|him|her|it|us|them|that|this|these|those|myself|yourself|himself|herself|itself"
+    r"|ourselves|yourselves|themselves)", re.I)
+
+
 def _eli_media_contract_post(raw, result):
     """Final media-routing contract for legacy GUI/STT command shapes."""
     try:
@@ -7861,7 +7868,9 @@ def _eli_media_contract_post(raw, result):
             r"(.{4,70})\s+by\s+([a-z][a-z\s]{1,35})$",
             text,
         )
-        if m and not re.search(
+        # A song is not asked for as a question, and "by the way" names no artist: "looks like your creator
+        # is giving you an easy time haha, who is that by the way?" played a track called "...who is that".
+        if m and "?" not in original and not _NOT_AN_ARTIST.fullmatch(m.group(2).strip()) and not re.search(
                 # "then what did you mean by the first message" is a clarification question addressed to
                 # ELI, not "<song> by <artist>" — the leading "then" slipped past the ^-anchored opener
                 # guard and "by" did the rest, so ELI played (and crashed) Spotify. Narrow: a question

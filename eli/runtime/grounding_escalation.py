@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import os
 import re
+import time
 from typing import Any, Dict, Optional, Tuple
 
 from eli.memory.claims import EPISODE_MARKER
@@ -198,8 +199,8 @@ _REALTIME_LOOKUP_RE = re.compile(
     re.I)
 # External-topic question markers for very-low-grounding auto-web (broader safety net).
 _EXTERNAL_TOPIC_RE = re.compile(
-    r"\b(movie|film|show|series|season|episode|album|song|artist|band|game|marvel|mcu"
-    r"|spider[- ]?man|batman|director|actor|actress|oscar|grammy|emmy|premiere|trailer"
+    r"\b(movie|film|show|series|season|episode|album|song|artist|band|game"
+    r"|director|actor|actress|oscar|grammy|emmy|premiere|trailer"
     r"|franchise|sequel|prequel|soundtrack|chart|billboard|stream(?:ing)?)\b",
     re.I)
 # Rapport about ELI's state — not a third-party fact lookup.
@@ -383,6 +384,27 @@ def classify_factual(text: str) -> Tuple[bool, str]:
     if _LOCAL_RE.search(low) or _LOCAL_PATH_RE.search(raw):
         return (True, "local")
     return (True, "external")
+
+
+# What changes after a model is trained: offline, these cannot be answered from what it knows.
+_CHANGES_RE = re.compile(
+    r"\b(?:latest|newest|current(?:ly)?|nowadays|right\s+now|today|tonight|tomorrow|yesterday|recent(?:ly)?"
+    r"|upcoming|this\s+(?:week|month|year|season|weekend)|last\s+(?:night|week|month|year|season|weekend)"
+    r"|so\s+far|anymore|still\s+(?:alive|open|running|available|in\s+office)|news|headlines?|weather|forecast"
+    r"|prices?|stocks?|exchange\s+rates?|standings|league\s+table|who\s+won|election|(?:match|game|race)\s+results?"
+    r"|who(?:['’]s|\s+is)\s+(?:the\s+)?(?:president|prime\s+minister|ceo|leader|champion|king|queen|chancellor"
+    r"|mayor|manager|coach|owner|pope))\b", re.I)
+
+
+def changes_over_time(text: str) -> bool:
+    """Whether a question is about something that changes after a model is trained: news, prices,
+    results, who holds an office, release dates, anything this year or last. A year named that is
+    older than that makes it history ("who won the world cup in 1966")."""
+    said = str(text or "")
+    years = [int(y) for y in re.findall(r"\b(1[5-9]\d\d|20\d\d)\b", said)]
+    if years:
+        return max(years) >= time.localtime().tm_year - 1
+    return bool(_CHANGES_RE.search(said) or _REALTIME_LOOKUP_RE.search(said))
 
 
 def classify_web_candidate(text: str) -> bool:
@@ -636,6 +658,15 @@ def escalate(
         online = bool(network_allowed())
     except Exception:
         online = False
+
+    # Offline, what does not change is answered from what the model knows: "what is a river?" got
+    # "I won't guess", and ELI is offline by default. What changes after a model is trained still
+    # cannot be checked, and is hedged below; the prompt says the network is off.
+    if domain == "external" and not online and not changes_over_time(user_input):
+        _note_escalation("answered from the model's own knowledge: the network is off, and the question "
+                         "is not about anything that changes")
+        log.debug("[ESCALATION] offline, knowledge that does not change: answered by the model")
+        return None
 
     # Trust the bus grounding only when it validates the question. For an offline external fact the
     # local score is a category error (loose token matches score high while the fact is unverifiable),

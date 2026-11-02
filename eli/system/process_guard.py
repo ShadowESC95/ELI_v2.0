@@ -396,7 +396,7 @@ def _parent_pid(pid: int) -> Optional[int]:
         return None
 
 
-def _alive(pid: int) -> bool:
+def pid_alive(pid: int) -> bool:
     try:
         import psutil
         return psutil.pid_exists(int(pid)) and psutil.Process(int(pid)).status() != psutil.STATUS_ZOMBIE
@@ -460,9 +460,9 @@ def safe_pkill(pattern: str, *, full_cmdline: bool = False, timeout: float = 8.0
     roots = [p for p in pids if _parent_pid(p) not in pids] or pids
     killed = sum(1 for pid in roots if _term(pid))
     deadline = time.monotonic() + min(float(timeout), 5.0)
-    while time.monotonic() < deadline and any(_alive(p) for p in pids):
+    while time.monotonic() < deadline and any(pid_alive(p) for p in pids):
         time.sleep(0.2)
-    killed += sum(1 for pid in pids if pid not in roots and _alive(pid) and _term(pid))
+    killed += sum(1 for pid in pids if pid not in roots and pid_alive(pid) and _term(pid))
 
     return {
         "ok": killed > 0,

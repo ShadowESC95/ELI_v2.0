@@ -2986,11 +2986,15 @@ class EliMainWindow(QMainWindow):
         # generating — voice media commands should stay instant; chat can wait.
         try:
             from eli.cognition.inference_broker import foreground_recently_active
-            if foreground_recently_active(window=8.0):
-                _short = len(str(text or "").split()) <= 6
-                if _short:
-                    log.debug("[STT→GUI] deferred — inference busy (short utterance dropped)")
-                    return
+            if foreground_recently_active(window=8.0) and len(str(text or "").split()) <= 6:
+                # Said after the wake word while a reply is still coming: sent when it has finished.
+                # Dropped, "computer, one more" was lost; sent now, it would stop the reply.
+                self._voice_waiting = getattr(self, "_voice_waiting", [])
+                self._voice_waiting.append(text)
+                log.debug("[STT→GUI] held until the reply finishes: %r", text)
+                if len(self._voice_waiting) == 1:
+                    QTimer.singleShot(500, self._send_waiting_voice)
+                return
         except Exception:
             log.debug("suppressed exception", exc_info=True)
         self.chat_input.setPlainText(text)
@@ -3137,6 +3141,20 @@ class EliMainWindow(QMainWindow):
             self.allow_direct_chat_checkbox.blockSignals(False)
         self.save_settings(silent=True)
 
+    def _send_waiting_voice(self):
+        """The next voice command held while a reply was coming, once it has finished."""
+        waiting = getattr(self, "_voice_waiting", [])
+        if not waiting:
+            return
+        if getattr(self, "is_generating", False):
+            QTimer.singleShot(500, self._send_waiting_voice)
+            return
+        self.chat_input.setPlainText(waiting.pop(0))
+        self._spoken_send = True
+        self.send_message()
+        if waiting:
+            QTimer.singleShot(500, self._send_waiting_voice)
+
     def _stt_toggle(self, checked: bool):
         if checked:
             self.stt_btn.setText("🔴 Mic: ON")
@@ -3146,8 +3164,11 @@ class EliMainWindow(QMainWindow):
                     log.debug(f"[STT] emitting: {text}")
                     self.stt_transcript.emit(text)
             try:
-                from eli.perception.audio_stt import start_audio_listening, stop_audio_listening
+                from eli.perception.audio_stt import get_audio_stt, start_audio_listening, stop_audio_listening
                 start_audio_listening(callback=_cb)
+                # a command it was not sure of: said where it can be seen, not left as silence
+                get_audio_stt().on_unclear = lambda heard: self.status_signal.emit(
+                    f"🎤 Not sure I heard that right (“{heard}”). Say it again.")
                 self._stt_stop_ref = stop_audio_listening
                 log.debug("[STT] listening started — say: computer, <command>")
             except Exception as e:

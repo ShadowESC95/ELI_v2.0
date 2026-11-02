@@ -334,6 +334,13 @@ class VectorStore:
                 _embed_threads = int(recommend_cpu_threads())
             except Exception:
                 _embed_threads = max(1, (os.cpu_count() or 1) - 1)
+            # In RAM only, which is where its room is reserved (embedder_footprint_gib). With every layer on
+            # the processor, llama.cpp still put its working buffers on the GPU: 54 MB measured on a CUDA
+            # build, taken after the language model's plan had left the card that little, and the next
+            # reply aborted. A runtime without these switches does not take them.
+            import inspect
+            _known = inspect.signature(Llama.__init__).parameters
+            _in_ram = {k: False for k in ("offload_kqv", "op_offload") if k in _known}
             _llm = Llama(
                 model_path=_model_path,
                 embedding=True,
@@ -341,6 +348,7 @@ class VectorStore:
                 n_gpu_layers=0,
                 verbose=False,
                 n_threads=_embed_threads,
+                **_in_ram,
             )
             class _EmbedShim:
                 def __init__(self, llm): self._llm = llm

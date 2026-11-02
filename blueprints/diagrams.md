@@ -135,7 +135,9 @@ the memory subsystem, and the gating stack. All grounded in the real modules
   │      checkable fact  AND  grounding < threshold ?                            │
   │        external fact ─► WEB tier ────┐                                       │
   │        self/project  ─► LOCAL tier ──┼─► first tier that grounds ─► answer   │
-  │        exhausted / offline ──────────┘─► HEDGE  ("I won't guess")            │
+  │        exhausted, or offline and ────┘─► HEDGE  ("can't check that now")     │
+  │          about what changes                                                  │
+  │        offline, what does not change ─► the model answers from what it knows │
   │      (trigger = GROUNDING, not the response score — which lies when wrong)   │
   ├──────────────────────────────────────────────────────────────────────────┤
   │ 6 ░ LEARNING / STATE COMMIT  (S12)             learning_coordinator.py      │

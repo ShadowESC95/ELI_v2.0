@@ -118,7 +118,19 @@ A large, feature-dense STT module:
   (`_eli_duck_output`/`_eli_restore_output` via `wpctl`) so ELI doesn't hear
   itself.
 - **Echo/self-hearing suppression** (`_eli_echo_like_assistant_output`,
-  `_eli_media_probably_audible`).
+  `_eli_media_probably_audible`). The voice (`tts_router._run_tts`, every engine) holds the
+  speaking lock for the whole reply, holding its process id; the mic treats it as stale only when
+  that process has ended (`speaking_lock_held`). Taken as stale after 30 seconds, a minute-long
+  reply was heard and transcribed half-way through.
+- **Voice commands while a reply is coming**: a short one said after the wake word waits for the
+  reply to finish (`_send_waiting_voice`) instead of being dropped; a long one still interrupts.
+- **Decoder hints and doubt** (`local_whisper_stt`): the wake words and the apps on the machine the
+  person has named in conversation go to faster-whisper as `hotwords` ("open spotify" in a noisy
+  room was heard as "old thing spot employee"). A command whose every segment is below the
+  decoder's own failed-decode bar is not carried out: the window opens again and the status bar
+  says it was not clear (`heard_clearly`).
+- **Playback** opens at the output device's own rate, the voice resampled to it, instead of
+  failing first on a device that takes only its own rate.
 - Transcript cleanup: `_cleanup`, `_collapse_repeated_phrase`,
   `_eli_fast_command_alias` (maps spoken phrases to commands),
   `_is_safe_direct`/`_allow_direct_chat` (gates which utterances bypass to chat).

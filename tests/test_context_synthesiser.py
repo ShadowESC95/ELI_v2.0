@@ -71,3 +71,13 @@ def test_nonquick_handoff_carries_more_agent_evidence():
 
 def test_live_runtime_brief_is_str():
     assert isinstance(live_runtime_brief(), str)
+
+
+def test_the_handoff_says_who_made_eli_and_that_the_network_is_off(monkeypatch):
+    import eli.core.config as config
+    from eli.runtime.license_info import made_by
+    monkeypatch.setattr(config, "network_allowed", lambda: False)
+    text = str(build_persona_handoff("who made you?"))
+    assert f"WHO MADE YOU: {made_by()}" in text and "NETWORK: off" in text
+    monkeypatch.setattr(config, "network_allowed", lambda: True)
+    assert "NETWORK: off" not in str(build_persona_handoff("who made you?"))

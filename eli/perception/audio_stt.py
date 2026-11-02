@@ -1095,6 +1095,28 @@ def is_internal_prompt_echo(text: str) -> bool:
     return bool(_INTERNAL_PROMPT_ECHO_RE.search(str(text or "")))
 
 
+def speaking_lock_held(path) -> bool:
+    """Whether ELI's voice holds the speaking lock at `path`. It is held for as long as ELI speaks,
+    however long the reply: taken as stale after 30 seconds, a minute-long reply was heard by the mic
+    and transcribed half-way through. Stale only when the process that wrote it has ended."""
+    from pathlib import Path
+    from eli.system.process_guard import pid_alive
+    lock = Path(path)
+    try:
+        owner = int(lock.read_text(encoding="utf-8").strip() or 0)
+    except FileNotFoundError:
+        return False
+    except (OSError, ValueError):
+        return True       # being written as it is read
+    if owner and not pid_alive(owner):
+        try:
+            lock.unlink(missing_ok=True)
+        except OSError:
+            log.warning("[AUDIO] a speaking lock left by an ended process could not be removed: %s", lock, exc_info=True)
+        return False
+    return True
+
+
 class VoiceGate:
     def __init__(self, wake_timeout_sec: float = WAKE_ARM_TIMEOUT):
         self.wake_timeout_sec = wake_timeout_sec
@@ -1856,29 +1878,9 @@ class ELIAudioSTT:
                 _speaking_lock_path = os.environ.get("ELI_TTS_SPEAKING_LOCK") or str(
                     _temp_path("tts_speaking.lock")
                 )
-                _speaking_lock_max_age = float(
-                    os.environ.get("ELI_TTS_SPEAKING_LOCK_MAX_AGE_SEC", "30")
-                )
 
                 def _eli_is_speaking() -> bool:
-                    try:
-                        from pathlib import Path as _P
-                        p = _P(_speaking_lock_path)
-                        if not p.exists():
-                            return False
-                        # Stale-lock guard: if older than max_age, treat as gone.
-                        try:
-                            age = time.time() - p.stat().st_mtime
-                            if age > _speaking_lock_max_age:
-                                p.unlink(missing_ok=True)
-                                return False
-                        except FileNotFoundError:
-                            return False  # the voice finished between the two looks
-                        except Exception:
-                            log.debug("suppressed exception", exc_info=True)
-                        return True
-                    except Exception:
-                        return False
+                    return speaking_lock_held(_speaking_lock_path)
 
                 # Background TTS monitor. listen() blocks up to phrase_time_limit so the _eli_is_speaking()
                 # guard never runs and TTS audio comes back as a transcript. A daemon thread polls the speaking
@@ -2343,6 +2345,20 @@ class ELIAudioSTT:
                         continue
 
                     if action == "dispatch" and payload:
+                        # A command the decoder was not sure of is not carried out or chatted about: the
+                        # window opens again so it can just be said again.
+                        from eli.perception.local_whisper_stt import heard_clearly
+                        if not heard_clearly(transcript_display):
+                            print(f"❓ [AUDIO] not sure of what was said: {transcript_display!r}; say it again",
+                                  flush=True)
+                            self._voice_gate.arm()
+                            _unclear = getattr(self, "on_unclear", None)
+                            if callable(_unclear):
+                                try:
+                                    _unclear(transcript_display)
+                                except RuntimeError:      # the window it reports to has closed
+                                    log.warning("[AUDIO] the unclear-command notice had nowhere to go", exc_info=True)
+                            continue
                         self._emit(transcript_display)
                         continue
         finally:

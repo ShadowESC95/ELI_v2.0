@@ -96,7 +96,8 @@ def test_face_shows_thinking_and_lipsync():
 
 def test_a_device_that_refuses_the_voices_rate_gets_it_resampled(tmp_path, monkeypatch):
     """A USB headset's ALSA device took only its own rate: opening it at the voice's 22,050 Hz
-    failed with "Invalid sample rate" and lip-synced playback fell back to the system player."""
+    failed with "Invalid sample rate" and lip-synced playback fell back to the system player. It is
+    opened at the device's own rate from the start: trying the voice's first failed on every reply."""
     import sys
     import types
     import wave
@@ -135,4 +136,4 @@ def test_a_device_that_refuses_the_voices_rate_gets_it_resampled(tmp_path, monke
         raise AssertionError("fell back to the system player")
     monkeypatch.setattr(tts_router, "_platform_play_wav_blocking", _no_fallback)
     assert tts_router._play_wav_blocking(str(path), post_play_tail=0) is True
-    assert opened == [22050, 48000]
+    assert opened == [48000]

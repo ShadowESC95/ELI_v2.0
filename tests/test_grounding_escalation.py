@@ -1,4 +1,5 @@
 """Tiered grounding escalation: factual+low-grounding escalates/hedges; banter never does."""
+import pytest
 import eli.runtime.grounding_escalation as G
 import eli.core.config as C
 
@@ -146,13 +147,23 @@ def test_executor_web_search_withholds_grounding_on_offtopic_results(monkeypatch
     assert on.get("results")
 
 
-def test_external_offline_hedges(monkeypatch):
+@pytest.mark.parametrize("asked", ["what is bonos real name", "In one sentence, what is a river?", "who wrote hamlet",
+                                   "what's the capital of france", "how many legs does a spider have",
+                                   "who won the world cup in 1966"])
+def test_offline_what_does_not_change_is_answered(monkeypatch, asked):
+    """Offline (ELI's default), "what is a river?" got "I won't guess at a fact I can't back up"."""
     monkeypatch.setattr(C, "network_allowed", lambda: False)
-    r = G.escalate(_FakeEngine(), "what is bonos real name",
-                   {"action": "CHAT"}, _FakeBus(0.30))
+    assert G.escalate(_FakeEngine(), asked, {"action": "CHAT"}, _FakeBus(0.30)) is None
+
+
+@pytest.mark.parametrize("asked", ["who won the match last night", "what is the latest news on the election",
+                                   "what is the price of gold today", "who is the current prime minister of the uk",
+                                   "when did the new season come out"])
+def test_offline_what_changes_is_not_guessed(monkeypatch, asked):
+    monkeypatch.setattr(C, "network_allowed", lambda: False)
+    r = G.escalate(_FakeEngine(), asked, {"action": "CHAT"}, _FakeBus(0.30))
     assert r is not None and r["meta"]["response_mode"] == "ungrounded_hedge"
     assert r["grounded"] is False
-    assert "guess" in r["content"].lower() or "verify" in r["content"].lower()
 
 
 def test_banter_never_escalates(monkeypatch):

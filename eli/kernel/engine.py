@@ -11556,7 +11556,8 @@ Answer:"""
                   + (f"You were about to say this, and nothing backs it, so do not say it:\n{not_this}\n\n" if not_this else "")
                   + (f"You have already told them:\n{already_said}\nGo on from there.\n\n" if already_said else "")
                   + "Reply to them in your own voice, as you would to someone you know, using only what is true "
-                    "above. Add no other facts and promise nothing that has not happened.")
+                    "above, in words of your own: it is written as a fact, not as a line to read out. Add no "
+                    "other facts and promise nothing that has not happened.")
         reply = str(self._get_chat_response(prompt, "", reasoning_mode=reasoning_mode) or "").strip()
         return reply if reply and holds_up(reply, what_to_say) else ""
 

@@ -7533,6 +7533,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     sub = _mc_route(c)
                     sa = (sub.get("action") or "CHAT")
                     sargs = dict(sub.get("args") or {})
+                    # Asked later why it played a song, ELI saw only PLAY_MEDIA and made up a reason.
+                    from eli.kernel import request_context as _rc_step
+                    _step_facts = _rc_step.turn_facts_var.get()
+                    if _step_facts is not None:
+                        _step_facts.setdefault("steps", []).append(
+                            {"words": c, "action": sa, "via": str((sub.get("meta") or {}).get("matched_by") or "")})
                     sargs.setdefault("_raw_user_text", c)
                     if sa == "MULTI_COMMAND":          # guard against re-entry
                         sa, sargs = "CHAT", {"message": c}

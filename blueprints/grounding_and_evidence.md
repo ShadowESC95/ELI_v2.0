@@ -200,7 +200,8 @@ exist, and said "the audit trail is now active" for logging that was always on.
 
 - **The turn record.** Each turn notes what the pipeline did (`request_context.note_turn_fact`):
   the rule that routed it, a downgrade to chat, what retrieval found, whether it escalated to
-  the web and why, every action that ran, how often the model ran, on how many prompt
+  the web and why, every action that ran (for a message of several commands, the words of each
+  step, the action it became and the rule that matched it), how often the model ran, on how many prompt
   characters and for how many seconds. `describe_turn` writes that into the turn's signed audit row
   (`orchestrator_audit_ledger`), so the row answers "why did you do that" later.
 - **Asked about itself, ELI is handed the record.** For a question or complaint about its own
@@ -239,7 +240,11 @@ exist, and said "the audit trail is now active" for logging that was always on.
   against the real actions, settings, tunables, tables, modules and the filesystem); proposes
   a fix ELI has no action for; or, on a fault question, explains a cause the record does not
   carry (most of the sentence's content has to be written in the audit rows or the period
-  log). A sentence that rests on a dropped one ("That is why...", "Want me to run that now?")
+  log); or names a maker other than the one the shipped licence names (`license_info.made_by`,
+  also given to the model as WHO MADE YOU). A sentence whose specifics (a file, a figure) are all
+  in the live facts (the loaded model file, the load as the loader reported it) states what is true
+  and is kept: "I am running on <the loaded model>" is not a claim to have done something. A
+  sentence that rests on a dropped one ("That is why...", "Want me to run that now?")
   goes with it, and a heading left with nothing under it is removed. ELI's own earlier
   replies are never counted as evidence. Code blocks are never touched.
 - **A reply that fails is said again.** When too little is left, or it said it did what was asked and had

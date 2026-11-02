@@ -875,3 +875,15 @@ def test_whats_new_said_or_aimed_at_a_person_is_not_the_news(said):
                                    "what's the news", "any news?", "latest news", "headlines please"])
 def test_asking_for_the_news_still_gets_it(asked):
     assert route(asked)["action"] == "NEWS_FETCH"
+
+
+@pytest.mark.parametrize("said", ["seems the kettle is working hard today, who is that by the way?",
+                                  "who is that by the way", "what did you mean by that"])
+def test_a_question_or_by_the_way_is_not_a_song_request(said):
+    """A question with "by the way" in it played a track called "...who is that" by "the way"."""
+    assert route(said)["action"] != "PLAY_MEDIA", said
+
+
+@pytest.mark.parametrize("said", ["bohemian rhapsody by queen", "by the way by red hot chili peppers"])
+def test_a_title_by_an_artist_still_plays(said):
+    assert route(said)["action"] == "PLAY_MEDIA", said

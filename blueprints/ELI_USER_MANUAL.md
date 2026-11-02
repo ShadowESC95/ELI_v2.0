@@ -1149,7 +1149,10 @@ them concurrently over a dependency DAG, and aggregates into context. Key agents
 
 After the bus returns, a **grounding-escalation hook** checks: *is this a factual question that
 came back weakly supported?* If so, ELI escalates — a web tier (if you allow online), a local
-tier, or an **honest hedge** ("I'm not certain, but…") rather than a confident guess. Then the
+tier, or an **honest hedge** ("I'm not certain, but…") rather than a confident guess. Offline,
+which is the default, ELI answers what does not change (what a river is, who wrote a play) from
+what its model knows, and says so plainly when a question is about something that changes (news,
+prices, results) and cannot be checked without the network. Then the
 result is finalised: a self-contained action returns directly, a grounded control action gets a
 short grounded synthesis, and a conversation goes to generation with the full persona + memory
 context.

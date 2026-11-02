@@ -295,7 +295,15 @@ def read_message(text: str, *, chains: bool = False) -> List[dict]:
     form. A message of one sentence comes back as one entry."""
     parts = [part for s in sentences(text)
              for part in (_instructions_in(s) if chains and instruction(s) else [s])]
-    return [{"said": p, "tells": instruction(p)} for p in parts]
+    return [{"said": p, "tells": "" if _asks_rather_than_tells(p) else instruction(p)} for p in parts]
+
+
+def _asks_rather_than_tells(sentence: str) -> bool:
+    """A question that is not a request: "who is that by the way?" asks, and a rule matching its words
+    is no instruction to carry out. "can you open it?" asks for an act; "play some jazz?" starts with it."""
+    said = _LEAD.sub("", str(sentence or "").strip(), count=1)
+    return (said.rstrip(" )\"'’”").endswith("?")
+            and not (_REQUEST.match(said) or is_request(said) or starts_with_command(said)))
 
 
 # "no dude, orbit and northwind", "i meant the other one": what a correction starts with, before what

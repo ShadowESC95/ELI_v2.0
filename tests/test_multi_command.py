@@ -196,3 +196,12 @@ def test_verbs_listed_inside_what_is_asked_for_are_not_instructions(text):
 ])
 def test_instructions_after_such_a_phrase_still_divide(text, parts):
     assert split_commands(text) == parts
+
+
+def test_a_question_among_sentences_is_talk_not_an_instruction():
+    """A question whose words a rule happened to match was carried out as a command."""
+    from eli.runtime.command_splitter import read_message
+    said = read_message("lovely weather today. seems the kettle is busy, who is that by the way?")
+    assert said[-1]["tells"] == ""
+    assert read_message("thanks for that. can you open the calculator?")[-1]["tells"] == "open the calculator?"
+    assert read_message("nice one. play some jazz?")[-1]["tells"] == "play some jazz?"

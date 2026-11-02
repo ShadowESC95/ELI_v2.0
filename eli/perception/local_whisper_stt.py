@@ -370,10 +370,78 @@ def _audio_for_whisper(path):
         return str(path)
 
 
+_HINTS: list = []          # [the hint words], filled once in the background
+_HINTS_STARTED = False
+_LAST_HEARD: dict = {"text": "", "doubtful": False}
+
+
+def _hint_words() -> str:
+    """Words a spoken command to ELI is likely to hold, for the decoder: the wake words and the apps on
+    this machine the person has named in conversation. "open spotify" in a noisy room came out as "old
+    thing spot employee". Only names they use: every name offered is one Whisper can hear in noise."""
+    global _HINTS_STARTED
+    if not _HINTS_STARTED:
+        _HINTS_STARTED = True
+        threading.Thread(target=_gather_hints, name="stt-hints", daemon=True).start()
+    return " ".join(_HINTS)
+
+
+def _gather_hints() -> None:
+    import sqlite3
+    from eli.memory.memory import get_memory
+    from eli.perception.audio_stt import WAKE_WORDS
+    from eli.system.portable_app_control import iter_installed_apps
+    words = [str(w) for w in WAKE_WORDS]
+    try:
+        names = sorted({a.name for a in iter_installed_apps() if a.name})
+    except OSError:
+        log.warning("[LOCAL_STT] the installed apps could not be listed: no app names as hints", exc_info=True)
+        names = []
+    import re
+    mem = get_memory()
+    for name in names:
+        if name.lower() in (w.lower() for w in words):
+            continue
+        # The whole name, said: the search matches any one of its words anywhere ("world" took in a game
+        # called "... World of ...", "files" took in "profiles"), and nearly every app became a hint.
+        said = re.compile(rf"(?<![\w]){re.escape(name)}(?![\w])", re.I)
+        try:
+            hits = mem.search_conversations(name, limit=None, match_all=True)
+        except sqlite3.Error:
+            log.warning("[LOCAL_STT] could not look for %r in conversation", name, exc_info=True)
+            continue
+        if any(said.search(str((hit or {}).get("content") or "")) for hit in hits or []):
+            words.append(name)
+    _HINTS[:] = words
+    log.debug("[LOCAL_STT] decoder hints: %s", ", ".join(words))
+
+
+def _doubtful(model, segments) -> bool:
+    """Every segment below the decoder's own bar for a failed decode, or more likely silence than speech:
+    faster-whisper's log_prob_threshold and no_speech_threshold, read from its own defaults."""
+    import inspect
+    params = inspect.signature(model.transcribe).parameters
+    low = getattr(params.get("log_prob_threshold"), "default", None)
+    silent = getattr(params.get("no_speech_threshold"), "default", None)
+
+    def unsure(seg) -> bool:
+        logprob, no_speech = getattr(seg, "avg_logprob", None), getattr(seg, "no_speech_prob", None)
+        return ((low is not None and logprob is not None and logprob < low)
+                or (silent is not None and no_speech is not None and no_speech > silent))
+    return bool(segments) and all(unsure(s) for s in segments)
+
+
+def heard_clearly(text: str) -> bool:
+    """False when `text` is what was last transcribed and the decoder was not sure of it."""
+    return not (_LAST_HEARD["doubtful"] and " ".join(str(text or "").lower().split()) == _LAST_HEARD["text"])
+
+
 def _do_transcribe(model, wav_path: str, language: str | None) -> str:
+    hints = _hint_words()
     segments, _info = model.transcribe(
         _audio_for_whisper(wav_path),
         language=language,
+        hotwords=hints or None,
         # beam_size=5 (faster-whisper's default) restores sentence punctuation
         # (. , ? !) that greedy beam_size=1 suppresses, and improves accuracy.
         # condition_on_previous_text stays False to avoid Whisper repetition loops.
@@ -382,10 +450,13 @@ def _do_transcribe(model, wav_path: str, language: str | None) -> str:
         condition_on_previous_text=False,
         without_timestamps=True,
     )
+    segments = list(segments)
     text = " ".join((seg.text or "").strip() for seg in segments).strip()
     # Preserve punctuation; collapse whitespace only. Case is normalised by the
     # consuming wake/command layer (audio_stt), not here.
-    return " ".join(text.lower().split())
+    text = " ".join(text.lower().split())
+    _LAST_HEARD.update(text=text, doubtful=_doubtful(model, segments))
+    return text
 
 
 def _reload_model_on_cpu() -> None:

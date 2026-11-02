@@ -161,6 +161,10 @@ def describe_turn(facts: Dict[str, Any]) -> str:
         parts.append(f"routed by {via}" + (f" ({_ROUTE_WORDS[via]})" if via in _ROUTE_WORDS else ""))
     if facts.get("downgraded_from"):
         parts.append(f"first read as {facts['downgraded_from']}, answered as chat (too little evidence for it)")
+    for step in facts.get("steps") or []:
+        words = " ".join(str(step.get("words") or "").split())
+        parts.append(f"carried out “{words[:90]}{'…' if len(words) > 90 else ''}” as {step.get('action') or '?'}"
+                     + (f" (matched by {step['via']})" if step.get("via") else ""))
     if facts.get("retrieval"):
         parts.append(f"retrieval: {facts['retrieval']}")
     if facts.get("escalation"):
@@ -326,7 +330,13 @@ def _reports_a_thing_done(sentence: str) -> bool:
     return any(w in known or (w.endswith("s") and w[:-1] in known) for w in re.findall(r"[a-z]{3,}", thing.lower()))
 
 
+# What ELI runs on is where it is, not something it did: "the language model I'm running on was trained
+# by its publisher" was dropped as a claim to have acted.
+_HOSTED_ON = re.compile(r"\bi(?:'m|’m| am)\s+(?:\w+ly\s+)?running\s+(?:on|locally|inside|from)\b", re.I)
+
+
 def _says_it_acted(sentence: str) -> bool:
+    sentence = _HOSTED_ON.sub(" ", sentence)
     if _SAYS_NOTHING_IS.match(sentence):
         return False
     return bool(_REPORTS_ACTING.search(sentence)) or _names_an_act_under_way(sentence) or _reports_a_thing_done(sentence)
@@ -431,6 +441,13 @@ _INVENTED_SELF_METRIC = re.compile(
     re.I)
 _SPEAKS_OF_ITS_OWN = re.compile(r"\b(?:i|i['’]m|my|mine|our|eli['’]?s?|job|analysis|scan|task)\b", re.I)
 # "Did you open it?" "Yes." The record says whether it did.
+# "I was built by ELI Systems": a maker named, to be checked against the one the licence names.
+_NAMES_ITS_MAKER = re.compile(
+    r"\b(?:i\s+(?:was|am|were)|i['’]m|eli\s+(?:was|is))\s+(?:\w+\s+){0,3}?"
+    r"(?:built|made|created|developed|designed|written|programmed|coded)\s+by\s+(?P<a>[^.,;:!?()\n]+)"
+    r"|\bmy\s+(?:creator|maker|developer|author|builder)s?\s+(?:is|are|was|were)\s+(?P<b>[^.,;:!?()\n]+)", re.I)
+# What a sentence names that only the facts could stand behind: anything with a digit, anything in backticks.
+_SPECIFIC = re.compile(r"`([^`]+)`|([\w.+-]*\d[\w.+%-]*)")
 _ASKED_IF_IT_DID = re.compile(r"\b(?:did\s+you|have\s+you|you\s+said\s+you)\s+(?:\w+ly\s+)?(\w{3,})", re.I)
 _SAYS_YES = re.compile(r"\s*yes\b", re.I)
 _SUPPORT_NEEDED = 0.6
@@ -567,6 +584,23 @@ def _unrecorded_internal(sentence: str, record_low: str) -> Optional[str]:
     return None
 
 
+def _live_facts() -> str:
+    """What is true of ELI right now, lower case: the model file and the load as the loader reported it,
+    and who made it. "I am running on `Qwen3.6-35B-A3B-Q4_K_M.gguf`" is a fact here, not a claim to act."""
+    import json
+    from eli.cognition import gguf_inference
+    from eli.cognition.context_synthesiser import _runtime_snapshot
+    from eli.runtime.license_info import made_by
+    path = gguf_inference.get_model_path()
+    facts = [str(path or "").replace("\\", "/").rsplit("/", 1)[-1], made_by()]
+    try:
+        facts.append(json.dumps(_runtime_snapshot() or {}, default=str))
+    except (OSError, ValueError):
+        log.warning("the runtime snapshot could not be read: statements about the load are checked without it",
+                    exc_info=True)
+    return "\n".join(facts).lower()
+
+
 class _Check:
     """One turn's claim check, fed a reply one unit (sentence or line) at a time."""
 
@@ -602,6 +636,7 @@ class _Check:
         self._period_window = facts.get("_period_window")
         self._period_days = set(facts.get("_period_days") or [])
         self._skip_section = False
+        self._live = _live_facts()
         self.unrecorded_days: List[str] = []
         self._line_open = False  # served text since the last newline
         self.dropped: List[str] = []
@@ -625,10 +660,29 @@ class _Check:
                 return True
         return bool(_READ_WORD.search(sentence))
 
+    def _states_what_is_true(self, sentence: str) -> bool:
+        """Every specific the sentence names (a file, a figure) is in the live facts."""
+        named = [a or b for a, b in _SPECIFIC.findall(sentence)]
+        return bool(named) and bool(self._live) and all(n.lower().strip(" .") in self._live for n in named)
+
+    def _invented_maker(self, sentence: str) -> Optional[str]:
+        m = _NAMES_ITS_MAKER.search(sentence)
+        if not m:
+            return None
+        maker = (m.group("a") or m.group("b") or "").strip()
+        # a person or company by name; "you" or "a small team" is not checked against anything
+        names = re.findall(r"\b[A-Z][\w&.-]+", maker)
+        if not names or all(n.lower() in self._live for n in names):
+            return None
+        return maker
+
     def why(self, unit: str) -> str:
         s = str(unit or "")
         if not s.strip():
             return ""
+        maker = self._invented_maker(s)
+        if maker:
+            return f"names {maker} as its maker, and the licence names someone else"
         # Smaller models read their prompt back: "You always know today's weekday and date".
         said = " ".join(s.lower().split())
         if self._instructions and len(said) >= 30 and said in self._instructions:
@@ -649,7 +703,7 @@ class _Check:
                 return "says the model is wholly on the GPU, and the loader put part of it in RAM"
         except Exception:
             log.debug("loaded-placement check skipped", exc_info=True)
-        ran = self._backed(s)
+        ran = self._backed(s) or self._states_what_is_true(s)
         if not ran and _CHANGING_ITSELF.search(s):
             return "says it is changing its own code, and nothing did"
         if not ran and _ENABLED_CLAIM.search(s):

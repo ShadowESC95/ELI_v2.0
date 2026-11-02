@@ -45,7 +45,7 @@ def test_a_cuda_card_found_only_by_llama_cpp_is_named_nvidia():
 
 # ── what faster-whisper is given ─────────────────────────────────────────────
 
-def test_a_recording_reaches_faster_whisper_as_16_khz_samples_not_a_file(tmp_path):
+def test_a_recording_reaches_faster_whisper_as_16_khz_samples_not_a_file(tmp_path, monkeypatch):
     """faster-whisper opens a file with PyAV, and PyAV 18 refused the argument faster-whisper
     1.2.1 passes: every transcription in the 2.5.11 packaged app failed. Handed samples, it
     opens nothing."""
@@ -64,6 +64,7 @@ def test_a_recording_reaches_faster_whisper_as_16_khz_samples_not_a_file(tmp_pat
             seen["audio"] = audio
             return iter([type("S", (), {"text": " Open Spotify."})()]), None
 
+    monkeypatch.setattr(stt, "_HINTS_STARTED", True)      # no search of this machine's apps from a test
     assert stt._do_transcribe(_Model(), str(path), "en") == "open spotify."
     audio = seen["audio"]
     assert isinstance(audio, np.ndarray) and audio.dtype == np.float32 and abs(len(audio) - 16000) <= 2
@@ -74,3 +75,53 @@ def test_a_file_that_cannot_be_read_here_is_left_to_faster_whisper(tmp_path):
     odd = tmp_path / "talk.m4a"
     odd.write_bytes(b"not a wav")
     assert stt._audio_for_whisper(odd) == str(odd)
+
+
+def test_hints_reach_the_decoder_and_an_unsure_decode_is_marked(tmp_path, monkeypatch):
+    """"open spotify" in a noisy room came out as "old thing spot employee" and was answered as chat."""
+    import wave
+    import numpy as np
+    path = tmp_path / "said.wav"
+    with wave.open(str(path), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(16000)
+        f.writeframes(np.zeros(16000, dtype="<i2").tobytes())
+    seen = {}
+
+    def model(logprob):
+        class _Model:
+            def transcribe(self, audio, *, language=None, beam_size=5, vad_filter=False, hotwords=None,
+                           condition_on_previous_text=True, without_timestamps=False,
+                           log_prob_threshold=-1.0, no_speech_threshold=0.6):
+                seen["hotwords"] = hotwords
+                return iter([type("S", (), {"text": " old thing spot employee", "avg_logprob": logprob,
+                                            "no_speech_prob": 0.1})()]), None
+        return _Model()
+
+    monkeypatch.setattr(stt, "_HINTS_STARTED", True)
+    monkeypatch.setattr(stt, "_HINTS", ["computer", "Spotify"])
+    assert stt._do_transcribe(model(-1.6), str(path), "en") == "old thing spot employee"
+    assert seen["hotwords"] == "computer Spotify"
+    assert not stt.heard_clearly("old thing spot employee")
+    stt._do_transcribe(model(-0.2), str(path), "en")
+    assert stt.heard_clearly("old thing spot employee")
+
+
+def test_the_hints_are_the_apps_the_person_has_named(monkeypatch):
+    """Every name offered is one Whisper can hear in noise: only the ones the person uses."""
+    import types
+    import eli.memory.memory as memory
+    import eli.perception.audio_stt as audio_stt
+    import eli.system.portable_app_control as apps
+    monkeypatch.setattr(audio_stt, "WAKE_WORDS", ["computer"])
+    monkeypatch.setattr(apps, "iter_installed_apps", lambda: [apps.AppCandidate("Spotify"), apps.AppCandidate("Calculator")])
+    said = {"Spotify": [{"content": "open spotify please"}],
+            "Calculator": [{"content": "the scientific calculators were cheap"}],
+            "Ocean World Explorer": [{"content": "the world is big"}]}
+    monkeypatch.setattr(apps, "iter_installed_apps", lambda: [apps.AppCandidate(n) for n in said])
+    monkeypatch.setattr(memory, "get_memory", lambda *a, **k: types.SimpleNamespace(
+        search_conversations=lambda name, limit=10, match_all=False: said.get(name, [])))
+    monkeypatch.setattr(stt, "_HINTS", [])
+    stt._gather_hints()
+    assert stt._HINTS == ["computer", "Spotify"], "only an app named whole, not a word of it or inside a word"

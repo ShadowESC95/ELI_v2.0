@@ -898,3 +898,32 @@ def test_a_model_guess_needs_something_to_act_on():
     assert not needs("clock off", {"action": "SET_ALARM"})
     assert needs("wake me at 7", {"action": "SET_ALARM"}) and needs("timer for ten minutes", {"action": "SET_TIMER"})
     assert needs("halt the tunes please", {"action": "STOP_MEDIA"})
+
+
+def test_a_true_statement_of_what_runs_is_kept_and_an_invented_figure_is_not(monkeypatch):
+    """"I am running on <the loaded model>" was dropped as a claim of an act nothing carried out."""
+    from eli.cognition import self_claims as sc
+    monkeypatch.setattr(sc, "_live_facts", lambda: "small-model-q4.gguf\nsam example")
+    check = sc._Check()
+    assert check.why("To be clear: I am running on `small-model-q4.gguf`.") == ""
+    assert check.why("I'm running at 3% GPU utilization and 1% CPU load.")
+    assert check.why("The language model I'm running on was trained by its publisher.") == ""
+    assert check.why("I'm running the scan of your folders now.")
+
+
+def test_a_maker_the_licence_does_not_name_is_dropped(monkeypatch):
+    """Asked who made it, ELI said "ELI Systems, the local architecture team"; there is no such thing."""
+    from eli.cognition import self_claims as sc
+    monkeypatch.setattr(sc, "_live_facts", lambda: "small-model-q4.gguf\nsam example")
+    check = sc._Check()
+    assert "maker" in check.why("I was built by Acme Systems, the local architecture team.")
+    assert check.why("I was built by Sam Example.") == ""
+    assert check.why("I was built by you, on this machine.") == ""
+
+
+def test_the_record_says_what_each_step_was_and_which_rule_made_it():
+    """Asked why it played a song, ELI saw only PLAY_MEDIA in its record and made up a reason."""
+    from eli.cognition.self_claims import describe_turn
+    line = describe_turn({"steps": [{"words": "who is that by the way", "action": "PLAY_MEDIA",
+                                     "via": "media.implied_song_by_artist"}]})
+    assert "“who is that by the way” as PLAY_MEDIA" in line and "media.implied_song_by_artist" in line

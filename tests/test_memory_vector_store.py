@@ -153,3 +153,24 @@ def test_the_rebuild_button_indexes_what_the_policy_keeps_with_ids(tmp_path, mon
     assert sorted(m["memory_id"] for m in vs._meta) == sorted(ids[:2])
     assert all(m["text"] in ("the garden fence needs a coat of paint", "the kettle in the back kitchen is new")
                for m in vs._meta)
+
+
+def test_the_embedder_keeps_every_part_of_itself_in_ram(monkeypatch):
+    """Its room is reserved in RAM. With every layer on the processor llama.cpp still put its working
+    buffers on the GPU (54 MB on a CUDA build), after the language model's plan had left that card a
+    sliver, and the next reply aborted."""
+    import sys
+    import types
+    seen = {}
+
+    class _Llama:
+        def __init__(self, model_path, embedding=False, n_ctx=0, n_gpu_layers=-1, verbose=True, n_threads=None,
+                     offload_kqv=True, op_offload=True, **kwargs):
+            seen.update(n_gpu_layers=n_gpu_layers, offload_kqv=offload_kqv, op_offload=op_offload)
+
+    monkeypatch.setitem(sys.modules, "llama_cpp", types.SimpleNamespace(Llama=_Llama))
+    monkeypatch.setattr("eli.memory.vector_store.resolve_embedder_path", lambda: __file__)
+    vs = _bare_store()
+    vs._embedder = None
+    vs._init_embedder()
+    assert seen == {"n_gpu_layers": 0, "offload_kqv": False, "op_offload": False}
