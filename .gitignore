@@ -119,6 +119,8 @@ Pasted\ text.txt
 # ── Backup files created during development ──────────────────────────────────
 *.bak
 *.bak_*
+*.bak.*
+*.bak-*
 
 # ── Examination / diagnostic outputs ─────────────────────────────────────────
 eli_artifacts_*/
