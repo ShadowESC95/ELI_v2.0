@@ -156,17 +156,16 @@ class AwarenessState:
         # Told "log everything", a model promised to switch on logging that was never off.
         head += (" Logging is always on and is not something a reply can change: every action you run is written to"
                  " the evidence ledger and every turn to the audit chain, both signed. Asked to log more, say that.")
-        # Room lives at ws["avatar"]["room"], not top-level — reuse the same
-        # thresholds choose_room()/map_persona() already use for the avatar.
+        # The room ELI's avatar is in is not said here: this line is in every prompt, and told "You are
+        # presently in your Anomaly Room" the model opened a reply to a complaint with "I'm in the
+        # Anomaly Room, which is where I put myself when ...". The room reaches the model only when the
+        # person asks about ELI's world (context_synthesiser, the engine's world block).
         try:
             from eli.world.local_world_bridge import get_world_state
             from eli.world.core.schemas import AwarenessState
-            from eli.world.avatar.behaviour_controller import AvatarBehaviourController
             from eli.world.avatar.persona_mapper import PersonaToAvatarMapper
             ws = get_world_state() or {}
             aw = AwarenessState(**(ws.get("awareness") or {}))
-            room = AvatarBehaviourController().choose_room(aw)
-            head += f" You are presently in your {room.replace('_', ' ').title()}."
             expr = PersonaToAvatarMapper().map_persona(aw)["expression"]
             _line = {
                 "concerned": "There's an unresolved fault worth a self-check.",

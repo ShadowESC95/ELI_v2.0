@@ -927,3 +927,71 @@ def test_the_record_says_what_each_step_was_and_which_rule_made_it():
     line = describe_turn({"steps": [{"words": "who is that by the way", "action": "PLAY_MEDIA",
                                      "via": "media.implied_song_by_artist"}]})
     assert "“who is that by the way” as PLAY_MEDIA" in line and "media.implied_song_by_artist" in line
+
+
+def test_a_file_said_to_be_somewhere_it_is_not_is_dropped_on_any_turn(tmp_path):
+    """"Done. I've written the patch to <path>" and nothing was there; the person went looking."""
+    missing = tmp_path / "fixes" / "tool_priority.patch"
+    there = tmp_path / "notes.txt"
+    there.write_text("x")
+    token = rc.turn_facts_var.set({"user_input": "deal"})
+    try:
+        out = sc.drop_invented_self_claims(f"Done. I've written the patch to {missing}.\nIt forces a search before an answer.")
+        assert str(missing) not in out and not out.startswith("Done") and "forces a search" in out
+        assert str(missing) not in sc.drop_invented_self_claims(f"The file is at {missing}. It forces a search first.")
+        assert str(there) in sc.drop_invented_self_claims(f"Your notes are in {there}. They are short.")
+        told = f"Put the settings in {missing} and restart."
+        assert sc.drop_invented_self_claims(told) == told, "telling the person where to put a file is not a claim"
+        promised = f"I'll put the code in {missing}. Deal?"
+        assert sc.drop_invented_self_claims(promised) == promised, "an offer is not a claim that it is there"
+    finally:
+        rc.turn_facts_var.reset(token)
+
+
+def test_an_answer_said_to_come_from_a_search_needs_one_to_have_run():
+    reply = "Here is the actual answer, from a live search:\nThe newest film in the series came out this year. It is animated."
+    facts = {"user_input": "what the hell?!"}
+    token = rc.turn_facts_var.set(facts)
+    try:
+        assert "from a live search" not in sc.drop_invented_self_claims(reply)
+        facts["executed_actions"] = ["WEB_SEARCH"]
+        assert "from a live search" in sc.drop_invented_self_claims(reply)
+    finally:
+        rc.turn_facts_var.reset(token)
+
+
+def test_what_is_said_again_after_a_dropped_claim_is_only_what_is_new():
+    """The reply asked again went on from what had been served by writing its last paragraph out
+    again, and both copies reached the person."""
+    served = "You're right to be annoyed.\n\nThe film is out. It's fun, not Shakespeare."
+    again = "The film is out. It's fun, not Shakespeare.\n\nNext time I'll search first. Want the cast?"
+    assert sc.not_said_yet(again, served) == "Next time I'll search first. Want the cast?"
+    assert sc.not_said_yet("The film is out.  It's fun, not Shakespeare!", served) == ""
+    assert sc.not_said_yet("Line one.\nLine two.", "") == "Line one.\nLine two."
+
+
+def test_the_stream_gate_serves_only_what_the_rewrite_adds(turn):
+    reply = ("You're right. I've already restarted the search agent for you. "
+             "The film is out. It's fun, not Shakespeare.")
+    turn["user_input"] = "search for the new film"
+    out = "".join(sc.gate_stream([reply], "", rewrite=lambda dropped, served: "The film is out. It's fun, not Shakespeare."))
+    assert out.count("The film is out") == 1, out
+
+
+def test_a_weekday_against_the_clock_is_checked_except_in_what_was_asked_to_be_written(monkeypatch):
+    from datetime import datetime
+    import eli.cognition.query_planner as qp
+    real = qp.wrong_day_now
+    monkeypatch.setattr(qp, "wrong_day_now", lambda text, now=None: real(text, datetime(2026, 11, 2, 23, 51)))
+    reply = "Late night, then. Just a fresh Monday looming in six hours. Sleep well."
+    token = rc.turn_facts_var.set({"user_input": "hey, you good?"})
+    try:
+        assert "looming" not in sc.drop_invented_self_claims(reply)
+    finally:
+        rc.turn_facts_var.reset(token)
+    story = "It's Saturday morning in the village. The baker opens late."
+    token = rc.turn_facts_var.set({"user_input": "write me a short story about a baker"})
+    try:
+        assert sc.drop_invented_self_claims(story) == story
+    finally:
+        rc.turn_facts_var.reset(token)

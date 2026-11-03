@@ -601,6 +601,39 @@ def _live_facts() -> str:
     return "\n".join(facts).lower()
 
 
+# A file named as made or kept at a path: "I've written the patch to /home/x/fix.patch", "The file is
+# at /home/x/fix.patch". Held to the disk in every turn: nothing was there, and the person went looking.
+# Only what ELI says it did, or where it says a file is: "Put it in ~/.config/x.json" tells the person
+# where to put something, and is not checked.
+_INTO = r"[^.!?\n]{0,60}?\b(?:to|in|at|into|under|as)\s+[`\"'“*_]*(?:~|\.{0,2})?/"
+_PUT_AT = re.compile(
+    r"\bi(?:['’]ve|\s+have|\s+just)?\s+(?:(?:now|just|already)\s+)*"
+    r"(?:written|wrote|saved|put|placed|stored|created|exported|generated|dropped)\b" + _INTO
+    + r"|\b(?:it|this|that|they|(?:the|your|my)\s+[\w-]+(?:\s+[\w-]+)?)\s+(?:is|are|was|were|has\s+been|have\s+been)\s+"
+    r"(?:now\s+)?(?:(?:written|saved|put|placed|stored|created|exported|located|sitting|ready)\s+)?(?:to|in|at|into|under)\s+"
+    r"[`\"'“*_]*(?:~|\.{0,2})?/"
+    r"|^\W*(?:saved|written|exported|created)\b" + _INTO, re.I)
+# Said of what is to come, not of what is: "I'll put it in /x", "want me to save it to /x?".
+_TO_COME = re.compile(r"\b(?:i['’]ll|i\s+will|i\s+can|i\s+could|i['’]d|let\s+me|want\s+me\s+to|shall\s+i|should\s+i)\b", re.I)
+# An answer said to come from a lookup: "Here is the actual answer, from a live search:".
+_FROM_A_LOOKUP = re.compile(
+    r"\b(?:from|per|according\s+to|based\s+on)\s+(?:a|my|the|this|that)\s+"
+    r"(?:(?:live|quick|fresh|new|web|online|internet|real[- ]time)\s+)*(?:search|lookup|look-up)\b", re.I)
+_LOOKUP_ACTION = re.compile(r"SEARCH|FETCH|LOOKUP|BROWSE|NEWS|WEATHER", re.I)
+# Asked for something made up or written out, a weekday in it is not said of today: "It's Saturday
+# morning in the village" in a story.
+_ASKED_TO_WRITE = re.compile(
+    r"\b(?:stor(?:y|ies)|poems?|lyrics|songs?|scripts?|scenes?|fiction|novel|chapters?|dialogue|examples?|drafts?|"
+    r"write|compose|imagine|pretend|role[- ]?play|make\s+up)\b", re.I)
+
+
+def _put_nowhere(sentence: str, evidence_low: str) -> Optional[str]:
+    """The path a sentence says a file was written to or is at, when nothing is there."""
+    if not _PUT_AT.search(sentence) or _TO_COME.search(sentence) or sentence.rstrip(" *_)\n").endswith("?"):
+        return None
+    return _invented_path(sentence, evidence_low)
+
+
 class _Check:
     """One turn's claim check, fed a reply one unit (sentence or line) at a time."""
 
@@ -610,6 +643,7 @@ class _Check:
         self._facts = facts
         asked = str(facts.get("user_input") or "")
         self.about_self = asks_about_own_behaviour(asked)
+        self._writing = bool(_ASKED_TO_WRITE.search(asked))
         # Whether the user asked ELI to do something: only then is "nothing was carried out" news.
         try:
             from eli.runtime.command_splitter import is_request, read_message, starts_with_command
@@ -713,6 +747,21 @@ class _Check:
             return "says it did or is doing something, and nothing was carried out this turn"
         if not ran and _STANDING_PROMISE.search(s) and _SAYS_IT_DID.search(s):
             return "says it changed something so that it will not happen again, and nothing was changed"
+        try:
+            from eli.cognition.query_planner import wrong_day_now
+            wrong_day = "" if self._writing else wrong_day_now(s)
+        except Exception:
+            log.debug("weekday check skipped", exc_info=True)
+            wrong_day = ""
+        if wrong_day:
+            return wrong_day
+        nowhere = _put_nowhere(s, self._evidence)
+        if nowhere:
+            self.claimed_acting = True
+            return f"says a file is at {nowhere}, and nothing is there"
+        if _FROM_A_LOOKUP.search(s) and not _carried_out_before() and not self._facts.get("escalation") and not any(
+                _LOOKUP_ACTION.search(str(a)) for a in self._facts.get("executed_actions") or []):
+            return "says its answer comes from a search, and none ran this turn"
         if self._yes_unbacked and _SAYS_YES.match(s):
             return "says yes to what the record does not show"
         if _INVENTED_SELF_METRIC.search(s) and (self.about_self or _SPEAKS_OF_ITS_OWN.search(s)) and not all(
@@ -768,7 +817,7 @@ class _Check:
         if self._lead is not None:
             # a "Done." held back: what follows says whether it was a report
             lead, self._lead = self._lead, None
-            if _says_it_acted(unit):
+            if _says_it_acted(unit) or _put_nowhere(unit, self._evidence):
                 self.dropped.append(lead)
                 self.claimed_acting = True
                 return self._unit(unit)
@@ -931,6 +980,19 @@ def _checked(chunks: Iterable[str], check: _Check):
     yield from check.close()
 
 
+def not_said_yet(again: str, served: str) -> str:
+    """`again` without the sentences already served. Told to go on from what it had said, the model
+    wrote the last paragraph out again word for word, and the person read it twice."""
+    def _plain(unit: str) -> str:
+        return re.sub(r"[\W_]+", " ", unit.lower()).strip()
+    said = {_plain(u) for u in re.split(r"(?<=[.!?])\s+|\n+", str(served or "")) if _plain(u)}
+    pieces = re.split(r"((?<=[.!?])[ \t]+|\n+)", str(again or ""))
+    kept = [unit + (pieces[i + 1] if i + 1 < len(pieces) else "")
+            for i, unit in ((i, pieces[i]) for i in range(0, len(pieces), 2))
+            if not (_plain(unit) and _plain(unit) in said)]
+    return re.sub(r"\n{3,}", "\n\n", "".join(kept)).strip()
+
+
 def holds_up(text: str, evidence: str = "") -> bool:
     """Whether every sentence of `text` gets through the claim check."""
     check = _Check(evidence)
@@ -950,7 +1012,7 @@ def gate_stream(chunks: Iterable[str], evidence: str = "", rewrite: Optional[Cal
     if check.code_served:
         return
     if rewrite is not None and check.fell_short():
-        again = str(rewrite(list(check.dropped), "".join(served)) or "").strip()
+        again = not_said_yet(str(rewrite(list(check.dropped), "".join(served)) or ""), "".join(served))
         if again and holds_up(again, evidence):
             yield ("\n\n" if check.kept_words else "") + again
             return

@@ -45,7 +45,7 @@ def _path() -> Path:
 
 def set_pending_proposal(command: str, summary: str = "", *, items: Optional[List[Dict[str, Any]]] = None,
                          from_reply: bool = False, question: str = "",
-                         awaiting: Optional[Dict[str, Any]] = None) -> None:
+                         awaiting: Optional[Dict[str, Any]] = None, written: str = "") -> None:
     """Record what ELI's reply left open. `command` is the phrase to re-route if the user
     affirms (e.g. "set a reminder for the bluey premiere"); `items` is every step it
     offered, each with the number it was listed under; `question` is the question the reply
@@ -65,7 +65,9 @@ def set_pending_proposal(command: str, summary: str = "", *, items: Optional[Lis
     try:
         _path().write_text(
             json.dumps({"command": command, "summary": summary or command, "ts": time.time(),
-                        "items": items, "question": question, "awaiting": awaiting}),
+                        "items": items, "question": question, "awaiting": awaiting,
+                        # the reply, when a step offers to save what it wrote ("Want me to save it to ~/x.md?")
+                        "written": written if any(destination(i["command"]) for i in items) else ""}),
             encoding="utf-8",
         )
         log.debug("[PENDING_PROPOSAL] stored: %r%s%s", (command or question)[:120],
@@ -243,6 +245,13 @@ _WHICH_ONE = _re.compile(
 _REMEDIATION = _re.compile(r"^(?:download/?install(?:\s+it)?|install it|download it)\b", _re.I)
 
 
+# A question that only asks for a go-ahead: "Deal?", "Sound good?", "OK?". What it asks about is
+# what the reply said it would do ("I'll draft the patch ..."), and a "yes" agrees to that.
+_GO_AHEAD_TAG = _re.compile(
+    r"^\W*(?:deal|ok(?:ay)?|alright|sound(?:s)?\s+(?:good|ok(?:ay)?|fair|right)|agreed|happy\s+with\s+that|"
+    r"does\s+that\s+(?:sound|work)(?:\s+(?:good|ok(?:ay)?|for\s+you))?|(?:is\s+)?that\s+ok(?:ay)?|"
+    r"(?:does\s+that\s+)?work\s+for\s+you|shall\s+(?:i|we)(?:\s+go\s+ahead)?|go\s+ahead)\W*\?\W*$", _re.I)
+
 _NOT_AN_ACTION = ("", "CHAT", "UNKNOWN", "NOOP")
 # What a plain "yes" may run when ELI asked outright ("Want me to check my memory status?"). A
 # status report is fine there; a compound of several commands is not taken from ELI's sentence.
@@ -385,6 +394,16 @@ def read_reply(response_text: str, *, offers_only: bool = False) -> Dict[str, An
                               "label": named})
             elif not offers_only and _COMMIT_LEAD.match(sentence):
                 cands.append({"n": number, "text": sentence.rstrip(".! "), "src": "said", "said": sentence})
+
+    if _GO_AHEAD_TAG.match(last_sentence):
+        # "I'll draft the patch ... Deal?": what it said it would do is what it asked about
+        for c in cands:
+            plain = _re.sub(r"^(?:\W*\w+[,:]\s+)?(?:i['’]ll|i\s+will|i\s+can|i\s+could|let['’]?s|let\s+me|we['’]ll|we\s+can)\s+",
+                            "", c["text"], flags=_re.I)
+            if c["src"] == "said" and not _NON_ACTION.match(plain):
+                c["src"] = "offer"
+                c["text"] = _re.sub(r"^(?:\W*\w+[,:]\s+)?(?:i['’]ll|i\s+will|i\s+can|i\s+could|let['’]?s|let\s+me|we['’]ll|we\s+can)\s+",
+                                   "", c["text"], flags=_re.I)
 
     listed = [c for c in cands if c["src"] in ("list", "label")]
     for c in cands:
@@ -554,14 +573,39 @@ def commands_for(prop: Dict[str, Any], reply: str) -> List[str]:
     return [i["command"] for i in chosen_items(prop, reply) if i.get("kind", "action") == "action"]
 
 
-def agreed(chosen: List[Dict[str, Any]], *, offer: str = "") -> Dict[str, Any]:
-    """The steps a "yes" covers, sorted by how each is carried out."""
+# "put the code in /home/x/fix.patch", "save it to ~/notes/plan.md": where something written goes.
+_GOES_TO = _re.compile(
+    r"^\W*(?:put|save|write|store|place|drop|keep|export)\b[^/~]{0,60}?\b(?:in|to|into|at|under|as)\s+[`\"'“]?"
+    r"(?P<path>(?:~|\.{0,2})?/[\w./\-]+?)[`\"'”]?\W*$", _re.I)
+
+
+def destination(step: str) -> str:
+    """The file a step says what ELI wrote is to be saved to, or "" (a folder is not a file)."""
+    m = _GOES_TO.match(str(step or "").strip())
+    return m.group("path") if m and "." in m.group("path").rsplit("/", 1)[-1].strip(".") else ""
+
+
+def agreed(chosen: List[Dict[str, Any]], *, offer: str = "", written: str = "") -> Dict[str, Any]:
+    """The steps a "yes" covers, sorted by how each is carried out. A step that saves what ELI
+    wrote is a save: of what the other steps write, or else of the reply that offered it."""
+    tasks = [i["command"] for i in chosen if i.get("kind") == "task"]
     return {
         "commands": [i["command"] for i in chosen if i.get("kind", "action") == "action"],
-        "tasks": [i["command"] for i in chosen if i.get("kind") == "task"],
+        "tasks": [t for t in tasks if not destination(t)],
+        "saves": [destination(t) for t in tasks if destination(t)],
+        "written": str(written or ""),
         "explicit": [i["command"] for i in chosen if i.get("kind") == "explicit"],
         "offer": " ".join(str(offer or "").split())[:400],
     }
+
+
+_FENCED = _re.compile(r"```[^\n`]*\n(.*?)```", _re.S)
+
+
+def what_was_written(reply: str) -> str:
+    """The part of a reply that is the thing written: its code blocks when it has any, else all of it."""
+    blocks = [b.rstrip() + "\n" for b in _FENCED.findall(str(reply or "")) if b.strip()]
+    return "\n".join(blocks) if blocks else str(reply or "").strip() + "\n"
 
 
 def own_words_line(commands: List[str]) -> str:

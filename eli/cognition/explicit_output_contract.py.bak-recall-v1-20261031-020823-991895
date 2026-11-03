@@ -1,0 +1,94 @@
+"""Conservative, model-output-based exact-answer formatting for ELI.
+
+This policy must not infer a missing answer, change a tool result or override an
+external factual uncertainty gate. It only enforces an explicit user format
+contract when the model's text already contains a verifiable candidate.
+"""
+from __future__ import annotations
+
+from datetime import date, timedelta
+import re
+from typing import Optional, Tuple
+
+_ISO = re.compile(r"(?<!\d)(\d{4}-\d{2}-\d{2})(?!\d)")
+_STRICT_DATE = re.compile(r"\bYYYY-MM-DD\s+only\b", re.I)
+_STRICT_UNKNOWN = re.compile(
+    r"\b(?:say|reply|answer)\s+(?:with\s+)?(?:exactly\s+)?UNKNOWN\s+only\b", re.I
+)
+_STRICT_YES_NO = re.compile(
+    r"\b(?:answer|reply|respond)\s+(?:with\s+)?YES\s+or\s+NO\s+only\b", re.I
+)
+_DATE_OFFSET = re.compile(
+    r"\b(\d{1,4})\s+(?:calendar\s+)?days?\s+(later|after|earlier|before)\b", re.I
+)
+
+
+def _iso_dates(s: str):
+    dates = []
+    for match in _ISO.finditer(s):
+        try:
+            dates.append(date.fromisoformat(match.group(1)).isoformat())
+        except ValueError:
+            pass
+    return dates
+
+
+def _in_prompt_calculation(prompt: str) -> Optional[str]:
+    """Calculate a date only from an unambiguous user-provided seed and offset.
+
+    This is *validation*, not answer creation. It only produces visible output
+    if the same calculated date already appears in the model's response.
+    """
+    seeds = _iso_dates(prompt)
+    offsets = list(_DATE_OFFSET.finditer(prompt))
+    if len(seeds) != 1 or len(offsets) != 1:
+        return None
+    if re.search(r"\b(?:verify|fact[- ]check|browse|search\s+(?:the\s+)?web|latest)\b", prompt, re.I):
+        return None
+    try:
+        amount = int(offsets[0].group(1))
+        signed = amount if offsets[0].group(2).lower() in {"later", "after"} else -amount
+        return (date.fromisoformat(seeds[0]) + timedelta(days=signed)).isoformat()
+    except (OverflowError, ValueError):
+        return None
+
+
+def enforce_explicit_output_contract(prompt: str, response: str) -> Tuple[str, Optional[str]]:
+    """Return (visible_response, applied_contract_or_None).
+
+    Fails open: unrelated or ambiguous responses are returned unchanged.
+    Contracts are about output format, not permission to execute commands.
+    """
+    user = str(prompt or "")
+    raw = str(response or "")
+    stripped = raw.strip()
+    if not user.strip() or not stripped:
+        return raw, None
+
+    if _STRICT_UNKNOWN.search(user):
+        lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+        if lines and lines[0].strip("`\"' ") == "UNKNOWN":
+            # Abstention must be the model's own first-line conclusion.
+            return "UNKNOWN", "unknown_only"
+        return raw, None
+
+    if _STRICT_YES_NO.search(user):
+        lines = [line.strip() for line in stripped.splitlines() if line.strip()]
+        if lines and lines[0].strip("`\"' .!").upper() in {"YES", "NO"}:
+            choice = lines[0].strip("`\"' .!").upper()
+            # Do not flatten a response that explicitly contradicts its first line.
+            if re.search(rf"\b{'NO' if choice == 'YES' else 'YES'}\b", "\n".join(lines[1:]), re.I):
+                return raw, None
+            return choice, "yes_no_only"
+        return raw, None
+
+    if _STRICT_DATE.search(user):
+        derived = _in_prompt_calculation(user)
+        candidates = _iso_dates(stripped)
+        if derived and derived in candidates:
+            return derived, "date_only_verified"
+        # A standalone date answer is already compliant. Do not mine an external
+        # fact explanation or guess among several conflicting dates.
+        if re.fullmatch(r"\d{4}-\d{2}-\d{2}", stripped) and candidates:
+            return stripped, None
+    return raw, None

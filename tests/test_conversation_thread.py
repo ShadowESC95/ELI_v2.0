@@ -87,3 +87,27 @@ def test_web_query_has_substance():
     assert web_query_has_substance("Blue Harbor season 3 reviews")
     assert not web_query_has_substance("do a web search")
     assert not web_query_has_substance("look it up")
+
+
+def test_a_search_asked_for_with_no_subject_looks_up_what_the_talk_is_about():
+    """"do a web search, you should be smart enough to do that" searched for that sentence,
+    when the talk was about the newest film in a series ELI had just named as playing."""
+    from eli.runtime.conversation_thread import build_thread_aware_query, extract_thread_topic
+    turns = [
+        {"role": "user", "content": "whats playing?"},
+        {"role": "assistant", "content": "▶ Playing: Harbour Lights: Undertow — firefox.instance_1_7."},
+        {"role": "user", "content": "thoughts on the new one?"},
+        {"role": "assistant", "content": "If you're watching something else on that tab, tell me what it is."},
+        {"role": "user", "content": "im talking about the newest film"},
+        {"role": "assistant", "content": "I may be watching something else in my head; which one do you mean?"},
+    ]
+    assert extract_thread_topic(turns) == "Harbour Lights: Undertow", "what is playing, not a placeholder"
+    query = build_thread_aware_query("dude do a web search, you should be smart enough to do that when you need to confirm!!", turns)
+    low = query.lower()
+    assert "harbour lights" in low and "newest" in low, query
+    assert "smart enough" not in low, "a remark to ELI is not what to look up"
+
+
+def test_a_placeholder_is_never_taken_for_a_title():
+    from eli.runtime.conversation_thread import extract_thread_topic
+    assert extract_thread_topic([{"role": "assistant", "content": "Are you watching something else on that tab?"}]) == ""

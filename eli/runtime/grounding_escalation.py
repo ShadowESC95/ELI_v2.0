@@ -390,10 +390,29 @@ def classify_factual(text: str) -> Tuple[bool, str]:
 _CHANGES_RE = re.compile(
     r"\b(?:latest|newest|current(?:ly)?|nowadays|right\s+now|today|tonight|tomorrow|yesterday|recent(?:ly)?"
     r"|upcoming|this\s+(?:week|month|year|season|weekend)|last\s+(?:night|week|month|year|season|weekend)"
+    r"|the\s+new\s+(?:one|ones|movie|film|show|series|season|episode|album|song|game|book|trailer|release|part)"
     r"|so\s+far|anymore|still\s+(?:alive|open|running|available|in\s+office)|news|headlines?|weather|forecast"
     r"|prices?|stocks?|exchange\s+rates?|standings|league\s+table|who\s+won|election|(?:match|game|race)\s+results?"
     r"|who(?:['’]s|\s+is)\s+(?:the\s+)?(?:president|prime\s+minister|ceo|leader|champion|king|queen|chancellor"
     r"|mayor|manager|coach|owner|pope))\b", re.I)
+
+
+# The newest of what the talk is about: "thoughts on the new one?" with a film playing.
+_NEWEST_OF_IT = re.compile(
+    r"\b(?:new|newest|latest|next|upcoming|most\s+recent)\s+(?:one|ones|movie|film|show|series|season|episode|album|"
+    r"song|game|book|trailer|release|part|sequel|entry|instal?ment)\b", re.I)
+# Saying what an earlier question meant ("I'm talking about the newest one", "I mean the latest
+# season"): the question again, not something told to ELI.
+_CLARIFIES_RE = re.compile(
+    r"^\W*(?:no\W+|nah\W+)?(?:i'?m|im|i\s+am|i\s+was|i\s+meant?|i'?d\s+meant?)\s*"
+    r"(?:talking|asking|on\s+about|referring|meaning)?\s*(?:about|to)?\b", re.I)
+
+
+def clarifies_a_question(text: str) -> bool:
+    """Whether `text` only says what the person's earlier question was about."""
+    said = str(text or "")
+    m = _CLARIFIES_RE.match(said)
+    return bool(m and re.search(r"\b(?:talking|asking|on\s+about|referring|meaning|mean|meant)\b", m.group(0), re.I))
 
 
 def changes_over_time(text: str) -> bool:
@@ -566,7 +585,7 @@ def escalate(
         # Telling ELI something is not asking it to look something up: "the corner bakery shuts at six"
         # was searched, and answered "I searched the web but couldn't find anything".
         from eli.cognition.llm_intent import is_plain_statement
-        if (is_plain_statement(user_input) and not re.match(
+        if (is_plain_statement(user_input) and not clarifies_a_question(user_input) and not re.match(
                 r"\W*(?:what|who|whom|whose|when|where|why|how|which|is|are|was|were|do|does|did|can|could|will|would|should)\b",
                 str(user_input or ""), re.I)):
             log.debug("[ESCALATION] a statement, not a question: no lookup")
@@ -640,6 +659,7 @@ def escalate(
                     and (
                 _EXTERNAL_TOPIC_RE.search(user_input.lower())
                 or _REALTIME_LOOKUP_RE.search(user_input.lower())
+                or _NEWEST_OF_IT.search(user_input)
             )):
                 is_fact, domain, web_candidate = True, "external", True
                 log.debug("[ESCALATION] entertainment-thread override (very low grounding)")

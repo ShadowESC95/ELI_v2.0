@@ -697,3 +697,41 @@ def test_an_offer_survives_the_tidying_of_the_stored_reply(proposals):
         assert stored == ["Here it is."]
     finally:
         rc.turn_facts_var.reset(token)
+
+
+def test_what_a_reply_says_it_will_do_is_the_offer_when_it_asks_deal(proposals, tmp_path):
+    """"I'll draft a patch ... I'll put the code in <path>. Deal?" -- "deal" ran nothing, and the
+    next reply said the patch was written."""
+    target = tmp_path / "fixes" / "tool_priority.patch"
+    from eli.execution.router_enhanced import route
+    reply = (f"I will draft a patch for the web agent that searches before it answers. "
+             f"I'll put the code in {target}. You review it and run it.\nDeal?")
+    pp.set_pending_proposal("", items=pp.read_reply(reply)["items"], question="Deal?", from_reply=True, written=reply)
+    got = route("deal")["args"]["agreed"]
+    assert got["tasks"] == ["draft a patch for the web agent that searches before it answers"]
+    assert got["saves"] == [str(target)]
+    assert pp.read_reply("Here is the summary of the film. Sound good?")["items"] == [], "nothing was said it would do"
+    assert pp.read_reply("I'll be here if you need me. Okay?")["items"] == [], "being there is not a step"
+    assert pp.read_reply("I'll check the calendar for you. Right?")["items"] == [], "a rhetorical tag asks for no go-ahead"
+
+
+def test_agreeing_to_save_what_eli_wrote_saves_it_as_written(monkeypatch, tmp_path):
+    from eli.execution.executor_enhanced import execute
+    carry, me, seen = _engine(monkeypatch, reply="Here it is:\n```diff\n- answer()\n+ search(); answer()\n```\nversion number stays.")
+    monkeypatch.setattr("eli.kernel.engine.execute_action", lambda action, args=None, *a, **k: execute(action, args))
+    target = tmp_path / "fixes" / "tool_priority.patch"
+    out = carry(me, "deal", {"tasks": ["draft the patch"], "saves": [str(target)], "commands": [], "explicit": [], "offer": ""})
+    assert target.read_text() == "- answer()\n+ search(); answer()\n", "the code block, word for word"
+    assert out["response"].endswith(f"Saved it to {target}.")
+    again = carry(me, "deal", {"tasks": ["draft the patch"], "saves": [str(target)], "commands": [], "explicit": [], "offer": ""})
+    assert "already a file" in again["response"], "a file that is there is never written over"
+
+    streamed_to = tmp_path / "fixes" / "streamed.patch"
+    streamed = "".join(str(p) for p in carry(me, "deal", {"tasks": ["draft the patch"], "saves": [str(streamed_to)],
+                                                           "commands": [], "explicit": [], "offer": ""}, stream=True))
+    assert streamed_to.exists() and streamed.endswith(f"Saved it to {streamed_to}.")
+
+    written_before = tmp_path / "draft.md"
+    out = carry(me, "yes", {"tasks": [], "saves": [str(written_before)], "written": "The plan, in three lines.",
+                            "commands": [], "explicit": [], "offer": ""})
+    assert written_before.read_text() == "The plan, in three lines.\n" and seen.messages.count("draft the patch") == 3

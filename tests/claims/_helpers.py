@@ -54,11 +54,17 @@ def rel(p: Path) -> str:
 
 @lru_cache(maxsize=1)
 def blueprint_files() -> tuple:
-    # NEXT_SESSION.md is the private (gitignored) forward-work handoff: it
-    # deliberately references modules that don't exist YET, so it is excluded
-    # from claims that verify blueprints against the current tree.
-    return tuple(sorted(p for p in (REPO / "blueprints").glob("*.md")
-                        if p.name != "NEXT_SESSION.md"))
+    """The blueprints: the markdown under blueprints/ that git tracks. Notes kept there and ignored by
+    git are not blueprints: NEXT_SESSION.md names modules that don't exist yet, and an old report named
+    a module removed since, and failed this check on the one machine that has it."""
+    import subprocess
+    try:
+        listed = subprocess.run(["git", "ls-files", "-z", "--", "blueprints/*.md"], cwd=REPO,
+                                capture_output=True, check=True).stdout.decode("utf-8").split("\0")
+        return tuple(sorted(REPO / name for name in listed if name and (REPO / name).is_file()))
+    except (OSError, subprocess.CalledProcessError):
+        # no git here (an unpacked release): what is in the folder, without the handoff note
+        return tuple(sorted(p for p in (REPO / "blueprints").glob("*.md") if p.name != "NEXT_SESSION.md"))
 
 
 _FILE_RE = re.compile(r"`([a-zA-Z0-9_][a-zA-Z0-9_./\-]*\.py)`")

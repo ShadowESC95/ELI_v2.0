@@ -165,6 +165,42 @@ def is_identity_depth_followup(user_input: Any) -> bool:
     ))
 
 
+# Diagnostics about ELI's own behaviour: told in ELI's own words from their evidence, never shown
+# as the raw packet or trace, unless that is what the person asked to see.
+EXPLAINED_IN_WORDS = {"META_DIAGNOSTIC", "ROUTING_FAULT_EXPLAIN"}
+_ASKS_FOR_RAW = re.compile(
+    r"\b(?:show|give|paste|print|dump|send)\b[^.?!]{0,40}\b(?:trace|raw|json|packet|log|logs|plumbing|evidence|debug)\b"
+    r"|\b(?:raw|full)\s+(?:trace|output|packet|json|log)\b|\bdebug\s+(?:trace|output|mode)\b", re.I)
+_A_QUESTION = re.compile(r"^\W*(?:why|what|how|who|when|where|which|do|does|did|is|are|was|were|can|could|would|should|will)\b", re.I)
+
+
+def asks_for_raw(text: Any) -> bool:
+    """The person asked to see the trace, the packet or the raw output itself."""
+    return bool(_ASKS_FOR_RAW.search(str(text or "")))
+
+
+def asked_outright(text: Any, action: Any) -> bool:
+    """Whether a sentence of `text`, said as an instruction and not asked as a question, asks on its
+    own for `action` (a search, a song, a file). Then a complaint or a "what's wrong with you"
+    elsewhere in the same message does not turn that request into a diagnostic."""
+    wanted = normalise_action(action)
+    if not wanted or wanted in CONTROL_ACTIONS or wanted in {"CHAT", "NOOP", "UNKNOWN"}:
+        return False
+    try:
+        from eli.execution.router_enhanced import route
+        from eli.runtime.pending_proposal import is_consent
+    except ImportError:
+        return False
+    for sentence in re.split(r"(?<=[.!?])\s+", str(text or "")):
+        said = sentence.strip()
+        # a "yes" is not routed here: the router would take it as agreeing to ELI's open offer
+        if not said or said.rstrip("!.").endswith("?") or _A_QUESTION.match(said) or is_consent(said):
+            continue
+        if normalise_action((route(said) or {}).get("action")) == wanted:
+            return True
+    return False
+
+
 def route_control_text(user_input: Any, current_action: Any = None) -> str | None:
     low = re.sub(r"\s+", " ", str(user_input or "").strip().lower())
     act = normalise_action(current_action)

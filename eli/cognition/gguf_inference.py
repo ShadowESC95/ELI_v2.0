@@ -1634,13 +1634,23 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
         except Exception as e:
             last_exc = e
             msg = str(e).lower()
-            # A full / fragmented KV cache makes llama.cpp fail to seat the batch ("llama_decode
-            # returned 2") — a different error shape from a predicted overflow, same cure. Untreated it
-            # took down a near-ctx turn and returned ZERO tokens (and poisoned _gguf_available). Clear
-            # the cache, drop the reusable states so the retry doesn't reload one that re-fills it,
-            # decode fresh, and give the generation real headroom. Recovery only — the fast path is
-            # untouched.
-            _kv_slot = "llama_decode returned" in msg or ("kv" in msg and "slot" in msg)
+            _code = re.search(r"llama_decode returned (-?\d+)", msg)
+            # 2 is llama.cpp's "aborted": ELI's own abort callback stopped the decode (Stop, shutdown,
+            # or a turn taking the model from a background call). Nothing is wrong with the cache. Read
+            # as a full cache, the background call cleared it and the saved model state the turn was
+            # about to reuse, then retried into the same abort, three times over. The background
+            # caller tries again after the turn (chat_completion); a stopped turn stops.
+            if _code and _code.group(1) == "2":
+                if getattr(_bg_tls, "cut_short", False) or _USER_CANCEL.is_set() or _SHUTDOWN.is_set():
+                    raise
+                log.debug("[GGUF] decode aborted with nothing asking it to stop; trying again as it was")
+                continue
+            # 1 is a full / fragmented KV cache: llama.cpp could not seat the batch -- a different error
+            # shape from a predicted overflow, same cure. Untreated it took down a near-ctx turn and
+            # returned ZERO tokens (and poisoned _gguf_available). Clear the cache, drop the reusable
+            # states so the retry doesn't reload one that re-fills it, decode fresh, and give the
+            # generation real headroom. Recovery only -- the fast path is untouched.
+            _kv_slot = bool(_code) or ("kv" in msg and "slot" in msg)
             if "exceed context window" in msg or "requested tokens" in msg or _kv_slot:
                 if _kv_slot:
                     _drop_saved_states_for(llm)

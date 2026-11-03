@@ -10148,7 +10148,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         if not path:
             msg = "Specify a file path to create (e.g. /tmp/note.txt)."
             return {"ok": False, "action": a, "error": "missing path", "content": msg, "response": msg}
-        content = _content_from_line_spec(content)
+        # What ELI wrote is saved as written ("verbatim"); the substitutions below are for a file
+        # described in words ("a file containing today's date"), and would change code.
+        _verbatim = bool(args.get("verbatim"))
+        if not _verbatim:
+            content = _content_from_line_spec(content)
         # Light, safe substitution so "containing today's date / your version" resolves.
         _today = _dt_cf.date.today().isoformat()
         _ver = ""
@@ -10158,10 +10162,11 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception:
             _ver = ""
         _ver = _ver or "unknown"
-        for _pat in ("today's date", "todays date", "the current date", "today’s date"):
+        for _pat in ("today's date", "todays date", "the current date", "today’s date") if not _verbatim else ():
             content = re.sub(re.escape(_pat), _today, content, flags=re.IGNORECASE)
-        content = content.replace("{date}", _today).replace("{datetime}", _dt_cf.datetime.now().isoformat(timespec="seconds"))
-        content = re.sub(r"\byour version number\b|\bversion number\b|\byour version\b|\{version\}", _ver, content, flags=re.IGNORECASE)
+        if not _verbatim:
+            content = content.replace("{date}", _today).replace("{datetime}", _dt_cf.datetime.now().isoformat(timespec="seconds"))
+            content = re.sub(r"\byour version number\b|\bversion number\b|\byour version\b|\{version\}", _ver, content, flags=re.IGNORECASE)
 
         p = _P_cf(_os_cf.path.expanduser(path))
         if not p.is_absolute():

@@ -125,3 +125,28 @@ def test_user_database_claim_grounded_by_machine_key_does_not_violate():
     assert cc.output_violates_evidence(
         "I checked your user database for that.", "- user_db: /data/db/user.sqlite3"
     ) is False
+
+
+def test_a_request_said_outright_is_not_turned_into_a_diagnostic():
+    """A complaint and a request in one message: the request was replaced by a diagnostic and its
+    raw evidence packet was shown as the answer."""
+    from eli.execution.router_enhanced import route
+    from eli.runtime.control_contracts import asked_outright
+
+    said = "what is wrong with you, do I have to spell it out?? search for the harbour festival dates!"
+    action = (route(said) or {}).get("action")
+    assert asked_outright(said, action), f"the request ({action}) was said outright"
+    assert not asked_outright("what is wrong with you, why are you so slow at searching?", action), \
+        "a question about ELI is not a request"
+    assert not asked_outright(said, "META_DIAGNOSTIC"), "a diagnostic is never what was said outright"
+
+
+def test_a_diagnostic_is_told_in_words_unless_the_raw_trace_is_asked_for():
+    from eli.runtime.control_contracts import EXPLAINED_IN_WORDS, asks_for_raw
+
+    assert {"META_DIAGNOSTIC", "ROUTING_FAULT_EXPLAIN"} <= EXPLAINED_IN_WORDS
+    for wanted in ("show me the raw trace", "give me the full trace of that", "paste the debug output",
+                   "dump the json packet"):
+        assert asks_for_raw(wanted), wanted
+    for not_wanted in ("why was that so difficult?", "what went wrong there", "are all my searches going to be like this?"):
+        assert not asks_for_raw(not_wanted), not_wanted

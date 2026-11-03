@@ -8929,9 +8929,10 @@ try:
                         chosen = _pp.selection(prop, low)
                     if chosen:
                         _pp.clear_pending_proposal()
-                        got = _pp.agreed(chosen, offer=prop.get("question") or prop.get("summary") or "")
+                        got = _pp.agreed(chosen, offer=prop.get("question") or prop.get("summary") or "",
+                                         written=prop.get("written") or "")
                         cmds = got["commands"]
-                        if got["tasks"] or got["explicit"]:
+                        if got["tasks"] or got["explicit"] or got["saves"]:
                             # Some of it ELI does by writing, or may only do on the user's own
                             # words: the engine carries the whole agreement out (_carry_out_agreed).
                             return _mk("CHAT", {"message": text, "agreed": got}, 0.95,

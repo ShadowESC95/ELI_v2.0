@@ -32,9 +32,17 @@ _TITLE_BEFORE_SEASON_RE = re.compile(
 _LEADING_VERB_RE = re.compile(r"^(?:Watching|Watched|Watch|Started|Starting|Finished|Finishing)\s+")
 _UNDERSPECIFIED_RE = re.compile(
     r"\b(?:season\s+\d+|episode\s+\d+|reviews?\s+for|the\s+latest\s+episodes?|"
-    r"what\s+happened|plot|premiere|release\s+date)\b",
+    r"what\s+happened|plot|premiere|release\s+date|"
+    r"(?:the\s+)?(?:newest|latest|new|next|upcoming)\s+(?:one|movie|film|show|series|season|episode|game|album|book|part))\b",
     re.I,
 )
+# What ELI's own "now playing" answer names: the strongest sign of what the talk is about.
+_NOW_PLAYING_RE = re.compile(r"(?:▶\s*)?(?:Now\s+)?Playing:\s*(.{2,100}?)\s+[—–]\s", re.I)
+# A "title" that is only a placeholder: "watching something else on that tab".
+_NOT_A_TITLE = re.compile(r"^(?:something|anything|nothing|this|that|it|what|whatever|some)\b", re.I)
+# A clause said to ELI, not about anything to look up: "you should be smart enough to do that".
+_ADDRESSED_TO_ELI = re.compile(
+    r"^(?:you|your|you'?re|u)\b|\byou\s+(?:should|need|must|can|could|have|ought|were|are)\b", re.I)
 _GROUNDING_DEMAND_RE = re.compile(
     r"\b(?:search\s+(?:the\s+)?(?:web|online|internet)|look\s+it\s+up|google\s+it|"
     r"come\s+with\s+(?:some\s+)?(?:facts?|info|context)|"
@@ -86,10 +94,13 @@ def extract_thread_topic(turns: List[Dict[str, str]]) -> str:
     "watching Coco now" stayed the topic after the talk had moved to something else."""
     for turn in reversed(turns[-8:]):
         text = str(turn.get("content") or "")
+        m = _NOW_PLAYING_RE.search(text)
+        if m:
+            return m.group(1).strip(" .?!,\"'")
         m = _SHOW_TITLE_RE.search(text)
         if m:
             topic = m.group(1).strip(" .?!,\"'")
-            if len(topic.split()) <= 8:
+            if len(topic.split()) <= 8 and not _NOT_A_TITLE.match(topic):
                 return topic
         m = _TITLE_BEFORE_SEASON_RE.search(text)
         if m:
@@ -202,15 +213,16 @@ def build_thread_aware_query(user_input: str, turns: Optional[List[Dict[str, str
     raw = str(user_input or "").strip()
     subject = extract_search_subject(raw)
     vague = (not subject or not web_query_has_substance(subject) or is_grounding_demand(subject)
+             or bool(_ADDRESSED_TO_ELI.search(subject))
              or subject.lower() in {"some facts", "facts", "info", "some info",
                                     "and come with some facts", "come with some facts"})
-    if is_grounding_demand(raw) and vague:
+    if vague and (is_grounding_demand(raw) or _SEARCH_VERB_RE.search(raw)):
         # "look it up": what the user last asked about. Only when no earlier message names
         # anything does the show being talked about stand in (it gave "Coco now facts
         # reviews plot summary" two messages after the talk had moved on to ORBIT).
         earlier = last_subject(turns or [])
         if earlier:
-            return expand_web_query(earlier, "")
+            return expand_web_query(earlier, topic)
         if topic:
             return f"{topic} facts reviews plot summary"
     if subject:

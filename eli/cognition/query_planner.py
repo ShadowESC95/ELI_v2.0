@@ -109,6 +109,49 @@ def _explicit_dates(low: str, n: datetime) -> list:
     return sorted(found)
 
 
+# Weekdays a reply places against now. At 23:51 on a Monday, "a fresh Monday looming in six hours".
+_DAY = r"(monday|tuesday|wednesday|thursday|friday|saturday|sunday)"
+_SAYS_TODAY = re.compile(
+    r"\b(?:it(?:['’]s|\s+is)|today(?:['’]s|\s+is)|tonight(?:['’]s|\s+is))\s+((?:[\w-]+\s+){0,2}?)" + _DAY
+    + r"\b(?!['’]s)(\s+night)?", re.I)
+_SAYS_TOMORROW = re.compile(r"\btomorrow(?:['’]s|\s+is)\s+((?:[\w-]+\s+){0,2}?)" + _DAY + r"\b", re.I)
+_SAYS_TO_COME = re.compile(
+    _DAY + r"\s+(?:is\s+)?(?:(?:just|indeed|already|nearly|almost|fast|now)\s+)*"
+    r"(?:looming|around\s+the\s+corner|coming\s+up|on\s+the\s+way|approaching|incoming|ahead)\b", re.I)
+_SAYS_IN = re.compile(
+    _DAY + r"\b[^.!?\n]{0,40}?\bin\s+(?:about\s+|around\s+|roughly\s+|under\s+|just\s+|only\s+)?"
+    r"(\d+|an?|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(hours?|hrs?|minutes?|mins?)\b", re.I)
+_COUNTS = {"a": 1, "an": 1, "one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+           "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12}
+_NOT = re.compile(r"\b(?:not|no|never)\b|n['’]t\b", re.I)
+
+
+def wrong_day_now(text: str, now: Optional[datetime] = None) -> str:
+    """How `text` gets the day wrong against the clock ("names Monday as tomorrow, and tomorrow is
+    Tuesday"), or "" when every weekday it places against now is right."""
+    n = now or datetime.now()
+    today, tomorrow = _WEEKDAYS[n.weekday()], _WEEKDAYS[(n.weekday() + 1) % 7]
+    for m in _SAYS_TODAY.finditer(text or ""):
+        said = m.group(2).lower()
+        # "it's Monday night" a little after midnight is still that night
+        late = bool(m.group(3)) and n.hour < 5 and said == _WEEKDAYS[(n.weekday() - 1) % 7]
+        if said != today and not late and not _NOT.search(m.group(1) or ""):
+            return f"says it is {said.title()}, and it is {today.title()}"
+    for m in _SAYS_TOMORROW.finditer(text or ""):
+        if m.group(2).lower() != tomorrow and not _NOT.search(m.group(1) or ""):
+            return f"names {m.group(2).title()} as tomorrow, and tomorrow is {tomorrow.title()}"
+    for m in _SAYS_IN.finditer(text or ""):
+        count = int(m.group(2)) if m.group(2).isdigit() else _COUNTS.get(m.group(2).lower(), 0)
+        then = n + (timedelta(hours=count) if m.group(3).lower().startswith("h") else timedelta(minutes=count))
+        if count and m.group(1).lower() != _WEEKDAYS[then.weekday()]:
+            return (f"names {m.group(1).title()} as {m.group(2)} {m.group(3)} from now, "
+                    f"and that is {_WEEKDAYS[then.weekday()].title()}")
+    for m in _SAYS_TO_COME.finditer(text or ""):
+        if m.group(1).lower() == today:
+            return f"says {today.title()} is still to come, and it is {today.title()} now"
+    return ""
+
+
 def days_named(text: str, window: Window) -> list:
     """The dates ("YYYY-MM-DD") inside window that text names: calendar dates as read above, and weekdays
     when the window is a week or less (each weekday then names one date)."""

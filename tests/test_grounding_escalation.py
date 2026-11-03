@@ -361,3 +361,44 @@ def test_a_question_about_eli_is_never_a_web_lookup():
     assert classify_factual("i wonder what your favourite film is") == (False, "none")
     assert classify_factual("who is the president of france") == (True, "external")
     assert classify_factual("tell me who won the match last night") == (True, "external")
+
+
+_PLAYING = [
+    {"role": "user", "content": "whats playing?"},
+    {"role": "assistant", "content": "▶ Playing: Harbour Lights: Undertow — firefox.instance_1_7."},
+]
+
+
+@pytest.mark.parametrize("asked", ["thoughts on the new one?", "im talking about the newest movie",
+                                   "I mean the latest season"])
+def test_the_newest_of_what_is_playing_is_looked_up(monkeypatch, asked):
+    """With a film playing, "the new one" and "I'm talking about the newest movie" were answered
+    from the model's training ("a statement, not a question"), and named a film years old."""
+    monkeypatch.setattr(C, "network_allowed", lambda: True)
+    import eli.execution.executor_enhanced as E
+    searched = []
+    monkeypatch.setattr(E, "execute", lambda a, args=None: (searched.append((args or {}).get("query")) or {
+        "web_grounded": True, "results": [{"title": "Harbour Lights newest film", "body": "Harbour Lights newest film opens."}],
+        "content": "Harbour Lights newest film"}) if a == "WEB_SEARCH" else {})
+    r = G.escalate(_FakeEngine(), asked, {"action": "CHAT"}, _FakeBus(0.18), reasoning_mode="quick",
+                   recent_turns=_PLAYING)
+    assert r is not None and searched, f"{asked!r} was not looked up"
+    assert "harbour lights" in searched[0].lower(), searched
+
+
+def test_saying_what_a_question_meant_is_not_telling_eli_something():
+    assert G.clarifies_a_question("im talking about the newest movie")
+    assert G.clarifies_a_question("no, I meant the one from last year")
+    assert G.clarifies_a_question("I was asking about the sequel")
+    assert not G.clarifies_a_question("I'm going to the shop")
+    assert not G.clarifies_a_question("the corner bakery shuts at six")
+
+
+def test_a_question_about_tonight_is_not_a_lookup_because_a_film_is_playing(monkeypatch):
+    monkeypatch.setattr(C, "network_allowed", lambda: True)
+    import eli.execution.executor_enhanced as E
+    searched = []
+    monkeypatch.setattr(E, "execute", lambda a, args=None: searched.append(a) or {})
+    G.escalate(_FakeEngine(), "what should I cook tonight?", {"action": "CHAT"}, _FakeBus(0.18),
+               reasoning_mode="quick", recent_turns=_PLAYING)
+    assert "WEB_SEARCH" not in searched

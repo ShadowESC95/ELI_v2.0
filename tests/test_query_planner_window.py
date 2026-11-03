@@ -67,3 +67,28 @@ def test_couple_of_days_with_or_without_of():
     from eli.cognition.query_planner import parse_window
     assert parse_window("Do you remember our conversations over the past couple days?", NOW) == parse_window("the past couple of days", NOW)
     assert parse_window("the past couple days") is not None
+
+
+_MONDAY_NIGHT = datetime(2026, 11, 2, 23, 51)        # a Monday
+
+
+@pytest.mark.parametrize("said,wrong", [
+    ("Just the hum of the GPU and a fresh Monday looming in six hours.", True),
+    ("It's Sunday night, nothing on.", True),
+    ("Tomorrow is Monday, so rest up.", True),
+    ("Tuesday is in about ten minutes.", False),
+    ("It's Monday night (23:52), and Tuesday is just around the corner.", False),
+    ("It's not Sunday, it's Monday.", False),
+    ("Tomorrow's Tuesday.", False),
+    ("Friday is looming for the deadline.", False),           # a day still to come, said of one
+    ("Monday's meeting went fine.", False),
+])
+def test_a_weekday_placed_against_now_is_held_to_the_clock(said, wrong):
+    from eli.cognition.query_planner import wrong_day_now
+    assert bool(wrong_day_now(said, _MONDAY_NIGHT)) is wrong, wrong_day_now(said, _MONDAY_NIGHT)
+
+
+def test_last_night_is_still_that_night_a_little_after_midnight():
+    from eli.cognition.query_planner import wrong_day_now
+    assert wrong_day_now("It's Monday night still, technically.", datetime(2026, 11, 3, 0, 20)) == ""
+    assert wrong_day_now("It's Monday.", datetime(2026, 11, 4, 12, 0))
