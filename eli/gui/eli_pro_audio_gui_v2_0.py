@@ -8641,11 +8641,22 @@ class EliMainWindow(QMainWindow):
         try:
             from eli.runtime.server_util import probe_eli_server
             probe = probe_eli_server(port)
-            if probe.get("in_use"):
+            if probe.get("in_use") and probe.get("eli_running"):
                 if self._eli_server_show_running_dialog(probe, lan):
                     if lan:
                         self._eli_server_refresh_firewall_hint()
                     return
+            elif probe.get("in_use"):
+                # another program (ELI v3 among them) holds this port: serve on the next free one
+                from eli.runtime.server_util import free_port_after
+                moved = free_port_after(port)
+                if moved:
+                    log.info("port %s is used by another program; ELI v2 serves on %s", port, moved)
+                    port = moved
+                    try:
+                        self._srv_port_spin.setValue(moved)
+                    except (AttributeError, RuntimeError, TypeError):
+                        log.debug("no port box to show the move", exc_info=True)
         except Exception:
             log.debug("suppressed exception", exc_info=True)
         if lan:

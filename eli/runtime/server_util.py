@@ -53,6 +53,18 @@ def effective_api_port() -> int:
     return 8081
 
 
+# What this server is, in its /api answer.
+PRODUCT = "eli_v2"
+
+
+def free_port_after(port: int) -> int:
+    """The first free port after `port`, for when another program holds ELI's; 0 when none is."""
+    for candidate in range(int(port) + 1, 65536):
+        if not port_in_use(candidate):
+            return candidate
+    return 0
+
+
 def probe_eli_server(port: Optional[int] = None) -> Dict[str, Any]:
     """Best-effort probe of whatever is listening on the ELI API port."""
     port = int(port or effective_api_port())
@@ -73,7 +85,10 @@ def probe_eli_server(port: Optional[int] = None) -> Dict[str, Any]:
 
     health = _http_json(f"http://127.0.0.1:{port}/health")
     api = _http_json(f"http://127.0.0.1:{port}/api")
-    if health is not None or (api and (api.get("service") or api.get("name"))):
+    # Only an ELI v2 server is this ELI. ELI v3 answers on the same port with the same health
+    # check; taking one for the other left each talking to the wrong ELI.
+    out["product"] = str((api or {}).get("product") or "")
+    if out["product"] == PRODUCT:
         out["eli_running"] = True
         out["health_ok"] = health is not None
 

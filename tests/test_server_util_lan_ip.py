@@ -79,3 +79,37 @@ def test_real_lan_ip_still_wins_normally():
              ),
          ):
         assert server_util.resolve_lan_ip() == "192.168.1.116"
+
+
+def test_only_a_server_that_says_it_is_eli_v2_is_taken_for_this_eli(monkeypatch):
+    """ELI v3 answers on the same port with the same health check: each took the other for
+    itself and talked to the wrong ELI ("ELI is already running")."""
+    from eli.runtime import server_util
+
+    monkeypatch.setattr(server_util, "port_in_use", lambda port: True)
+    answers = {"/health": {"status": "healthy"},
+               "/api": {"service": "ELI Cognitive OS Agent", "version": "1.0.0"}}
+    monkeypatch.setattr(server_util, "_http_json",
+                        lambda url, headers=None: next((v for k, v in answers.items() if url.endswith(k)), None))
+    seen = server_util.probe_eli_server(18999)
+    assert seen["in_use"] and not seen["eli_running"]
+    answers["/api"] = {"service": "ELI Cognitive OS Agent", "product": "eli_v3", "version": "3.0.145"}
+    assert not server_util.probe_eli_server(18999)["eli_running"]
+    answers["/api"] = {"product": server_util.PRODUCT, "version": "2.5.35"}
+    assert server_util.probe_eli_server(18999)["eli_running"]
+
+
+def test_the_next_free_port_is_found_beside_a_held_one(monkeypatch):
+    from eli.runtime import server_util
+
+    monkeypatch.setattr(server_util, "port_in_use", lambda port: port <= 8083)
+    assert server_util.free_port_after(8081) == 8084
+
+
+def test_the_api_names_which_eli_it_is():
+    import asyncio
+    from api.server import api_info
+    from eli.runtime import server_util
+
+    info = asyncio.run(api_info())
+    assert info["product"] == server_util.PRODUCT and info["version"]

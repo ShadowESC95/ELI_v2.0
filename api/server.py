@@ -772,9 +772,12 @@ def pwa_sw():
 
 @app.get("/api", tags=["Root"])
 async def api_info():
+    from eli.runtime.self_facts import _version
+    from eli.runtime.server_util import PRODUCT
     return {
         "service": "ELI Cognitive OS Agent",
-        "version": "1.0.0",
+        "product": PRODUCT,           # which ELI this is: ELI v3 answers on the same port
+        "version": _version() or "",
         "ui": "/",
         "documentation": "/docs",
     }
