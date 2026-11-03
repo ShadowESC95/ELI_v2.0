@@ -262,8 +262,13 @@ wider `mode_chat_agent_profile()` fan-out. Quick still runs the orchestrator.
   if nothing grounds it. Offline (the default), a question about what does not change (a
   definition, history, who wrote a book) is answered from the model's own knowledge, the prompt
   saying the network is off; only one about what changes after a model is trained (news, prices,
-  results, office-holders, release dates, this year or last: `changes_over_time`) is hedged.
-  Env: `ELI_GROUNDING_ESCALATION`.
+  results, office-holders, release dates, this year or last, "the new one": `changes_over_time`)
+  is hedged. Telling ELI something is not a lookup, but saying what an earlier question meant
+  ("I'm talking about the newest movie", `clarifies_a_question`) is that question again; with a
+  show or film being talked about or playing (`conversation_thread.extract_thread_topic` reads ELI's
+  own "Playing: ..." line, never a placeholder like "something else"), "the new one" of it is looked
+  up, and a search asked for with no subject of its own ("do a web search, you should be smart
+  enough") searches what the talk is about, never the remark. Env: `ELI_GROUNDING_ESCALATION`.
 - **`evidence_ledger.py`, `evidence_arbitration.py`**: what counts as evidence, where it is
   recorded (the ledger also records every executed action), and conflict resolution.
 - **`persistence_gate.py`**: keeps internal report dumps out of memory.

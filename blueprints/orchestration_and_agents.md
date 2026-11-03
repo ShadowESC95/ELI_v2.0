@@ -79,7 +79,10 @@ result, replacing the last one (it lapses after 30 minutes):
   kept only where ELI asked for a go-ahead: its own offer, as a question ("Want me to walk you
   through it?") or as a statement ("let me know if you'd like me to draft it", "I can turn
   this into a checklist if you'd like"), or the items of a list its question points at ("Shall
-  I go ahead with any of these?"). A list of facts followed by an unrelated offer is not a set
+  I go ahead with any of these?"). A reply that says what it will do and ends by asking for the
+  go-ahead ("I'll draft the patch ... Deal?", "Sound good?", `_GO_AHEAD_TAG`) offers what it said it
+  would do. A step that says where what ELI writes is to go ("put the code in ~/fixes/x.patch",
+  `destination`) is a save. A list of facts followed by an unrelated offer is not a set
   of tasks, and "can I help with anything else?" offers nothing to carry out.
 - the **question** the reply ended on, if it ended on one.
 - a **detail an action asked for**. A handler that returns `awaiting` ({command, action,
@@ -105,7 +108,11 @@ by the output governor, which used to delete "let me know if you'd like me to ..
 *Carrying it out* (`engine._carry_out_agreed`): agreed actions run through the executor
 (`MULTI_COMMAND` with `results_only`, so the reply is each step's outcome). Agreed tasks run as
 a nested turn whose message is the task in the user's voice (`task_message`), so retrieval,
-budget and the reply are about the task and not about the words "yes please"; that turn is CHAT
+budget and the reply are about the task and not about the words "yes please". An agreed save
+writes what that turn wrote (its code blocks when it has any) to the named file through
+`CREATE_FILE` with `verbatim` (no substitutions, the file action's own path checks), or the reply
+that made the offer when nothing else was agreed; a file already there is never written over, and
+the reply ends with where it was saved or why not. That turn is CHAT
 without routing or resolving ELI's words again, and `engine._follow_up_line` tells the model the user
 agreed and what has already been done. An explicit-only step is never run and never handed to
 the model: the reply says which words to use. The outer turn stores what the user typed and

@@ -678,7 +678,10 @@ The web/API server is a **FastAPI** app served by **uvicorn** (`api/server.py`).
 it directly — the desktop app and the launcher scripts wire everything up — but if you script it,
 a handful of environment variables control it:
 - `ELI_API_HOST` — `127.0.0.1` (default, this-computer-only) or `0.0.0.0` (LAN mode).
-- `ELI_API_PORT` — the HTTP port (default `8081`); the HTTPS voice server uses `8443`.
+- `ELI_API_PORT` — the HTTP port (default `8081`); the HTTPS voice server uses `8443`. ELI v3
+  uses the same default: `/api` says which ELI answered (`"product": "eli_v2"`), and when another
+  program (ELI v3 among them) holds the port, ELI v2 serves on the next free one instead of
+  reporting "already running".
 - `ELI_API_TOKEN` — set your own token; if unset, ELI uses the saved stable one
   (`config/api_token`, permissions `0600`) so a paired phone survives restarts.
 - `ELI_API_ALLOW_TOKENLESS` — honoured only on loopback; LAN mode always requires the token.

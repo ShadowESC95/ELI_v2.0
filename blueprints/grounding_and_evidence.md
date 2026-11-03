@@ -191,7 +191,7 @@ bug (asserts `evidence_complete_for_action` now returns `False` on it).
 
 ---
 
-## ELI's account of its own behaviour (`cognition/self_claims.py`, 792 lines)
+## ELI's account of its own behaviour (`cognition/self_claims.py`, 1040 lines)
 
 Routing, retrieval and escalation run before the model is called and never reach it, so asked
 "why did you search the web?" a model can only invent. Live, a 35B model blamed "vector search
@@ -212,9 +212,13 @@ exist, and said "the audit trail is now active" for logging that was always on.
   subject of its own ("What the fuck is going on!?", "seriously??", `reacts_to_last_reply`); none
   of these goes to the intent model. Direct questions about the last turn ("why did that take so
   long", "what did you just do", "why did you search the web"), and a remark that it was slow
-  ("that took over a minute??"), are answered from those rows with no model call
-  (`ROUTING_FAULT_EXPLAIN`); asked about time, the last turn comes first with where the model
-  runs. The correction shortcut never replaces such an answer, or any other action that answers
+  ("that took over a minute??"), are answered from those rows (`ROUTING_FAULT_EXPLAIN`): the model
+  words the answer from the rows alone and is held to them, in every mode, and the rows themselves
+  (or a diagnostic packet) are shown only when the person asks for the trace or the raw output
+  (`control_contracts.EXPLAINED_IN_WORDS`, `asks_for_raw`); asked about time, the last turn comes
+  first with where the model runs. A request said outright in the same message ("what is wrong with
+  you?? search for the new film!") is carried out and is not turned into a diagnostic
+  (`asked_outright`). The correction shortcut never replaces such an answer, or any other action that answers
   or acts directly. None of these turns is ever escalated to a web search.
 - **A question about something already said is about the conversation.** "When was that, in
   that conversation?", "your long response above", "the response from you"
@@ -246,10 +250,18 @@ exist, and said "the audit trail is now active" for logging that was always on.
   and is kept: "I am running on <the loaded model>" is not a claim to have done something. A
   sentence that rests on a dropped one ("That is why...", "Want me to run that now?")
   goes with it, and a heading left with nothing under it is removed. ELI's own earlier
-  replies are never counted as evidence. Code blocks are never touched.
+  replies are never counted as evidence. Code blocks are never touched. On every turn, not only
+  when ELI is asked about itself, a sentence is also dropped when it says ELI wrote or put a file at
+  a path, or that a file is at a path, and nothing is there (`_put_nowhere`; telling the person where
+  to put something is not checked); when it says its answer comes from a search and no lookup ran
+  this turn (`_FROM_A_LOOKUP`); and when it places a weekday against now and the clock says
+  otherwise ("a fresh Monday looming in six hours" late on a Monday: `query_planner.wrong_day_now`),
+  except in writing the person asked for (a story, an example).
 - **A reply that fails is said again.** When too little is left, or it said it did what was asked and had
   not, the model gets one more go from what actually happened (`gate_stream(rewrite=)`,
-  `engine._say_in_own_words`), and the new text has to pass the same check. The record's own line is for
+  `engine._say_in_own_words`), and the new text has to pass the same check. Only what it adds is
+  served: told to go on from what it had said, the model wrote its last paragraph out again, and it
+  was shown twice (`not_said_yet`). The record's own line is for
   when no model is loaded or the second reply fails too. Hedges go through the same wording.
 - **What a message brings** (`cognition/supplied_in_message.py`). A question that holds its own facts
   skips the web and the intent model; text quoted or called material is never read for orders; sums and

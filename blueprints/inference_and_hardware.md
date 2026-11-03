@@ -49,7 +49,10 @@ is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
   unloaded. `ELI_PROMPT_STATE_REUSE=0` turns it off.
 - **Prefill abort**: shutdown and cancel register `llama_set_abort_callback` so a
   long prompt prefill stops immediately — `StoppingCriteria` alone only runs
-  between output tokens.
+  between output tokens. An aborted decode is `llama_decode returned 2`: with Stop, shutdown or a
+  turn taking the model from a background call behind it, it is raised at once (the background
+  caller tries again after the turn) and the cache is left alone. Only `returned 1`, a batch that
+  could not be seated, clears the cache and the saved states and decodes fresh with headroom.
 - **Live control**: `get_live_runtime_override`, `unload_model`, `reload_model`
   let the GUI swap models / change settings without a full restart.
 - **`InferenceBroker`** (`inference_broker.py`): the higher-level `infer()` /

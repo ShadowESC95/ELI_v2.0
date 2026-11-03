@@ -218,7 +218,7 @@ layer that wraps the probabilistic model. Grouped by function:
 | Module | LOC | Role |
 |---|---|---|
 | `deterministic_grounding_gate.py` | 3385 | Renders control/status answers directly from live runtime (bypasses the model). One ordered `render_action` pipeline of layers composed by `_stack`; an unhandled action returns a `missing_deterministic_renderer` surface. |
-| `grounding_escalation.py` | 698 | When a **checkable factual** question is poorly grounded by the bus, escalates through agent tiers instead of letting the model confabulate (the "Orlo's real name" failure class). |
+| `grounding_escalation.py` | 851 | When a **checkable factual** question is poorly grounded by the bus, escalates through agent tiers instead of letting the model confabulate (the "Orlo's real name" failure class). A clarification of an earlier question (`clarifies_a_question`) and "the new one" of what the talk is about are looked up. |
 | `diagnostic_patterns.py` | 112 | Regexes that catch vague/dynamic status confabulation ("currently processing updates…") and image-status fabrication. |
 | `control_contracts.py` | 1242 | Control-action evidence contract: build evidence → validate the model's output doesn't violate it → finalise. |
 | `persistence_gate.py` | 204 | Gates what gets stored — refuses to persist internal dumps / error-pattern noise as memory. |
@@ -252,14 +252,14 @@ layer that wraps the probabilistic model. Grouped by function:
 ## Awareness & boot
 | Module | LOC | Role |
 |---|---|---|
-| `awareness_boot.py` | 367 | Boots all awareness subsystems at startup, returns an `AwarenessState` the engine queries. |
+| `awareness_boot.py` | 396 | Boots all awareness subsystems at startup, returns an `AwarenessState` the engine queries. Its live self-model line goes in every prompt and does not name the avatar's room (the room reaches the model only when the person asks about ELI's world). |
 | `action_commitment.py` | 220 | Detects when ELI's reply commits to an action. The engine then runs it only if it is a read (news, weather, calendar listing) or something the user's own message asked for; anything that changes state waits for a "yes". |
 
 ## Autonomy / operator (governed)
 | Module | LOC | Role |
 |---|---|---|
 | `operator_state.py`, `operator_feed.py` | ~177 | Operator console state: proposals, goals, self-model status, event feed. |
-| `pending_proposal.py` | 577 | What ELI's last reply left open, for 30 minutes: the steps it offered (`read_reply`: actions, tasks ELI does by writing, explicit-only), the question it ended on, a detail an action asked for. Reads the user's reply against it: `is_consent`, `chosen_items`, `selection`, `is_the_detail`. |
+| `pending_proposal.py` | 656 | What ELI's last reply left open, for 30 minutes: the steps it offered (`read_reply`: actions, tasks ELI does by writing, explicit-only, what it said it would do before a "Deal?"), the question it ended on, a detail an action asked for, and where to save what it wrote (`destination`, `what_was_written`). Reads the user's reply against it: `is_consent`, `chosen_items`, `selection`, `is_the_detail`. |
 | `agenda.py` | 1051 | ELI's calendar and reminders: SQLite store, plain-language dates and times (`parse_when`), a notifier thread that delivers what is due (and what was missed while shut), `calendar.ics` mirror, the next 36 hours as a prompt line. |
 | `approval_engine.py` | 103 | Who may propose / evaluate a proposal record (governance). |
 
