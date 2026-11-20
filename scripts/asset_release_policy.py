@@ -6,7 +6,7 @@ from pathlib import Path
 DEFAULT_ASSET_REPO = "ShadowESC95/ELI_v2.0"
 DEFAULT_ASSET_TAG = "local-assets-v2.1"
 
-# Voices excluded from public restore/upload (NC-SA ryan, uncleared Lessac, Cori
+# Voices excluded from public restore/upload (NC-SA ryan and ruslan, uncleared Lessac, Cori
 # under review). The licence attaches to the DATASET, so exclusion is by voice
 # name — every quality variant (-low/-medium/-high) is covered, not just the
 # files we happened to have locally. eli.runtime.voice_assets owns this list;
@@ -15,7 +15,7 @@ DEFAULT_ASSET_TAG = "local-assets-v2.1"
 try:  # pragma: no cover - trivial import shim
     from eli.runtime.voice_assets import RESTRICTED_VOICE_NAMES
 except Exception:
-    RESTRICTED_VOICE_NAMES = frozenset({"ryan", "lessac", "cori"})
+    RESTRICTED_VOICE_NAMES = frozenset({"ryan", "ruslan", "lessac", "cori"})
 
 # Kept for callers that want the exact known-file list (upload manifests/logs).
 EXCLUDED_VOICE_BASENAMES = frozenset({
@@ -24,6 +24,7 @@ EXCLUDED_VOICE_BASENAMES = frozenset({
     "en_US-lessac-high",
     "en_US-lessac-medium",
     "en_GB-cori-high",
+    "ru_RU-ruslan-medium",
 })
 
 

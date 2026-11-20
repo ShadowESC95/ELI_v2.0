@@ -13229,8 +13229,8 @@ Answer:"""
 
         # Stage 2: persona lock verify (authority gate), fail-closed: a missing "allowed" key is DENY,
         # and a gate exception denies privileged/side-effecting actions but lets read-only and
-        # conversational ones degrade open, so a gate bug can't mute ELI. The authority_gate stub always
-        # returns allowed=True today, so behaviour is unchanged.
+        # conversational ones degrade open, so a gate bug can't mute ELI. The gate refuses the owner's
+        # actions to an API member or viewer (authority_gate.owner_only); the owner is allowed them.
         try:
             from eli.runtime.authority_gate import check as _gate_check
             _gate_result = _gate_check(action, args)

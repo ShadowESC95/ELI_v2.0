@@ -53,6 +53,11 @@ _DRIVER = textwrap.dedent(
     # a member acts, but not with the owner's actions (shell, files, screen, ELI's own settings)
     assert c.post("/v1/execute", headers=H(tb), json={"action": "SHELL_EXEC", "args": {"command": "true"}}).status_code == 403
     assert c.post("/v1/execute", headers=H(tb), json={"action": "READ_FILE", "args": {"path": "/etc/hostname"}}).status_code == 403
+    # ... nor through an action that carries others, and queued jobs are the owner's
+    seq = c.post("/v1/execute", headers=H(tb), json={"action": "SEQUENCE", "args": {"steps": [
+        {"action": "READ_FILE", "args": {"path": "/etc/hostname"}}]}}).json()
+    assert "owner" in str(seq), seq
+    assert c.post("/v1/tasks", headers=H(tb), json={"request": "review the code tonight"}).status_code == 403
 
     # viewer (read-only): can read dashboards, cannot act, cannot see the admin console
     v = c.post("/v1/admin/users/add", headers=H(ta), json={"user_id": "val", "role": "viewer"}).json()

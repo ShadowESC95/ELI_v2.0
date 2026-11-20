@@ -83,3 +83,15 @@ def test_who_made_eli_is_read_from_the_licence_it_ships_with():
     from eli.runtime.license_info import made_by
     maker = made_by()
     assert maker and maker in (REPO / "NOTICE").read_text(encoding="utf-8") and "rights" not in maker.lower()
+
+
+def test_every_command_that_starts_eli_reads_its_flags():
+    """The `eli` scripts pointed at the window and ignored --license and --mcp-server; the frozen app
+    opened its window for --mcp-server, the command `eli --mcp-config` gives other apps."""
+    import re as _re
+    scripts = (REPO / "pyproject.toml").read_text(encoding="utf-8")
+    block = scripts[scripts.index("[project.scripts]"):scripts.index("[project.gui-scripts]")]
+    for name in ("eli", '"eli-v2.0"', "eli-cli"):
+        assert _re.search(rf'^{_re.escape(name)} = "eli\.__main__:main"', block, _re.M), name
+    frozen = (REPO / "packaging" / "pyinstaller" / "eli_entry.py").read_text(encoding="utf-8")
+    assert '"--mcp-server" in argv' in frozen and 'mode == "mcp"' in frozen

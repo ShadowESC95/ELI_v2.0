@@ -67,11 +67,12 @@ def _exposed_actions() -> List[str]:
 def _describe(action: str) -> Dict[str, Any]:
     description = f"ELI action {action}"
     try:
-        from eli.tools.registry import capabilities_doc
-        for entry in getattr(capabilities_doc, "ENTRIES", []) or []:
-            if isinstance(entry, dict) and entry.get("action") == action:
-                description = str(entry.get("description") or description)
-                break
+        # The capability table (capabilities_doc._C): it read an ENTRIES list that does not exist,
+        # so every tool was described as "ELI action <NAME>".
+        from eli.tools.registry.capabilities_doc import _C
+        if action in _C:
+            _cat, desc, phrases = _C[action]
+            description = str(desc or description) + (f" (e.g. {phrases[0]})" if phrases else "")
     except Exception:
         log.debug("mcp.server: capability doc lookup failed", exc_info=True)
     return {
@@ -88,12 +89,23 @@ def _call(action: str, arguments: Dict[str, Any]) -> Dict[str, Any]:
         hint = "" if _allow_control() else " (set ELI_MCP_ALLOW_CONTROL=1 to expose control actions)"
         return {"content": [{"type": "text", "text": f"'{action}' is not exposed{hint}"}],
                 "isError": True}
+    # Without control, the client runs as a role below the owner's: CHAT, MULTI_COMMAND and SEQUENCE
+    # carry other actions inside them, and the executor refuses the owner's ones to that role
+    # (authority_gate.owner_only), however they are reached.
+    _role_token = None
+    if not _allow_control():
+        from eli.kernel.request_context import caller_role_var
+        _role_token = caller_role_var.set("mcp-client")
     try:
         from eli.execution.executor_enhanced import execute
         result = execute(action, arguments or {}) or {}
     except Exception as e:
         log.debug("mcp.server: %s failed", action, exc_info=True)
         return {"content": [{"type": "text", "text": f"{action} failed: {e}"}], "isError": True}
+    finally:
+        if _role_token is not None:
+            from eli.kernel.request_context import caller_role_var
+            caller_role_var.reset(_role_token)
 
     text = str(result.get("content") or result.get("response") or "").strip()
     if not text:

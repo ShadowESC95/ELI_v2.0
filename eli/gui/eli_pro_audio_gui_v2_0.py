@@ -581,7 +581,15 @@ def recommend_model_setup(models, sysinfo, ollama_models=None):
 def discover_gguf_models(base_dirs: Optional[List[Path]] = None) -> List[Dict[str, Any]]:
     results: List[Dict[str, Any]] = []
     seen: set[str] = set()
-    base_dirs = base_dirs or [BUNDLED_MODEL_DIR, CUSTOM_MODELS_DIR]
+    if not base_dirs:
+        # Where models are kept (paths.models_dir: ELI_MODELS_DIR, else the data folder) as well as
+        # the program's own and the custom folder, as the startup discovery searches.
+        base_dirs = [BUNDLED_MODEL_DIR, CUSTOM_MODELS_DIR]
+        try:
+            from eli.core.paths import models_dir as _models_dir
+            base_dirs.insert(0, Path(_models_dir()))
+        except Exception:
+            log.debug("models folder unavailable for the model list", exc_info=True)
     for base in base_dirs:
         try:
             base = Path(base).expanduser()

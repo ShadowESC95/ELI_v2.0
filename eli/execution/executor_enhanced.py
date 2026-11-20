@@ -10568,7 +10568,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             sargs = step.get("args") or {}
 
             try:
-                r = _execute_impl(sa, sargs)
+                # Each step is held to the caller's role like any action: steps run straight through
+                # _execute_impl, past the check at the executor's entry.
+                from eli.runtime.authority_gate import check as _step_authority
+                _ok_step = _step_authority(sa, sargs if isinstance(sargs, dict) else {})
+                if not _ok_step.get("allowed", False):
+                    _why = str(_ok_step.get("reason") or "That is not allowed for this account.")
+                    r = {"ok": False, "action": sa, "blocked": True, "error": "not_allowed", "content": _why, "response": _why}
+                else:
+                    r = _execute_impl(sa, sargs)
             except Exception as e:
                 r = {"ok": False, "action": sa, "error": str(e), "content": str(e), "response": str(e)}
 
@@ -15613,6 +15621,15 @@ try:
                             "error": "not_allowed", "content": _why, "response": _why}
             except Exception:
                 log.debug("authority check unavailable", exc_info=True)
+                try:
+                    from eli.kernel.request_context import caller_role_var as _role_var
+                    _who = str(_role_var.get() or "").strip().lower()
+                except Exception:
+                    _who = "unknown"
+                if _who and _who != "admin":        # a gate that cannot answer refuses a lesser role
+                    _why = "That could not be checked for this account, so it was not carried out."
+                    return {"ok": False, "action": str(action or "").upper(), "blocked": True,
+                            "error": "not_allowed", "content": _why, "response": _why}
             ctx = _eli_exec_ctx_from_call(action, args, pargs, kwargs)
             _trace = str(__import__("os").environ.get("ELI_PIPELINE_TRACE", "")).strip().lower() in {"1", "true", "yes", "on"}
             if _trace:

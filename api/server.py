@@ -1036,6 +1036,7 @@ def execute(request: ExecuteRequest, principal: Principal = Depends(require_memb
     allowed = _authority(request.action, request.args, role=principal.role)
     if not allowed.get("allowed", False):
         raise HTTPException(status_code=403, detail=allowed.get("reason") or "not allowed for this account")
+    _role_token = _turn_for(principal)       # CHAT, MULTI_COMMAND ... run what they hold as this caller
     try:
         from eli.execution.executor_enhanced import execute as exec_cmd
 
@@ -1056,6 +1057,9 @@ def execute(request: ExecuteRequest, principal: Principal = Depends(require_memb
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        from eli.kernel.request_context import caller_role_var
+        caller_role_var.reset(_role_token)
 
 @app.get("/v1/status/{user_id}", response_model=StatusResponse, tags=["System"],
          dependencies=[Depends(_require_token)])
@@ -1477,9 +1481,10 @@ def tasks_list():
     except Exception as e:
         return {"ok": False, "error": str(e), "tasks": []}
 
-@app.post("/v1/tasks", tags=["Cognition"], dependencies=[Depends(require_member)])
+@app.post("/v1/tasks", tags=["Cognition"], dependencies=[Depends(require_admin)])
 def tasks_add(req: TaskCreate):
-    """Queue a task for ELI to run later (e.g. 'review the codebase for bugs' overnight)."""
+    """Queue a task for ELI to run later (e.g. 'review the codebase for bugs' overnight). The owner's:
+    a queued job runs later with nobody's role attached (code, research, self-upgrade work)."""
     if not (req.request or "").strip():
         return {"ok": False, "error": "no task description"}
     try:
@@ -1488,7 +1493,7 @@ def tasks_add(req: TaskCreate):
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
-@app.post("/v1/tasks/remove", tags=["Cognition"], dependencies=[Depends(require_member)])
+@app.post("/v1/tasks/remove", tags=["Cognition"], dependencies=[Depends(require_admin)])
 def tasks_remove(req: TaskRef):
     try:
         from eli.runtime.scheduled_tasks import forget

@@ -37,11 +37,11 @@ _INDEX_FILENAME = "voices.index.json"
 _INDEX_MAX_AGE_S = 7 * 24 * 3600
 
 # Voices ELI does not redistribute, keyed by voice name so every quality variant is covered
-# (the licence attaches to the dataset): ryan (CC-BY-NC-SA 4.0, non-commercial, incompatible with
-# a shipped product), lessac (Blizzard/Lessac dataset, redistribution not cleared), cori
-# (clearance pending). A user may still download these for personal use; ELI never puts them in
-# a release asset. scripts/asset_release_policy.py mirrors this set.
-RESTRICTED_VOICE_NAMES = frozenset({"ryan", "lessac", "cori"})
+# (the licence attaches to the dataset): ryan and ruslan (CC BY-NC-SA 4.0, non-commercial,
+# incompatible with a shipped product), lessac (Blizzard/Lessac dataset, redistribution not
+# cleared), cori (clearance pending). A user may still download these for personal use; ELI never
+# puts them in a release asset. scripts/asset_release_policy.py mirrors this set.
+RESTRICTED_VOICE_NAMES = frozenset({"ryan", "ruslan", "lessac", "cori"})
 
 PIPER_CATALOG: Dict[str, Dict[str, str]] = {
     # Standard — clean, neutral, "robotic-normal"

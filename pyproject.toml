@@ -249,9 +249,11 @@ Homepage = "https://github.com/ShadowESC95/ELI_v2.0"
 Repository = "https://github.com/ShadowESC95/ELI_v2.0"
 
 [project.scripts]
-eli = "eli.gui.app:main"
-"eli-v2.0" = "eli.gui.app:main"
-eli-cli = "eli.gui.app:main"
+# eli/__main__.py reads the flags (--license, --headless, --mcp-server, --mcp-config, --trust-agent)
+# and otherwise starts the window; pointed at the window itself, these commands ignored every flag.
+eli = "eli.__main__:main"
+"eli-v2.0" = "eli.__main__:main"
+eli-cli = "eli.__main__:main"
 eli-mcp = "eli.integrations.mcp.server:main"
 eli-jobs = "eli.planning.jobqueue_cli:main"
 

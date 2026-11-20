@@ -123,3 +123,19 @@ def test_an_api_member_cannot_have_eli_run_the_owners_actions():
     finally:
         caller_role_var.reset(token)
     assert check("READ_FILE", {})["allowed"] is True      # the owner at the desktop: no role set
+
+
+def test_a_client_without_control_cannot_reach_the_owners_actions_through_a_chain(monkeypatch):
+    """SEQUENCE and MULTI_COMMAND carry other actions inside them; without control the client runs
+    as a role below the owner's, so the steps meet the same refusal."""
+    from eli.integrations.mcp import server as mcp
+    monkeypatch.delenv("ELI_MCP_ALLOW_CONTROL", raising=False)
+    if "SEQUENCE" not in mcp._exposed_actions():
+        return
+    out = mcp._call("SEQUENCE", {"steps": [{"action": "READ_FILE", "args": {"path": "/etc/hostname"}}]})
+    assert "owner" in json.dumps(out)
+
+
+def test_tool_descriptions_come_from_the_capability_table():
+    from eli.integrations.mcp import server as mcp
+    assert mcp._describe("TIME")["description"] != "ELI action TIME"

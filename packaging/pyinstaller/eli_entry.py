@@ -1045,6 +1045,10 @@ def _mode() -> str:
         return "selftest"
     if "--license" in argv or "--licence" in argv:
         return "license"
+    # ELI as an MCP server for other apps: `eli --mcp-config` prints this executable with
+    # --mcp-server, and the frozen app opened its window instead.
+    if "--mcp-server" in argv or "--mcp-config" in argv:
+        return "mcp"
     if "--install-gpu-pack" in argv:
         return "gpu-pack"
     if "--remove-gpu-pack" in argv:
@@ -1068,6 +1072,9 @@ if __name__ == "__main__":
     elif mode == "license":
         from eli.runtime.license_info import print_license
         sys.exit(print_license())
+    elif mode == "mcp":
+        from eli.__main__ import main as _cli_main
+        sys.exit(_cli_main())
     elif mode == "gpu-pack":
         import eli_gpu_pack
         sys.exit(eli_gpu_pack.install([a for a in sys.argv[1:] if a != "--install-gpu-pack"]))

@@ -105,7 +105,7 @@ def main() -> None:
 
     with open(OUT, "w", encoding="utf-8") as fh:
         fh.write("# Silent `except: pass` audit\n\n")
-        fh.write(f"**Remaining count: {len(items)}** (CEILING ratchet target for v2.3.84)\n\n")
+        fh.write(f"**Remaining count: {len(items)}** (the ceiling tests/claims/test_no_silent_swallow.py holds the count to; it only goes down)\n\n")
         fh.write(f"{converted_note}\n\n")
         fh.write("## Index by file\n\n")
         fh.write("| File | Count |\n|------|------:|\n")
