@@ -1,8 +1,9 @@
-"""CLAIM: every download can put the PolyForm licence in front of its user.
+"""CLAIM: every download can put the licence in front of its user.
 
-ELI is source-available under PolyForm Noncommercial 1.0.0, so the terms have to
-be reachable from each shape it ships in — not just the Windows installer, which
-is the only wrapper with a licence pane of its own. These pin the surfaces:
+ELI is open source under the Apache License 2.0, and the terms (with the NOTICE
+that names the copyright holder) have to be reachable from each shape it ships
+in — not just the Windows installer, which is the only wrapper with a licence
+pane of its own. These pin the surfaces:
 
   * `LICENSE` / `NOTICE` / `THIRD_PARTY_NOTICES.md` exist and name the licence
   * the frozen bundles carry them (ELI.spec data manifest)
@@ -28,10 +29,12 @@ def test_license_doc_present(name):
     assert path.stat().st_size > 200, f"{name} is suspiciously short"
 
 
-def test_license_names_polyform():
+def test_license_is_apache_2_0():
     text = (REPO / "LICENSE").read_text(encoding="utf-8")
-    assert "PolyForm Noncommercial License 1.0.0" in text
-    assert "any noncommercial purpose is a permitted purpose" in text.lower().replace("\n", " ")
+    assert "Apache License" in text and "Version 2.0, January 2004" in text
+    assert "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION" in text
+    notice = (REPO / "NOTICE").read_text(encoding="utf-8")
+    assert "Apache License, Version 2.0" in notice and "Jason Fitzgibbon Bridgeman" in notice
 
 
 @pytest.mark.parametrize("name", DOCS + ("models/MODEL_LICENSES.md",))
@@ -72,12 +75,11 @@ def test_license_resolves_at_runtime():
 
     assert license_path() is not None, "LICENSE not resolvable from a source checkout"
     text = license_text()
-    assert "PolyForm Noncommercial License 1.0.0" in text
-    assert "Jason Fitzgibbon Bridgeman" in text
+    assert "Apache License" in text
 
 
 def test_who_made_eli_is_read_from_the_licence_it_ships_with():
-    """Asked who made it, the model invented a company; the licence names the maker."""
-    from eli.runtime.license_info import license_text, made_by
+    """Asked who made it, the model invented a company; the NOTICE beside the licence names the maker."""
+    from eli.runtime.license_info import made_by
     maker = made_by()
-    assert maker and maker in license_text() and "rights" not in maker.lower()
+    assert maker and maker in (REPO / "NOTICE").read_text(encoding="utf-8") and "rights" not in maker.lower()

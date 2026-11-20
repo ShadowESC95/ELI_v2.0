@@ -8,9 +8,8 @@ version = "2.5.35"
 description = "ELI v2.0 — Local cognitive runtime, assistant GUI, memory, tools, and GGUF inference"
 readme = "README.md"
 requires-python = ">=3.10"
-# Source-available (NOT open-source): use, modify, and distribute for any
-# noncommercial purpose. Full terms in LICENSE. All commercial rights reserved.
-license = "LicenseRef-PolyForm-Noncommercial-1.0.0"
+# Open source under the Apache License 2.0: LICENSE has the terms, NOTICE the copyright.
+license = "Apache-2.0"
 authors = [{ name = "ELI Contributors" }]
 keywords = ["ai", "assistant", "llm", "local", "gpu", "gguf"]
 classifiers = [
@@ -82,7 +81,7 @@ asr = [
     'audioop-lts>=0.2.1; python_version >= "3.13"',
 ]
 llm = [
-    "llama-cpp-python>=0.2",
+    "llama-cpp-python>=0.3.35",
 ]
 image = [
     "diffusers>=0.20",

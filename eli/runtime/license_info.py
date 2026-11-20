@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Locate and print ELI's licence, wherever ELI happens to be running from.
 
-ELI is source-available under PolyForm Noncommercial 1.0.0, so every artifact has
-to be able to put the terms in front of the user — not just the Windows
-installer, which is the only wrapper with a licence pane of its own. This module
+ELI is open source under the Apache License 2.0, and every artifact can put the
+terms in front of the user — not just the Windows installer, which is the only
+wrapper with a licence pane of its own. This module
 is the one place that knows where `LICENSE` lives in each shape ELI ships in:
 
   * frozen bundle (exe / zip / dmg / AppImage) — `sys._MEIPASS/LICENSE`, put
@@ -24,11 +24,11 @@ from typing import Optional
 _COMPANIONS = ("NOTICE", "THIRD_PARTY_NOTICES.md", "models/MODEL_LICENSES.md")
 
 SUMMARY = (
-    "ELI v2.0 — source-available under the PolyForm Noncommercial License 1.0.0.\n"
-    "Copyright (c) 2026 Jason Fitzgibbon Bridgeman. All rights reserved.\n"
+    "ELI v2.0 — open source under the Apache License, Version 2.0.\n"
+    "Copyright (c) 2026 Jason Fitzgibbon Bridgeman.\n"
     "\n"
-    "You may run, modify, and distribute ELI for any noncommercial purpose.\n"
-    "You may NOT use it, or a modified version, for a commercial purpose.\n"
+    "You may use, modify and distribute ELI, commercially or not, under the\n"
+    "Apache-2.0 terms; keep the NOTICE file with any copy you distribute.\n"
 )
 
 
@@ -80,10 +80,21 @@ def license_text() -> str:
 
 
 def made_by() -> str:
-    """Who holds the copyright, as the licence this build ships with names them: who made ELI.
-    "" when the licence names nobody."""
-    m = re.search(r"Copyright\s*(?:©|\(c\))\s*(?:\d{4}(?:\s*[-–]\s*\d{4})?\s+)?([^.\n]+)", license_text(), re.I)
-    return m.group(1).strip() if m else ""
+    """Who holds the copyright, as the NOTICE this build ships with names them (the Apache LICENSE
+    itself names nobody): who made ELI. "" when neither names anyone."""
+    texts = []
+    path = license_path()
+    if path is not None:
+        try:
+            texts.append((path.parent / "NOTICE").read_text(encoding="utf-8", errors="replace"))
+        except OSError:
+            texts.append("")            # no NOTICE beside this build: the licence alone is read
+    texts.append(license_text())
+    for text in texts:
+        m = re.search(r"Copyright\s*(?:©|\(c\))\s*(?:\d{4}(?:\s*[-–]\s*\d{4})?\s+)?([^.\n]+)", text, re.I)
+        if m:
+            return m.group(1).strip()
+    return ""
 
 
 def print_license() -> int:

@@ -364,9 +364,8 @@ Terminal command:
   If your shell cached an older eli: hash -r
 
 Licence:
-  ELI is source-available under the PolyForm Noncommercial License 1.0.0 —
-  run, modify, and share it for any noncommercial purpose; commercial use
-  requires a separate license.
+  ELI is open source under the Apache License 2.0 — use, modify and share
+  it, commercially or not, keeping the NOTICE file with any copy.
   Full terms:  ./LICENSE      (or run: eli --license)
   Third-party: ./THIRD_PARTY_NOTICES.md, ./models/MODEL_LICENSES.md
 

@@ -360,9 +360,9 @@ def test_extensionless_text_still_reads(plugin, tmp_path):
     """The <2MB fallback is what makes README/LICENSE readable; the binary
     guard must not have closed it."""
     p = tmp_path / "LICENSE"
-    p.write_text("PolyForm Noncommercial", encoding="utf-8")
+    p.write_text("Apache License, Version 2.0", encoding="utf-8")
     res = plugin.read({"path": str(p)})
-    assert res["ok"] is True and "PolyForm" in res["content"]
+    assert res["ok"] is True and "Apache License" in res["content"]
 
 
 # ── html extraction unit ────────────────────────────────────────────────────

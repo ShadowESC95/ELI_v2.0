@@ -1,17 +1,12 @@
 ELI v2.0
-Copyright © 2026 Jason Fitzgibbon Bridgeman. All rights reserved.
+Copyright © 2026 Jason Fitzgibbon Bridgeman
 
-This software is SOURCE-AVAILABLE, NOT open-source. It is licensed under the
-PolyForm Noncommercial License 1.0.0 (see the LICENSE file).
+Licensed under the Apache License, Version 2.0 (see the LICENSE file). You may
+use, modify and distribute ELI, commercially or not, under those terms; keep
+this notice with any copy or derived work you distribute.
 
-You MAY download, run, modify, and distribute this software — including
-modified versions — for any NONCOMMERCIAL purpose. You MAY NOT use this
-software, or any modified version of it, for a commercial purpose — selling
-it, running it as a paid service, or using it in the course of business —
-without a separate license. All commercial rights are reserved by the
-copyright holder.
-
-For licensing beyond these terms: jaybridgeman0095@gmail.com
+Releases up to and including v2.5.35 were published under the PolyForm
+Noncommercial License 1.0.0. From v2.5.36 the code is under Apache-2.0.
 
 Third-party runtime components: see THIRD_PARTY_NOTICES.md in the repository root.
 Model/voice asset licenses: see models/MODEL_LICENSES.md.

@@ -10,8 +10,8 @@ Flags:
   --mcp-config [--allow-control]
                    Print the mcpServers entry to paste into another app's config.
   --license, --licence
-                   Print the PolyForm Noncommercial terms ELI ships under, then
-                   exit. Same command in every download.
+                   Print the Apache-2.0 terms ELI ships under, then exit. Same
+                   command in every download.
 """
 from __future__ import annotations
 import sys
