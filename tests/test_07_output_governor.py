@@ -41,3 +41,16 @@ def test_govern_output_cleans_ai_prefix():
 
 def test_govern_output_strips_hr_phrases():
     assert "I'd be happy" not in govern_output("I'd be happy to help.").lower()
+
+
+@pytest.mark.parametrize("said, shown", [
+    ("USER-M000", "USER-M000"),
+    ("AI-generated images need a label.", "AI-generated images need a label."),
+    ("ELI-7 is the build tag.", "ELI-7 is the build tag."),
+    ("ELI: the build passed.", "the build passed."),
+    ("User: what now?", "what now?"),
+    ("ELI — the build passed.", "the build passed."),
+])
+def test_a_role_label_needs_a_colon_or_a_spaced_dash(said, shown):
+    """"USER-" was cut off a token the user asked ELI to remember, as if it were a speaker label."""
+    assert govern_output(said) == shown

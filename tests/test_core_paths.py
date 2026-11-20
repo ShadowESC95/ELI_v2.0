@@ -348,3 +348,20 @@ def test_eli_paths_db_alias():
 def test_eli_paths_log_dir_alias():
     p = EliPaths()
     assert p.log_dir == p.logs_dir
+
+
+def test_notes_go_to_the_data_folder_and_appending_keeps_every_line(tmp_path, monkeypatch):
+    """Notes were written to ./eli_notebook wherever ELI was started from (the code checkout, in a
+    benchmark), read whole and written back."""
+    from eli.core import paths
+    from eli.execution.executor_enhanced import _eli_safe_write_note
+    monkeypatch.delenv("ELI_NOTEBOOK_DIR", raising=False)
+    monkeypatch.setenv("ELI_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.chdir(tmp_path)
+    assert paths.notebook_dir() == tmp_path / "data" / "notebook"
+    first = _eli_safe_write_note({"text": "buy oat milk"})
+    _eli_safe_write_note({"text": "call the garage"})
+    page = Path(first["path"])
+    assert page.parent == tmp_path / "data" / "notebook" and not (tmp_path / "eli_notebook").exists()
+    lines = [l for l in page.read_text(encoding="utf-8").splitlines() if l.strip()]
+    assert len(lines) == 2 and lines[0].endswith("buy oat milk") and lines[1].endswith("call the garage")

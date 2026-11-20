@@ -53,6 +53,8 @@ from fastapi import FastAPI, HTTPException, Depends, Header, Request
 from fastapi.responses import HTMLResponse, StreamingResponse, Response
 from pydantic import BaseModel
 from typing import Optional, Any, List
+import functools
+import ipaddress
 import json
 import os
 import secrets
@@ -132,7 +134,51 @@ def _is_loopback_client(request) -> bool:
     return host == "::1" or host == "localhost" or host.startswith("127.")
 
 
-def _resolve_principal(authorization: str, loopback: bool = False) -> Optional[Principal]:
+@functools.lru_cache(maxsize=1)
+def _this_machine_names() -> frozenset:
+    """This machine's own names, as a browser on the LAN would write them."""
+    import socket
+    names = {"localhost", "localhost.localdomain"}
+    try:
+        host = socket.gethostname().strip().lower()
+        if host:
+            names.update({host, host + ".local", host.split(".")[0]})
+        fqdn = socket.getfqdn().strip().lower()
+        if fqdn:
+            names.add(fqdn)
+    except Exception:
+        pass
+    return frozenset(names)
+
+
+def _named_as_this_machine(request) -> bool:
+    """True when the request names this server by an address or a name of this machine.
+
+    A web page can point its own domain at 127.0.0.1 (DNS rebinding) and its requests then come
+    from loopback: the socket peer cannot tell them from the owner's. The name the browser used,
+    the Host header, can: it is the page's domain. IP addresses, localhost, this machine's own
+    names and the ones listed in ELI_API_ALLOWED_HOSTS (a reverse proxy's, say) name this machine;
+    any other name gets no tokenless or loopback grant and must present a token like a LAN client.
+    """
+    try:
+        raw = (request.headers.get("host") or "").strip().lower()
+    except Exception:
+        return False
+    if not raw:
+        return True                     # no Host at all: not something a browser sends
+    name = raw[1:raw.index("]")] if raw.startswith("[") and "]" in raw else raw.rsplit(":", 1)[0] if raw.count(":") == 1 else raw
+    try:
+        ipaddress.ip_address(name)
+        return True
+    except ValueError:
+        pass
+    if name.endswith(".localhost") or name in _this_machine_names():
+        return True
+    extra = {h.strip().lower() for h in os.environ.get("ELI_API_ALLOWED_HOSTS", "").split(",") if h.strip()}
+    return name in extra
+
+
+def _resolve_principal(authorization: str, loopback: bool = False, trusted_host: bool = True) -> Optional[Principal]:
     """Resolve a request to an authenticated Principal, or None (→ 401).
 
     RBAC mode (one or more users defined): the bearer token maps to a (user_id, role).
@@ -141,8 +187,10 @@ def _resolve_principal(authorization: str, loopback: bool = False) -> Optional[P
     `loopback` lets a same-machine caller serve tokenless even in --lan mode; LAN callers
     (non-loopback) always still need the token."""
     token = _bearer(authorization)
-    loopback_admin = loopback and _loopback_grants_admin()
-    tokenless = _tokenless_allowed() or loopback_admin
+    # Tokenless and loopback grants hold only for a request that names this machine
+    # (_named_as_this_machine): a token still works by any name.
+    loopback_admin = trusted_host and loopback and _loopback_grants_admin()
+    tokenless = trusted_host and (_tokenless_allowed() or loopback_admin)
     try:
         from eli.runtime import api_users
         if api_users.rbac_enabled():
@@ -177,11 +225,11 @@ def _rank(role: str) -> int:
     return _ROLE_RANK.get((role or "").strip().lower(), 0)  # unknown role → least privilege
 
 
-def _authenticated(authorization: str, loopback: bool = False) -> Principal:
+def _authenticated(authorization: str, loopback: bool = False, trusted_host: bool = True) -> Principal:
     """Fail-CLOSED: resolve to a Principal or 401. The default — no token, no opt-out —
     is DENY, so a raw `uvicorn api.server:app` stays locked down regardless of main().
     A same-machine (loopback) caller is the owner and serves tokenless even in --lan mode."""
-    p = _resolve_principal(authorization, loopback)
+    p = _resolve_principal(authorization, loopback, trusted_host)
     if p is None:
         raise HTTPException(
             status_code=401,
@@ -193,12 +241,12 @@ def _authenticated(authorization: str, loopback: bool = False) -> Principal:
 
 def require_viewer(request: Request, authorization: str = Header(default="")) -> Principal:
     """Read-only level — any authenticated caller (viewer, member, or admin)."""
-    return _authenticated(authorization, _is_loopback_client(request))
+    return _authenticated(authorization, _is_loopback_client(request), _named_as_this_machine(request))
 
 
 def require_member(request: Request, authorization: str = Header(default="")) -> Principal:
     """Acting level — member or admin. A read-only viewer is 403'd from mutating actions."""
-    p = _authenticated(authorization, _is_loopback_client(request))
+    p = _authenticated(authorization, _is_loopback_client(request), _named_as_this_machine(request))
     if _rank(p.role) < _ROLE_RANK["member"]:
         raise HTTPException(status_code=403, detail="member role required (read-only viewer)")
     return p
@@ -206,7 +254,7 @@ def require_member(request: Request, authorization: str = Header(default="")) ->
 
 def require_admin(request: Request, authorization: str = Header(default="")) -> Principal:
     """Admin level — the Admin console + user management."""
-    p = _authenticated(authorization, _is_loopback_client(request))
+    p = _authenticated(authorization, _is_loopback_client(request), _named_as_this_machine(request))
     if _rank(p.role) < _ROLE_RANK["admin"]:
         raise HTTPException(status_code=403, detail="admin role required")
     return p
@@ -215,7 +263,14 @@ def require_admin(request: Request, authorization: str = Header(default="")) -> 
 def _require_token(request: Request, authorization: str = Header(default="")):
     """Read-level dependency (kept as the name read-only endpoints already reference) —
     permits any authenticated caller, including a viewer."""
-    _authenticated(authorization, _is_loopback_client(request))
+    _authenticated(authorization, _is_loopback_client(request), _named_as_this_machine(request))
+
+
+def _turn_for(principal: Optional[Principal]):
+    """Mark this turn as the caller's: authority_gate.check refuses the owner's actions to a
+    member or viewer, whatever their message routes to. Returns the token to reset with."""
+    from eli.kernel.request_context import caller_role_var
+    return caller_role_var.set(getattr(principal, "role", None) or None)
 
 
 def _effective_user(principal: Optional[Principal], supplied: str) -> str:
@@ -809,13 +864,20 @@ def chat(request: ChatRequest, principal: Principal = Depends(require_member)):
         session_id = request.session_id or str(int(time.time()))
         who = _effective_user(principal, request.user_id)
 
-        result = engine.process(
-            request.message,
-            source=f"api:{who}",
-            stream=False,
-            user_id=who,
-            session_id=session_id,
-        )
+        # The caller's role goes with the turn: a member's message cannot have ELI run what only
+        # the owner may (authority_gate.check), whatever the message routes to.
+        from eli.kernel.request_context import caller_role_var
+        _role_token = _turn_for(principal)
+        try:
+            result = engine.process(
+                request.message,
+                source=f"api:{who}",
+                stream=False,
+                user_id=who,
+                session_id=session_id,
+            )
+        finally:
+            caller_role_var.reset(_role_token)
 
         _audit("api_chat", user_id=who, action="CHAT", session_id=session_id)
         return ChatResponse(
@@ -844,6 +906,7 @@ def chat_stream(request: ChatRequest, principal: Principal = Depends(require_mem
     def _gen():
         yield _frame({"session_id": session_id})
         try:
+            _turn_for(principal)        # this step's context copy; the turn keeps what it had at the start
             result = engine.process(
                 request.message, source=f"api:{who}", stream=True,
                 user_id=who, session_id=session_id,
@@ -899,8 +962,8 @@ def list_models():
     return {"object": "list",
             "data": [{"id": "eli-local", "object": "model", "created": 0, "owned_by": "eli"}]}
 
-@app.post("/v1/chat/completions", tags=["Chat"], dependencies=[Depends(require_member)])
-def chat_completions(request: CompletionRequest):
+@app.post("/v1/chat/completions", tags=["Chat"])
+def chat_completions(request: CompletionRequest, principal: Principal = Depends(require_member)):
     """Standard chat-completions shape, answered by ELI's LOCAL model + pipeline.
     Honours `stream`; returns the canonical `chat.completion` / `chat.completion.chunk`
     objects (and the `[DONE]` sentinel) so standard clients work drop-in.
@@ -922,6 +985,7 @@ def chat_completions(request: CompletionRequest):
         def _gen():
             try:
                 yield _chunk({"role": "assistant"})
+                _turn_for(principal)
                 result = engine.process(prompt, source="api:completions", stream=True)
                 if isinstance(result, dict):
                     t = _extract_response_text(result)
@@ -949,11 +1013,15 @@ def chat_completions(request: CompletionRequest):
         return StreamingResponse(_gen(), media_type="text/event-stream",
                                  headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
+    _role_token = _turn_for(principal)
     try:
         result = engine.process(prompt, source="api:completions", stream=False)
         text = _extract_response_text(result)
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        from eli.kernel.request_context import caller_role_var
+        caller_role_var.reset(_role_token)
     return {
         "id": cid, "object": "chat.completion", "created": created, "model": model,
         "choices": [{"index": 0, "message": {"role": "assistant", "content": text},
@@ -964,6 +1032,10 @@ def chat_completions(request: CompletionRequest):
 @app.post("/v1/execute", response_model=ExecuteResponse, tags=["Commands"])
 def execute(request: ExecuteRequest, principal: Principal = Depends(require_member)):
     """Execute a direct ELI command (OPEN_APP, SCREENSHOT, etc.)."""
+    from eli.runtime.authority_gate import check as _authority
+    allowed = _authority(request.action, request.args, role=principal.role)
+    if not allowed.get("allowed", False):
+        raise HTTPException(status_code=403, detail=allowed.get("reason") or "not allowed for this account")
     try:
         from eli.execution.executor_enhanced import execute as exec_cmd
 
@@ -1348,7 +1420,7 @@ def _ui_prefs_all() -> dict:
 @app.get("/v1/ui/prefs", tags=["UI"])
 def ui_prefs_get(request: Request, authorization: str = Header(default="")):
     """Load this user's saved dashboard layout (widget order + hidden set). Empty = defaults."""
-    p = _authenticated(authorization, _is_loopback_client(request))
+    p = _authenticated(authorization, _is_loopback_client(request), _named_as_this_machine(request))
     uid = _effective_user(p, "")
     with _UI_PREFS_LOCK:
         return {"ok": True, "prefs": _ui_prefs_all().get(uid, {})}
@@ -1356,7 +1428,7 @@ def ui_prefs_get(request: Request, authorization: str = Header(default="")):
 @app.post("/v1/ui/prefs", tags=["UI"], dependencies=[Depends(require_member)])
 def ui_prefs_set(req: UIPrefs, request: Request, authorization: str = Header(default="")):
     """Persist this user's dashboard layout."""
-    p = _authenticated(authorization, _is_loopback_client(request))
+    p = _authenticated(authorization, _is_loopback_client(request), _named_as_this_machine(request))
     uid = _effective_user(p, "")
     with _UI_PREFS_LOCK:
         allp = _ui_prefs_all()
@@ -1973,10 +2045,14 @@ def research_query(req: ResearchQuery, principal: Principal = Depends(require_me
               "source name in square brackets, e.g. [paper.pdf]. If the sources do not contain "
               "the answer, say so plainly — do not invent.\n\nSOURCES:\n" + ctx +
               "\n\nQUESTION: " + req.question)
+    _role_token = _turn_for(principal)
     try:
         answer = _extract_response_text(get_engine().process(prompt, source="api:research", stream=False))
     except Exception as e:
         answer = f"(retrieval succeeded; local-model synthesis unavailable: {e})"
+    finally:
+        from eli.kernel.request_context import caller_role_var
+        caller_role_var.reset(_role_token)
     sources = [{"source": h["source"], "score": h["score"], "excerpt": (h["text"] or "")[:240]}
                for h in hits]
     return {"ok": True, "answer": answer, "sources": sources}

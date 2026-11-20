@@ -94,3 +94,32 @@ def test_a_real_process_keeps_stdout_pure_protocol():
     assert len(lines) == 2
     replies = [json.loads(l) for l in lines]
     assert replies[0]["id"] == 1 and replies[1]["result"]["tools"]
+
+
+def test_files_screen_and_eli_settings_are_withheld_without_control(monkeypatch):
+    """Name prefixes alone left CREATE_FILE (overwrite any file), READ_FILE, SCREENSHOT and
+    MEMORY_FORGET open to any MCP client."""
+    from eli.integrations.mcp import server as mcp
+    monkeypatch.delenv("ELI_MCP_ALLOW_CONTROL", raising=False)
+    exposed = set(mcp._exposed_actions())
+    assert exposed, "nothing exposed at all"
+    assert not exposed & {"CREATE_FILE", "READ_FILE", "LIST_DIR", "SCREENSHOT", "GET_CLIPBOARD",
+                          "MEMORY_FORGET", "PLUGIN_INSTALL", "FIX_FILE", "MCP_CALL"}
+    monkeypatch.setenv("ELI_MCP_ALLOW_CONTROL", "1")
+    assert "READ_FILE" in set(mcp._exposed_actions())
+
+
+def test_an_api_member_cannot_have_eli_run_the_owners_actions():
+    from eli.kernel.request_context import caller_role_var
+    from eli.runtime.authority_gate import check
+    from eli.execution.executor_enhanced import execute
+    assert check("SHELL_EXEC", {}, role="member")["allowed"] is False
+    assert check("SHELL_EXEC", {}, role="admin")["allowed"] is True
+    assert check("GET_TIME", {}, role="viewer")["allowed"] is True
+    token = caller_role_var.set("member")
+    try:
+        out = execute("READ_FILE", {"path": "/etc/hostname"})
+        assert out["ok"] is False and out.get("blocked") and "owner" in out["content"]
+    finally:
+        caller_role_var.reset(token)
+    assert check("READ_FILE", {})["allowed"] is True      # the owner at the desktop: no role set

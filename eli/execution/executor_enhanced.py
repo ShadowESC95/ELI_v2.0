@@ -4350,8 +4350,10 @@ def chat(message: str, *, model: Optional[str] = None, skip_router: bool = False
     if not msg:
         return {"ok": False, "action": "CHAT", "error": "empty_message", "content": "", "response": ""}
 
-    # Live audit path for memory-capability questions (real DB/files scan, never template)
-    if (
+    # Live audit path for memory-capability questions (real DB/files scan, never template). Only for
+    # the user's own words: the engine sends whole prompts here with skip_router, and the rules in
+    # them mention "persistent memory", so a recalled code was answered with this JSON instead.
+    if not skip_router and (
         "how your memory" in low_msg or "how does your memory" in low_msg or
         "persistent memory" in low_msg or "across sessions" in low_msg or
         "continuous memory" in low_msg or "memory audit" in low_msg
@@ -4366,8 +4368,8 @@ def chat(message: str, *, model: Optional[str] = None, skip_router: bool = False
         _convlog_append('assistant', "[memory data]", {'fn':'chat','path':'live_memory_audit'})
         return {"ok": True, "action": "CHAT", "content": content, "response": content, "memory_audit": rep}
 
-    # Explicit "yesterday" recall path (no fabrication)
-    if ("what did we discuss yesterday" in low_msg or ("what did" in low_msg and "yesterday" in low_msg and "discuss" in low_msg)):
+    # Explicit "yesterday" recall path (no fabrication), again only for the user's own words
+    if not skip_router and ("what did we discuss yesterday" in low_msg or ("what did" in low_msg and "yesterday" in low_msg and "discuss" in low_msg)):
         try:
             rec = memory_recall("", limit=8)
             rows = rec.get("results") if isinstance(rec, dict) else []
@@ -5015,153 +5017,6 @@ def _open_file(path: str) -> None:
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
-def _allowed_cmds_set():
-    """
-    Allowed executables for sandboxed run().
-    Accept BOTH comma-separated and whitespace-separated formats.
-    Also include both './x' and 'x' variants so normpath quirks don't brick you.
-    """
-    import os
-    import os.path
-    from pathlib import Path as _Path
-
-    raw = (os.environ.get("ELI_ALLOWED_CMDS") or "").strip()
-    if not raw:
-        return None
-
-    # commas OR spaces
-    raw = raw.replace(",", " ")
-    parts = [p for p in raw.split() if p]
-
-    allowed = set()
-
-    def add(tok: str):
-        if not tok:
-            return
-        t = str(tok).strip()
-        if not t:
-            return
-
-        # keep raw
-        allowed.add(t)
-
-        # normpath form
-        try:
-            n = os.path.normpath(t)
-            allowed.add(n)
-        except Exception:
-            n = t
-
-        # add "./" and no-"./" variants
-        try:
-            if n.startswith("./"):
-                allowed.add(n[2:])
-            else:
-                allowed.add("./" + n)
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-    for p in parts:
-        add(p)
-
-    # Always allow venv python in common forms (belt + suspenders)
-    add("./.venv/bin/python")
-    add(".venv/bin/python")
-    try:
-        add(str((_Path(__file__).resolve().parent.parent / ".venv/bin/python").resolve()))
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-
-    return allowed
-
-def _allow_or_block(argv0: str) -> bool:
-    """Allow or block executables based on sandbox rules."""
-    
-    # FULL CONTROL MODE: allow everything
-    if _full_control():
-        return True
-    
-    allowed = _allowed_cmds_set()
-    if allowed is None:
-        return True  # No restrictions
-    
-    # Wildcard allows everything
-    if "*" in allowed:
-        return True
-    
-    return argv0 in allowed
-
-def _run_argv(argv, timeout=30):
-    # Normalize timeouts (router sometimes sends None)
-    # None/"" => env ELI_RUN_TIMEOUT_SEC (default 120s)
-    import os as _os
-    if timeout is None or timeout == "":
-        try:
-            timeout = float(_os.environ.get("ELI_RUN_TIMEOUT_SEC", "120"))
-        except Exception:
-            timeout = 120.0
-    else:
-        try:
-            timeout = float(timeout)
-        except Exception:
-            timeout = 120.0
-
-    if not argv:
-        return {"ok": False, "error": "empty argv"}
-    if not _allow_or_block(argv[0]):
-
-        # --- ALLOW_VENV_PYTHON_V1 ---
-        # Normalize doubled venv paths and allow our own venv python binary under the allowlist sandbox.
-        try:
-            import os
-            _v = str(argv[0])
-            # collapse accidental duplication
-            _v = _v.replace("./.venv/bin/./.venv/bin/python", "./.venv/bin/python")
-            _v = _v.replace(".venv/bin/.venv/bin/python", ".venv/bin/python")
-            _v = os.path.normpath(_v)
-            # allow exactly the project venv python
-            _venv_py_rel = os.path.normpath("./.venv/bin/python")
-            _venv_py_abs = os.path.normpath(str((Path(__file__).resolve().parent / ".venv/bin/python")))
-            if _v in (_venv_py_rel, _venv_py_abs) or _v.endswith("/.venv/bin/python"):
-                # overwrite the checked value if it's a simple name
-                if isinstance(argv[0], str):
-                    argv[0] = _v
-                # skip raising
-                raise SystemExit("__ELI_ALLOW_VENV_PYTHON_SKIP__")
-        except SystemExit as _e:
-            if str(_e) == "__ELI_ALLOW_VENV_PYTHON_SKIP__":
-                pass
-            else:
-                raise
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-
-        # If we didn't early-allow venv python, fall through to the original denial.
-        try:
-            _ALLOW_VENV_PYTHON
-        except NameError:
-            _ALLOW_VENV_PYTHON = False
-        if not _ALLOW_VENV_PYTHON:
-            return {"ok": False, "error": f"command not allowed: {argv[0]} (ELI_ALLOWED_CMDS)"}
-
-    try:
-        r = subprocess.run(
-            argv,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            timeout=timeout,
-            shell=False,
-        )
-        return {
-            "ok": (r.returncode == 0),
-            "returncode": r.returncode,
-            "stdout": (r.stdout or "")[-2000:],
-            "stderr": (r.stderr or "")[-2000:],
-        }
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
 # App opening. Canonical alias table lives in eli/execution/app_aliases.py; this copy and the
 # router's each lacked names the other had (thunderbird, mozilla, browser vs vs code, calculator,
 # files), so resolution depended on which layer handled the phrase.
@@ -5190,339 +5045,7 @@ def _open_app_with_timeout(argv, timeout=30):
     from eli.execution.effectors.system_helpers import open_app_with_timeout
     return open_app_with_timeout(argv, timeout=timeout)
 
-def _open_app_builtin(app_name: str) -> dict:
-    app = _normalize_app(app_name)
-    if not app:
-        return {"ok": False, "error": "empty app_name"}
-
-    allowed = _allowed_apps_set()
-    if allowed is not None and app not in allowed:
-        return {"ok": False, "error": f"app not allowed: {app} (set ELI_ALLOWED_APPS)"}
-
-    # Allow per-app override command
-    env_key = "ELI_APP_CMD_" + re.sub(r"[^A-Z0-9]+", "_", app.upper())
-    override = (os.environ.get(env_key) or "").strip()
-
-    if override:
-        argv = shlex.split(override)
-    else:
-        # sensible defaults
-        if app == "thunderbird":
-            argv = ["thunderbird"]
-        elif app == "firefox":
-            argv = ["firefox"]
-        elif app == "spotify":
-            SPOTIFY_CMD = os.environ.get("ELI_SPOTIFY_CMD", "").strip() or "spotify"
-            argv = shlex.split(SPOTIFY_CMD) if SPOTIFY_CMD else ["spotify"]
-        else:
-            # last resort: try running by name
-            argv = [app]
-
-    try:
-        return _open_app_with_timeout(argv)
-    except Exception as e:
-        return {"ok": False, "error": str(e), "app": app, "cmd": argv}
-
-
 # --- BUILTIN DOCUMENT FUNCTIONS ---
-def _builtin_create_doc(args: dict) -> dict:
-    try:
-        doc_type  = (args.get("doc_type") or "txt").strip().lower()
-        title     = (args.get("title") or "document").strip()
-        content   = args.get("content") or ""
-        filename  = (args.get("filename") or "").strip()
-        convert_to = (args.get("convert_to") or "omit").strip().lower()
-        open_after = bool(args.get("open_after", False))
-
-        ext = doc_type if doc_type in {"md","txt","tex"} else "txt"
-
-        outdir = Path(os.environ.get("ELI_DOC_DIR", str(Path(__file__).resolve().parent.parent / "eli_docs"))).expanduser()
-        outdir.mkdir(parents=True, exist_ok=True)
-
-        if filename:
-            fn = filename if filename.endswith(f".{ext}") else filename + f".{ext}"
-        else:
-            fn = _slugify(title) + f".{ext}"
-
-        outpath = outdir / fn
-        outpath.write_text(content, encoding="utf-8")
-
-        if open_after:
-            _open_file(str(outpath))
-
-        return {"ok": True, "path": str(outpath)}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-def _write_note_builtin(args: dict) -> dict:
-    """Create a note file under ELI_DOC_DIR (default: ./eli_docs)."""
-    try:
-        title = (args.get("title") or "note").strip()
-        content = (args.get("content") or "").strip()
-        filename = (args.get("filename") or "").strip()
-        open_after = bool(args.get("open_after", False))
-
-        import os, re, time, subprocess
-        from pathlib import Path
-
-        root = Path(__file__).resolve().parent.parent
-        doc_dir = Path(os.environ.get("ELI_DOC_DIR", str(root / "eli_docs"))).expanduser()
-        doc_dir.mkdir(parents=True, exist_ok=True)
-
-        if not filename:
-            safe_title = re.sub(r"[^a-zA-Z0-9_\-\.]+", "_", title).strip("_") or "note"
-            filename = f"{safe_title}.md"
-        if not filename.lower().endswith((".md", ".txt")):
-            filename += ".md"
-
-        if not content:
-            ts = time.strftime("%Y-%m-%d %H:%M:%S")
-            content = f"# {title}\n\nCreated: {ts}\n\n"
-
-        path = (doc_dir / filename).resolve()
-        doc_dir_resolved = doc_dir.resolve()
-        if path != doc_dir_resolved and doc_dir_resolved not in path.parents:
-            return {"ok": False, "error": "refusing to write outside ELI_DOC_DIR"}
-
-        path.write_text(content, encoding="utf-8")
-
-        if open_after:
-            try:
-                open_file(str(path))
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
-
-        return {"ok": True, "path": str(path), "title": title}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-def _append_note_builtin(args: dict) -> dict:
-    """Append content to a note under ELI_DOC_DIR."""
-    try:
-        title = (args.get("title") or "").strip()
-        content = (args.get("content") or "").strip()
-        filename = (args.get("filename") or "").strip()
-        open_after = bool(args.get("open_after", False))
-
-        if not title and not filename:
-            return {"ok": False, "error": "append_note: title or filename is required"}
-        if not content:
-            return {"ok": False, "error": "append_note: content is empty"}
-
-        import os, re, time, subprocess
-        from pathlib import Path
-
-        root = Path(__file__).resolve().parent.parent
-        doc_dir = Path(os.environ.get("ELI_DOC_DIR", str(root / "eli_docs"))).expanduser()
-        doc_dir.mkdir(parents=True, exist_ok=True)
-
-        note_file = None
-        if filename:
-            note_file = (doc_dir / filename)
-        else:
-            if title.lower().endswith((".md", ".txt")):
-                note_file = (doc_dir / title)
-            else:
-                for ext in (".md", ".txt"):
-                    cand = doc_dir / f"{title}{ext}"
-                    if cand.exists():
-                        note_file = cand
-                        break
-                if note_file is None:
-                    safe_title = re.sub(r"[^a-zA-Z0-9_\-\.]+", "_", title).strip("_") or "note"
-                    note_file = doc_dir / f"{safe_title}.md"
-
-        note_file = note_file.resolve()
-        doc_dir_resolved = doc_dir.resolve()
-        if note_file != doc_dir_resolved and doc_dir_resolved not in note_file.parents:
-            return {"ok": False, "error": "refusing to write outside ELI_DOC_DIR"}
-
-        ts = time.strftime("%Y-%m-%d %H:%M:%S")
-        blob = f"\n\n---\n\n{ts}\n\n{content.strip()}\n"
-
-        if note_file.exists():
-            prev = note_file.read_text(encoding="utf-8", errors="ignore")
-        else:
-            prev = f"# {title or note_file.stem}\n"
-
-        note_file.write_text(prev.rstrip() + blob, encoding="utf-8")
-
-        if open_after:
-            try:
-                open_file(str(note_file))
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
-
-        return {"ok": True, "path": str(note_file), "title": title or note_file.stem}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-def _calendar_event_builtin(args: dict) -> dict:
-    """Open a prefilled Google Calendar event in the browser (handles 'tomorrow', weekdays, 2pm, 16.40pm, etc.)."""
-    try:
-        import re, urllib.parse, subprocess, os
-        from datetime import datetime, date, timedelta
-
-        title = (args.get("title") or "ELI Event").strip()
-        date_s = (args.get("date") or args.get("day") or "").strip()
-        time_s = (args.get("time") or args.get("at") or "").strip()
-        start_s = (args.get("start") or "").strip()
-        location = (args.get("location") or "").strip()
-        notes = (args.get("notes") or args.get("details") or "").strip()
-
-        dur = args.get("duration_min", None)
-        if dur is None:
-            dur = args.get("duration", None)
-        try:
-            duration_min = int(dur) if dur is not None else 30
-        except Exception:
-            duration_min = 30
-
-        def parse_time(ts: str) -> str:
-            if not ts:
-                return "09:00"
-            t = ts.strip().lower().replace(" ", "")
-            t = t.replace(".", ":")
-            m = re.match(r'^(\d{1,2})(?::(\d{2}))?(am|pm)?$', t)
-            if not m:
-                return "09:00"
-            hh = int(m.group(1))
-            mm = int(m.group(2) or "0")
-            ap = m.group(3)
-            # If already 13-23, ignore am/pm even if user says nonsense like 16:40pm
-            if ap and hh <= 12:
-                if ap == "pm" and hh < 12: hh += 12
-                if ap == "am" and hh == 12: hh = 0
-            hh = max(0, min(23, hh))
-            mm = max(0, min(59, mm))
-            return f"{hh:02d}:{mm:02d}"
-
-        def parse_date(ds: str) -> str:
-            today = date.today()
-            if not ds:
-                return today.isoformat()
-            d = ds.strip().lower()
-            wmap = {"monday":0,"tuesday":1,"wednesday":2,"thursday":3,"friday":4,"saturday":5,"sunday":6}
-            if d == "today":
-                return today.isoformat()
-            if d == "tomorrow":
-                return (today + timedelta(days=1)).isoformat()
-            if d in wmap:
-                delta = (wmap[d] - today.weekday()) % 7
-                delta = 7 if delta == 0 else delta
-                return (today + timedelta(days=delta)).isoformat()
-            # ISO date?
-            if re.match(r'^\d{4}-\d{2}-\d{2}$', ds.strip()):
-                return ds.strip()
-            return today.isoformat()
-
-        dt = None
-        if start_s:
-            # try iso-ish start string
-            try:
-                dt = datetime.fromisoformat(start_s.replace("Z",""))
-            except Exception:
-                # salvage "tomorrowT14:00" style
-                if "T" in start_s:
-                    left, right = start_s.split("T", 1)
-                    date_s2 = parse_date(left)
-                    time_s2 = parse_time(right)
-                    dt = datetime.fromisoformat(f"{date_s2}T{time_s2}")
-
-        if dt is None:
-            d_iso = parse_date(date_s)
-            t_hm = parse_time(time_s)
-            dt = datetime.fromisoformat(f"{d_iso}T{t_hm}")
-
-        end_dt = dt + timedelta(minutes=duration_min)
-
-        def fmt(d: datetime) -> str:
-            return d.strftime("%Y%m%dT%H%M%S")
-
-        params = {
-            "action": "TEMPLATE",
-            "text": title,
-            "dates": f"{fmt(dt)}/{fmt(end_dt)}",
-        }
-        if location:
-            params["location"] = location
-        if notes:
-            params["details"] = notes
-
-        # timezone offset (local)
-        import time as _time
-        tz_offset = _time.localtime().tm_gmtoff
-        tz_sign = "+" if tz_offset >= 0 else "-"
-        tz_hours = abs(tz_offset) // 3600
-        tz_minutes = (abs(tz_offset) % 3600) // 60
-        params["ctz"] = f"UTC{tz_sign}{tz_hours:02d}:{tz_minutes:02d}"
-
-        base_url = "https://calendar.google.com/calendar/render"
-        url = f"{base_url}?{urllib.parse.urlencode(params)}"
-        open_url(url)
-
-        return {"ok": True, "title": title, "start": dt.isoformat(), "end": end_dt.isoformat(),
-                "duration_min": duration_min, "url": url}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-def _recall_memory_builtin(args: dict) -> dict:
-    """Read recent utterances from ./data/memory/utterances.jsonl (if present)."""
-    try:
-        import json
-        from pathlib import Path
-
-        limit = int(args.get("limit", 20))
-        root = Path(__file__).resolve().parent.parent
-        memory_log = root / "data" / "memory" / "utterances.jsonl"
-
-        if not memory_log.exists():
-            return {"ok": True, "entries": [], "message": "No memory log found"}
-
-        entries = []
-        with open(memory_log, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if not line:
-                    continue
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    continue
-
-        recent = entries[-limit:] if entries else []
-        return {"ok": True, "entries": recent, "count": len(recent), "total": len(entries)}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
-
-
-def _type_text_builtin(text: str) -> dict:
-    text = (text or "")
-    if not text:
-        return {"ok": False, "error": "empty text"}
-
-    # Linux: prefer the native typing tools (respecting Wayland vs X11) when installed.
-    if sys.platform.startswith("linux"):
-        sess = (os.environ.get("XDG_SESSION_TYPE") or "").lower().strip()
-        if sess == "wayland" and shutil.which("wtype"):
-            return _run_argv(["wtype", "--", text], timeout=30)
-        if shutil.which("xdotool"):
-            return _run_argv(["xdotool", "type", "--clearmodifiers", "--delay", "8", text], timeout=30)
-        # else fall through to the cross-platform backend below
-
-    # Cross-platform backend (Windows, macOS, or Linux without wtype/xdotool): pyautogui.
-    try:
-        import pyautogui
-        pyautogui.typewrite(text, interval=0.008)
-        return {"ok": True}
-    except Exception as e:
-        return {"ok": False, "error": f"no typing backend available ({e})"}
-
-
 # --- NOTIFICATION FUNCTION ---
 def _notify(title: str, msg: str):
     try:
@@ -10198,6 +9721,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = (f"Refused: {p} is outside allowed roots (home, project, or temp). "
                    "Enable ELI Full Control to override.")
             return {"ok": False, "action": a, "error": "path_not_allowed", "content": msg, "response": msg}
+        # Creating a file never replaces one: only an explicit overwrite does (the router sets it when
+        # the user says "overwrite" or "replace"). A model or MCP client choosing CREATE_FILE could
+        # otherwise write over ~/.bashrc.
+        if p.exists() and not args.get("overwrite"):
+            msg = f"Not written: {p} already exists, and creating a file does not replace one. Ask to overwrite it if that is what you want."
+            return {"ok": False, "action": a, "error": "exists", "path": str(p), "content": msg, "response": msg}
         try:
             p.parent.mkdir(parents=True, exist_ok=True)
             p.write_text(content, encoding="utf-8")
@@ -13230,20 +12759,25 @@ def _eli_safe_read_file(args=None):
         "content": data,
     }
 
+_NOTE_LOCK = threading.Lock()
+
+
 def _eli_safe_write_note(args=None):
-    from pathlib import Path
+    """A note goes on the end of today's page in the notebook (paths.notebook_dir), appended under
+    a lock so two writers cannot lose each other's lines. It was read whole and written back, in a
+    folder relative to wherever ELI had been started from."""
     from datetime import datetime
+    from eli.core.paths import notebook_dir
     _args = args or {}
     txt = str(_args.get("text") or "").rstrip()
     if not txt:
         return {"ok": False, "action": "WRITE_NOTE", "content": "Missing note text."}
-    nb = Path("eli_notebook")
+    nb = notebook_dir()
     nb.mkdir(parents=True, exist_ok=True)
-    daily = nb / f"{datetime.now().strftime('%Y-%m-%d')}.md"
-    prefix = "" if not daily.exists() or not daily.read_text(encoding="utf-8", errors="ignore").strip() else "\n"
-    stamp = datetime.now().strftime("%H:%M:%S")
-    payload = f"{prefix}- [{stamp}] {txt}\n"
-    daily.write_text(daily.read_text(encoding="utf-8", errors="ignore") + payload if daily.exists() else payload, encoding="utf-8")
+    now = datetime.now()
+    daily = nb / f"{now.strftime('%Y-%m-%d')}.md"
+    with _NOTE_LOCK, open(daily, "a", encoding="utf-8") as fh:
+        fh.write(("\n" if fh.tell() else "") + f"- [{now.strftime('%H:%M:%S')}] {txt}\n")
     return {
         "ok": True,
         "action": "WRITE_NOTE",
@@ -16068,6 +15602,17 @@ try:
             return mw(ctx, lambda next_ctx=None: _eli_exec_apply_middleware(ctx if next_ctx is None else next_ctx, index + 1))
 
         def execute(action, args=None, *pargs, **kwargs):  # type: ignore[no-redef]
+            # An API member or viewer cannot have ELI carry out the owner's actions, by whatever path
+            # the turn reached one: a chain of commands, an agreed offer, a tool loop.
+            try:
+                from eli.runtime.authority_gate import check as _authority
+                _allowed = _authority(action, args if isinstance(args, dict) else {})
+                if not _allowed.get("allowed", False):
+                    _why = str(_allowed.get("reason") or "That is not allowed for this account.")
+                    return {"ok": False, "action": str(action or "").upper(), "blocked": True,
+                            "error": "not_allowed", "content": _why, "response": _why}
+            except Exception:
+                log.debug("authority check unavailable", exc_info=True)
             ctx = _eli_exec_ctx_from_call(action, args, pargs, kwargs)
             _trace = str(__import__("os").environ.get("ELI_PIPELINE_TRACE", "")).strip().lower() in {"1", "true", "yes", "on"}
             if _trace:

@@ -583,10 +583,12 @@ class KnowledgeGraph:
             (r"(?:nickname[:\s]+|also\s+known\s+as\s+|call\s+me\s+)([A-Za-z][a-zA-Z ]{1,20})", "nickname"),
             # "X works on Y" — relaxed: any word, any case
             (r"([A-Za-z][a-zA-Z0-9]{1,20})\s+works\s+on\s+([A-Za-z0-9 _\-\.]{2,50})(?:[.,]|$)", "works_on"),
-            # "prefers X" / "user prefers X"
-            (r"(?:user\s+)?prefers?\s+([A-Za-z0-9 _\-\.]{2,40})(?:[.,]|$)", "prefers"),
-            # "likes X" / "user likes X"
-            (r"(?:user\s+)?likes?\s+([A-Za-z0-9 _\-\.]{2,40})(?:[.,]|$)", "prefers"),
+            # "I prefer X" / "user prefers X" / "I really like X" / "user loves X". The user must be the
+            # one who likes it, and nothing may stand between them and the verb but an adverb: with no
+            # word boundary and no subject, "I dislike mushrooms", "I don't like my job", "it looks
+            # like rain" and "I would like to cancel that" were all stored as things the user prefers.
+            (r"\b(?:i|user|the\s+user)\s+(?:(?:really|also|still|much|do|does|truly|definitely)\s+)*"
+             r"(?:prefers?|likes?|loves?)\s+([A-Za-z0-9 _\-\.]{2,40})(?:[.,]|$)", "prefers"),
             # "X uses Y" — relaxed: any word, any case
             (r"([A-Za-z][a-zA-Z0-9]{1,20})\s+uses?\s+([A-Za-z0-9 _\-\.]{2,40})(?:[.,]|$)", "uses"),
             # "I am a X" / "I'm an X". The article is required: without it every "I'm going to
@@ -625,8 +627,8 @@ class KnowledgeGraph:
                 if predicate in _identity_predicates:
                     groups = (_declared[predicate],)
                 if predicate in ("has_name", "nickname", "prefers", "is_a"):
-                    # subject is implicit "User"
-                    obj = groups[-1].strip()
+                    # subject is implicit "User"; a sentence's own full stop is not part of the value
+                    obj = groups[-1].strip().rstrip(".").strip()
                     if (obj and len(obj) > 1
                             and obj.lower() not in _STOPWORDS):
                         self.upsert_entity("User", "person")

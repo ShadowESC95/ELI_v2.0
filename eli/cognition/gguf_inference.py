@@ -480,8 +480,10 @@ def _clean_eli_output(text: str) -> str:
     )
     t = _strip_think_text(str(text or ""))
     t = strip_special_tokens(t)
-    t = t.replace("Assistant:", "ELI:").replace("assistant:", "ELI:").replace("AI:", "ELI:")
-    t = t.replace("assistant\n", "")
+    # Role labels at the start of a line only: replaced anywhere, "OpenAI:" became "OpenELI:" and
+    # "your assistant\n" lost its last word.
+    t = re.sub(r"(?m)^([ \t]*)(?:[Aa]ssistant|AI)[ \t]*:", r"\1ELI:", t)
+    t = re.sub(r"^\s*assistant[ \t]*\n", "", t)
     t = t.strip()
     t = re.sub(r"^\s*ELI:\s*", "", t)
     # Weak or short-context models sometimes echo ELI's prompt scaffolding instead of answering. Cut
@@ -509,10 +511,12 @@ def _clean_eli_output(text: str) -> str:
         if salvaged:
             return salvaged
         return t  # empty responses are worse than imperfect ones
-    # Strip model meta-commentary appended after main response
-    t = re.sub(r'\s*\(Note:[^)]{0,400}\)', '', t, flags=re.I).strip()
-    t = re.sub(r'\s*\[Note:[^\]]{0,400}\]', '', t, flags=re.I).strip()
-    t = re.sub(r'\s*\(Note:.*$', '', t, flags=re.I | re.DOTALL).strip()
+    # Strip model meta-commentary appended after the main response: a note at the very end only.
+    # Anywhere, it took a step's "(Note: back up first ...)" out of the middle of instructions, and
+    # an unclosed "(Note:" took everything after it, later steps included.
+    t = re.sub(r'\s*\(Note:[^)]{0,400}\)\s*$', '', t, flags=re.I).strip()
+    t = re.sub(r'\s*\[Note:[^\]]{0,400}\]\s*$', '', t, flags=re.I).strip()
+    t = re.sub(r'\s*\(Note:[^)\n]*$', '', t, flags=re.I).strip()
 
     if not t.strip():
         log.debug(f"[GGUF][CLEAN] Empty after cleaning, returning raw fallback")
@@ -524,7 +528,7 @@ def _clean_eli_output(text: str) -> str:
             strip_special_tokens as _strip_fallback,
         )
         raw_fallback = _strip_think_text(str(text or "")).strip()
-        raw_fallback = re.sub(r'\s*\(Note:.*$', '', raw_fallback, flags=re.I | re.DOTALL).strip()
+        raw_fallback = re.sub(r'\s*\(Note:[^)\n]*$', '', raw_fallback, flags=re.I).strip()
         # Multimodal EOI floods (`<image|>` only) must stay empty — do not
         # re-surface the marker via the empty-clean fallback.
         if contains_hard_cut_marker(raw_fallback):

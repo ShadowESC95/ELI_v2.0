@@ -169,3 +169,25 @@ def test_conversation_focus_terms_filters_noise(monkeypatch, tmp_path):
     monkeypatch.setattr(cfg, "network_allowed", lambda: True)
     b = ns.build_news_briefing(refresh=False, top_n=3, interest_n=2)
     assert b.get("offline") is False
+
+
+def test_an_empty_window_is_not_stored_as_a_memory(tmp_path, monkeypatch):
+    """"(no new articles in this window)" was mirrored into memory and came back on recall."""
+    import sqlite3
+    stored = []
+
+    class Mem:
+        def store_memory(self, text, **k):
+            stored.append(text)
+
+    monkeypatch.setattr(ns, "_conn", lambda: sqlite3.connect(tmp_path / "news.sqlite3"))
+    c = sqlite3.connect(tmp_path / "news.sqlite3")
+    c.execute("CREATE TABLE news_reflections (id INTEGER PRIMARY KEY, started_at REAL, ended_at REAL, "
+              "article_count INTEGER, summary TEXT, sources TEXT)")
+    c.commit()
+    c.close()
+    monkeypatch.setattr(ns, "_last_reflection_end", lambda: 0.0)
+    monkeypatch.setattr(ns, "_fetch_window_articles", lambda a, b: [])
+    monkeypatch.setattr("eli.memory.get_memory", lambda *a, **k: Mem())
+    out = ns.synthesise_window(force=True)
+    assert out["ok"] and out["article_count"] == 0 and stored == []

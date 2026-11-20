@@ -1623,10 +1623,10 @@ def _route_plugin_bridge_prepass(raw: str, low: str):
         return _mk("GPU_STATUS", {}, 0.95, matched_by="system.hw_temperature")
 
     # Pomodoro plugin.
-    if re.match(r"^(?:start\s+pomodoro|begin\s+pomodoro|pomodoro\s+start)(?:\s+timer)?$", low):
+    if re.match(r"^(?:(?:start|begin)\s+(?:a\s+|the\s+|my\s+)?pomodoro|pomodoro\s+start)(?:\s+timer)?$", low):
         return _mk("POMODORO_START", {}, 0.98, matched_by="plugin.prepass.pomodoro_start")
 
-    if re.match(r"^(?:stop\s+pomodoro|end\s+pomodoro|cancel\s+pomodoro|pomodoro\s+stop)$", low):
+    if re.match(r"^(?:(?:stop|end|cancel)\s+(?:the\s+|my\s+)?pomodoro(?:\s+timer)?|pomodoro\s+stop)$", low):
         return _mk("POMODORO_STOP", {}, 0.98, matched_by="plugin.prepass.pomodoro_stop")
 
     if re.match(r"^(?:pomodoro\s+status|show\s+pomodoro|pomodoro)$", low):
@@ -4117,8 +4117,10 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                 r"(?:,?\s*(?:then|and\s+(?:then\s+)?read|and\s+read\s+it\s+back)\b|[.!?]?\s*$)",
                 raw, re.IGNORECASE)
             _cf_content = (_cf_content_m.group(1).strip() if _cf_content_m else "")
-            return _mk("CREATE_FILE", {"path": _cf_path, "content": _cf_content},
-                       0.96, matched_by="fs.create_file")
+            _cf_args = {"path": _cf_path, "content": _cf_content}
+            if re.search(r"\b(?:overwrit(?:e|ing)|replac(?:e|ing))\b", low):
+                _cf_args["overwrite"] = True        # said outright: the existing file is to go
+            return _mk("CREATE_FILE", _cf_args, 0.96, matched_by="fs.create_file")
 
     # "What date is it, and how many days ago was 09-09-2026?" asks for arithmetic as well; DATE
     # answered only the date. Chat answers both, with the days worked out for it (date facts).
@@ -4319,10 +4321,10 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("RAM_USAGE", {}, 0.96, matched_by="plugin.ram_usage")
 
     # Pomodoro plugin
-    if re.match(r"^(?:start\s+pomodoro|begin\s+pomodoro|pomodoro\s+start)(?:\s+timer)?$", low):
+    if re.match(r"^(?:(?:start|begin)\s+(?:a\s+|the\s+|my\s+)?pomodoro|pomodoro\s+start)(?:\s+timer)?$", low):
         return _mk("POMODORO_START", {}, 0.96, matched_by="plugin.pomodoro_start")
 
-    if re.match(r"^(?:stop\s+pomodoro|end\s+pomodoro|cancel\s+pomodoro|pomodoro\s+stop)$", low):
+    if re.match(r"^(?:(?:stop|end|cancel)\s+(?:the\s+|my\s+)?pomodoro(?:\s+timer)?|pomodoro\s+stop)$", low):
         return _mk("POMODORO_STOP", {}, 0.96, matched_by="plugin.pomodoro_stop")
 
     if re.match(r"^(?:pomodoro\s+status|show\s+pomodoro|pomodoro)$", low):
@@ -5043,6 +5045,10 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             r"away|around|ahead)\b", _open_m.group(2).strip()):
         _open_m = None
     if _open_m:
+        from eli.execution.portable_intent_contract import _names_an_eli_feature
+        if _names_an_eli_feature(re.sub(r"\s+app$", "", _open_m.group(2).strip(), flags=re.I)):
+            _open_m = None      # "start dictation", "open system settings": ELI's own, for its own rule below
+    if _open_m:
         target = re.sub(r"\s+app$", "", _open_m.group(2).strip(), flags=re.I)
         # An article is never part of the target. Without this, "open the
         # trash" missed the filesystem branch (which knows "trash") and fell
@@ -5581,15 +5587,20 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if re.match(r"^dictate\b", raw, re.I):
         return _mk("DICTATE", {"action": "start"}, 0.95, matched_by="voice.dictate_bare")
 
-    m = re.search(
-        r"\btranscri(?:be|pt)\s+(.+)$", raw, re.I)
-    if m:
-        src = m.group(1).strip()
+    # Asked for with the verb ("transcribe audio.wav") or by asking for a transcript of something.
+    # A sentence about a transcript is not a request for one: "The transcript gives no information
+    # about ..." opened the rest of the sentence as a file.
+    from eli.runtime.command_splitter import instruction as _told
+    _asks_transcript = re.match(
+        r"^(?:transcribe|(?:make|give\s+me|get(?:\s+me)?|create|write|do|produce)\s+(?:an?\s+)?transcript)\b"
+        r"(?:\s+(?:of|for|from))?\s*(.*)$", _told(raw), re.I | re.S)
+    if _asks_transcript and _asks_transcript.group(1).strip(" .!?"):
+        src = _asks_transcript.group(1).strip().rstrip(" !?")
         src_path = os.path.abspath(os.path.expanduser(src)) if _is_likely_path(src) or "." in src else src
         return _mk("TRANSCRIBE", {"source": src_path},
                    0.95, matched_by="voice.transcribe", entities={"source": src_path})
 
-    if re.search(r"\btranscri(?:be|pt)\b", raw, re.I):
+    if _asks_transcript:
         return _mk("TRANSCRIBE", {}, 0.90, matched_by="voice.transcribe_bare")
 
     # ------------------------------------------------------------
@@ -5732,6 +5743,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                  r"what\s+(?:do\s+you|are\s+your)\s+(?:command|capability|action)|"
                  r"show\s+(?:me\s+)?(?:the\s+|your\s+)?(?:help|commands?|capabilities?)\b|list\s+command)", low):
         return _mk("HELP", {}, 0.90, matched_by="system.help")
+
+    # "status" on its own (and "/status" in the terminal) asks how ELI is running: the runtime report.
+    # One word, it was dropped as a fragment ("I only caught 'status'"); GET_STATUS only says "Status OK.".
+    if re.fullmatch(r"/?(?:status|get\s+status|your\s+status)[.!?]*", low.strip()):
+        return _mk("RUNTIME_STATUS", {}, 0.95, matched_by="system.status_bare")
 
     # A question about ELI's own tastes or views ("what's your favourite kind of music?", "do you like
     # jazz?") is conversation. Left at the fallback's confidence it went to the intent model, and a
@@ -9149,6 +9165,16 @@ try:
                 rest = " ".join(talk).strip()
                 if len(re.findall(r"[A-Za-z0-9']+", _without_courtesy(rest) if rest else "")) < 3:
                     rest = ""                      # "well done." before a command is not a second subject
+                # "My locker code is TULIP-4482. Please remember it.": what to keep is the rest of the
+                # message. Stored as the word "it", the memory filter turned it down and nothing was kept.
+                if rest and len(told_parts) == 1 and str(told_parts[0][1].get("action")) == "MEMORY_STORE":
+                    _kept = str((told_parts[0][1].get("args") or {}).get("text") or "").strip()
+                    if re.fullmatch(r"(?:it|that|this|them|those)(?:\s+(?:for\s+me|please|too|as\s+well))*[\s.!]*",
+                                    _kept, re.I):
+                        out = dict(told_parts[0][1])
+                        out["args"] = dict(out.get("args") or {}, text=rest)
+                        out["meta"] = dict(out.get("meta") or {}, read_as="message.keep_what_was_said")
+                        return out
                 # One thing to read and something to say about it ("look up ORBIT and tell me what
                 # you can see"): the read, with its own words as its target, answered against the
                 # whole message, as "look up ORBIT" alone is. Shown first as a result and then

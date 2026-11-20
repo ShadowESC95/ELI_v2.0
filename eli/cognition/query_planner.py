@@ -266,12 +266,16 @@ def _day_cues(low: str, n: datetime, sod: datetime) -> list:
 
 # ELI_V6_DATE_ARITHMETIC_RETRIEVAL_BOUNDARY_V1
 from eli.cognition.supplied_in_message import is_date_arithmetic as is_self_contained_date_arithmetic  # noqa: E402
+from eli.cognition.supplied_in_message import holds_its_own_answer  # noqa: E402
 
 
 def parse_window(text: str, now: Optional[float] = None) -> Optional[Window]:
     """(start, end) epoch seconds for the period a question refers to, or None if it names none."""
-    # A computation about an ISO date, not an audit of that day's history.
-    if is_self_contained_date_arithmetic(text):
+    # A computation about an ISO date, not an audit of that day's history. A message that supplies
+    # the facts its question is about dates those facts: "Information supplied: Project K-04
+    # launched in March. What is its password? If it is not provided, say UNKNOWN" was answered
+    # with what was on record for the user in March.
+    if is_self_contained_date_arithmetic(text) or holds_its_own_answer(text):
         return None
     low = _TODAY_IS.sub(" ", str(text or "").lower())
     n = datetime.fromtimestamp(time.time() if now is None else float(now))

@@ -18,17 +18,19 @@ _ERROR_PATTERNS = (
 # Strip chat-template role leaks from the start of output (including "User" variants seen from
 # mistral-7b-instruct). Start-of-string only; a mid-sentence "user" is a persona-handoff issue, not
 # a prefix leak.
+# A speaker label ends in a colon, or a dash with a space after it: "USER-M000" and "AI-generated" are
+# words, and the label rule cut "USER-" off a token the user had asked ELI to remember.
 _ROLE_PREFIX_RE = re.compile(
     r"^\s*[\"“‘']?\s*(?:"
-    r"As\s+ELI(?:\s*[,:\-—])?\s*"
-    r"|As\s+(?:an?\s+)?(?:AI\s+(?:assistant|model)|Assistant|AI|model|system|local\s+assistant|language\s+model|LLM)(?:\s*[,:\-—])?\s*"
-    r"|Speaking\s+as\s+ELI(?:\s*[,:\-—])?\s*"
-    r"|In\s+(?:my|ELI(?:'s)?)\s+(?:role|persona|voice)(?:\s+as\s+ELI)?(?:\s*[,:\-—])?\s*"
-    r"|ELI\s*[:\-—]\s*"
-    r"|Assistant\s*[:\-—]\s*"
-    r"|AI\s*[:\-—]\s*"
+    r"As\s+ELI(?:\s*(?:[,:]|[\-—](?=\s)))?\s*"
+    r"|As\s+(?:an?\s+)?(?:AI\s+(?:assistant|model)|Assistant|AI|model|system|local\s+assistant|language\s+model|LLM)(?:\s*(?:[,:]|[\-—](?=\s)))?\s*"
+    r"|Speaking\s+as\s+ELI(?:\s*(?:[,:]|[\-—](?=\s)))?\s*"
+    r"|In\s+(?:my|ELI(?:'s)?)\s+(?:role|persona|voice)(?:\s+as\s+ELI)?(?:\s*(?:[,:]|[\-—](?=\s)))?\s*"
+    r"|ELI\s*(?::|[\-—](?=\s))\s*"
+    r"|Assistant\s*(?::|[\-—](?=\s))\s*"
+    r"|AI\s*(?::|[\-—](?=\s))\s*"
     r"|<\|assistant\|>\s*"
-    r"|User\s*[:\-—]\s*"
+    r"|User\s*(?::|[\-—](?=\s))\s*"
     r"|User\s+[A-Za-z]{2,20}(?:\s+[A-Za-z]{2,20})?\s*[,:]\s+"
     r"|User\s*,\s+"
     r")",
@@ -510,7 +512,7 @@ def govern_output(text: str, is_grounded: bool = False,
     result = _ROLE_PREFIX_RE.sub("", result).strip()
     # Strip any inline second occurrence ("…\n\nAs ELI: …" etc.)
     result = re.sub(
-        r"(?im)^\s*(?:as\s+eli|as\s+(?:an?\s+)?assistant|eli|assistant|ai)\s*[:\-—]\s*",
+        r"(?im)^\s*(?:as\s+eli|as\s+(?:an?\s+)?assistant|eli|assistant|ai)\s*(?::|[\-—](?=\s))\s*",
         "",
         result,
     ).strip()

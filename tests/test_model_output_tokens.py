@@ -150,3 +150,19 @@ def test_thinking_detected_from_template_markers():
         architecture="llama",
         path="qwen3-twil-ornith.gguf",
     )
+
+
+@pytest.mark.parametrize("raw, shown", [
+    ("OpenAI: the company said so.", "OpenAI: the company said so."),
+    ("Step 1: stop the service (Note: back up first).\nStep 2: update.",
+     "Step 1: stop the service (Note: back up first).\nStep 2: update."),
+    ("Step 1 (Note: unclosed\n\nStep 2: update.", "Step 1 (Note: unclosed\n\nStep 2: update."),
+    ("I am your assistant\nNext line", "I am your assistant\nNext line"),
+    ("The answer is 4. (Note: I double-checked this.)", "The answer is 4."),
+    ("Assistant: hello there", "hello there"),
+])
+def test_the_cleaner_touches_role_labels_and_closing_notes_only(raw, shown):
+    """Replacements anywhere in the text turned "OpenAI:" into "OpenELI:", removed a warning from
+    the middle of instructions, and cut every step after an unclosed "(Note:"."""
+    from eli.cognition.gguf_inference import _clean_eli_output
+    assert _clean_eli_output(raw) == shown

@@ -625,7 +625,38 @@ def _strip_reasoning_scaffold(text: str) -> str:
 from eli.cognition.model_output_tokens import strip_special_tokens as _strip_special_tokens
 
 
-_ELI_MAX_INPUT_LEN = int(__import__("os").environ.get("ELI_MAX_INPUT_LEN", "8192"))
+def _eli_max_input_chars() -> int:
+    """How much of one message ELI reads: the operator's ELI_MAX_INPUT_LEN, else the loaded context
+    window less the reply's room, in the model's measured characters per token. 0 when there is no
+    model to size for, and nothing is cut. A fixed 8192 characters cut a pasted list off before the
+    question at its end, on a model with room for four times that."""
+    env = os.environ.get("ELI_MAX_INPUT_LEN", "").strip()
+    if env:
+        try:
+            return max(1, int(env))
+        except ValueError:
+            log.debug("ELI_MAX_INPUT_LEN is not a number: %r", env)
+    try:
+        n_ctx = int(gguf_inference.context_window()) if gguf_inference is not None else 0
+        if n_ctx <= 0:
+            return 0
+        reply = _ctx_budget.output_reserve_tokens(0, n_ctx)
+        return int(max(0, n_ctx - reply) * float(_ctx_budget.chars_per_token()))
+    except Exception:
+        log.debug("input limit unreadable", exc_info=True)
+        return 0
+
+
+def _eli_fit_input(text: str, limit: int) -> str:
+    """The message within `limit` characters with its start and its end kept, and the middle said
+    to be left out: what is asked is usually at one or the other ("<a pasted list> … which entry
+    is the needle?"), and cutting the end lost the question."""
+    if limit <= 0 or len(text) <= limit:
+        return text
+    half = max(1, limit // 2)
+    head, tail = text[:half], text[-half:]
+    return f"{head}\n[… {len(text) - len(head) - len(tail)} characters of this message left out …]\n{tail}"
+
 
 # Patterns that signal a prompt-injection attempt (common jailbreak/role-override prefixes). Matched
 # segments become [filtered], so the LLM gets the rest of the message with the payload neutralised.
@@ -651,7 +682,7 @@ def _eli_sanitize_user_input(text: str) -> str:
 
     - Strips null bytes and non-printable control characters (preserves \\n, \\t).
     - Replaces known injection role-prefix patterns with [filtered].
-    - Truncates to ELI_MAX_INPUT_LEN characters (default 8192).
+    - Fits it to what the loaded model can read (_eli_max_input_chars), keeping its start and end.
     - Returns the original value unchanged if it is empty or None.
     """
     if not text:
@@ -660,10 +691,7 @@ def _eli_sanitize_user_input(text: str) -> str:
     cleaned = re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]", "", text)
     # Neutralise injection patterns
     cleaned = _ELI_INJECTION_PATTERNS.sub("[filtered]", cleaned)
-    # Enforce length limit
-    if len(cleaned) > _ELI_MAX_INPUT_LEN:
-        cleaned = cleaned[:_ELI_MAX_INPUT_LEN] + " [truncated]"
-    return cleaned
+    return _eli_fit_input(cleaned, _eli_max_input_chars())
 
 
 def _eli_summarize_tool_result(action: str, result: dict) -> str:
@@ -2882,344 +2910,6 @@ def _mw_mem_runtime_strict_synthesize(question, mode, evidence) -> dict:
 # Synthesis helpers for evidence surfaces that used to return raw in every mode
 # (MEMORY_STATUS.recent_processing, SELF_REPORT.recent_updates). Quick still gets it raw;
 # deeper modes run it through the local model, sanity-check it, and hand out only the synthesis.
-
-def _mw_recent_memory_processing_synthesize(question, mode, evidence) -> dict:
-    evidence_text = _mw_rs_extract_text(evidence)
-    evidence_source = (
-        str((evidence or {}).get("evidence_source") or "recent_memory_processing_grounded_evidence")
-        if isinstance(evidence, dict)
-        else "recent_memory_processing_grounded_evidence"
-    )
-
-    if not evidence_text:
-        err = evidence.get("error") if isinstance(evidence, dict) else ""
-        msg = (
-            "Recent-memory-processing evidence collection failed, so non-Quick "
-            f"synthesis was not attempted. Error: {err}"
-        )
-        return {
-            "ok": False,
-            "action": "MEMORY_STATUS",
-            "content": msg,
-            "response": msg,
-            "source": "recent_memory_processing_nonquick_synth_no_evidence_v5",
-            "evidence_source": evidence_source,
-            "grounded": False,
-            "evidence_used": False,
-            "report": {
-                "requested_mode": mode,
-                "synthesis_validated": False,
-                "direct_telemetry_returned": False,
-                "quick_direct_allowed": False,
-                "repair_reason": "recent_memory_processing_nonquick_synthesis_v5",
-            },
-        }
-
-    mode_instruction = {
-        "chain_of_thought": "Use private structured reasoning. Do not reveal hidden reasoning. Output only the final answer.",
-        "self_consistency": "Privately compare several possible phrasings and output only the strongest final answer.",
-        "tree_of_thoughts": "Privately explore branches, prune weak ones, and output only the strongest final answer.",
-        "constitutional_ai": "Draft, privately critique for accuracy and contract compliance, revise, and output only the final answer.",
-    }.get(str(mode), "Use the normal non-Quick synthesis path. Output only the final answer.")
-
-    system = (
-        "You are ELI, the local assistant inside the ELI v2.0 project. "
-        "You are answering a question about recent durable memory-processing evidence. "
-        "Use ONLY the evidence below. Do not invent recent processing, emotional activity, "
-        "mathematical work, project work, or hidden background actions unless the evidence states it. "
-        "Do not expose JSON packets, report keys, repair reasons, validation machinery, or raw metadata. "
-        "Return a concise but complete synthesized answer."
-    )
-
-    prompt = (
-        f"Original user question:\n{question}\n\n"
-        f"Reasoning mode:\n{mode}\n\n"
-        f"Mode contract:\n{mode_instruction}\n\n"
-        f"Grounded recent-memory-processing evidence:\n{evidence_text}\n\n"
-        "Task:\n"
-        "Answer what recent durable memory-processing evidence exists. "
-        "Summarize the available counts and meaningful recent categories or rows "
-        "without pasting raw control packets. If the evidence shows no clean recent "
-        "activity in a category, state that plainly.\n"
-    )
-
-    try:
-        synthesized = _mw_rs_generate(prompt, system, mode).strip()
-    except Exception as e:
-        msg = f"Recent-memory-processing evidence was collected, but non-Quick synthesis failed: {e}"
-        return {
-            "ok": False,
-            "action": "MEMORY_STATUS",
-            "content": msg,
-            "response": msg,
-            "source": "recent_memory_processing_nonquick_synth_failed_v5",
-            "evidence_source": evidence_source,
-            "grounded": True,
-            "evidence_used": True,
-            "report": {
-                "requested_mode": mode,
-                "synthesis_validated": False,
-                "direct_telemetry_returned": False,
-                "quick_direct_allowed": False,
-                "repair_reason": "recent_memory_processing_nonquick_synthesis_v5",
-                "error": repr(e),
-            },
-        }
-
-    low = synthesized.lower()
-    bad = ""
-
-    if not low.strip():
-        bad = "empty synthesis"
-    else:
-        forbidden = (
-            "raw gguf candidate",
-            "raw_gguf_candidates_skipped",
-            "repair_reason",
-            "response_surface:",
-            "evidence_source:",
-            "synthesis_validated",
-            "{'ok':",
-            '"ok":',
-            '"report":',
-        )
-        for frag in forbidden:
-            if frag in low:
-                bad = f"leaked internal/direct evidence marker: {frag}"
-                break
-
-        if not bad:
-            required_any = (
-                "memory",
-                "memories",
-                "recent",
-                "rows",
-                "observations",
-                "learning",
-                "faiss",
-                "conversation",
-                "stored",
-            )
-            if sum(1 for x in required_any if x in low) < 2:
-                bad = "synthesis did not preserve enough recent-memory evidence"
-
-    if bad:
-        msg = (
-            f"Recent-memory-processing non-Quick synthesis failed validation: {bad}. "
-            "Direct evidence was not returned because only Quick mode may use that surface."
-        )
-        return {
-            "ok": False,
-            "action": "MEMORY_STATUS",
-            "content": msg,
-            "response": msg,
-            "source": "recent_memory_processing_nonquick_synth_validation_failed_v5",
-            "evidence_source": evidence_source,
-            "grounded": True,
-            "evidence_used": True,
-            "report": {
-                "requested_mode": mode,
-                "synthesis_validated": False,
-                "direct_telemetry_returned": False,
-                "quick_direct_allowed": False,
-                "repair_reason": "recent_memory_processing_nonquick_synthesis_v5",
-                "validation_error": bad,
-            },
-        }
-
-    return {
-        "ok": True,
-        "action": "MEMORY_STATUS",
-        "content": synthesized,
-        "response": synthesized,
-        "source": "recent_memory_processing_nonquick_synthesized_v5",
-        "evidence_source": evidence_source,
-        "grounded": True,
-        "evidence_used": True,
-        "report": {
-            "requested_mode": mode,
-            "synthesis_validated": True,
-            "direct_telemetry_returned": False,
-            "quick_direct_allowed": False,
-            "repair_reason": "recent_memory_processing_nonquick_synthesis_v5",
-        },
-    }
-
-
-def _mw_self_report_recent_updates_synthesize(question, mode, evidence) -> dict:
-    evidence_text = _mw_rs_extract_text(evidence)
-    evidence_source = (
-        str((evidence or {}).get("evidence_source") or "self_report_recent_updates_grounded_evidence")
-        if isinstance(evidence, dict)
-        else "self_report_recent_updates_grounded_evidence"
-    )
-
-    if not evidence_text:
-        err = evidence.get("error") if isinstance(evidence, dict) else ""
-        msg = (
-            "Self-report recent-updates evidence collection failed, so non-Quick "
-            f"synthesis was not attempted. Error: {err}"
-        )
-        return {
-            "ok": False,
-            "action": "SELF_REPORT",
-            "content": msg,
-            "response": msg,
-            "source": "self_report_recent_updates_nonquick_synth_no_evidence_v5",
-            "evidence_source": evidence_source,
-            "grounded": False,
-            "evidence_used": False,
-            "report": {
-                "requested_mode": mode,
-                "synthesis_validated": False,
-                "direct_telemetry_returned": False,
-                "quick_direct_allowed": False,
-                "repair_reason": "self_report_recent_updates_nonquick_synthesis_v5",
-            },
-        }
-
-    mode_instruction = {
-        "chain_of_thought": "Use private structured reasoning. Do not reveal hidden reasoning. Output only the final answer.",
-        "self_consistency": "Privately compare several possible phrasings and output only the strongest final answer.",
-        "tree_of_thoughts": "Privately explore branches, prune weak ones, and output only the strongest final answer.",
-        "constitutional_ai": "Draft, privately critique for accuracy and contract compliance, revise, and output only the final answer.",
-    }.get(str(mode), "Use the normal non-Quick synthesis path. Output only the final answer.")
-
-    system = (
-        "You are ELI, the local assistant inside the ELI v2.0 project. "
-        "You are answering a self-report question about what updates, checks, or recent "
-        "operational work are actually evidenced. Use ONLY the grounded report below. "
-        "Do not invent Git commits, status changes, capability changes, runtime changes, "
-        "maintenance actions, or emotional colour not present in evidence. "
-        "Do not expose JSON packets, report keys, repair reasons, validation machinery, or raw metadata. "
-        "Return a concise but complete synthesized answer."
-    )
-
-    prompt = (
-        f"Original user question:\n{question}\n\n"
-        f"Reasoning mode:\n{mode}\n\n"
-        f"Mode contract:\n{mode_instruction}\n\n"
-        f"Grounded self-report recent-updates evidence:\n{evidence_text}\n\n"
-        "Task:\n"
-        "Answer what ELI has concrete evidence for recently: Git evidence if present, "
-        "capability manifest evidence, runtime snapshot facts, and working-tree status "
-        "if available. If there is no recent Git commit evidence, state that plainly. "
-        "Synthesize — do not paste raw evidence packets.\n"
-    )
-
-    try:
-        synthesized = _mw_rs_generate(prompt, system, mode).strip()
-    except Exception as e:
-        msg = f"Self-report recent-updates evidence was collected, but non-Quick synthesis failed: {e}"
-        return {
-            "ok": False,
-            "action": "SELF_REPORT",
-            "content": msg,
-            "response": msg,
-            "source": "self_report_recent_updates_nonquick_synth_failed_v5",
-            "evidence_source": evidence_source,
-            "grounded": True,
-            "evidence_used": True,
-            "report": {
-                "requested_mode": mode,
-                "synthesis_validated": False,
-                "direct_telemetry_returned": False,
-                "quick_direct_allowed": False,
-                "repair_reason": "self_report_recent_updates_nonquick_synthesis_v5",
-                "error": repr(e),
-            },
-        }
-
-    low = synthesized.lower()
-    bad = ""
-
-    if not low.strip():
-        bad = "empty synthesis"
-    else:
-        forbidden = (
-            "raw gguf candidate",
-            "raw_gguf_candidates_skipped",
-            "repair_reason",
-            "response_surface:",
-            "evidence_source:",
-            "synthesis_validated",
-            "{'ok':",
-            '"ok":',
-            '"report":',
-        )
-        for frag in forbidden:
-            if frag in low:
-                bad = f"leaked internal/direct evidence marker: {frag}"
-                break
-
-        if not bad:
-            required_any = (
-                "eli",
-                "runtime",
-                "model",
-                "git",
-                "commit",
-                "capability",
-                "working tree",
-                "updates",
-                "evidence",
-            )
-            if sum(1 for x in required_any if x in low) < 2:
-                bad = "synthesis did not preserve enough grounded self-report evidence"
-
-    if bad:
-        msg = (
-            f"Self-report recent-updates non-Quick synthesis failed validation: {bad}. "
-            "Direct evidence was not returned because only Quick mode may use that surface."
-        )
-        return {
-            "ok": False,
-            "action": "SELF_REPORT",
-            "content": msg,
-            "response": msg,
-            "source": "self_report_recent_updates_nonquick_synth_validation_failed_v5",
-            "evidence_source": evidence_source,
-            "grounded": True,
-            "evidence_used": True,
-            "report": {
-                "requested_mode": mode,
-                "synthesis_validated": False,
-                "direct_telemetry_returned": False,
-                "quick_direct_allowed": False,
-                "repair_reason": "self_report_recent_updates_nonquick_synthesis_v5",
-                "validation_error": bad,
-            },
-        }
-
-    return {
-        "ok": True,
-        "action": "SELF_REPORT",
-        "content": synthesized,
-        "response": synthesized,
-        "source": "self_report_recent_updates_nonquick_synthesized_v5",
-        "evidence_source": evidence_source,
-        "grounded": True,
-        "evidence_used": True,
-        "report": {
-            "requested_mode": mode,
-            "synthesis_validated": True,
-            "direct_telemetry_returned": False,
-            "quick_direct_allowed": False,
-            "repair_reason": "self_report_recent_updates_nonquick_synthesis_v5",
-        },
-    }
-
-
-
-def _mw_mem_runtime_strict_live_result(raw, mode) -> dict:
-    """Backward-compat shim. Quick mode returns the raw evidence surface;
-    Non-Quick gathers evidence then runs the synthesis path. The middleware
-    inside CognitiveEngine.process() can call this single helper for both."""
-    evidence = _mw_mem_runtime_strict_collect_evidence(raw, mode)
-    if _mw_rs_is_quick(mode):
-        return evidence
-    return _mw_mem_runtime_strict_synthesize(raw, mode, evidence)
-
 
 # -- MEMORY_COUNT + conversation_turns telemetry -----------------------
 
@@ -5495,6 +5185,13 @@ class CognitiveEngine:
         an unknown mode.
         """
         mode = str(reasoning_mode or "quick").strip().lower() or "quick"
+        # The public names ("normal", "advanced") are presets' canonical keys here: the chat loop
+        # passed "normal" straight in, found no preset under it, and ran Normal on the generic default.
+        try:
+            from eli.cognition.reasoning_modes import canonical_mode as _canonical_mode
+            mode = _canonical_mode(mode) or mode
+        except Exception:
+            log.debug("reasoning mode not canonicalised", exc_info=True)
         settings = {}
         # Alias map so legacy settings.json keys (e.g. "cot") still resolve
         # to the canonical mode key used everywhere else in the engine.

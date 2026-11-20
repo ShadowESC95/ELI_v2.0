@@ -183,10 +183,12 @@ def synthesise_window(force: bool = False) -> Dict[str, Any]:
     conn.commit()
     conn.close()
 
-    # Mirror into user-memory so the agent bus can recall it later.
+    # Mirror into user-memory so the agent bus can recall it later: only a summary of real articles.
+    # "(no new articles in this window)" and the synthesis-offline notice were stored and indexed as
+    # memories, and came back on recall.
     try:
         from eli.memory import get_memory
-        mem = get_memory()
+        mem = get_memory() if articles and not summary.startswith("[news synthesis offline") else None
         if mem and hasattr(mem, "store_memory"):
             mem.store_memory(
                 summary[:1800],

@@ -304,27 +304,59 @@ class VectorStore:
         except Exception as e:
             log.debug(f"[VECTOR_STORE] tombstone persist failed: {e}")
 
+    def _buried(self, entry: Dict[str, Any]) -> bool:
+        """The entry belongs to a memory that was deleted (forgotten, merged, archived)."""
+        mid = _entry_id(entry)
+        try:
+            return mid is not None and int(mid) in self._tombstone_ids
+        except (TypeError, ValueError):
+            return False
+
     def compact_tombstones(self, live_memory_ids: set[int] | None = None) -> int:
-        """Rebuild index excluding tombstoned rows; clears tombstones on success."""
-        live = live_memory_ids
-        if live is None:
-            live = set()
-            for entry in self._meta:
-                try:
-                    live.add(int(_entry_id(entry)))
-                except (TypeError, ValueError):
-                    log.debug("suppressed exception", exc_info=True)
-        keep = [
-            e for e in self._meta
-            if int(_entry_id(e) or -1) in live and int(_entry_id(e) or -1) not in self._tombstone_ids
-        ]
-        if len(keep) == len(self._meta) and not self._tombstone_ids:
-            return 0
-        self.rebuild_full(keep)
-        with self._lock:
-            self._tombstone_ids.clear()
-            self._persist_tombstones()
-        return len(self._meta) - len(keep)
+        """Take deleted memories out of the index and its files for good, and return how many went.
+
+        A tombstone only hides a row from search: the forgotten text stayed in the metadata file
+        and its vector in the index, and nothing ever compacted them. The kept vectors are copied
+        from the index as they are (no re-embedding, so it is cheap enough to run after every
+        forget), and a tombstone is cleared only once its rows are gone from disk. With
+        `live_memory_ids`, rows whose memory no longer exists go too."""
+        with self._lock, FAISS_IO_LOCK:
+            n = int(getattr(self._index, "ntotal", 0) or 0)
+            if n != len(self._meta):
+                log.debug("[VECTOR_STORE] index and metadata differ in length; compaction left to a rebuild")
+                return 0
+            gone = [i for i, e in enumerate(self._meta)
+                    if self._buried(e) or (live_memory_ids is not None and _entry_id(e) is not None
+                                           and int(_entry_id(e)) not in live_memory_ids)]
+            if not gone:
+                if self._tombstone_ids:
+                    self._tombstone_ids.clear()      # nothing of theirs is left to hide
+                    self._persist_tombstones()
+                return 0
+            drop = set(gone)
+            keep = [i for i in range(n) if i not in drop]
+            try:
+                vectors = self._index.reconstruct_n(0, n) if n else None
+            except Exception:
+                log.debug("[VECTOR_STORE] index cannot give back its vectors; compaction left to a rebuild",
+                          exc_info=True)
+                return 0
+            new_index = faiss.IndexFlatL2(EMBED_DIM)
+            if keep:
+                import numpy as _np
+                new_index.add(_np.ascontiguousarray(vectors[keep], dtype="float32"))
+            self._index = new_index
+            self._meta = [self._meta[i] for i in keep]
+            self._save_generation += 1
+            try:
+                faiss.write_index(self._index, self._index_path)
+                _dump_meta(self._meta_path, self._meta)
+                self._adds_since_save = 0
+                self._tombstone_ids.clear()
+                self._persist_tombstones()
+            except Exception as e:
+                log.debug(f"[VECTOR_STORE] compaction save failed, tombstones kept: {e}")
+            return len(gone)
 
     def _get_embedder(self):
         if self._embedder is None and not self._closed:
@@ -492,7 +524,7 @@ class VectorStore:
         terms = query.lower().split()
         scored = []
         with self._lock:
-            entries = list(self._meta)
+            entries = [e for e in self._meta if not self._buried(e)]   # a forgotten memory is not found
         for entry in entries:
             text = (entry.get("text") or "").lower()
             hit_count = sum(1 for t in terms if t in text)
@@ -536,11 +568,14 @@ class VectorStore:
             meta_snapshot = list(self._meta)
             self._adds_since_save = 0
         def _write():
+            # FAISS_IO_LOCK only. Every change of _save_generation happens under it (here, in
+            # _save_async and in flush), so the check needs nothing else, and taking self._lock
+            # inside it reversed the order add() -> _save_async and flush take them in: each side
+            # could hold one and wait for the other, and every recall then stopped.
             try:
                 with FAISS_IO_LOCK:
-                    with self._lock:
-                        if generation != self._save_generation:
-                            return
+                    if generation != self._save_generation:
+                        return
                     faiss.write_index(idx_snapshot, self._index_path)
                     _dump_meta(self._meta_path, meta_snapshot)
             except Exception as e:

@@ -31,7 +31,7 @@ PySide6>=6.11; python_version >= "3.12"
 # LLM — install separately with CUDA or CPU wheel:
 # GPU:  pip install llama-cpp-python --prefer-binary --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cu121
 # CPU:  pip install llama-cpp-python --prefer-binary
-llama-cpp-python>=0.3.30  # <0.3.30 cannot read hybrid attention+SSM GGUFs
+llama-cpp-python>=0.3.35  # 0.3.35 simulates a load before it is made (load_plan); <0.3.30 cannot read hybrid GGUFs
                           # (qwen35, nemotron-h): they fail with a missing
                           # ssm_conv1d tensor. NOTE: the abetlen CUDA wheel
                           # index stops at 0.3.19 for cp312 - a CUDA build

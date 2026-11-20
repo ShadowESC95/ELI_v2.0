@@ -146,3 +146,18 @@ def test_handle_confirmation_decline_is_safe():
     gr.set_pending_for_test(dict(_PLAN), dict(_RESULT), stage="offered")
     out = gr.handle_confirmation("no")
     assert out is None or isinstance(out, str)
+
+
+def test_a_windows_lookup_runs_without_a_shell_and_only_for_a_name(monkeypatch):
+    """`where {name}` ran through cmd, so "open x & del /s ..." ran its second half."""
+    import subprocess
+    from eli.runtime import grounded_remediation as gr
+    calls = []
+    monkeypatch.setattr(gr.shutil, "which", lambda tool: "C:\\\\Windows\\\\System32\\\\" + tool)
+    monkeypatch.setattr(gr.subprocess, "run", lambda *a, **k: calls.append((a, k)) or subprocess.CompletedProcess(a, 1, "", ""))
+    gr._windows_app_hits("notepad")
+    assert calls and calls[0][0][0] == ["where", "notepad"] and not calls[0][1].get("shell")
+    calls.clear()
+    gr._windows_app_hits("x & del /s C:\\\\Users")
+    assert not calls
+    assert gr._winget_candidate("x & del /s C:\\\\Users") == "" and gr._choco_candidate("x | calc") == ""

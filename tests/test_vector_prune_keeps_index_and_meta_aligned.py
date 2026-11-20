@@ -43,7 +43,11 @@ class _FakeIndex:
         return len(self.rows)
 
     def add(self, arr):
-        self.rows.append(np.asarray(arr, dtype="float32").reshape(-1))
+        for row in np.asarray(arr, dtype="float32").reshape(-1, self.dim):
+            self.rows.append(row)
+
+    def reconstruct_n(self, start, n):
+        return np.stack(self.rows[start:start + n]) if n else np.zeros((0, self.dim), dtype="float32")
 
     def search(self, vec, k):
         q = np.asarray(vec, dtype="float32").reshape(-1)
@@ -233,3 +237,38 @@ def test_storing_a_memory_does_not_rewrite_the_whole_index(monkeypatch, tmp_path
     for i in range(3):
         mem.store_memory(f"I visited place number {i} last spring")
     assert calls == ["add", "add", "add"]
+
+
+def test_a_background_save_does_not_wait_for_the_store_lock(tmp_path, monkeypatch):
+    """The save thread took FAISS_IO_LOCK and then the store lock, the reverse of add() -> _save_async
+    and flush: one side holding each, both waited for ever and every recall stopped."""
+    import threading
+    s = vs.VectorStore.__new__(vs.VectorStore)
+    s._lock = threading.RLock()
+    s._index, s._meta, s._adds_since_save, s._save_generation = object(), [], 0, 0
+    s._index_path, s._meta_path = str(tmp_path / "idx.faiss"), str(tmp_path / "meta.json")
+    wrote = threading.Event()
+    monkeypatch.setattr(vs.faiss, "clone_index", lambda idx: idx, raising=False)
+    monkeypatch.setattr(vs.faiss, "write_index", lambda idx, path: wrote.set(), raising=False)
+    monkeypatch.setattr(vs, "_dump_meta", lambda path, meta: None)
+    with s._lock:                      # what add() holds while it saves
+        s._save_async()
+        assert wrote.wait(5), "the save thread waited for the store lock"
+
+
+
+def test_forgotten_memories_leave_the_vector_files_and_the_keyword_fallback(store, tmp_path, monkeypatch):
+    """A tombstone only hid a row: the forgotten words stayed in the metadata file for good, and the
+    keyword search used when there is no embedder still returned them."""
+    s, _ = store
+    monkeypatch.setattr(vs.faiss, "write_index", lambda idx, path: None, raising=False)
+    s._tombstone_ids = set()
+    for i, text in enumerate(["the spare key code is ORCHID-7319", "green tea every afternoon", "the gate code is 2468"]):
+        s._index.add(s._embed(text))
+        s._meta.append({"text": text, "memory_id": i + 1})
+    s.mark_memory_deleted(1)
+    assert [e["text"] for e in s._keyword_fallback("code", 5)] == ["the gate code is 2468"]
+    assert s.compact_tombstones() == 1
+    assert [e["memory_id"] for e in s._meta] == [2, 3] and s._index.ntotal == 2 and not s._tombstone_ids
+    assert "ORCHID-7319" not in (tmp_path / "meta.json").read_text(encoding="utf-8")
+    assert s.compact_tombstones() == 0

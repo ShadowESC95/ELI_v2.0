@@ -358,3 +358,20 @@ def test_a_failed_update_recorded_as_cpu_is_tried_again(gp, tmp_path):
                          capture_output=True, text=True, timeout=120, cwd=ROOT, check=True)
     calls = json.loads(out.stdout.strip().splitlines()[-1])
     assert calls[0] == ["--force"] and "asked" not in calls
+
+
+def test_every_install_source_asks_for_a_runtime_that_can_plan_a_load():
+    """requirements.txt pinned 0.3.20, whose llama.cpp aborts when a load is simulated; the other
+    sources said 0.3.30 or 0.2. One floor, the one load_plan needs, everywhere."""
+    from eli.core.load_plan import MIN_SIMULATION_VERSION
+    floor = ".".join(str(x) for x in MIN_SIMULATION_VERSION)
+    sources = ["requirements.txt", "requirements-full.txt", "requirements-windows.txt", "requirements-macos.txt",
+               "pyproject.toml", "install.sh", "install.ps1"]
+    for name in sources:
+        text = (ROOT / name).read_text(encoding="utf-8")
+        found = re.findall(r"llama[-_]cpp[-_]python\s*(==|>=)\s*([\d.]+)", text, re.I)
+        found += [(">=", m) for m in re.findall(r"LLAMA_MIN(?::-|=)\"?([\d.]+)", text)]
+        assert found, f"{name} names no llama-cpp-python floor"
+        for op, ver in found:
+            got = tuple(int(x) for x in ver.split(".")[:3])
+            assert got >= MIN_SIMULATION_VERSION, f"{name}: llama-cpp-python {op}{ver} is below {floor}"

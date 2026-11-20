@@ -36,3 +36,17 @@ def test_executor_memory_actions(action, memory_instance):
             result = execute(action, {"query": "test"})
             assert result["ok"] is True
             # Some recall results may be empty if faiss missing; just check ok
+
+
+def test_a_whole_prompt_sent_to_the_model_is_not_answered_by_a_keyword_shortcut(monkeypatch):
+    """The engine sends its assembled prompt here with skip_router. Its rules mention "persistent
+    memory", so a recalled code was answered with a JSON dump of the memory database."""
+    import eli.execution.executor_enhanced as ex
+    import eli.cognition.gguf_inference as gi
+    monkeypatch.setattr(gi, "load_model", lambda *a, **k: object())
+    monkeypatch.setattr(gi, "chat_completion", lambda msg, system=None, **k: "KEY-A01")
+    monkeypatch.setattr(ex, "_convlog_append", lambda *a, **k: None)
+    prompt = ("You DO have a persistent memory. Speak as yourself.\n\nAGENT DATA:\nKEY-A01\n\n"
+              "USER QUESTION:\nRecall the exact code for my Fern project.\n\nYOUR ANSWER:")
+    out = ex.chat(prompt, skip_router=True)
+    assert out["response"] == "KEY-A01" and "memory_audit" not in out

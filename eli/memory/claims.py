@@ -158,6 +158,43 @@ def retract_from_memory(conn, memory_id: int) -> int:
     return int(cur.rowcount or 0)
 
 
+def _roots(roots_json) -> set:
+    try:
+        parsed = json.loads(roots_json or "[]")
+        return {int(r) for r in parsed} if isinstance(parsed, list) else set()
+    except (TypeError, ValueError):
+        return set()
+
+
+def purge_from_memories(conn, memory_ids) -> int:
+    """Forgotten memories take their claims with them, value and quoted words included.
+
+    Retracting would keep both in the table. A claim that a memory still kept also supports (another
+    root) stays, without the forgotten roots, and without the quoted words when they came from a
+    forgotten memory. Returns the number of claims deleted or revised. The caller holds the transaction.
+    """
+    gone = {int(m) for m in memory_ids}
+    if not gone:
+        return 0
+    affected = 0
+    for cid, source_id, roots_json, source_text in conn.execute(
+            "SELECT id, source_memory_id, source_roots, source_text FROM memory_claims").fetchall():
+        roots = _roots(roots_json)
+        quoted_gone = source_id is not None and int(source_id) in gone
+        if not quoted_gone and not roots & gone:
+            continue
+        left = roots - gone
+        if not left:
+            conn.execute("DELETE FROM memory_claims WHERE id = ?", (cid,))
+        else:
+            conn.execute("UPDATE memory_claims SET source_memory_id = ?, source_text = ?, source_roots = ?, "
+                         "confirmations = ? WHERE id = ?",
+                         (None if quoted_gone else source_id, "" if quoted_gone else source_text,
+                          json.dumps(sorted(left)), len(left), cid))
+        affected += 1
+    return affected
+
+
 _COLS = ("id, subject, relation, value, valid_from, valid_to, recorded_at, superseded_at, status, "
          "supersedes, source_memory_id, confidence, confirmations, contested")
 

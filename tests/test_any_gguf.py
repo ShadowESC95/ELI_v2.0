@@ -354,3 +354,14 @@ def test_the_stop_reads_only_every_so_often_and_ends_a_runaway():
     stop = g._runaway_stop(Llm())
     results = [stop(list(range(600)), None) for _ in range(g._RUNAWAY_TOKENS)]
     assert results[-1] is True and not any(results[:-1]) and Llm.reads == 1
+
+
+def test_the_folder_eli_models_dir_names_is_searched(tmp_path, monkeypatch):
+    """Discovery looked only in the program's own models/: with the models in ELI_MODELS_DIR, a first
+    start said no GGUF model was found."""
+    from eli.core.hardware_profile import discover_models
+    kept = tmp_path / "my-models"
+    kept.mkdir()
+    model = _gguf(kept / "chat.gguf", {"general.architecture": "newarch", "tokenizer.ggml.model": "gpt2"})
+    monkeypatch.setenv("ELI_MODELS_DIR", str(kept))
+    assert str(model.resolve()) in [f["path"] for f in discover_models()]

@@ -3257,6 +3257,8 @@ class Memory(metaclass=_MemoryMeta):
         conn = self._get_connection()
         try:
             _ensure_policy_schema(conn)
+            from eli.memory import claims as _claims
+            _claims.ensure_schema(conn)
             frontier, everyone = list(wanted), set(wanted)
             while frontier:
                 marks = ",".join("?" * len(frontier))
@@ -3271,9 +3273,7 @@ class Memory(metaclass=_MemoryMeta):
             if not rows:
                 return report
             self._remove_rows(conn, rows)
-            from eli.memory import claims as _claims
-            for i in everyone:
-                report["claims"] += _claims.retract_from_memory(conn, i)
+            report["claims"] += _claims.purge_from_memories(conn, everyone)
             report["recall_log"] = conn.execute(f"DELETE FROM recall_log WHERE memory_id IN ({marks})", sorted(everyone)).rowcount or 0
             conn.execute(f"DELETE FROM memory_lineage WHERE child_id IN ({marks}) OR parent_id IN ({marks})", sorted(everyone) * 2)
             for r in rows:
@@ -3282,6 +3282,15 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
         self._drop_turn_cache()
+        # Out of the vector files too, now: a tombstone only hides the row, and the forgotten words
+        # stayed on disk in the index's metadata.
+        try:
+            from eli.memory.vector_store import get_vector_store
+            _vs = get_vector_store()
+            if _vs is not None:
+                report["vectors"] = _vs.compact_tombstones()
+        except Exception:
+            log.debug("vector compaction after forget failed", exc_info=True)
         return report
 
     @staticmethod
@@ -3317,8 +3326,21 @@ class Memory(metaclass=_MemoryMeta):
                     else:
                         conn.execute("DELETE FROM semantic WHERE id = ?", (rid,))
         if has("session_summaries"):
-            for rid, summ, content in conn.execute("SELECT id, COALESCE(summary, ''), COALESCE(content, '') FROM session_summaries").fetchall():
-                if strict(summ) or strict(content):
+            # A summary goes when it holds the forgotten words or one of their identifiers (a code, a
+            # name with a number in it), or shares their names and sums up the conversation they were
+            # said in. Names alone are not enough: another conversation about the same people stays.
+            codes = [m for m in marks if any(ch.isdigit() for ch in m)]
+            said_in = {r[0] for r in conn.execute(
+                "SELECT DISTINCT session_id FROM conversation_turns WHERE instr(lower(COALESCE(content, '')), ?) > 0",
+                (needle,)) if r[0]} if has("conversation_turns") else set()
+
+            def about_it(value, session_id) -> bool:
+                low = " ".join(str(value or "").lower().split())
+                return needle in low or any(c in low for c in codes) or (session_id in said_in and strict(value))
+
+            for rid, sid, summ, content in conn.execute(
+                    "SELECT id, session_id, COALESCE(summary, ''), COALESCE(content, '') FROM session_summaries").fetchall():
+                if about_it(summ, sid) or about_it(content, sid):
                     conn.execute("DELETE FROM session_summaries WHERE id = ?", (rid,))
                     report["summaries"] += 1
         if has("user_model"):
@@ -3844,6 +3866,13 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
+    @staticmethod
+    def _compact_vectors() -> int:
+        """Deleted memories (merged, archived, forgotten) out of the vector files."""
+        from eli.memory.vector_store import get_vector_store
+        vs = get_vector_store()
+        return vs.compact_tombstones() if vs is not None else 0
+
     def run_upkeep(self, force: bool = False, dry_run: bool = False) -> Dict[str, Any]:
         """Once per day: label, merge, decay, archive. Idempotent."""
         report: Dict[str, Any] = {"ran": False}
@@ -3857,6 +3886,7 @@ class Memory(metaclass=_MemoryMeta):
             ("consolidate", lambda: self.consolidate_memories(dry_run=dry_run)),
             ("decay", lambda: {"updated": self.apply_weight_decay()} if not dry_run else {}),
             ("archive", lambda: self.archive_faded(dry_run=dry_run)),
+            ("vectors", lambda: {"removed": self._compact_vectors()} if not dry_run else {}),
             ("identity", lambda: self.merge_user_ids() if not dry_run else {}),
             ("learning", lambda: self.tidy_learning_tables(dry_run=dry_run)),
             ("semantic", lambda: self.consolidate_semantic(dry_run=dry_run)),

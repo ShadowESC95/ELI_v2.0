@@ -267,3 +267,24 @@ def test_the_operators_own_figure_wins(machine, monkeypatch):
 def test_minus_one_is_every_layer_as_in_llamacpp(machine):
     """llama.cpp's own value for every layer; "99" stood for it and fell short on models of more blocks."""
     assert load_plan.plan(_req(n_gpu_layers=-1)).n_gpu_layers == BLOCKS + 1
+
+
+def test_a_machine_with_no_gpu_gets_processor_settings_without_asking_for_them(machine, monkeypatch):
+    """compute_mode=auto on a machine with no GPU planned on the processor and still handed llama.cpp
+    main_gpu=0 for zero devices; builds that check refuse that load ("invalid value for main_gpu")."""
+    monkeypatch.setattr(load_plan, "devices", lambda: [])
+    p = load_plan.on_processor(_req(cpu_only=False))
+    assert not p.cpu_only and not p.devices
+    kwargs = p.llama_kwargs()
+    assert kwargs["main_gpu"] == -1 and kwargs["n_gpu_layers"] == 0 and kwargs["op_offload"] is False
+
+
+def test_a_load_is_simulated_only_on_a_version_that_carries_it_out(monkeypatch):
+    """0.3.20 has the no_alloc field, and its llama.cpp aborts the whole process on it."""
+    import types, sys
+    lc = types.SimpleNamespace(llama_model_params=types.SimpleNamespace(_fields_=[("no_alloc", bool)]))
+    for version, expected in (("0.3.20", False), ("0.3.35", True), ("0.3.36.1", True)):
+        monkeypatch.setitem(sys.modules, "llama_cpp", types.SimpleNamespace(__version__=version, llama_cpp=lc))
+        monkeypatch.setitem(sys.modules, "llama_cpp.llama_cpp", lc)
+        monkeypatch.setattr(load_plan, "_runtime_ready", lambda: True)
+        assert load_plan.simulation_supported() is expected, version

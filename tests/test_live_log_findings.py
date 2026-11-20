@@ -225,3 +225,18 @@ def test_ordinary_talk_about_fixes_is_left_alone():
     from eli.cognition.output_governor import drop_unverified_self_status
     text = "You said the fixes went in yesterday. I can check the recent changes report if you want the details, or just test it."
     assert drop_unverified_self_status(text, is_grounded=False) == text
+
+
+def test_creating_a_file_does_not_replace_one_unless_asked(tmp_path):
+    """CREATE_FILE wrote over whatever was at the path, and the model and MCP clients can choose it."""
+    from eli.execution import executor_enhanced as ex
+    from eli.execution.router_enhanced import route
+    target = tmp_path / "keep.txt"
+    target.write_text("the original", encoding="utf-8")
+    r = ex.execute("CREATE_FILE", {"path": str(target), "content": "something else"})
+    assert r["ok"] is False and r["error"] == "exists" and target.read_text(encoding="utf-8") == "the original"
+    r = ex.execute("CREATE_FILE", {"path": str(target), "content": "replaced", "overwrite": True})
+    assert r["ok"] and target.read_text(encoding="utf-8") == "replaced"
+    asked = route(f"write a file called {target} containing hello and replace the old one")
+    assert asked["action"] == "CREATE_FILE" and asked["args"].get("overwrite") is True
+    assert route(f"create a file called {target} containing hello")["args"].get("overwrite") is None

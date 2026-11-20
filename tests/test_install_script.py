@@ -251,7 +251,7 @@ def _sh_text() -> str:
     return (Path(__file__).resolve().parents[1] / "install.sh").read_text(encoding="utf-8")
 
 
-LLAMA_MIN_FOR_MODERN_GGUF = "0.3.30"
+LLAMA_MIN_FOR_MODERN_GGUF = "0.3.35"   # hybrid GGUFs need 0.3.30; load planning needs 0.3.35
 
 
 def test_requirements_demand_a_runtime_that_reads_current_ggufs():

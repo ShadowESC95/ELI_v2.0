@@ -52,7 +52,16 @@ def _exposed_actions() -> List[str]:
     actions = sorted(set(SUPPORTED_ACTIONS))
     if _allow_control():
         return actions
-    return [a for a in actions if not a.startswith(_CONTROL_PREFIXES)]
+    # The owner's actions too (authority_gate.owner_only): writing and reading files, the screen
+    # and clipboard, code, ELI's own settings. Prefixes alone left CREATE_FILE, READ_FILE,
+    # SCREENSHOT and MEMORY_FORGET open to any client.
+    try:
+        from eli.runtime.authority_gate import owner_only
+        withheld = owner_only()
+    except Exception:
+        log.debug("mcp.server: owner-only list unavailable, exposing nothing", exc_info=True)
+        return []
+    return [a for a in actions if not a.startswith(_CONTROL_PREFIXES) and a not in withheld]
 
 
 def _describe(action: str) -> Dict[str, Any]:

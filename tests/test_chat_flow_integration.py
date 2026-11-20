@@ -71,20 +71,28 @@ class TestChatFlowIntegration:
         result = engine.process(injected)
         assert isinstance(result, dict)
 
-    def test_input_truncated_at_max_len(self, engine, monkeypatch):
-        """Input longer than ELI_MAX_INPUT_LEN is truncated before processing."""
-        monkeypatch.setenv("ELI_MAX_INPUT_LEN", "50")
-        # Re-import the constant so it picks up the monkeypatched env var
-        import eli.kernel.engine as _eng_mod
-        original = getattr(_eng_mod, "_ELI_MAX_INPUT_LEN", None)
-        _eng_mod._ELI_MAX_INPUT_LEN = 50
-        try:
-            long_input = "x" * 2000
-            result = engine.process(long_input)
-            assert isinstance(result, dict)
-        finally:
-            if original is not None:
-                _eng_mod._ELI_MAX_INPUT_LEN = original
+    def test_input_over_the_limit_keeps_its_start_and_its_question(self, engine, monkeypatch):
+        """A message past ELI_MAX_INPUT_LEN keeps its start and end: the question after a long paste
+        was cut off when the end went."""
+        from eli.kernel.engine import _eli_sanitize_user_input
+        monkeypatch.setenv("ELI_MAX_INPUT_LEN", "200")
+        said = "Entry-0001 = 20 " + "Entry-0002 = 40 " * 200 + "Which label holds NEEDLE-7? Repeat it."
+        fitted = _eli_sanitize_user_input(said)
+        assert fitted.startswith("Entry-0001 = 20") and fitted.endswith("Which label holds NEEDLE-7? Repeat it.")
+        assert "left out" in fitted and len(fitted) < len(said)
+        assert isinstance(engine.process(said), dict)
+
+    def test_input_limit_comes_from_the_model_window(self, monkeypatch):
+        """No operator setting: the limit is the loaded window less the reply's room, so a message a
+        model can hold is not cut, and nothing is cut with no model to size for."""
+        import eli.kernel.engine as eng
+        monkeypatch.delenv("ELI_MAX_INPUT_LEN", raising=False)
+        monkeypatch.setattr(eng.gguf_inference, "context_window", lambda: 32768)
+        assert eng._eli_max_input_chars() > 12000
+        long = "Entry-0001 = 20 " * 750 + "The needle is NEEDLE-15. Repeat it."
+        assert eng._eli_sanitize_user_input(long) == long
+        monkeypatch.setattr(eng.gguf_inference, "context_window", lambda: 0)
+        assert eng._eli_max_input_chars() == 0 and eng._eli_sanitize_user_input(long) == long
 
     def test_sanitize_helper_removes_injection_tokens(self):
         """Unit test the sanitiser directly."""

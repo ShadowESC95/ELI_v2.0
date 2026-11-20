@@ -33,8 +33,11 @@ def _eli_phase10_blocks_media_intent(text: str) -> bool:
     return any(b in s for b in blockers)
 
 
+import logging
 import re
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 
 def _known_user_dir(target: str) -> str:
@@ -183,6 +186,33 @@ def _browser_open_target(target: str):
         if rest == before:
             break
     return rest.strip(" .,:;-")
+
+
+_ELI_FEATURES: Optional[frozenset] = None
+
+
+def _names_an_eli_feature(target: str) -> bool:
+    """Whether "open/start <target>" names one of ELI's own features rather than a program: the
+    object of an "open/start/launch/run ..." phrase in the capability list for an action other
+    than opening an app ("start dictation", "start a new chat", "open system settings"). Each of
+    those went to OPEN_APP and offered to install a program called "dictation"."""
+    global _ELI_FEATURES
+    if _ELI_FEATURES is None:
+        found = set()
+        try:
+            from eli.tools.registry.capabilities_doc import _C
+            for action, (_cat, _desc, phrases) in _C.items():
+                if action in ("OPEN_APP", "OPEN_URL", "OPEN_BROWSER"):
+                    continue
+                for phrase in phrases:
+                    m = re.match(r"^\W*(?:open|start|launch|run)\s+(.+?)\W*$", str(phrase), re.I)
+                    if m and "<" not in m.group(1) and not re.search(r"\b[A-Z]\b|\bX\b", m.group(1)):
+                        found.add(re.sub(r"^(?:the|a|an|my)\s+", "", m.group(1).strip().lower()))
+        except Exception:
+            log.debug("capability phrases unavailable", exc_info=True)
+        _ELI_FEATURES = frozenset(found)
+    said = re.sub(r"^(?:the|a|an|my)\s+", "", str(target or "").strip().lower())
+    return bool(said) and said in _ELI_FEATURES
 
 
 def _looks_like_app_target(target: str) -> bool:
@@ -420,7 +450,7 @@ def try_route(text: str) -> Optional[dict]:
     if not norm:
         return None
 
-    if re.fullmatch(r"(?:start\s+pomodoro|begin\s+pomodoro|pomodoro\s+start)(?:\s+timer)?", norm):
+    if re.fullmatch(r"(?:(?:start|begin)\s+(?:a\s+|the\s+|my\s+)?pomodoro|pomodoro\s+start)(?:\s+timer)?", norm):
         return None
 
     # ── Shell command prepass ────────────────────────────────────────────────
@@ -526,6 +556,8 @@ def try_route(text: str) -> Optional[dict]:
                 "confidence": 0.98,
                 "meta": {"matched_by": "portable_intent_contract.open_browser"},
             }
+        elif _names_an_eli_feature(target):
+            pass        # "start dictation", "open system settings": ELI's own, for the router's rule
         elif _looks_like_app_target(target):
             return {
                 "action": "OPEN_APP",

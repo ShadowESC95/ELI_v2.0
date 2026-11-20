@@ -35,7 +35,7 @@ _DRIVER = textwrap.dedent(
     from eli.runtime import evidence_ledger as L
     L._default_db_path = lambda: Path(art) / "audit.sqlite3"
     S.get_engine = lambda: type("E", (), {"process": lambda s, *a, **k: {"response": "hi"}})()
-    c = TestClient(S.app)
+    c = TestClient(S.app, base_url="http://localhost")
     H = lambda t: {"Authorization": "Bearer " + t} if t else {}
 
     # operator bootstraps users (works even after RBAC turns on)
@@ -50,6 +50,9 @@ _DRIVER = textwrap.dedent(
     assert c.get("/v1/admin/overview", headers=H(tb)).status_code == 403  # member denied admin
     assert c.get("/v1/admin/overview", headers=H(ta)).status_code == 200  # admin ok
     assert c.get("/v1/system", headers=H("garbage")).status_code == 401   # bad token
+    # a member acts, but not with the owner's actions (shell, files, screen, ELI's own settings)
+    assert c.post("/v1/execute", headers=H(tb), json={"action": "SHELL_EXEC", "args": {"command": "true"}}).status_code == 403
+    assert c.post("/v1/execute", headers=H(tb), json={"action": "READ_FILE", "args": {"path": "/etc/hostname"}}).status_code == 403
 
     # viewer (read-only): can read dashboards, cannot act, cannot see the admin console
     v = c.post("/v1/admin/users/add", headers=H(ta), json={"user_id": "val", "role": "viewer"}).json()

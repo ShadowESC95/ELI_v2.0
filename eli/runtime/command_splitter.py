@@ -295,7 +295,23 @@ def read_message(text: str, *, chains: bool = False) -> List[dict]:
     form. A message of one sentence comes back as one entry."""
     parts = [part for s in sentences(text)
              for part in (_instructions_in(s) if chains and instruction(s) else [s])]
-    return [{"said": p, "tells": "" if _asks_rather_than_tells(p) else instruction(p)} for p in parts]
+    several = len(parts) > 1
+    return [{"said": p, "tells": "" if _asks_rather_than_tells(p) or (several and labels_material(p)) else instruction(p)}
+            for p in parts]
+
+
+# A heading and a colon in front of what follows: "Note:", "Context:", "Information supplied:".
+_LABEL = re.compile(r"^\s*[A-Za-z][\w'-]*(?:\s+[A-Za-z][\w'-]*){0,2}\s*:\s+(?=\S)")
+
+
+def labels_material(sentence: str) -> bool:
+    """A sentence that labels what it holds ("Note: Elm is not Laurel"). Beside a question or other
+    sentences it is material for them, not something to carry out: "Context: … Note: Aspen has code
+    X. What is Aspen's code?" wrote a note to disk. It still tells when what follows the label is an
+    instruction ("Task: open steam"). A message that is nothing but "note: buy milk" is not read
+    sentence by sentence, so it stays the request to write it down."""
+    m = _LABEL.match(str(sentence or ""))
+    return bool(m) and not _starts_instruction(sentence[m.end():])
 
 
 def _asks_rather_than_tells(sentence: str) -> bool:

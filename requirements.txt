@@ -30,7 +30,7 @@ shiboken6==6.11.0
 # and the IDE upgrades to QScintilla automatically.
 
 # ── LLM inference ─────────────────────────────────────────────────────────────
-llama_cpp_python==0.3.20
+llama-cpp-python>=0.3.35  # 0.3.35 simulates a load before it is made (load_plan); older builds abort on it
 
 # ── Vector store / embeddings ─────────────────────────────────────────────────
 faiss-cpu==1.13.2

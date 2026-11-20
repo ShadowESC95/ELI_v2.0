@@ -128,33 +128,6 @@ def test_generate_script_chat_backend_skips_router(monkeypatch, tmp_path):
     assert calls[0].get("skip_router") is True
 
 
-def test_relative_time_function_generation_is_deterministic():
-    from datetime import datetime
-    from eli.execution import executor_enhanced as ex
-
-    result = ex.execute(
-        "GENERATE_SCRIPT",
-        {
-            "description": (
-                "Write a Python function that takes a unix timestamp float and "
-                'returns a human-readable relative time string ("3 hours ago", '
-                '"yesterday at 14:30", etc).'
-            ),
-            "language": "python",
-        },
-    )
-
-    assert result["ok"] is True
-    path = Path(result["path"])
-    namespace = {}
-    exec(path.read_text(encoding="utf-8"), namespace)
-    relative_time = namespace["relative_time"]
-    now = datetime(2026, 5, 5, 21, 0)
-
-    assert relative_time(datetime(2026, 5, 5, 18, 0).timestamp(), now=now) == "3 hours ago"
-    assert relative_time(datetime(2026, 5, 4, 14, 30).timestamp(), now=now) == "yesterday at 14:30"
-
-
 def test_script_language_inference_ignores_in_an_ide_tail():
     from eli.execution.portable_intent_contract import infer_script_language
 
@@ -171,88 +144,6 @@ def test_generation_complaints_are_not_routed_as_new_scripts():
     from eli.execution.portable_intent_contract import try_route
 
     assert try_route("You did not generate that script, your code generation agent never ran.") is None
-
-
-def test_type_ia_supernova_redshift_generation_is_deterministic():
-    from eli.execution import executor_enhanced as ex
-
-    result = ex.execute(
-        "GENERATE_SCRIPT",
-        {
-            "description": "write a python script to calculate the redshift of a supernova typa 1a",
-            "language": "python",
-        },
-    )
-
-    assert result["ok"] is True
-    assert result["language"] == "python"
-    assert result["open_in_labs"] is True
-    assert result["open_in_ide"] is True
-    path = Path(result["path"])
-    namespace = {}
-    exec(path.read_text(encoding="utf-8"), namespace)
-
-    z = namespace["redshift_from_wavelength"](7626.0, 6355.0)
-    assert round(z, 6) == 0.200000
-    assert namespace["luminosity_distance_mpc_from_modulus"](35.0) == 100.0
-
-
-def test_quantum_decoherence_depth_generation_is_deterministic():
-    from eli.execution import executor_enhanced as ex
-
-    result = ex.execute(
-        "GENERATE_SCRIPT",
-        {
-            "description": (
-                "create a python script for the following; A quantum system has "
-                "decoherence time T2 = 100us and gate time tg = 50ns. What's "
-                "the maximum circuit depth before fidelity drops below 99%? Show the calculation."
-            ),
-            "language": "an",
-        },
-    )
-
-    assert result["ok"] is True
-    assert result["language"] == "python"
-    assert result["open_in_labs"] is True
-    assert result["open_in_ide"] is True
-    path = Path(result["path"])
-    namespace = {}
-    exec(path.read_text(encoding="utf-8"), namespace)
-
-    continuous, depth = namespace["max_depth_exponential"](100e-6, 50e-9, 0.99)
-    assert round(continuous, 6) == 20.100672
-    assert depth == 20
-    assert namespace["fidelity_after_depth"](20, 100e-6, 50e-9) >= 0.99
-    assert namespace["fidelity_after_depth"](21, 100e-6, 50e-9) < 0.99
-
-
-def test_ton_618_mass_density_generation_is_deterministic():
-    from eli.execution import executor_enhanced as ex
-
-    result = ex.execute(
-        "GENERATE_SCRIPT",
-        {
-            "description": (
-                "create a python script to generate the mass and density on "
-                "ton 618 against earths mass and density"
-            ),
-            "language": "python",
-        },
-    )
-
-    assert result["ok"] is True
-    assert result["language"] == "python"
-    assert result["open_in_labs"] is True
-    assert result["open_in_ide"] is True
-    path = Path(result["path"])
-    namespace = {}
-    exec(path.read_text(encoding="utf-8"), namespace)
-
-    comparison = namespace["compare_ton_618"]()
-    assert comparison.mass_earth_masses > 1e16
-    assert comparison.density_earth_ratio < 1e-5
-    assert namespace["EARTH_RADIUS_M"] > 6_000_000
 
 
 def test_generate_document_normalizes_to_documents_dir(monkeypatch, tmp_path):

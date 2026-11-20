@@ -205,3 +205,31 @@ def test_a_question_among_sentences_is_talk_not_an_instruction():
     assert said[-1]["tells"] == ""
     assert read_message("thanks for that. can you open the calculator?")[-1]["tells"] == "open the calculator?"
     assert read_message("nice one. play some jazz?")[-1]["tells"] == "play some jazz?"
+
+
+@pytest.mark.parametrize("text", [
+    "Context: the depot ledger has 3 bins. Fern = BIN-0001. Moss = BIN-0002. Note: Fern is not Moss. Which bin belongs to Moss?",
+    "Context: Moss is not Fern. Note: Fern has code KEY-A01 and Moss has code KEY-B01. What is Fern's code? Reply with only the code.",
+    "Information supplied: Project Q-7 started in May. What is the passphrase for Project Q-7? If it is not provided, say UNKNOWN.",
+])
+def test_a_labelled_sentence_beside_a_question_is_material_not_a_command(text):
+    """A "Note:" among other sentences wrote a note to disk and put "Wrote note to ..." in the answer."""
+    assert all(part["tells"] == "" for part in read_message(text) if cs.labels_material(part["said"]))
+    routed = route(text)
+    assert routed["action"] == "CHAT" and not (routed.get("args") or {}).get("agreed")
+
+
+def test_a_label_in_front_of_an_instruction_or_alone_still_tells():
+    assert not cs.labels_material("Task: open steam")
+    assert route("note: buy milk")["action"] == "WRITE_NOTE"
+    assert route("write a note saying buy milk")["action"] == "WRITE_NOTE"
+
+
+@pytest.mark.parametrize("text, kept", [
+    ("My locker code is TULIP-4482. Please remember it.", "My locker code is TULIP-4482."),
+    ("The spare tyre is in the shed. Remember that.", "The spare tyre is in the shed."),
+])
+def test_remember_it_keeps_what_the_message_said(text, kept):
+    """"Please remember it" was stored as the word "it", which the memory filter turned down."""
+    routed = route(text)
+    assert routed["action"] == "MEMORY_STORE" and routed["args"]["text"] == kept

@@ -48,14 +48,20 @@ def _window_text(window: Dict[str, Any]) -> str:
 
 
 def block(diag: Optional[Dict[str, Any]]) -> str:
+    """What the search did, as facts. It said "Only say nothing is stored for this scope." whenever a
+    scope was searched, found or not, and the model answered with exactly that beside a verified
+    memory holding the answer. An absence is stated only when the scope gave nothing."""
     if not (diag or {}).get("retrieval_ran"):
         return ""
     c = diag.get("confidence")
     conf = f", retrieval confidence {c:.2f} ({confidence_label(c)})" if c is not None else ""
+    searched = diag.get("searched") or {}
+    found = int(diag.get("merged") or 0) + int(searched.get("exact") or 0)
     return (f"Retrieval diagnostics (authoritative): searched keyword={diag['keyword']} "
             f"semantic={diag['semantic']} kg={diag['kg']}, merged {diag['merged']} items{conf}."
             + (f" Search was {_window_text(diag['window'])}." if diag.get("window") else "")
-            + (f" Scope: {scope_text(diag['searched'])}. Only say nothing is stored for this scope." if diag.get("searched") else ""))
+            + (f" Scope searched: {scope_text(searched)}." if searched else "")
+            + (" Nothing was found there, which is no evidence about anything outside it." if searched and not found else ""))
 
 
 def explanation(diag: Dict[str, Any]) -> str:

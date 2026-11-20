@@ -80,6 +80,7 @@ _ACCEPTABLE = {
     "OPEN_COMMUNICATION_HUB": {"OPEN_APP"},
     "OPEN_MEDIA_HUB": {"OPEN_APP"},
     "GET_TIME": {"TIME"},
+    "GET_STATUS": {"RUNTIME_STATUS"},   # a bare "status" gets the runtime report, not "Status OK."
     "GET_DATE": {"DATE"},
     "RUN_CMD": {"SHELL_EXEC"},
     "SHELL_EXEC": {"RUN_CMD"},
@@ -99,9 +100,7 @@ _ACCEPTABLE = {
 # recorded as known, non-blocking. SELF_TEST / SELF_ANALYZE / PROACTIVE_* /
 # EXECUTE_GOAL were fixed (self_improvement guard matchers); MOUSE_CONTROL stays a
 # gap on purpose — bare "left click" is wired to GAZE_CLICK (gaze-cursor design).
-_KNOWN_GAPS = {
-    "MOUSE_CONTROL": "bare 'left click' → GAZE_CLICK by design (gaze cursor)",
-}
+_KNOWN_GAPS: dict = {}       # "left click" (GAZE_CLICK by design) is no longer listed for MOUSE_CONTROL
 
 _SMART = str.maketrans({"“": "", "”": "", "‘": "", "’": "'"})
 
@@ -134,3 +133,27 @@ def test_action_reachable_by_a_documented_phrase(action, phrases):
     ok = action in routed or bool(routed & _ACCEPTABLE.get(action, set()))
     assert ok, (f"{action}: no documented phrase routed to it or an accepted "
                 f"equivalent; got {sorted(routed)} for {phrases}")
+
+
+def _reached(phrase: str) -> set:
+    """What a phrase reaches: the router's action, and the action the engine's control contract
+    (control_contracts.route_control_text) turns that into."""
+    from eli.runtime.control_contracts import route_control_text
+    routed = (route(phrase).get("action") or "").upper()
+    return {routed, str(route_control_text(phrase, routed) or "").upper()} - {""}
+
+
+def test_every_listed_phrase_reaches_its_action():
+    """The table is documentation: a phrase listed for an action that reaches something else, or
+    nothing ("start dictation" opened an app called dictation; "show my habits" was chat), is a
+    false line in it. Context notes ("(after a code-fix offer)") and placeholders are not phrases."""
+    wrong = []
+    for action, (_cat, _desc, phrases) in CURATED.items():
+        for p in phrases:
+            m = re.fullmatch(r"“([^”<>…]+)”", p.strip())
+            if not m or re.search(r"\b[XYZ]\b", m.group(1)):
+                continue
+            got = _reached(m.group(1))
+            if action not in got and not got & _ACCEPTABLE.get(action, set()):
+                wrong.append((action, m.group(1), sorted(got)))
+    assert not wrong, wrong

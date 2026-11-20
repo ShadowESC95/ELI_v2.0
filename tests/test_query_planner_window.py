@@ -92,3 +92,12 @@ def test_last_night_is_still_that_night_a_little_after_midnight():
     from eli.cognition.query_planner import wrong_day_now
     assert wrong_day_now("It's Monday night still, technically.", datetime(2026, 11, 3, 0, 20)) == ""
     assert wrong_day_now("It's Monday.", datetime(2026, 11, 4, 12, 0))
+
+
+def test_a_month_in_supplied_facts_is_not_a_window_on_history():
+    """The facts a message supplies date themselves: the question is about them, not about what the
+    user did that month, and an empty activity log for the month was given as the answer."""
+    from eli.cognition.query_planner import parse_window
+    assert parse_window("Information supplied: Project Q-7 started in May. What is the passphrase for Project Q-7? "
+                        "If the answer is not provided, say UNKNOWN only.") is None
+    assert parse_window("what did I work on in May?") is not None

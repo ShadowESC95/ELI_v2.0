@@ -446,15 +446,15 @@ def persona_auto_path() -> Path:
 
 
 def notebook_dir() -> Path:
-    """ELI notebook / journal directory.
+    """ELI notebook / journal directory: the user's data, so it lives with the rest of it.
 
-    Override: ELI_NOTEBOOK_DIR — same escape-hatch pattern as persona_auto_path().
+    Override: ELI_NOTEBOOK_DIR — same escape-hatch pattern as persona_auto_path(). It was the
+    source tree in dev mode and the working directory in the note writer, so notes landed in the
+    code checkout whatever ELI_DATA_DIR said.
     """
     override = os.environ.get("ELI_NOTEBOOK_DIR")
     if override:
         return Path(override).expanduser().resolve()
-    if _is_dev_mode():
-        return project_root() / "eli_notebook"
     return data_dir() / "notebook"
 
 

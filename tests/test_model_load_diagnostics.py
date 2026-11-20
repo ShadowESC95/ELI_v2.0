@@ -355,3 +355,13 @@ def test_runtime_hook_honours_the_opt_out():
     code = "\n".join(l for l in src.splitlines() if not l.strip().startswith("#"))
     assert "ELI_DISABLE_GPU_PACK" in code, "there is no way to bypass a stale GPU pack"
     assert "not _pack_off" in code, "the opt-out does not actually gate activation"
+
+
+def test_a_gpu_the_machine_does_not_have_is_named_and_not_retried(tmp_path):
+    """The one-line main_gpu error was retried three or four times with the same device and then
+    blamed on the model's architecture."""
+    log = ["llama_model_load_from_file_impl: invalid value for main_gpu: 0 (available devices: 0)"]
+    assert mld.is_retryable_load_failure(log) is False
+    said = mld.explain_load_failure(ValueError("Failed to load model from file"), log, tmp_path / "chat.gguf")
+    assert "GPU this machine does not have" in said and "invalid value for main_gpu" in said
+    assert "architecture" not in said

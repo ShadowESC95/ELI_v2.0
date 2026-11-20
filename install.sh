@@ -651,7 +651,7 @@ _llama_safe_cpu_cmake_flags() {
 }
 
 _llama_rebuild_for_this_cpu() {
-    local _min="${LLAMA_MIN:-0.3.30}"
+    local _min="${LLAMA_MIN:-0.3.35}"
     warn "llama-cpp runtime failed on this CPU (Illegal instruction in ggml_cpu_init)."
     warn "Rebuilding llama-cpp-python from source with CPU-safe flags…"
     ensure_build_toolchain
@@ -750,7 +750,7 @@ elif [ "$CPU_ONLY" -eq 1 ]; then
         warn "CPU lacks AVX-VNNI — skipping prebuilt llama-cpp wheel (SIGILL risk); building from source."
         ensure_build_toolchain
         CMAKE_ARGS="$(_llama_safe_cpu_cmake_flags)" \
-            _pip install "llama-cpp-python>=0.3.30" --no-cache-dir --quiet || true
+            _pip install "llama-cpp-python>=0.3.35" --no-cache-dir --quiet || true
     fi
 elif [ "$HAS_AMD" -eq 1 ]; then
     echo "     (AMD — ROCm/hipBLAS, then Vulkan, then CPU)"
@@ -786,7 +786,7 @@ elif [ "$HAS_INTEL_ARC" -eq 1 ] || [ "$HAS_INTEL_IGPU" -eq 1 ]; then
             warn "CPU wheel unavailable — building llama-cpp from source (several minutes)…"
             ensure_build_toolchain
             CMAKE_ARGS="$(_llama_safe_cpu_cmake_flags)" \
-                _pip install "llama-cpp-python>=0.3.30" --no-cache-dir --quiet || true
+                _pip install "llama-cpp-python>=0.3.35" --no-cache-dir --quiet || true
         fi
     fi
 elif [ "$HAS_QUALCOMM_IGPU" -eq 1 ]; then
@@ -809,7 +809,7 @@ else
     # modern models, so: take a wheel only if it is new enough, else build with
     # CUDA from source.
     echo "     (NVIDIA — CUDA)"
-    LLAMA_MIN="0.3.30"
+    LLAMA_MIN="0.3.35"
     _LLAMA_WHEEL_OK=0
     if _cpu_trusts_prebuilt_llama_wheel; then
         if _pip install "llama-cpp-python>=$LLAMA_MIN" --only-binary=:all: \

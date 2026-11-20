@@ -370,6 +370,11 @@ _NEWER_THAN_RUNTIME = ("error loading model hyperparameters", "error loading mod
                        "has wrong type", "has wrong array type", "key not found in model", "exceeds max")
 
 
+# A GPU asked for that the machine does not have. The ladder changes context, layers and batch, never
+# the device, so it re-issued the same load three or four times.
+_NO_SUCH_DEVICE = ("invalid value for main_gpu", "available devices: 0")
+
+
 def is_retryable_load_failure(log_lines) -> bool:
     """Whether retrying with different ctx/layers/batch could ever succeed.
 
@@ -389,7 +394,7 @@ def is_retryable_load_failure(log_lines) -> bool:
     terminal = ("missing tensor", "unknown model architecture",
                 "unsupported model architecture", "invalid magic",
                 "not a valid gguf", "wrong magic", "unexpected eof",
-                "no such file", "failed to open") + _NEWER_THAN_RUNTIME
+                "no such file", "failed to open") + _NEWER_THAN_RUNTIME + _NO_SUCH_DEVICE
     if any(k in text for k in terminal):
         return False
     return True
@@ -647,6 +652,12 @@ def explain_load_failure(exc: BaseException, log_lines, model_path,
         tail = f"\n  llama.cpp said: {detail}" if detail else ""
         return f"{name} (architecture '{arch}'{_runtime_note()}) {body}{tail}"
 
+    if any(k in low for k in _NO_SUCH_DEVICE):
+        # Not the model: it was blamed on the architecture before, and the line that said so was dropped.
+        said = next((l.strip() for l in text.splitlines() if any(k in l.lower() for k in _NO_SUCH_DEVICE)), "")
+        return (f"{name} could not load because llama.cpp was asked for a GPU this machine does not have"
+                + (f" ({said})" if said else "") + ". Set the compute mode to CPU in Settings, or install "
+                "the GPU's driver and runtime.")
     if "missing tensor" in low:
         missing = ""
         for line in text.splitlines():

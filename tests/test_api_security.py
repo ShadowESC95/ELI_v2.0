@@ -48,7 +48,7 @@ _AUTH_DRIVER = textwrap.dedent(
              "/v1/devices", "/v1/capabilities", "/v1/status/me"]
 
     # (a) tokenless + no opt-out -> every gated endpoint 401 (fail closed)
-    c = TestClient(S.app)
+    c = TestClient(S.app, base_url="http://localhost")
     for p in GATED:
         r = c.get(p)
         assert r.status_code == 401, f"FAIL-OPEN {p}: {r.status_code}"

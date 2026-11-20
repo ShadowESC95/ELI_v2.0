@@ -1746,17 +1746,31 @@ def discover_models(models_dir: Optional[Path] = None,
     when callers genuinely want every .gguf on disk (e.g. a diagnostic
     inventory)."""
     if models_dir is None:
+        # Where models are kept (paths.models_dir: ELI_MODELS_DIR, else the data folder, or the
+        # source tree's models/ in dev) and the program's own models/ beside it. Only the second
+        # was searched: ELI_MODELS_DIR was never read, and a packaged install missed the models
+        # it had downloaded.
+        roots = []
         try:
-            from eli.core.paths import project_root
-            models_dir = project_root() / "models"
+            from eli.core.paths import models_dir as _models_dir, project_root
+            roots = [Path(_models_dir()), project_root() / "models"]
         except Exception:
-            models_dir = Path.cwd() / "models"
+            roots = [Path.cwd() / "models"]
+    else:
+        roots = [Path(models_dir)]
 
     out: List[Dict[str, Any]] = []
-    if not models_dir.is_dir():
-        return out
     from eli.cognition.model_load_diagnostics import not_a_chat_model
-    for f in sorted(models_dir.rglob("*.gguf")):
+    seen: set = set()
+    files = []
+    for root in roots:
+        if root.is_dir():
+            for f in sorted(root.rglob("*.gguf")):
+                key = str(f.resolve())
+                if key not in seen:
+                    seen.add(key)
+                    files.append(f)
+    for f in files:
         # a vision projector or a draft head is not a model to talk to either (by its metadata)
         if not include_embedders and (_is_embedder_path(f) or not_a_chat_model(f)):
             continue

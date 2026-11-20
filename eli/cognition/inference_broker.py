@@ -240,7 +240,7 @@ class InferenceBroker:
         if callable(gen_fn):
             chunks = []
             for chunk in gen_fn(prompt, system=system, max_tokens=max_tokens,
-                                temperature=temperature, stream=False):
+                                temperature=temperature, top_p=top_p, stream=False):
                 if isinstance(chunk, dict):
                     chunks.append(chunk.get("response") or chunk.get("token") or "")
                 else:
@@ -249,7 +249,7 @@ class InferenceBroker:
         cc_fn = getattr(gi, "chat_completion", None)
         if callable(cc_fn):
             return (cc_fn(prompt, system=system, max_tokens=max_tokens,
-                          temperature=temperature) or "").strip()
+                          temperature=temperature, top_p=top_p) or "").strip()
         raise RuntimeError("gguf_inference has neither generate() nor chat_completion()")
 
 # backwards-compat aliases — various modules import these names

@@ -148,3 +148,14 @@ def test_the_tone_and_the_emotion_timeline_take_the_users_words_not_elis_instruc
         "doing well, good redemption bud"
     rc.turn_facts_var.set(None)
     assert eng._users_own_words("earlier talk\n\nYou: hello there") == "hello there"
+
+
+def test_normal_mode_runs_on_its_own_preset_not_the_generic_default(monkeypatch):
+    """The chat loop passed the public name "normal" in; presets are keyed by canonical names, so
+    Normal ran on the generic default profile."""
+    from eli.core import runtime_settings
+    preset = {"passes": 2, "threshold": 0.5, "max_tokens": 1234, "temperature": 0.3, "top_p": 0.9}
+    monkeypatch.setattr(runtime_settings, "load_settings", lambda *a, **k: {"mode_presets": {"chain_of_thought": preset}})
+    engine = eng.CognitiveEngine.__new__(eng.CognitiveEngine)
+    assert engine._mode_profile("normal")["max_tokens"] == 1234
+    assert engine._mode_profile("chain_of_thought")["max_tokens"] == 1234

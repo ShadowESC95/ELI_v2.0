@@ -275,19 +275,19 @@ if ($CpuOnly) {
         # anything below 0.3.30 cannot read hybrid attention+SSM GGUFs
         # (qwen35, nemotron-h) - they fail on a missing ssm_conv1d tensor.
         # Require a version that can, rather than silently taking an old wheel.
-        Invoke-Pip @("install", "llama-cpp-python>=0.3.30", "--only-binary=:all:", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/$CudaVersion", "--quiet")
+        Invoke-Pip @("install", "llama-cpp-python>=0.3.35", "--only-binary=:all:", "--extra-index-url", "https://abetlen.github.io/llama-cpp-python/whl/$CudaVersion", "--quiet")
         $llamaCudaOk = $true
     } catch {
         Write-Host "[WARN] No prebuilt CUDA $CudaVersion wheel for llama-cpp-python on Python $pyVer." -ForegroundColor Yellow
         Write-Host "       Installing the CPU build instead so the install completes." -ForegroundColor Yellow
         Write-Host "       (The CUDA wheel index tops out at 0.3.19 for some Python versions;" -ForegroundColor Yellow
-        Write-Host "        ELI needs >=0.3.30 to read current GGUF architectures.)" -ForegroundColor Yellow
+        Write-Host "        ELI needs >=0.3.35 to read current GGUF architectures and plan loads.)" -ForegroundColor Yellow
         Write-Host "       ELI will run without GPU offload. Options:" -ForegroundColor Yellow
         Write-Host "         - re-run with -CudaVersion cu124 (or another published version)" -ForegroundColor Yellow
         Write-Host "         - re-run with -InstallCuda to build with CUDA locally" -ForegroundColor Yellow
     }
     if (-not $llamaCudaOk) {
-        Invoke-Pip (@("install") + $PipFindLinksArgs + @("llama-cpp-python>=0.3.30", "--only-binary=:all:", "--quiet"))
+        Invoke-Pip (@("install") + $PipFindLinksArgs + @("llama-cpp-python>=0.3.35", "--only-binary=:all:", "--quiet"))
         # Keep the rest of the run honest: the offload verify below and the
         # summary must not claim a GPU build that was not installed.
         $CpuOnly = $true
@@ -308,7 +308,7 @@ if ($LASTEXITCODE -ne 0) {
     Write-Host "[WARN] llama-cpp failed to initialise on this CPU (exit $LASTEXITCODE)." -ForegroundColor Yellow
     Write-Host "       This CPU predates the instruction set the prebuilt wheel was built for." -ForegroundColor Yellow
     Write-Host "[..] Reinstalling the generic PyPI CPU wheel, which targets a lower baseline..."
-    Invoke-Pip (@("install", "--force-reinstall", "--no-cache-dir") + $PipFindLinksArgs + @("llama-cpp-python>=0.3.30", "--only-binary=:all:", "--quiet"))
+    Invoke-Pip (@("install", "--force-reinstall", "--no-cache-dir") + $PipFindLinksArgs + @("llama-cpp-python>=0.3.35", "--only-binary=:all:", "--quiet"))
     & $PythonVenv -c "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init(); print('ok')" *> $null
     if ($LASTEXITCODE -eq 0) {
         Write-Host "[OK] llama-cpp runtime starts on this CPU (CPU build)." -ForegroundColor Green

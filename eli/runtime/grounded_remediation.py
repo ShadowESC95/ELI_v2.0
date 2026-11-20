@@ -423,10 +423,14 @@ def _windows_app_hits(name: str) -> list[str]:
     import os as _os
     hits = []
     lowered = name.lower()
-    # `where` is PATHEXT-aware (resolves .exe/.cmd/.bat). Plain name — no POSIX
-    # quoting (cmd would take shlex single-quotes literally).
-    if shutil.which("where"):
-        r = _run(f"where {name}")
+    # `where` is PATHEXT-aware (resolves .exe/.cmd/.bat). Run without a shell: the name comes from
+    # what the user said, and through cmd "open x & del /s ..." ran the rest as a second command.
+    if shutil.which("where") and _PACKAGE_NAME.fullmatch(name or ""):
+        try:
+            proc = subprocess.run(["where", name], text=True, capture_output=True, timeout=30)
+            r = {"rc": proc.returncode, "out": (proc.stdout or "").strip()}
+        except Exception:
+            r = {"rc": 1, "out": ""}
         if r["rc"] == 0:
             for line in (r["out"] or "").splitlines():
                 line = line.strip()
@@ -567,11 +571,16 @@ def _brew_candidate(name: str) -> str:
     r = _run(f"brew info {_q(target)} >/dev/null 2>&1")
     return target if r["rc"] == 0 else ""
 
+# What a program or package name is made of. Anything else is not a name, and it would reach a
+# command line: the Windows lookups and installs cannot quote for cmd the way shlex does for sh.
+_PACKAGE_NAME = re.compile(r"[\w][\w .+-]{0,80}")
+
+
 def _winget_candidate(name: str) -> str:
     """Windows winget. No pre-verification: _run uses POSIX shell quoting that does
     not hold on cmd, so we gate on tool presence only and let the visible terminal
     surface winget's own resolution/failure. Known package IDs are preferred."""
-    if not shutil.which("winget"):
+    if not shutil.which("winget") or not _PACKAGE_NAME.fullmatch(str(name or "").strip()):
         return ""
     app = str(name or "").strip().lower()
     winget_ids = {
@@ -587,7 +596,7 @@ def _winget_candidate(name: str) -> str:
 
 def _choco_candidate(name: str) -> str:
     """Windows Chocolatey. Tool-presence gated only (see _winget_candidate)."""
-    if not shutil.which("choco"):
+    if not shutil.which("choco") or not _PACKAGE_NAME.fullmatch(str(name or "").strip()):
         return ""
     return _norm_pkg_name(name)
 

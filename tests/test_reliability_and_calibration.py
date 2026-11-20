@@ -1,4 +1,5 @@
 """Measured reliability per action, success predictions scored against what happened, and honest absence wording."""
+import re
 import pytest
 
 from eli.runtime import evidence_ledger as led
@@ -68,7 +69,11 @@ def test_the_scope_of_a_search_is_stated_so_a_denial_covers_only_that(monkeypatc
     from eli.cognition import memory_diag
     rec = memory_diag.retrieval_record(2, 0, 0, 0, None, searched={"semantic": 0, "exact": 1, "claims": 0, "archive": None})
     text = memory_diag.block(rec)
-    assert "archive: not searched" in text and "exact codes/phrases 1" in text and "Only say nothing is stored for this scope" in text
+    assert "archive: not searched" in text and "exact codes/phrases 1" in text
+    # what was found is not answered with a denial, and the block states facts, it gives no lines to say
+    assert "Nothing was found" not in text and not re.search(r"\bsay\b", text, re.I)
+    empty = memory_diag.block(memory_diag.retrieval_record(0, 0, 0, 0, None, searched={"semantic": 0, "claims": 0, "archive": 0}))
+    assert "Nothing was found there" in empty and not re.search(r"\bsay\b", empty, re.I)
 
 
 def test_the_archive_is_searched_when_live_evidence_is_thin(tmp_path, monkeypatch):

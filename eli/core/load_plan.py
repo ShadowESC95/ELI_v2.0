@@ -199,8 +199,10 @@ class Plan:
         kw.update(llama_cache_args(self.cache_type_k, self.cache_type_v))
         if self.flash_attn:
             kw["flash_attn"] = True
-        if self.cpu_only:
-            # no device at all: llama.cpp otherwise still sends large batches to a GPU for compute
+        if self.cpu_only or (self.n_gpu_layers <= 0 and not self.devices):
+            # no device at all: llama.cpp otherwise still sends large batches to a GPU for compute.
+            # A machine with no GPU is the same case as asking for none: the processor plan handed
+            # llama.cpp main_gpu=0 with zero devices, which builds that check refuse to load.
             kw.update(n_gpu_layers=0, split_mode=_SPLIT_MODES["none"], main_gpu=-1,
                       offload_kqv=False, op_offload=False)
             return kw
@@ -429,12 +431,26 @@ def _unit_weight_mb(weights, unit: int, experts_in_ram: Optional[int]) -> float:
 _simulate_lock = threading.Lock()
 
 
+# The first llama-cpp-python whose llama.cpp carries a no_alloc load through. 0.3.20 already has the
+# field, and its llama.cpp aborts the whole process on it (GGML_ASSERT(!ml.no_alloc)): the field
+# alone said yes. Every requirements file asks for at least this version (test_llama_runtime_pin).
+MIN_SIMULATION_VERSION = (0, 3, 35)
+
+
+def _version_tuple(text: str) -> tuple:
+    return tuple(int(x) for x in re.findall(r"\d+", str(text or ""))[:3])
+
+
 def simulation_supported() -> bool:
-    """Whether this llama.cpp can simulate a load (llama_model_params.no_alloc; 0.3.35 has it)."""
+    """Whether this llama.cpp can simulate a load: llama_model_params.no_alloc, in a version that
+    carries it out (MIN_SIMULATION_VERSION) instead of aborting the process."""
     if not _runtime_ready():
         return False
     try:
+        import llama_cpp
         from llama_cpp import llama_cpp as lc
+        if _version_tuple(getattr(llama_cpp, "__version__", "")) < MIN_SIMULATION_VERSION:
+            return False
         return "no_alloc" in {f[0] for f in lc.llama_model_params._fields_}
     except Exception:
         return False

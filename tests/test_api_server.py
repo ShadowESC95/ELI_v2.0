@@ -57,7 +57,7 @@ def tokenless_client(monkeypatch):
     request authenticates as the operator/admin."""
     monkeypatch.setenv("ELI_API_ALLOW_TOKENLESS", "1")
     monkeypatch.delenv("ELI_API_TOKEN", raising=False)
-    return TestClient(app)
+    return TestClient(app, base_url="http://localhost")
 
 
 @pytest.fixture
@@ -69,7 +69,7 @@ def secured():
     def _factory(monkeypatch):
         monkeypatch.delenv("ELI_API_ALLOW_TOKENLESS", raising=False)
         monkeypatch.setenv("ELI_API_TOKEN", token)
-        return TestClient(app), token
+        return TestClient(app, base_url="http://localhost"), token
 
     return _factory
 
@@ -168,7 +168,7 @@ def test_health_is_tokenless(monkeypatch):
     # Health must answer even in fully-secured LAN mode (used by the PWA self-heal).
     monkeypatch.delenv("ELI_API_ALLOW_TOKENLESS", raising=False)
     monkeypatch.setenv("ELI_API_TOKEN", "x")
-    r = TestClient(app).get("/health")
+    r = TestClient(app, base_url="http://localhost").get("/health")
     assert r.status_code == 200 and r.json()["status"] == "healthy"
 
 
@@ -393,3 +393,24 @@ def test_home_mesh_config_partial_update_preserves_other_fields(tokenless_client
     finally:
         home_mesh.save_config({**home_mesh.load_config(), "role": "off",
                                "node_name": "Eli · Home", "primary_url": ""})
+
+
+def test_a_request_naming_another_site_gets_no_tokenless_grant(monkeypatch):
+    """A page that points its own domain at 127.0.0.1 (DNS rebinding) reaches the server from
+    loopback; the name it used, the Host header, is the page's domain, and that is not this machine."""
+    monkeypatch.setenv("ELI_API_ALLOW_TOKENLESS", "1")
+    monkeypatch.delenv("ELI_API_TOKEN", raising=False)
+    monkeypatch.delenv("ELI_API_ALLOWED_HOSTS", raising=False)
+    assert TestClient(app, base_url="http://localhost").get("/v1/system").status_code == 200
+    assert TestClient(app, base_url="http://127.0.0.1:8081").get("/v1/system").status_code == 200
+    assert TestClient(app, base_url="http://rebind.example:8081").get("/v1/system").status_code == 401
+    monkeypatch.setenv("ELI_API_ALLOWED_HOSTS", "eli.home.example")
+    assert TestClient(app, base_url="http://eli.home.example").get("/v1/system").status_code == 200
+
+
+def test_a_token_still_works_by_any_name(monkeypatch):
+    monkeypatch.delenv("ELI_API_ALLOW_TOKENLESS", raising=False)
+    monkeypatch.setenv("ELI_API_TOKEN", "tok-xyz-123")
+    c = TestClient(app, base_url="http://proxy.example")
+    assert c.get("/v1/system").status_code == 401
+    assert c.get("/v1/system", headers={"Authorization": "Bearer tok-xyz-123"}).status_code == 200

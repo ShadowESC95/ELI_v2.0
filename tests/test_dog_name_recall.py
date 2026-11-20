@@ -128,3 +128,21 @@ def test_add_conversation_turn_promotes_fact_to_kg(tmp_path):
     rels = {(r["predicate"], r["object"]) for r in (get_knowledge_graph().query_entity("User") or {}).get("outbound", [])}
     assert ("has_dog", "Rexington") in rels, f"promotion did not reach the KG; got {rels}"
     reset_knowledge_graph()
+
+
+@pytest.mark.parametrize("said, liked", [
+    ("I dislike mushrooms.", None),
+    ("I do not like horror films.", None),
+    ("I really don't like my job.", None),
+    ("It looks like rain.", None),
+    ("I would like to cancel that.", None),
+    ("I really like jazz.", "jazz"),
+    ("User prefers dark mode.", "dark mode"),
+    ("I love long walks.", "long walks"),
+])
+def test_only_what_the_user_likes_is_stored_as_a_liking(kg, said, liked):
+    """With no word boundary and no subject, dislikes, refusals and "looks like rain" became likes."""
+    kg.extract_from_memory(said, source="user")
+    likes = [r["object"].lower() for r in (kg.query_entity("User") or {}).get("outbound", [])
+             if r["predicate"] == "prefers"]
+    assert likes == ([liked] if liked else [])
