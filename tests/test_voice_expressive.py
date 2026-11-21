@@ -45,7 +45,12 @@ def test_default_list_hides_robotic_and_low_quality():
     voices = tr.list_voices()
     assert not any(v.startswith("sys:") for v in voices), "espeak voices must be hidden"
     assert not any(tr._is_low_quality_piper(v) for v in voices), "low-qual voices must be hidden"
-    # there should still be natural-sounding voices offered
+    # there should still be natural-sounding voices offered, where a good Piper voice is installed
+    # (setup downloads them; a clone has none)
+    good = [f.stem for d in tr._voice_search_dirs() for f in d.glob("*.onnx")
+            if tr._has_piper_config(f) and not tr._is_low_quality_piper(f.stem)]
+    if not good:
+        pytest.skip("no medium or high Piper voice on this box (CI clone)")
     assert any(v.startswith("en_") and v.endswith(("-medium", "-high")) for v in voices)
 
 
