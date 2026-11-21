@@ -445,6 +445,35 @@ def infer_script_language(text: str) -> str:
     return "auto"
 
 
+# Code asked for with its testing or verification: "write a script that renames files and test it",
+# "implement a function that reverses a string and make sure it works". One task for the verified
+# coding agent (CODE_SOLVE), which writes, runs and repairs it. Read as a script to write and a second
+# command "test it", the script was written unchecked and "test it" went to chat.
+_TESTED_CODE_RE = re.compile(
+    r"\b(?:code[\s_-]?solve"
+    r"|solve\s+(?:this\s+|the\s+)?(?:coding|programming|algorithm|leetcode|kata)"
+    r"|(?:implement|write|build|create|make|generate|develop|fix|code)\b[^.?!]*\b(?:and|with|then|that)\b[^.?!]*"
+    r"\b(?:tested|test|tests|verify|verified|unit\s+tests?|passes?\s+tests?|make\s+sure\s+it\s+(?:works|passes|runs))\b"
+    r"|verified\s+(?:code|solution|implementation)"
+    r"|use\s+the\s+coding\s+agent)\b", re.I)
+# What makes it code: a verb that only code takes, or a thing that is code.
+_CODE_CONTEXT_RE = re.compile(
+    r"\b(?:implement|code|refactor|debug|coding|programming|algorithm|leetcode|kata)\b"
+    r"|\b(?:script|code|program(?:me)?|module|tool|app|function|class|method|algorithm|parser|api|library|"
+    r"package|cli|bot|game|regex|snippet|solution|implementation)s?\b", re.I)
+# The tests are the thing to write ("write unit tests for the parser"): GENERATE_TESTS, not this.
+_WRITES_TESTS_RE = re.compile(
+    r"\b(?:generate|write|create|add)\s+(?:some\s+|more\s+|the\s+|a\s+few\s+)?"
+    r"(?:behaviou?ral\s+|unit\s+|integration\s+)?tests?\b", re.I)
+
+
+def asks_for_tested_code(text: str) -> bool:
+    """Whether a request asks for code to be written and tested or verified (CODE_SOLVE)."""
+    norm = normalise_voice_text(text)
+    return bool(_TESTED_CODE_RE.search(norm) and _CODE_CONTEXT_RE.search(norm)
+                and not _WRITES_TESTS_RE.search(norm) and not _looks_like_generation_complaint(norm))
+
+
 def _looks_like_generation_complaint(norm: str) -> bool:
     if not norm:
         return False
@@ -757,7 +786,9 @@ def try_route(text: str) -> Optional[dict]:
             and not _negated_generation
             and not _subordinate_generation
             and not _make_idiom_only
-            and not _code_is_reference):
+            and not _code_is_reference
+            # code to be tested as well as written is the coding agent's (the router's CODE_SOLVE)
+            and not asks_for_tested_code(raw)):
         language = infer_script_language(raw)
         return {
             "action": "GENERATE_SCRIPT",

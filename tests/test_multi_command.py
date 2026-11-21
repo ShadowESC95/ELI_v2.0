@@ -189,6 +189,25 @@ def test_verbs_listed_inside_what_is_asked_for_are_not_instructions(text):
     assert len(read_message(text, chains=True)) == 1
 
 
+@pytest.mark.parametrize("text", [
+    "write a script that renames files and test it",
+    "write a python script that sorts a list and tests it",
+    "make a script that sorts a list and make sure it works",
+    "write a bash script that backs up a folder, and test it",
+])
+def test_code_to_write_and_test_is_one_task_for_the_coding_agent(text):
+    """"write a script that renames files and test it" was split into a script to write and a second
+    command "test it", which went to chat: the script was written unchecked."""
+    got = route(text)
+    assert got["action"] == "CODE_SOLVE", got
+    assert got["args"]["description"] == text
+
+
+def test_writing_tests_and_writing_a_plain_script_keep_their_own_actions():
+    assert route("write unit tests for the parser")["action"] == "GENERATE_TESTS"
+    assert route("write a script that renames files")["action"] == "GENERATE_SCRIPT"
+
+
 @pytest.mark.parametrize("text, parts", [
     ("open spotify and pause", ["open spotify", "pause"]),
     ("remind me to call mum and open spotify", ["remind me to call mum", "open spotify"]),

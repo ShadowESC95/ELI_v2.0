@@ -657,6 +657,21 @@ def _eli_schedule_prepass(user_text: str):
     }
 
 
+from eli.execution.portable_intent_contract import asks_for_tested_code as _asks_for_tested_code  # noqa: E402
+
+
+def _code_solve_route(raw: str) -> Dict[str, Any]:
+    """CODE_SOLVE for a request to write code and test it, in the language it names (Python when it
+    names none)."""
+    _cs_lang = "python"
+    _cs_lm = re.search(r"\b(bash|shell|javascript|js|typescript|ts|ruby|go|golang|lua)\b", str(raw or "").lower())
+    if _cs_lm:
+        _cs_lang = {"js": "javascript", "ts": "typescript", "golang": "go",
+                    "shell": "bash"}.get(_cs_lm.group(1), _cs_lm.group(1))
+    return _mk("CODE_SOLVE", {"description": raw, "language": _cs_lang}, 0.95,
+               matched_by="dev.code_solve")
+
+
 def _eli_multi_command_prepass(user_text: str):
     """Detect one utterance chaining MULTIPLE imperative commands → MULTI_COMMAND.
 
@@ -3795,21 +3810,8 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # CODE_SOLVE — the verified coding agent (plan → DAG/tree search → execute →
     # repair). Takes precedence over GENERATE_SCRIPT for requests that ask for
     # verification/testing/robustness; plain "write a script" stays GENERATE_SCRIPT.
-    _CODE_SOLVE_RE = re.compile(
-        r"\b(?:code[\s_-]?solve"
-        r"|solve\s+(?:this\s+|the\s+)?(?:coding|programming|algorithm|leetcode|kata)"
-        r"|(?:implement|write|build|create|fix|code)\b[^.?!]*\b(?:and|with|then|that)\b[^.?!]*"
-        r"\b(?:tested|test|tests|verify|verified|unit\s+tests?|passes?\s+tests?|make\s+sure\s+it\s+(?:works|passes|runs))\b"
-        r"|verified\s+(?:code|solution|implementation)"
-        r"|use\s+the\s+coding\s+agent)\b", re.I)
-    if not _GENERATION_COMPLAINT and _CODE_SOLVE_RE.search(raw):
-        _cs_lang = "python"
-        _cs_lm = re.search(r"\b(bash|shell|javascript|js|typescript|ts|ruby|go|golang|lua)\b", low)
-        if _cs_lm:
-            _cs_lang = {"js": "javascript", "ts": "typescript", "golang": "go",
-                        "shell": "bash"}.get(_cs_lm.group(1), _cs_lm.group(1))
-        return _mk("CODE_SOLVE", {"description": raw, "language": _cs_lang}, 0.95,
-                   matched_by="dev.code_solve")
+    if not _GENERATION_COMPLAINT and _asks_for_tested_code(raw):
+        return _code_solve_route(raw)
 
     if not _GENERATION_COMPLAINT and (any(p in low for p in code_triggers) or _CODE_SCRIPT_RE.search(raw)):
         return _mk("GENERATE_SCRIPT", {"description": raw, "use_gguf_only": True,
@@ -8788,10 +8790,6 @@ try:
                 )
                 if low2.startswith(_complaint_starts) or any(f in low2 for f in _complaint_frags):
                     return None
-                # Defer test-generation requests to GENERATE_TESTS (self-improvement guard).
-                if _rgs.search(r"\b(generate|write|create)\b", low2) and \
-                   _rgs.search(r"\b(behaviou?ral\s+|unit\s+)?tests?\b", low2):
-                    return None
                 # Skip questions
                 if raw2.rstrip().endswith("?"):
                     return None
@@ -8811,6 +8809,15 @@ try:
                 if _rgs.search(
                     r"\b(?:not|don'?t|never|no|stop|without|rather\s+than|instead\s+of)\b\s+\w*\s*"
                     r"(?:generate|write|create|build|make)\b", low2):
+                    return None
+                # Code to write and test is one task for the coding agent, decided here before the
+                # message is split ("write a script that renames files" + "test it") or taken for a
+                # plain script.
+                if _asks_for_tested_code(raw2):
+                    return _eli_schedule_prepass(raw2) or _code_solve_route(raw2)
+                # Defer test-generation requests to GENERATE_TESTS (self-improvement guard).
+                if _rgs.search(r"\b(generate|write|create)\b", low2) and \
+                   _rgs.search(r"\b(behaviou?ral\s+|unit\s+)?tests?\b", low2):
                     return None
                 # Non-code creative scripts (film/podcast/etc.) → skip
                 _NON_CODE_SCRIPT2 = _rgs.compile(
