@@ -1319,12 +1319,9 @@ def _eli_runtime_clear_stale_env_paths():
 
     if dropped:
         # the path resolvers may have read a dropped variable already
-        try:
-            from eli.core import paths as _paths
-            for _fn in (_paths.data_dir, _paths.config_dir, _paths.cache_dir):
-                _fn.cache_clear()
-        except Exception:
-            log.debug("could not reset the path resolvers", exc_info=True)
+        from eli.core import paths as _paths
+        for _fn in (_paths.data_dir, _paths.config_dir, _paths.cache_dir):
+            _fn.cache_clear()
 
 
 

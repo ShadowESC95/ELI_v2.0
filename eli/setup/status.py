@@ -56,7 +56,8 @@ def _model_folders() -> List[Path]:
     try:
         from eli.core.paths import models_dir
         folders.append(Path(models_dir()))
-    except Exception:
+    except (ImportError, OSError, RuntimeError, ValueError):
+        # without the path resolver (a broken tree) only the program's own models/ is looked in
         log.debug("models folder unavailable", exc_info=True)
     folders.append(project_root() / "models")
     return folders
