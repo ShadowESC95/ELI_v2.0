@@ -5322,37 +5322,48 @@ def _h_mcp_call(a: str, args: Dict[str, Any]) -> Dict[str, Any]:
 _POMODORO_WORK_MIN = 25
 _POMODORO_BREAK_MIN = 5
 
+# Action synonyms: the model sometimes emits a name that means an existing handler (NEWS_SEARCH,
+# daily/weekly report). Normalised to the real action so it doesn't fall through to "Unsupported
+# executor action".
+_ACTION_ALIASES = {
+    "NEWS_SEARCH": "NEWS_FETCH",
+    "FETCH_NEWS": "NEWS_FETCH",
+    "GET_NEWS": "NEWS_FETCH",
+    "WEBSITE_SEARCH": "WEB_SEARCH",
+    "WEBSITES_SEARCH": "WEB_SEARCH",
+    "SEARCH_WEB": "WEB_SEARCH",
+    "DAILY_REPORT": "MORNING_REPORT",
+    "WEEKLY_REPORT": "MORNING_REPORT",
+    # The LLM resolver often emits these for "list <dir>"; none are registered, so
+    # without aliasing they fall to CHAT and the model CONFABULATES the listing.
+    "LIST_FILE": "LIST_DIR",
+    "LIST_FILES": "LIST_DIR",
+    "LIST_DIRECTORY": "LIST_DIR",
+    "LIST_CONTENTS": "LIST_DIR",
+    "LS": "LIST_DIR",
+    "CREATE_DOC": "CREATE_DOCUMENT",
+    "WRITE_DOCUMENT": "CREATE_DOCUMENT",
+    # The portable app layer answers these when the app opens or closes; when it does not, they
+    # went on as themselves, which no branch handles, and ended as "Unsupported executor action"
+    # with no install offer. They are OPEN_APP and CLOSE_APP from there on.
+    "LAUNCH_APP": "OPEN_APP",
+    "OPEN_APPLICATION": "OPEN_APP",
+    "CLOSE_APPLICATION": "CLOSE_APP",
+    "EXIT_APP": "CLOSE_APP",
+    "QUIT_APP": "CLOSE_APP",
+}
+
+
+def _canonical_action(action: Any) -> str:
+    """The action a name means: upper case, spaces and dashes as underscores (open_app, OPEN_APP,
+    open-app), synonyms resolved."""
+    a = re.sub(r"[\s\-]+", "_", (str(action) if action is not None else "").strip()).upper()
+    return _ACTION_ALIASES.get(a, a)
+
 
 def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     args = args or {}
-    # Normalize action for dispatch (accept open_app, OPEN_APP, open-app, etc.)
-    a = (str(action) if action is not None else "").strip()
-    a = re.sub(r"[\s\-]+", "_", a)
-    a = a.upper()
-
-    # Action synonyms: the model sometimes emits a name that means an existing handler (NEWS_SEARCH,
-    # daily/weekly report). Normalise to the real action so it doesn't fall through to "Unsupported
-    # executor action".
-    _ACTION_ALIASES = {
-        "NEWS_SEARCH": "NEWS_FETCH",
-        "FETCH_NEWS": "NEWS_FETCH",
-        "GET_NEWS": "NEWS_FETCH",
-        "WEBSITE_SEARCH": "WEB_SEARCH",
-        "WEBSITES_SEARCH": "WEB_SEARCH",
-        "SEARCH_WEB": "WEB_SEARCH",
-        "DAILY_REPORT": "MORNING_REPORT",
-        "WEEKLY_REPORT": "MORNING_REPORT",
-        # The LLM resolver often emits these for "list <dir>"; none are registered, so
-        # without aliasing they fall to CHAT and the model CONFABULATES the listing.
-        "LIST_FILE": "LIST_DIR",
-        "LIST_FILES": "LIST_DIR",
-        "LIST_DIRECTORY": "LIST_DIR",
-        "LIST_CONTENTS": "LIST_DIR",
-        "LS": "LIST_DIR",
-        "CREATE_DOC": "CREATE_DOCUMENT",
-        "WRITE_DOCUMENT": "CREATE_DOCUMENT",
-    }
-    a = _ACTION_ALIASES.get(a, a)
+    a = _canonical_action(action)
 
     # Gather evidence before generating a document/script/project (code, web, memory, runtime) so
     # the generator works from real findings. Idempotent: skipped when _evidence is already there, so
@@ -12274,7 +12285,9 @@ def execute(action: str, args: Optional[Dict[str, Any]] = None, **kwargs) -> Dic
         args = action.get("args", args) or args
         action = action.get("action", "")
     action = action if isinstance(action, str) else ""
-    a = action.upper().strip()
+    # Synonyms resolve here, before the pre-dispatch checks: LAUNCH_APP has to get OPEN_APP's
+    # install offer, not only its branch.
+    a = action = _canonical_action(action)
 
     # Pre-dispatch action overrides (formerly applied via monkey-patch wrappers).
     _override = _action_pre_dispatch(action, args, **kwargs)

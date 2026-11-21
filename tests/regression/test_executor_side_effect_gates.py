@@ -233,6 +233,34 @@ def test_the_end_of_a_pomodoro_is_announced_and_a_stopped_one_is_not(monkeypatch
         agenda.set_delivery(None)
 
 
+@pytest.mark.parametrize("alias", ["LAUNCH_APP", "OPEN_APPLICATION"])
+def test_an_open_app_alias_gets_the_install_offer_when_the_app_is_missing(monkeypatch, alias):
+    """When the portable layer could not open the app, the alias went on as itself, which nothing
+    handles: "Unsupported executor action", and no offer to install it."""
+    import eli.system.portable_app_control as pac
+    from eli.runtime import grounded_remediation as gr
+    monkeypatch.setattr(pac, "open_app", lambda *a, **k: {"ok": False, "error": "not found"})
+    monkeypatch.setattr(gr, "diagnose_app", lambda name: {"ok": False, "subject": name})
+    monkeypatch.setattr(gr, "offer_for_result", lambda diag: f"{diag['subject']} is not installed. Install it?")
+    result = _executor().execute(alias, {"name": "zz-sketchpad"})
+    assert "Unsupported" not in result["response"]
+    # (a repeat across these cases adds the post-dispatch "attempt N" line to the same answer)
+    assert result["response"].startswith("zz-sketchpad is not installed. Install it?")
+
+
+@pytest.mark.parametrize("alias", ["CLOSE_APPLICATION", "EXIT_APP", "QUIT_APP"])
+def test_a_close_app_alias_is_handled_as_close_app(monkeypatch, alias):
+    import eli.system.portable_app_control as pac
+    import eli.system.process_guard as pg
+    ex = _executor()
+    monkeypatch.setattr(pac, "close_app", lambda *a, **k: {"ok": False, "error": "no window"})
+    monkeypatch.setattr(ex, "_run_ok", lambda *a, **k: False)
+    monkeypatch.setattr(pg, "safe_pkill", lambda name, full_cmdline=False: {"ok": False, "reason": "not running"})
+    result = ex.execute(alias, {"name": "zz-sketchpad"})
+    # (a repeat across these cases adds the post-dispatch "attempt N" line to the same answer)
+    assert result["response"].startswith("Could not close zz-sketchpad (not running).")
+
+
 def test_open_url_uses_mocked_helper(monkeypatch):
     ex = _executor()
 
