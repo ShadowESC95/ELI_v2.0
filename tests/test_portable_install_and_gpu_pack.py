@@ -54,3 +54,18 @@ def test_gpu_pack_activate_relaxes_vulkan_igpu():
     spec.loader.exec_module(gp)
     assert hasattr(gp, "_relax_offload_verify")
     assert gp._relax_offload_verify(P("/tmp/no-such-eli-gpu-pack")) is False
+
+
+def test_the_portable_readme_names_the_commands_and_setup_that_exist():
+    """README_INSTALL.txt said the command was ~/.local/bin/eli and the Windows installer
+    ELI_v2-*-Setup.exe: setup installs eli-v2 and eli2, and the release's Setup is ELI-Setup-<v>.exe."""
+    import re
+    script = Path("scripts/package_desktop_app.sh").read_text(encoding="utf-8")
+    readme = script.split('cat > "$STAGING/README_INSTALL.txt" <<README_EOF', 1)[1].split("README_EOF", 1)[0]
+    iss = Path("packaging/windows/installer.iss").read_text(encoding="utf-8")
+    setup_name = re.search(r"OutputBaseFilename=(\S+)\{#MyAppVersion\}", iss).group(1)
+    assert f"{setup_name}*.exe" in readme
+    fix = Path("scripts/fix_eli_shell_env.sh").read_text(encoding="utf-8")
+    commands = re.findall(r'install_eli_command\.sh" --force --name (\S+)', fix)
+    assert commands and all(f"~/.local/bin/{c}" in readme for c in commands), commands
+    assert not re.search(r"~/\.local/bin/eli(?![-\w])", readme), "names a command setup does not install"

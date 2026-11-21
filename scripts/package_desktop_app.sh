@@ -337,7 +337,7 @@ Linux AppImage (double-click after chmod +x):
   See GitHub Releases — ELI_v2-*-x86_64.AppImage
 
 Windows Setup.exe:
-  See GitHub Releases — ELI_v2-*-Setup.exe (or ELI_Setup.bat inside the zip)
+  See GitHub Releases — ELI-Setup-*.exe (or ELI_Setup.bat inside the zip)
 
 Classic portable:
   1. ./INSTALL_ELI.sh
@@ -346,7 +346,7 @@ Classic portable:
 
 Daily use:
   ./RUN_ELI.sh
-  eli    (after INSTALL_ELI.sh installs ~/.local/bin/eli)
+  eli-v2    (or eli2: the commands setup installs in ~/.local/bin)
 
 Model/voice pack (separate download — tag: local-assets-v2.1):
   gh auth login
@@ -361,8 +361,8 @@ Data folders (auto-created on first run):
   artifacts/db/  artifacts/runtime/  config/
 
 Terminal command:
-  INSTALL_ELI.sh installs ~/.local/bin/eli by default.
-  If your shell cached an older eli: hash -r
+  Setup installs ~/.local/bin/eli-v2 and ~/.local/bin/eli2 (later: bash scripts/fix_eli_shell_env.sh).
+  If your shell cached an older one: hash -r
 
 Licence:
   ELI is open source under the Apache License 2.0 — use, modify and share
