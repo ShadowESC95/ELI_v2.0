@@ -255,7 +255,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 
 | Action | What it does | Example activation phrase(s) | Source |
 |---|---|---|---|
-| `PLUGIN_STATUS` | Status of one plugin; reached through the intent resolver (“list plugins” lists them all) | (no dedicated phrase) | Core |
+| `PLUGIN_STATUS` | The plugin system's status: how many plugins are installed and in the registry, and whether each installed one loaded (OK, disabled, or the error it did not load with) | “plugin status” · “check plugin health” · “are my plugins working?” | Core |
 | `MCP_LIST` | List configured MCP servers | “list mcp servers” | Core |
 | `MCP_STATUS` | Status of MCP servers and their tools | “mcp status” | Core |
 | `MCP_TOOLS` | List the tools MCP servers expose | “list mcp tools” | Core |
@@ -263,7 +263,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `MCP_ADD` | Add an MCP server (installed switched off until you enable it) | “add an mcp server” | Core |
 | `MCP_REMOVE` | Remove an MCP server | “remove the mcp server github” | Core |
 | `MCP_DOCTOR` | Check MCP servers: launch preflight and handshake | “mcp doctor” · “check my mcp servers” | Core |
-| `PLUGIN_LIST` | List installed plugins | “list plugins” | Core |
+| `PLUGIN_LIST` | List the plugins in the registry, marking the installed ones; “list installed plugins” lists only those | “list plugins” · “list installed plugins” | Core |
 | `PLUGIN_SEARCH` | Search for plugins | “search plugins for weather” | Core |
 | `PLUGIN_INSTALL` | Install a plugin | “install the X plugin” | Core |
 | `PLUGIN_UNINSTALL` | Uninstall a plugin | “uninstall the X plugin” | Core |

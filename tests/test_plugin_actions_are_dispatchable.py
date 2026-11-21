@@ -258,3 +258,19 @@ def test_plugin_status_reports_each_plugin_as_its_loader_found_it(installed, mon
     text = execute("PLUGIN_STATUS", {})["response"]
     assert re.search(r"greeter\s+OK", text), text
     assert re.search(r"broken\s+ERROR: RuntimeError: needs a library that is not installed", text), text
+
+
+@pytest.mark.parametrize("said", ["plugin status", "check plugin health", "what's the status of my plugins",
+                                  "are my plugins working?", "show plugin status"])
+def test_plugin_status_is_reached_by_asking_how_the_plugins_are(said):
+    """"plugin status", the manual's phrase, listed the installed plugins (PLUGIN_LIST), so their
+    health was never shown."""
+    from eli.execution.router_enhanced import route
+    assert route(said)["action"] == "PLUGIN_STATUS"
+
+
+@pytest.mark.parametrize("said,scope", [("list plugins", "all"), ("list installed plugins", "installed")])
+def test_listing_plugins_still_lists_them(said, scope):
+    from eli.execution.router_enhanced import route
+    got = route(said)
+    assert got["action"] == "PLUGIN_LIST" and got["args"]["scope"] == scope

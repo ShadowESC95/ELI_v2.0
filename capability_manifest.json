@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-21T05:27:14",
+  "generated_at": "2026-11-21T06:28:52",
   "total": 232,
   "capabilities": [
     {
@@ -1379,9 +1379,9 @@
     },
     {
       "action": "PLUGIN_STATUS",
-      "source": "executor",
+      "source": "executor+router",
       "plugin": null,
-      "routable": false,
+      "routable": true,
       "in_dispatch": true,
       "in_supported_list": true,
       "needs": []

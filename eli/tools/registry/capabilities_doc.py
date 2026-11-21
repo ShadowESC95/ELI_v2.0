@@ -242,7 +242,7 @@ _add("Conversation & persona", "SET_AI_MODE", "Set the reasoning mode (Quick, No
 _add("Memory & profile", "USER_INFO_REPORT", "Full report of the living user profile; reached through the intent resolver", "(no dedicated phrase)")
 _add("Vision & screen", "IMAGE_STATUS", "Status of the latest image job", "“what is the latest image status”", "“image status”")
 _add("Generation (docs/code)", "DOC_GENERATE", "Alias of GENERATE_DOCUMENT", "(no phrase of its own: “generate a document about tides” goes to GENERATE_DOCUMENT)")
-_add("Plugins", "PLUGIN_STATUS", "Status of one plugin; reached through the intent resolver (“list plugins” lists them all)", "(no dedicated phrase)")
+_add("Plugins", "PLUGIN_STATUS", "The plugin system's status: how many plugins are installed and in the registry, and whether each installed one loaded (OK, disabled, or the error it did not load with)", "“plugin status”", "“check plugin health”", "“are my plugins working?”")
 _add("Plugins", "MCP_LIST", "List configured MCP servers", "“list mcp servers”")
 _add("Plugins", "MCP_STATUS", "Status of MCP servers and their tools", "“mcp status”")
 _add("Plugins", "MCP_TOOLS", "List the tools MCP servers expose", "“list mcp tools”")
@@ -293,7 +293,7 @@ _add("Proactive", "GET_PROPOSALS", "ELI's self-generated proposals/goals from ob
 _add("Proactive", "MORNING_REPORT", "The last 24 hours of activity (apps, conversation topics, failures, repeated actions) and news on your interests when the network is on, titled for the time of day; no weather or agenda", "“morning report”", "“give me the morning report”")
 
 # ── Plugins ─────────────────────────────────────────────────────────────────
-_add("Plugins", "PLUGIN_LIST", "List installed plugins", "“list plugins”")
+_add("Plugins", "PLUGIN_LIST", "List the plugins in the registry, marking the installed ones; “list installed plugins” lists only those", "“list plugins”", "“list installed plugins”")
 _add("Plugins", "PLUGIN_SEARCH", "Search for plugins", "“search plugins for weather”")
 _add("Plugins", "PLUGIN_INSTALL", "Install a plugin", "“install the X plugin”")
 _add("Plugins", "PLUGIN_UNINSTALL", "Uninstall a plugin", "“uninstall the X plugin”")

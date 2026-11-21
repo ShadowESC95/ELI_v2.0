@@ -2261,6 +2261,17 @@ def when_said_topic(text: str) -> Optional[str]:
     return "" if _TIMESTAMPS_OF_RE.search(t) else None
 
 
+# Asked how the plugins are: "plugin status", "check plugin health", "what's the status of my
+# plugins", "are my plugins working?".
+_PLUGIN_STATUS_ASKED = re.compile(
+    r"^(?:(?:show|check|get|give|tell)\s+(?:me\s+)?(?:the\s+|my\s+)?|what(?:'s|\s+is)\s+(?:the\s+|my\s+)?)?"
+    r"(?:plug-?ins?\s+(?:system\s+)?(?:status|health)"
+    r"|(?:status|health)\s+of\s+(?:the\s+|my\s+|all\s+(?:the\s+|my\s+)?)?plug-?ins)"
+    r"(?:\s+please)?[?.!]*$"
+    r"|^(?:are|is)\s+(?:the\s+|my\s+|all\s+(?:the\s+|my\s+)?)?plug-?ins\s+"
+    r"(?:working|ok|okay|loaded|healthy|running|all\s+right|alright)\b[^,;]*$")
+
+
 def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     """`_clause_depth` is internal: the long-question guard re-routes a trailing
     clause through this same function, and must not recurse further than once."""
@@ -3479,6 +3490,10 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         pid = m.group(1).strip() if m else ""
         return _mk("PLUGIN_UNINSTALL", {"plugin": pid}, 0.95, matched_by="plugin.uninstall",
                    entities={"plugin": pid}, task_family="plugin")
+    # The plugin system's status (PLUGIN_STATUS: what is installed, what the registry has, and
+    # whether each installed plugin loaded). "plugin status", the manual's phrase, listed them.
+    if _PLUGIN_STATUS_ASKED.match(low):
+        return _mk("PLUGIN_STATUS", {}, 0.95, matched_by="plugin.status", task_family="plugin")
     if re.search(
             r"\b(?:list|show)\s+(?:all\s+)?(?:available\s+)?plugins\b", low):
         return _mk("PLUGIN_LIST", {"scope": "all"}, 0.95,
@@ -5514,9 +5529,8 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             return _mk("OPEN_BROWSER", {"query": query}, 0.90, matched_by="web.search",
                        entities={"query": query})
 
-    # Installed plugins / plugin status
-    if re.search(r"\binstalled\s+plugins\b",
-                 low) or low.strip() == "plugin status":
+    # Installed plugins
+    if re.search(r"\binstalled\s+plugins\b", low):
         return _mk("PLUGIN_LIST", {"scope": "installed"},
                    0.95, matched_by="plugin.list_installed")
 
