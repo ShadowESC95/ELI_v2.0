@@ -239,4 +239,9 @@ def test_creating_a_file_does_not_replace_one_unless_asked(tmp_path):
     assert r["ok"] and target.read_text(encoding="utf-8") == "replaced"
     asked = route(f"write a file called {target} containing hello and replace the old one")
     assert asked["action"] == "CREATE_FILE" and asked["args"].get("overwrite") is True
+    # the instruction about the file is not what goes in it: it wrote "hello and replace the old one"
+    assert asked["args"]["content"] == "hello"
     assert route(f"create a file called {target} containing hello")["args"].get("overwrite") is None
+    # and a word inside what the file holds is not that instruction
+    held = route(f"write a file called {target} containing find and replace tips")["args"]
+    assert held["content"] == "find and replace tips" and held.get("overwrite") is None

@@ -786,6 +786,18 @@ def _names_a_file(word: str) -> bool:
     return "." in word and word.rsplit(".", 1)[1].lower() in _FILE_EXTENSIONS
 
 
+# Told to replace the file that is there, after what a new file is to hold: "and replace the old one",
+# ", overwriting it", "and overwrite it if it exists". What the file holds ends there: "containing hello
+# and replace the old one" wrote all of that into it. "containing find and replace tips" is all content.
+_THE_FILE_ITSELF = (r"(?:it|one|the\s+(?:old|existing|current|previous|original|other)\s+(?:one|file|version|copy)"
+                    r"|(?:the|that|this|any|an)\s+(?:existing\s+|old\s+)?(?:one|file)"
+                    r"|what(?:ever)?(?:'?s|\s+is)\s+(?:already\s+)?there)")
+_OVERWRITE_THE_FILE = re.compile(
+    r"(?:\s*,\s*(?:and\s+)?(?:then\s+)?|\s+(?:and\s+(?:then\s+)?|then\s+)|\s+(?=overwriting|replacing))"
+    r"(?:please\s+)?(?:overwrit(?:e|ing)|replac(?:e|ing))(?:\s+" + _THE_FILE_ITSELF + r")?"
+    r"(?:\s+if\s+(?:it|one|the\s+file|there\s+is\s+one)\s+(?:already\s+)?(?:exists|is\s+there))?"
+    r"(?=\s*(?:[,.!?;]|\band\b|\bthen\b|$))", re.I)
+
 _IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif")
 
 # "the text in image.jpg", "all the words on scan.png", "the writing in the photo sign.png": the
@@ -4226,12 +4238,15 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                     _cf_path = _cf_dir.rstrip("/") + "/" + _cf_path
             _cf_content_m = re.search(
                 r"(?:containing|with\s+(?:the\s+)?(?:content|contents|text)|that\s+says|with)\s+(.+?)"
-                r"(?:,?\s*(?:then|and\s+(?:then\s+)?read|and\s+read\s+it\s+back)\b|[.!?]?\s*$)",
+                r"(?:,?\s*(?:then|and\s+(?:then\s+)?read|and\s+read\s+it\s+back)\b|"
+                + _OVERWRITE_THE_FILE.pattern + r"|[.!?]?\s*$)",
                 raw, re.IGNORECASE)
             _cf_content = (_cf_content_m.group(1).strip() if _cf_content_m else "")
             _cf_args = {"path": _cf_path, "content": _cf_content}
-            if re.search(r"\b(?:overwrit(?:e|ing)|replac(?:e|ing))\b", low):
-                _cf_args["overwrite"] = True        # said outright: the existing file is to go
+            # said outright, and not inside what the file is to hold ("containing find and replace tips")
+            _cf_said = (raw[:_cf_content_m.start(1)] + raw[_cf_content_m.end(1):]) if _cf_content_m else raw
+            if re.search(r"\b(?:overwrit(?:e|ing)|replac(?:e|ing))\b", _cf_said, re.I):
+                _cf_args["overwrite"] = True        # the existing file is to go
             return _mk("CREATE_FILE", _cf_args, 0.96, matched_by="fs.create_file")
 
     # "What date is it, and how many days ago was 09-09-2026?" asks for arithmetic as well; DATE
