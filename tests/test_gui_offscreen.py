@@ -96,6 +96,79 @@ def test_labs_container_builds_full_tree(qapp):
     assert len(w.findChildren(QWidget)) > 50
 
 
+class _Signal:
+    def __init__(self):
+        self.sent = []
+
+    def emit(self, text):
+        self.sent.append(text)
+
+
+def _window_with_labs():
+    """The main window's artifact-opening methods on a stand-in that holds a real Labs
+    tab (the full window cannot be built headless)."""
+    from PySide6.QtWidgets import QTabWidget
+    from eli.gui.eli_pro_audio_gui_v2_0 import EliMainWindow
+    from eli.gui.labs_tab import LabsTab
+
+    class _Win:
+        _open_generated_artifact_from_result = EliMainWindow._open_generated_artifact_from_result
+        open_script_in_editor = EliMainWindow.open_script_in_editor
+        _load_path_into_labs_sim_ide = EliMainWindow._load_path_into_labs_sim_ide
+        _focus_tab_widget = EliMainWindow._focus_tab_widget
+
+        def __init__(self):
+            self._labs_widget = LabsTab(parent_window=None)
+            self.tabs = QTabWidget()
+            self.tabs.addTab(self._labs_widget, "Labs")
+            self.status_signal = _Signal()
+            self.viewed = []
+
+        def open_text_file(self, path):
+            self.viewed.append(path)
+
+    return _Win()
+
+
+@pytest.mark.parametrize("name,code", [
+    ("tool.py", "print('hello')\n"),
+    ("tool.sh", "echo hello\n"),
+    ("tool.js", "console.log('hello');\n"),
+])
+def test_a_generated_script_of_any_language_opens_in_the_labs_editor(qapp, tmp_path, name, code):
+    """Scripts went to an IDE tab that was never built, so none opened (a .py only when
+    the result asked for Labs)."""
+    win = _window_with_labs()
+    script = tmp_path / name
+    script.write_text(code, encoding="utf-8")
+    win._open_generated_artifact_from_result({"action": "GENERATE_SCRIPT",
+                                              "script_path": str(script)})
+    sim = win._labs_widget._sim_ide_tab
+    assert sim._get_code() == code
+    assert sim._current_file == script
+    assert win.viewed == []
+
+
+def test_without_labs_a_generated_script_is_shown_read_only(qapp, tmp_path):
+    win = _window_with_labs()
+    win._labs_widget = None
+    script = tmp_path / "tool.sh"
+    script.write_text("echo hello\n", encoding="utf-8")
+    win._open_generated_artifact_from_result({"action": "WRITE_SCRIPT", "path": str(script)})
+    assert win.viewed == [script]
+
+
+@pytest.mark.skipif(__import__("shutil").which("bash") is None, reason="no bash here")
+def test_the_labs_runner_runs_a_script_with_its_own_interpreter(qapp, tmp_path):
+    """A shell script opened in Labs must not be run as Python."""
+    from eli.gui.labs_tab import _CodeRunnerThread
+    out = []
+    runner = _CodeRunnerThread("echo from-the-shell\n", str(tmp_path), ".sh")
+    runner.finished.connect(lambda so, se: out.append((so, se)))
+    runner.run()
+    assert out and out[0][0].strip() == "from-the-shell", out
+
+
 def test_calculator_tab_has_inputs(qapp):
     # A concrete sub-tab built its interactive surface (not just an empty frame).
     import eli.gui.labs_tab as lt

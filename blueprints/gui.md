@@ -151,12 +151,13 @@ the active user does, surfaced dynamically from their own data).
 
 ELI's built-in code editor: QScintilla when the running binding has it, else the native
 `code_editor.PyCodeEditor` (QScintilla has no PySide6 build). Starter snippets, New / Open /
-Save / Save As, **▶ Run** (the editor's Python in a separate process, 60 s limit, working
-folder the file's own or home; full process privileges, no sandbox), a console, and a
+Save / Save As, **▶ Run** (the editor's code in a separate process — Python, or a file of
+another language with its own interpreter from the coding sandbox's table — 60 s limit,
+working folder the file's own or home; full process privileges, no sandbox), a console, and a
 **Plot Output** panel that shows the image the starters save (`ELI_LABS_PLOT_DIR`, else the
 temp folder). **ELI: Fix errors** and **ELI: Explain** send the code (and the last error) to
-ELI and show the answer beside the editor; nothing is written into the editor. A Python
-script from `GENERATE_SCRIPT` opens here.
+ELI and show the answer beside the editor; nothing is written into the editor. A script
+from `GENERATE_SCRIPT`, in any language, opens here, as does a `.py` double-clicked in Files.
 
 ### Labs ▸ 🎓 Training (`tabs/training_tab.py`)
 
@@ -245,10 +246,9 @@ fail-closed rule true even when the UI is what failed.
   3. UI logic instantiating engine/memory directly makes a clean headless mode
      harder (there *is* `eli --headless`, but the GUI module re-implements
      bridges rather than sharing one service layer).
-  4. The main window still carries `create_ide_tab`, but `init_ui` never calls it, so there
-     is no IDE main tab. A generated Python script opens in Labs ▸ Sim / IDE; any other
-     generated script is sent to the missing tab and the status bar reports that it could
-     not be opened.
+  4. There is no IDE main tab: a generated script of any language opens in Labs ▸ Sim / IDE
+     (`open_script_in_editor`), or read-only when Labs could not be built — never with the
+     system's default app, which runs some script types instead of showing them.
 
 
 ### Marketplace panes and the one-click path

@@ -15,7 +15,7 @@ Four real pieces combine:
    one generation by the local model, refused when it is a template or a stub, checked that
    Python compiles (one retry if not), saved under ELI's `scripts/` folder and opened in
    **Labs ▸ 🔬 Sim / IDE**. It is not run for you.
-2. **Labs ▸ Sim / IDE** — **▶ Run** executes the editor's Python in a separate process (60 s
+2. **Labs ▸ Sim / IDE** — **▶ Run** executes the editor's code in a separate process (60 s
    limit, your own permissions, not sandboxed) and the **Plot Output** panel shows the image
    the code saves to the Labs plot file (`ELI_LABS_PLOT_DIR`, else the temp folder; the
    *Starter* examples do this). See `ide_guide.md`.

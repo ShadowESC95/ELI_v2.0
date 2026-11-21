@@ -86,26 +86,6 @@ except ImportError as _pyside_error:
                 print(_why.encode("ascii", "replace").decode("ascii"))
             sys.exit(1)
 
-# Try to import syntax highlighter.
-# QScintilla has no PySide6 binding (Riverbank ships Qsci for PyQt only).
-# On PySide6 the IDE editor falls back to QTextEdit with basic styling.
-try:
-    if QT_API == "PyQt6":
-        from PyQt6.Qsci import QsciScintilla, QsciLexerPython
-        QSCI_AVAILABLE = True
-    elif QT_API == "PyQt5":
-        from PyQt5.Qsci import QsciScintilla, QsciLexerPython
-        QSCI_AVAILABLE = True
-    else:
-        QSCI_AVAILABLE = False
-except ImportError:
-    QSCI_AVAILABLE = False
-
-if not QSCI_AVAILABLE:
-    print("ℹ️  IDE using ELI's native code editor (line numbers, Python "
-          "highlighting, auto-indent). QScintilla is used instead only when "
-          "ELI runs under PyQt6/PyQt5.")
-
 # --- Central ELI imports ---
 try:
     from eli.core import config
@@ -6359,60 +6339,6 @@ class EliMainWindow(QMainWindow):
         self._sc_ocr_btn.setEnabled(False)
         self._sc_analyse_btn.setEnabled(False)
 
-    def create_ide_tab(self):
-        ide_widget = QWidget()
-        layout = QVBoxLayout(ide_widget)
-        header = QLabel("⌨️  Integrated Development Environment")
-        header.setStyleSheet("font-size: 13px; font-weight: bold; padding: 6px;")
-        layout.addWidget(header)
-        toolbar = QHBoxLayout()
-        self.current_file_label = QLabel("No file open")
-        toolbar.addWidget(self.current_file_label)
-        toolbar.addStretch()
-        new_file_btn = QPushButton("📄 New")
-        new_file_btn.clicked.connect(self.ide_new_file)
-        toolbar.addWidget(new_file_btn)
-        open_file_btn = QPushButton("📂 Open")
-        open_file_btn.clicked.connect(self.ide_open_file)
-        toolbar.addWidget(open_file_btn)
-        save_file_btn = QPushButton("💾 Save")
-        save_file_btn.clicked.connect(self.ide_save_file)
-        toolbar.addWidget(save_file_btn)
-        save_as_btn = QPushButton("💾 Save As")
-        save_as_btn.clicked.connect(self.ide_save_as)
-        toolbar.addWidget(save_as_btn)
-        run_btn = QPushButton("▶️ Run")
-        run_btn.clicked.connect(self.ide_run_code)
-        toolbar.addWidget(run_btn)
-        layout.addLayout(toolbar)
-        if QSCI_AVAILABLE:
-            self.code_editor = QsciScintilla()
-            self.code_editor.setLexer(QsciLexerPython(self.code_editor))
-            self.code_editor.setMarginType(0, QsciScintilla.MarginType.NumberMargin)
-            self.code_editor.setMarginWidth(0, "00000")
-            self.code_editor.setTabWidth(4)
-            self.code_editor.setIndentationsUseTabs(False)
-            self.code_editor.setAutoIndent(True)
-        else:
-            # Native full editor (line numbers, highlighting, auto-indent) —
-            # QScintilla has no PySide6 build, so this IS the shipped editor.
-            from eli.gui.code_editor import PyCodeEditor
-            self.code_editor = PyCodeEditor()
-        layout.addWidget(self.code_editor, stretch=7)
-        console_group = QGroupBox("Console Output")
-        console_layout = QVBoxLayout(console_group)
-        self.console_output = QTextEdit()
-        self.console_output.setReadOnly(True)
-        self.console_output.setMaximumHeight(200)
-        console_layout.addWidget(self.console_output)
-        clear_console_btn = QPushButton("Clear Console")
-        clear_console_btn.clicked.connect(lambda: self.console_output.clear())
-        console_layout.addWidget(clear_console_btn)
-        layout.addWidget(console_group, stretch=3)
-        self._ide_widget = ide_widget
-        self.tabs.addTab(ide_widget, "⌨️  IDE")
-        self.current_file_path = None
-
     def send_to_chat(self, text: str) -> None:
         """Submit `text` to the main chat programmatically so a panel's reply streams
         into the conversation (not the panel). Switches to the Chat tab and runs the
@@ -11224,22 +11150,6 @@ class EliMainWindow(QMainWindow):
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
-    def _load_path_into_main_ide(self, path: Path) -> bool:
-        try:
-            content = path.read_text(encoding='utf-8', errors='replace')
-            if QSCI_AVAILABLE:
-                self.code_editor.setText(content)
-            else:
-                self.code_editor.setPlainText(content)
-            self.current_file_path = str(path)
-            self.current_file_label.setText(f"File: {path.name}")
-            self._focus_tab_widget(getattr(self, "_ide_widget", None))
-            self.status_signal.emit(f"Opened in IDE: {path.name}")
-            return True
-        except Exception as e:
-            self.status_signal.emit(f"Failed to open generated script in IDE: {e}")
-            return False
-
     def _load_path_into_labs_sim_ide(self, path: Path) -> bool:
         try:
             labs = getattr(self, "_labs_widget", None)
@@ -11277,6 +11187,16 @@ class EliMainWindow(QMainWindow):
             log.debug(f"[GUI] Labs Sim/IDE open failed: {e}")
             return False
 
+    def open_script_in_editor(self, path: Path) -> bool:
+        """Open a script of any language in Labs ▸ Sim / IDE, or, when Labs is not
+        built, in the read-only viewer. Never with the system's default app: for some
+        script types that runs the file instead of showing it."""
+        if self._load_path_into_labs_sim_ide(path):
+            return True
+        self.status_signal.emit(f"Labs Sim/IDE unavailable; showing {path.name} read-only")
+        self.open_text_file(path)
+        return False
+
     def _open_generated_artifact_from_result(self, result) -> None:
         if not isinstance(result, dict):
             return
@@ -11304,18 +11224,14 @@ class EliMainWindow(QMainWindow):
             return
 
         suffix = path.suffix.lower()
-        wants_labs = bool(result.get("open_in_labs"))
-        wants_ide = bool(result.get("open_in_ide"))
         is_script_action = action in {
             "GENERATE_SCRIPT", "CREATE_SCRIPT", "WRITE_SCRIPT",
             "GENERATE_CODE", "WRITE_CODE", "FIX_FILE",
         }
 
-        # Every generated script goes to the IDE tab — no extension whitelist.
+        # Every generated script, in any language, opens in the editor.
         if is_script_action:
-            if wants_labs and suffix == ".py" and self._load_path_into_labs_sim_ide(path):
-                return
-            self._load_path_into_main_ide(path)
+            self.open_script_in_editor(path)
             return
 
         if suffix in {".md", ".txt", ".log"}:
@@ -11333,88 +11249,6 @@ class EliMainWindow(QMainWindow):
             except Exception as e:
                 self.status_signal.emit(f"Failed to open generated PDF: {e}")
             return
-
-    def ide_new_file(self):
-        if QSCI_AVAILABLE:
-            self.code_editor.clear()
-        else:
-            self.code_editor.clear()
-        self.current_file_path = None
-        self.current_file_label.setText("New file (unsaved)")
-
-    def ide_open_file(self):
-        file_path, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open File",
-            str(Path.home()),
-            "Python Files (*.py);;All Files (*)"
-        )
-        if file_path:
-            try:
-                with open(file_path, 'r', encoding='utf-8') as f:
-                    content = f.read()
-                if QSCI_AVAILABLE:
-                    self.code_editor.setText(content)
-                else:
-                    self.code_editor.setPlainText(content)
-                self.current_file_path = file_path
-                self.current_file_label.setText(f"File: {Path(file_path).name}")
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to open file: {str(e)}")
-
-    def ide_save_file(self):
-        if not self.current_file_path:
-            self.ide_save_as()
-            return
-        try:
-            if QSCI_AVAILABLE:
-                content = self.code_editor.text()
-            else:
-                content = self.code_editor.toPlainText()
-            with open(self.current_file_path, 'w', encoding='utf-8') as f:
-                f.write(content)
-            self.status_signal.emit(f"Saved: {Path(self.current_file_path).name}")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to save file: {str(e)}")
-
-    def ide_save_as(self):
-        file_path, _ = QFileDialog.getSaveFileName(
-            self,
-            "Save As",
-            str(Path.home()),
-            "Python Files (*.py);;All Files (*)"
-        )
-        if file_path:
-            self.current_file_path = file_path
-            self.ide_save_file()
-            self.current_file_label.setText(f"File: {Path(file_path).name}")
-
-    def ide_run_code(self):
-        if not self.current_file_path:
-            QMessageBox.warning(self, "No File", "Please save the file first.")
-            return
-        self.console_output.clear()
-        self.console_output.append(f"Running: {Path(self.current_file_path).name}\n")
-        def run_worker():
-            try:
-                result = subprocess.run(
-                    [sys.executable, self.current_file_path],
-                    capture_output=True,
-                    text=True,
-                    timeout=30
-                )
-                output = result.stdout + result.stderr
-                self.console_output.append(output)
-                if result.returncode == 0:
-                    self.console_output.append("\n✅ Execution completed successfully")
-                else:
-                    self.console_output.append(f"\n❌ Execution failed with code {result.returncode}")
-            except subprocess.TimeoutExpired:
-                self.console_output.append("\n⏱️  Execution timeout (30s)")
-            except Exception as e:
-                self.console_output.append(f"\n❌ Error: {str(e)}")
-        thread = threading.Thread(target=run_worker, daemon=True)
-        thread.start()
 
     def open_document(self):
         file_path, _ = QFileDialog.getOpenFileName(
@@ -11535,19 +11369,8 @@ class EliMainWindow(QMainWindow):
         path_obj = Path(path)
         if path_obj.is_file():
             if path_obj.suffix == '.py':
-                self.tabs.setCurrentIndex(3)
-                try:
-                    content = path_obj.read_text(encoding='utf-8')
-                    if QSCI_AVAILABLE:
-                        self.code_editor.setText(content)
-                    else:
-                        self.code_editor.setPlainText(content)
-                    self.current_file_path = str(path_obj)
-                    self.current_file_label.setText(f"File: {path_obj.name}")
-                except Exception as e:
-                    QMessageBox.critical(self, "Error", f"Failed to open: {str(e)}")
+                self.open_script_in_editor(path_obj)
             elif path_obj.suffix in ['.txt', '.md', '.pdf', '.log']:
-                self.tabs.setCurrentIndex(4)
                 if path_obj.suffix == '.pdf':
                     self.open_pdf(path_obj)
                 else:

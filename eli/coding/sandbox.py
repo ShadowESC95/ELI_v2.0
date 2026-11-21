@@ -48,6 +48,15 @@ _RUNNERS: Dict[str, tuple] = {
 }
 
 
+def runner_for_suffix(suffix: str):
+    """The argv builder for a script file with this suffix (".sh", ".js", ...), or None."""
+    wanted = str(suffix or "").lower()
+    for ext, argv_builder in _RUNNERS.values():
+        if ext == wanted:
+            return argv_builder
+    return None
+
+
 @dataclass
 class RunResult:
     """Outcome of one sandboxed execution."""

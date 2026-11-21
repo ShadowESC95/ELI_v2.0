@@ -294,18 +294,31 @@ class _PySyntaxHighlighter(QSyntaxHighlighter):
 class _CodeRunnerThread(QThread):
     finished = pyqtSignal(str, str)
 
-    def __init__(self, code: str, cwd: str):
+    def __init__(self, code: str, cwd: str, suffix: str = ".py"):
         super().__init__()
         self._code = code
         self._cwd = cwd
+        self._suffix = (suffix or ".py").lower()
 
     def run(self):
         try:
-            result = subprocess.run(
-                [sys.executable, "-c", self._code],
-                capture_output=True, text=True, timeout=60,
-                cwd=self._cwd,
-            )
+            if self._suffix == ".py":
+                argv = [sys.executable, "-c", self._code]
+                result = subprocess.run(argv, capture_output=True, text=True, timeout=60,
+                                        cwd=self._cwd)
+            else:
+                # Another language runs with its own interpreter (the coding sandbox's
+                # table), from a copy of the buffer under its own suffix.
+                from eli.coding.sandbox import runner_for_suffix
+                build = runner_for_suffix(self._suffix)
+                if build is None:
+                    self.finished.emit("", f"No interpreter is known for {self._suffix} files.")
+                    return
+                with tempfile.TemporaryDirectory(prefix="eli_labs_run_") as td:
+                    script = Path(td) / f"script{self._suffix}"
+                    script.write_text(self._code, encoding="utf-8")
+                    result = subprocess.run(build(str(script)), capture_output=True, text=True,
+                                            timeout=60, cwd=self._cwd)
             self.finished.emit(result.stdout, result.stderr)
         except subprocess.TimeoutExpired:
             self.finished.emit("", "Timeout: execution exceeded 60 s")
@@ -5186,7 +5199,8 @@ class _SimIDETab(QWidget):
         self._console.append("Running…\n")
         self._run_btn.setEnabled(False)
         cwd = str(self._current_file.parent) if self._current_file else str(Path.home())
-        self._runner = _CodeRunnerThread(code, cwd)
+        suffix = self._current_file.suffix if self._current_file else ".py"
+        self._runner = _CodeRunnerThread(code, cwd, suffix)
         self._runner.finished.connect(self._on_run_done)
         self._runner.start()
 
