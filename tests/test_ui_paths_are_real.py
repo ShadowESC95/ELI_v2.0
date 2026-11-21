@@ -148,3 +148,13 @@ def test_create_voice_still_lists_the_accepted_formats():
     msg = _create_voice_message()
     for ext in (".wav", ".mp3", ".mp4"):
         assert ext in msg, ext
+
+
+def test_the_agents_page_advertises_what_its_button_opens():
+    """It promised "a guided 3-question chat wizard" that nothing could start; the button
+    opens the agent specification form."""
+    gui = _without_comments(GUI)
+    assert "chat wizard" not in gui
+    i = gui.index("def _build_settings_agents_page")
+    page = gui[i:gui.index("\n    def ", i + 10)]
+    assert "open_agent_wizard" in page and "AgentCreateDialog" in gui

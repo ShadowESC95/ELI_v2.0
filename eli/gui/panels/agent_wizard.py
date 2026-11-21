@@ -107,15 +107,6 @@ class AgentCreateDialog(QDialog):
         elif prefill:
             self._load(prefill, lock_id=False)
 
-    @staticmethod
-    def prefill_from_legacy_wizard(
-        name_purpose: str,
-        triggers_data: str,
-        persona_output: str,
-    ) -> dict:
-        from eli.cognition.agent_spec import prefill_from_legacy_wizard
-        return prefill_from_legacy_wizard(name_purpose, triggers_data, persona_output)
-
     # ── ui ───────────────────────────────────────────────────────────────────
     def _build_ui(self):
         root = QVBoxLayout(self)

@@ -146,3 +146,26 @@ def test_settings_dialog_builds_deep_tree(qapp):
     w = AdvancedSettingsDialog()
     assert isinstance(w, QWidget)
     assert len(w.findChildren(QWidget)) > 50   # a full multi-tab settings surface
+
+
+def test_settings_dialog_opens_the_page_it_is_asked_for(qapp):
+    """The Self-Upgrade card asked for index 4, which is the Marketplace whenever the
+    Marketplace page builds. Pages are asked for by name."""
+    from eli.gui.panels.settings import AdvancedSettingsDialog
+    for page, label in (("upgrade", "Self-Upgrade"), ("marketplace", "Marketplace"),
+                        ("plugins", "Plugins"), ("cognition", "Cognition")):
+        w = AdvancedSettingsDialog(start_tab=page)
+        assert w.inner_tabs.tabText(w.inner_tabs.currentIndex()).endswith(label), page
+
+
+def test_every_advanced_card_names_a_page_the_dialog_has(qapp):
+    import re
+    from pathlib import Path
+    from eli.gui.panels.settings import AdvancedSettingsDialog
+    gui = (Path(__file__).resolve().parents[1] / "eli" / "gui"
+           / "eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
+    asked = re.findall(r"self\.open_advanced_settings\(([^)]*)\)", gui)
+    assert asked, "no Advanced cards found"
+    pages = AdvancedSettingsDialog()._pages
+    for arg in asked:
+        assert arg.strip("\"'") in pages, f"open_advanced_settings({arg}) names no page"

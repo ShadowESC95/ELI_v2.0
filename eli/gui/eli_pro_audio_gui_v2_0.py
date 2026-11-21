@@ -2136,8 +2136,6 @@ class EliMainWindow(QMainWindow):
     image_generation_failed_signal = pyqtSignal(str)
     chat_image_generation_done_signal = pyqtSignal(object, dict, str)
     chat_image_generation_failed_signal = pyqtSignal(str)
-    # Wizard signal — emits wizard question text to main thread
-    wizard_say_signal = pyqtSignal(str)
     # Thread-safe memory stats refresh
     _mem_refresh_sig = pyqtSignal()
     # Screen control: capture result (path or "ERROR:...")
@@ -2185,8 +2183,6 @@ class EliMainWindow(QMainWindow):
         self.conversation_history = []
         self.current_theme = "dark"
         self._user_text_color = "#a3be8c"  # user message colour (changeable via picker)
-        # Agent wizard state
-        self._agent_wizard_state: Optional[dict] = None
         self.ollama_manager = OllamaModelManager()
         self.active_backend = model_manager
         self.detected_system_info: Dict[str, Any] = {}
@@ -2230,7 +2226,6 @@ class EliMainWindow(QMainWindow):
         self.image_generation_failed_signal.connect(self._image_generation_failed, Qt.ConnectionType.QueuedConnection)
         self.chat_image_generation_done_signal.connect(self._chat_image_generation_done, Qt.ConnectionType.QueuedConnection)
         self.chat_image_generation_failed_signal.connect(self._chat_image_generation_failed, Qt.ConnectionType.QueuedConnection)
-        self.wizard_say_signal.connect(self._wizard_display_message, Qt.ConnectionType.QueuedConnection)
         self._mem_refresh_sig.connect(self.refresh_memory_stats, Qt.ConnectionType.QueuedConnection)
         self._conf_meta_update_sig.connect(self._update_confidence_meta_label, Qt.ConnectionType.QueuedConnection)
         self._image_chat_sig.connect(self._on_image_chat_response, Qt.ConnectionType.QueuedConnection)
@@ -6673,31 +6668,6 @@ class EliMainWindow(QMainWindow):
     # AGENT CREATOR WIZARD
     # ══════════════════════════════════════════════════════════════════════════
 
-    _WIZARD_QUESTIONS = [
-        (
-            "**Question 1/3 — Name & Purpose**\n\n"
-            "What should this agent be called, and what is its main job?\n"
-            "*(e.g. WeatherAgent — checks current weather and clothing advice)*"
-        ),
-        (
-            "**Question 2/3 — Trigger & Data**\n\n"
-            "What keywords or user requests should activate this agent, "
-            "and what data sources or APIs will it use?\n"
-            "*(e.g. keywords: weather, rain, temperature; data: OpenWeatherMap or local sensor)*"
-        ),
-        (
-            "**Question 3/3 — Persona & Output**\n\n"
-            "How should this agent present its findings? "
-            "Describe its tone, output format, and any special behaviour.\n"
-            "*(e.g. brief bullet-point summary, friendly tone, always include emojis)*"
-        ),
-    ]
-
-    def _structured_agent_dialog(self):
-        """Legacy shim — opens the full AgentSpec wizard (same as Settings)."""
-        dlg = AgentCreateDialog(parent=self)
-        return dlg.exec() == QDialog.DialogCode.Accepted
-
     def open_agent_wizard(self):
         """Open the AgentSpec wizard — same format as Settings ▸ Agents ▸ Create."""
         dlg = AgentCreateDialog(parent=self)
@@ -6719,44 +6689,10 @@ class EliMainWindow(QMainWindow):
         )
         self.chat_display.ensureCursorVisible()
 
-    def _handle_wizard_input(self, user_text: str):
-        """Process one wizard answer; advance to next question or generate the agent."""
-        if user_text.strip().lower() in ("cancel", "exit", "stop", "quit"):
-            self._agent_wizard_state = None
-            self._wizard_display_message("Wizard cancelled. Back to normal chat mode.")
-            return
-
-        state = self._agent_wizard_state
-        state["answers"].append(user_text)
-        step = state["step"]
-        state["step"] += 1
-
-        if state["step"] < len(self._WIZARD_QUESTIONS):
-            # Ask next question
-            self.wizard_say_signal.emit(self._WIZARD_QUESTIONS[state["step"]])
-        else:
-            # All 3 answers collected — open the spec wizard prefilled for review
-            self._agent_wizard_state = None
-            answers = state["answers"]
-            self._wizard_display_message(
-                "Got all 3 answers — opening the agent specification editor for review."
-            )
-            prefill = AgentCreateDialog.prefill_from_legacy_wizard(*answers)
-            QTimer.singleShot(
-                0,
-                lambda: self._open_prefilled_agent_spec(prefill),
-            )
-
-    def _open_prefilled_agent_spec(self, prefill: dict):
-        dlg = AgentCreateDialog(parent=self, prefill=prefill)
-        if dlg.exec() == QDialog.DialogCode.Accepted:
-            self._wizard_display_message(
-                "Agent specification saved. Enable it in **Settings → Agents** if needed."
-            )
-
     # ── Open advanced settings dialog ─────────────────────────────────────────
-    def open_advanced_settings(self, tab: int = 0):
-        dlg = AdvancedSettingsDialog(parent=self, start_tab=tab)
+    def open_advanced_settings(self, page: str = "agents"):
+        """Open the Advanced dialog on a page named as AdvancedSettingsDialog names them."""
+        dlg = AdvancedSettingsDialog(parent=self, start_tab=page)
         dlg.exec()
 
     # ══════════════════════════════════════════════════════════════════════════
@@ -9232,7 +9168,7 @@ class EliMainWindow(QMainWindow):
     def _build_settings_agents_page(self) -> QWidget:
         page, vbox = self._settings_page(
             "Agents",
-            "Create a new custom ELI agent through a guided 3-question chat wizard."
+            "Create a new custom ELI agent: a short form for what it is, when it runs and how you'd know it worked."
         )
 
         card = QWidget()
@@ -9493,28 +9429,35 @@ class EliMainWindow(QMainWindow):
             (
                 "🤖  Agents",
                 "View, edit, enable or disable every agent in the bus.\nAdjust timeout, persona, and description per agent.",
-                lambda: self.open_advanced_settings(0),
+                lambda: self.open_advanced_settings("agents"),
                 "Manage Agents",
                 "#5e81ac",
             ),
             (
                 "🧠  Cognition",
                 "Tune knowledge-gathering & context limits: how many memory facts, KG\nfacts, rerank depth, and the synthesis prompt cap ELI uses per answer.",
-                lambda: self.open_advanced_settings(2),
+                lambda: self.open_advanced_settings("cognition"),
                 "Tune Cognition",
                 "#b48ead",
             ),
             (
                 "🔌  Plugins",
                 "Install plugins from the registry, enable, disable, or uninstall them.",
-                lambda: self.open_advanced_settings(3),
+                lambda: self.open_advanced_settings("plugins"),
                 "Manage Plugins",
+                "#88c0d0",
+            ),
+            (
+                "🛒  Marketplace",
+                "Browse, verify and install plugins and MCP servers from your sources,\nand switch sources on or off.",
+                lambda: self.open_advanced_settings("marketplace"),
+                "Open Marketplace",
                 "#88c0d0",
             ),
             (
                 "🔄  Self-Upgrade",
                 "Run improvement cycles, rebuild the FAISS index, update the capability manifest, and refresh ELI's persona.",
-                lambda: self.open_advanced_settings(4),
+                lambda: self.open_advanced_settings("upgrade"),
                 "Open Upgrade Tools",
                 "#a3be8c",
             ),
@@ -10421,11 +10364,6 @@ class EliMainWindow(QMainWindow):
         self.chat_input.clear()
         self.conversation_history.append({'role': 'user', 'content': user_message})
 
-        # ── Agent wizard intercept ──────────────────────────────────────────
-        if self._agent_wizard_state is not None:
-            self._handle_wizard_input(user_message)
-            return
-        # ───────────────────────────────────────────────────────────────────
 
         image_prompt = self._extract_image_prompt_from_chat(user_message)
         if image_prompt:

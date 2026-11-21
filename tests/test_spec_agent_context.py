@@ -5,7 +5,7 @@ import pytest
 
 from eli.cognition.agent_bus import AgentResult, DispatchResult
 from eli.cognition.agent_spec import (
-    AgentSpec, SuccessCheck, Trigger, prefill_from_legacy_wizard, save_spec,
+    AgentSpec, SuccessCheck, Trigger, save_spec,
 )
 
 
@@ -35,19 +35,6 @@ def test_code_agent_memory_context_reaches_context_block():
     ))
     block = dr.to_context_block()
     assert "rain expected Tuesday" in block
-
-
-def test_legacy_wizard_prefill_produces_valid_spec():
-    data = prefill_from_legacy_wizard(
-        "WeatherAgent — forecast local conditions",
-        "keywords: weather, rain, forecast",
-        "brief bullet points",
-    )
-    assert data["id"] == "weatheragent"
-    assert len(data["triggers"]) >= 1
-    assert data["success_criteria"]
-    assert len(data["objective"]) >= 25
-    assert len(data["system_prompt"]) >= 40
 
 
 @pytest.fixture

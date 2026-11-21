@@ -16,30 +16,41 @@ from eli.gui.panels.agent_wizard import AgentCreateDialog, AgentEditDialog
 
 class AdvancedSettingsDialog(QDialog):
     """
-    Comprehensive settings dialog with four tabs:
-      1. Agents   — list, edit, enable/disable all bus agents
-      2. Models   — list installed GGUF + Ollama models
-      3. Plugins  — install, enable/disable, uninstall
-      4. Upgrade  — self-improvement cycle + capability manifest
+    Comprehensive settings dialog. Its pages, by the name `start_tab` / `select_page`
+    take (a page's position depends on which pages could be built):
+      agents       — list, edit, enable/disable all bus agents
+      models       — list installed GGUF + Ollama models
+      cognition    — knowledge-gathering and context tunables
+      plugins      — install, enable/disable, uninstall
+      marketplace  — browse, verify and install from registries (when it can be built)
+      upgrade      — self-improvement cycle + capability manifest
     """
     # Thread-safe signals — worker threads emit these; Qt delivers them on the main thread
     _plugin_log_sig   = pyqtSignal(str)
     _plugin_refresh_sig = pyqtSignal()
     _upgrade_log_sig  = pyqtSignal(str)
 
-    def __init__(self, parent=None, start_tab: int = 0):
+    def __init__(self, parent=None, start_tab: int | str = 0):
         super().__init__(parent)
         self.setWindowTitle("\u2699\ufe0f Advanced Settings")
         self.setMinimumSize(780, 560)
         self._agent_overrides: dict = {}
+        self._pages: dict = {}
         self._build_ui()
         # Connect thread-safe signals to actual GUI slots
         self._plugin_log_sig.connect(self._do_log_plugin,   Qt.ConnectionType.QueuedConnection)
         self._plugin_refresh_sig.connect(self._populate_plugins_table, Qt.ConnectionType.QueuedConnection)
         self._upgrade_log_sig.connect(self._do_log_upgrade, Qt.ConnectionType.QueuedConnection)
-        # Jump to the requested tab
-        if 0 <= start_tab < self.inner_tabs.count():
-            self.inner_tabs.setCurrentIndex(start_tab)
+        # Jump to the requested page (by name; an index is still accepted)
+        self.select_page(start_tab)
+
+    def select_page(self, page: int | str) -> bool:
+        """Show a page by its name (see the class docstring) or index. False if absent."""
+        index = self._pages.get(page, -1) if isinstance(page, str) else int(page)
+        if 0 <= index < self.inner_tabs.count():
+            self.inner_tabs.setCurrentIndex(index)
+            return True
+        return False
 
     # ── UI skeleton ────────────────────────────────────────────────────────────
     def _build_ui(self):
@@ -47,21 +58,21 @@ class AdvancedSettingsDialog(QDialog):
         self.inner_tabs = QTabWidget()
         root.addWidget(self.inner_tabs)
 
-        self.inner_tabs.addTab(self._build_agents_tab(),  "\U0001f916 Agents")
-        self.inner_tabs.addTab(self._build_models_tab(),  "\U0001f9e0 Models")
-        self.inner_tabs.addTab(self._build_cognition_tab(), "\U0001f9e0 Cognition")
-        self.inner_tabs.addTab(self._build_plugins_tab(), "\U0001f50c Plugins")
+        self._pages["agents"] = self.inner_tabs.addTab(self._build_agents_tab(),  "\U0001f916 Agents")
+        self._pages["models"] = self.inner_tabs.addTab(self._build_models_tab(),  "\U0001f9e0 Models")
+        self._pages["cognition"] = self.inner_tabs.addTab(self._build_cognition_tab(), "\U0001f9e0 Cognition")
+        self._pages["plugins"] = self.inner_tabs.addTab(self._build_plugins_tab(), "\U0001f50c Plugins")
         # Community marketplace. Separate from the Plugins tab above, which manages
         # what is already here — this one is the door strangers' code comes through,
         # so it carries its own verification, scanning and consent surface.
         try:
             from eli.gui.tabs.marketplace_tab import MarketplaceTab
             self._marketplace_tab = MarketplaceTab(parent_window=self)
-            self.inner_tabs.addTab(self._marketplace_tab, "\U0001f6d2 Marketplace")
+            self._pages["marketplace"] = self.inner_tabs.addTab(self._marketplace_tab, "\U0001f6d2 Marketplace")
         except Exception as _mk_err:
             from eli.utils.log import get_logger
             get_logger(__name__).debug(f"[Settings] Marketplace tab unavailable: {_mk_err}")
-        self.inner_tabs.addTab(self._build_upgrade_tab(), "\U0001f504 Self-Upgrade")
+        self._pages["upgrade"] = self.inner_tabs.addTab(self._build_upgrade_tab(), "\U0001f504 Self-Upgrade")
 
         close_btn = QPushButton("Close")
         close_btn.clicked.connect(self.accept)

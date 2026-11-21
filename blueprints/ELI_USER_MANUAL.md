@@ -1051,8 +1051,8 @@ flowchart TD
 
 ## 20. Add-ons: plugins & the community marketplace
 
-🟡 **Settings ▸ Advanced ▸ Manage Plugins**, then the **🛒 Marketplace** tab of the window that
-opens. Plugins add abilities to ELI. Some ship with it; others are written by **other people in
+🟡 **Settings ▸ Advanced ▸ Open Marketplace** (or **Manage Plugins**, then the **🛒 Marketplace**
+tab of the window that opens). Plugins add abilities to ELI. Some ship with it; others are written by **other people in
 the community**.
 
 ### The honest bit, first

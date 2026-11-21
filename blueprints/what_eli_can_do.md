@@ -394,7 +394,7 @@ them.
 If your hardware cannot train, the preflight says so and says why, instead of silently
 falling back to a run that takes days.
 
-### Community plugins (Settings ▸ Advanced ▸ Manage Plugins ▸ 🛒 Marketplace)
+### Community plugins (Settings ▸ Advanced ▸ Open Marketplace)
 
 ELI ships the client for a marketplace the **community** owns — anyone can host a
 registry and anyone can publish to it. ELI takes no cut, holds no keys, and vets
