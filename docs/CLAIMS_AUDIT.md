@@ -37,7 +37,7 @@ Re-run the checks with `.venv/bin/python -m pytest tests/claims/ -q`.
 | Drop-in plugin architecture with auto-discovery | `eli/plugins/base/base.py:20` — subclass `Plugin`, implement actions, `execute()` (`:47`); `load_plugins()` (`:59`) discovers the package |
 | Self-healing rollback after a bad self-applied patch | `eli/runtime/self_improvement.py:1497` `revert_patch()`, `:1311` `_rollback_all()` (atomic across files) |
 | Cross-platform mic auto-resolve (USB/Bluetooth/headset before built-in; live probe; Linux `PULSE_SOURCE` pin) | `eli/perception/mic_resolver.py`, `audio_stt.py`; `python -m eli.tools.mic_diag` |
-| 231 capabilities | `capability_manifest.json` (`total`), enforced by `tests/claims/test_capability_manifest.py`, which rebuilds the list from the code (`CapabilitySync`) and compares |
+| 232 capabilities | `capability_manifest.json` (`total`), enforced by `tests/claims/test_capability_manifest.py`, which rebuilds the list from the code (`CapabilitySync`) and compares |
 | 593 test files, 5,591 test functions | Counted from the source at v2.5.36 (`tests/**/test_*.py`; module-level `test_*` functions and `Test*` class methods). Parametrised cases make the collected count larger; it is only known by running the suite. |
 | Reads txt, md, PDF, docx, **odt, epub** | `eli/plugins/document_reader/plugin.py:170-186`. `.odt`/`.epub` were advertised but not dispatched until this audit — see below. |
 

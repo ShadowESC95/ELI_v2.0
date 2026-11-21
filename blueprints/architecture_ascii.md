@@ -14,7 +14,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 ╔══════════════════════════════════════════════════════════════════════════════════╗
 ║                                ELI — FULL ARCHITECTURE                             ║
 ║                100% local  ·  offline-by-default  ·  model-agnostic                ║
-║               207,284 LOC · 451 files · desktop GUI + web app server               ║
+║               208,046 LOC · 451 files · desktop GUI + web app server               ║
 ╚══════════════════════════════════════════════════════════════════════════════════╝
 
 ┌─ PRESENTATION ────────────────────────────────────────────────────────────────────┐
@@ -63,7 +63,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
         │              └────────────────────────────┬─────────────────────────────────────┘
         ▼                                           ▼
 ┌─ EXECUTION ───────────────────────────────────────────────────────────────────────┐
-│  execution/executor_enhanced.py  207 supported actions · 231 capabilities (190 routable)  │
+│  execution/executor_enhanced.py  208 supported actions · 232 capabilities (192 routable)  │
 │  media_runtime · operator_actions · background_tasks · shell_gate                   │
 │  PLUGINS(10): calendar document_reader media notes pomodoro weather                 │
 │              system_stats tts web web_automation        eli/coding :: CodeAgent     │
@@ -134,7 +134,7 @@ pipeline/memory/gating close-ups). Every layer and box maps to a real path.
 ## C. Module tree (LOC · key files · role)
 
 ```
-eli/  (207,284 LOC, 451 files)  ·  api/server.py  (FastAPI web app + dashboard, 2.4k)
+eli/  (208,046 LOC, 451 files)  ·  api/server.py  (FastAPI web app + dashboard, 2.4k)
 │
 ├── __main__.py ················ entry dispatch (GUI | --headless | --mcp-server | --license)
 │

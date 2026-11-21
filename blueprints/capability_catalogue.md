@@ -14,8 +14,8 @@
 > conversational summaries of a 207,321-line project (`eli/`, measured 2026-11-21) keep undershooting; this is the
 > persisted, exhaustive map.
 >
-> **Method.** Action list comes from the live `capability_manifest.json` (**231**
-> entries: 190 routable, 207 in the executor's `SUPPORTED_ACTIONS`, every one in its dispatch), the
+> **Method.** Action list comes from the live `capability_manifest.json` (**232**
+> entries: 192 routable, 208 in the executor's `SUPPORTED_ACTIONS`, every one in its dispatch), the
 > same list `capability_sync` discovers from the code, checked against the `executor_enhanced.py`
 > handlers. **The always-current,
 > auto-generated action list with activation phrases is

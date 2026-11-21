@@ -1064,9 +1064,12 @@ the community**.
 
 ### The honest bit, first
 
-The marketplace belongs to the community, not to ELI's author. Anyone can host one
-and anyone can publish to it. **Nobody vets what goes in**, so ELI will never tell you
-a plugin is safe — it isn't in a position to know.
+ELI comes with two sources of plugins, both switched on: the plugins that ship with ELI,
+and **ELI Marketplace**, where every listing was reviewed and signed before it appeared —
+ELI refuses a listing there that isn't signed. Anyone can also host a community
+marketplace, and you can add one in the **Sources** tab (where you can also switch any
+source off); **nobody reviews what goes into those**. Either way ELI will never tell you a
+plugin is safe — it isn't in a position to know.
 
 What it does instead, before a single file lands on your computer:
 
@@ -1074,7 +1077,8 @@ What it does instead, before a single file lands on your computer:
   download against it. If it doesn't match, it refuses — that means the file was
   changed somewhere between the publisher and you.
 - **Checks who wrote it**, if they signed it and you have chosen to trust their key.
-  Unsigned isn't blocked — it's clearly labelled *unverified*.
+  On a community source, unsigned isn't blocked — it's clearly labelled *unverified*; on
+  ELI Marketplace an unsigned listing is refused.
 - **Reads the code.** If it uses an ability it never declared, ELI refuses.
 - **Scans it for malware** — nine checks always run, looking for things like remote
   access backdoors, password stealing, hidden start-up entries, disguised code, and

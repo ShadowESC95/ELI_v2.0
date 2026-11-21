@@ -412,11 +412,15 @@ ledger all still apply.
 
 ## Community plugin marketplace: consent, verification, scanning
 
-ELI ships a marketplace **client**; the marketplace itself belongs to the community.
-Nobody curates it, so the usual first line of defence — "the store checked it" —
-does not exist, and ELI must never imply otherwise. Everything below therefore comes
-from the artifact itself, and every screen says exactly what was checked and what was
-not.
+ELI ships a marketplace **client** and two registries, both switched on: the built-in
+entry (the bundled offline index of ELI's own plugins) and **ELI Marketplace**
+(`plugins.geteli.tech`), which is curated — every listing on it is reviewed and signed with
+the maintainer's key (`eli-marketplace`), and the client refuses a listing there that is not
+validly signed by that key. Registries an operator adds belong to the community: nobody
+reviews them, so for their listings the usual first line of defence — "the store checked
+it" — does not exist, and ELI must never imply otherwise. Everything below therefore comes
+from the artifact itself, whichever registry listed it, and every screen says exactly what
+was checked and what was not.
 
 ### 12. Runtime permissions (`eli/plugins/permissions.py`)
 
@@ -532,9 +536,10 @@ downloaded plugin must not run at install time.
 code in a child process and reach the network outside anything ELI can gate.
 
 Registries are a **list, not a constant** — operators add the community sources they
-want and can remove any of them. Only the bundled offline index of ELI's own plugins
-ships. A single hardcoded URL would make the author the gatekeeper of a marketplace
-that is not theirs.
+want and can switch off or remove any of them, the two shipped ones included (kept as
+`"disabled"` / `"removed"` in `plugin_registries.json`). The curated ELI Marketplace is one
+entry on that list, not the gate: a community source an operator adds installs exactly as
+it does, minus the curation.
 
 Downloaded plugins are written to the **user data dir**, not `eli/plugins/` inside
 the installation. The old `_plugins_dir()` returned the source tree, which is a

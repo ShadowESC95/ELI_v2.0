@@ -74,7 +74,7 @@ audited IN FULL (2026-06-11); statuses below are grounded with file:line evidenc
 
 1. **`eli.api` facade — MOSTLY EXISTS (only typed sugar is new).** The callable dispatch
    already exists: `execute(action, args)` at `executor_enhanced.py:12154` runs any of the
-   231 manifest actions by name. Generated code can already call `execute("SUMMARIZE_FILE", {...})`.
+   232 manifest actions by name. Generated code can already call `execute("SUMMARIZE_FILE", {...})`.
    The *only* delta is a typed, discoverable wrapper (`eli.api.files.summarize(path)`)
    generated from the registry — convenience + discoverability over an existing surface,
    not new execution machinery.
@@ -128,7 +128,7 @@ registry, AND the `CODE_SOLVE` routing lane are already yours.
 
 Audited against the project directory, not assumed:
 - **Callable dispatch surface?** YES — `execute(action, args)` at `executor_enhanced.py:12154`.
-  Generated code can already run any of the 231 manifest actions by name.
+  Generated code can already run any of the 232 manifest actions by name.
 - **Routing lane to the code agent?** YES — `CODE_SOLVE` (`router_enhanced.py:3674` +
   `executor_enhanced.py:9558` → `eli.coding.solve`). Already plan→search→verify→repair,
   quick/thorough, DAG, background.

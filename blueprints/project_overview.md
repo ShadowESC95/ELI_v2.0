@@ -36,7 +36,7 @@ in-process from the desktop GUI.
 
 ## 2. Scale and shape
 
-**207,284 lines across 451 Python files** in `eli/`, plus `api/server.py` (2,373 lines; the
+**208,046 lines across 451 Python files** in `eli/`, plus `api/server.py` (2,390 lines; the
 dashboard itself is in `api/static/`) and **593 test files** (`test_*.py`) under `tests/`.
 
 | Subsystem | Lines | Files | Role |
@@ -69,8 +69,8 @@ dashboard itself is in `api/static/`) and **593 test files** (`test_*.py`) under
   calculation is shared by the loader and the startup dialog; the fit priority
   (balanced, max GPU, max context) is a setting.
 - **Routing**: `execution/router_enhanced.py` is regex-first with an LLM-intent fallback
-  and an explicit priority pipeline, resolving to one of **231 manifest capabilities**
-  (190 routable, 207 in the executor's supported list, 214 in either). The full reference
+  and an explicit priority pipeline, resolving to one of **232 manifest capabilities**
+  (192 routable, 208 in the executor's supported list, 215 in either). The full reference
   with activation phrases is `capabilities_and_actions.md`.
 - **Orchestration**: `kernel/engine.py` runs the gradient orchestrator for all CHAT modes
   (Quick is light, Expert is deep); `dispatch_specialists()` composes the 15-agent
