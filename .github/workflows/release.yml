@@ -10,6 +10,7 @@
 #   WoA     : ELI_v2-<v>-windows-arm64-portable.zip (lean, experimental — cross-built on ubuntu)
 #   macOS   : ELI_v2-<v>-macos-arm64.dmg (drag-to-Applications, ad-hoc signed)
 #   Linux   : ELI_v2-<v>-x86_64.AppImage + ELI_v2-<v>-linux-portable.tar.gz
+#             + ELI_v2-<v>-gpl-sources.tar.gz (source of the GPL packages every build carries)
 #   Source  : eli_v2_0-<v>.whl + sdist .tar.gz + .deb + windows-portable.zip
 #             + windows-portable-full.zip + wheelhouse(-arm64).tar.gz + WHEELHOUSE(-arm64).txt
 # plus SHA256SUMS.txt + RELEASE_NOTES.md.
@@ -470,6 +471,16 @@ jobs:
           mv dist/app_packages/ELI_v2-*-linux-portable.tar.gz dist/
           ls -lh dist/*.tar.gz
 
+      # GPL-3.0 lets the bundles carry piper-tts (espeak-ng inside it) and the other GPL packages when
+      # their exact source goes with them. This environment holds every package the Windows and macOS
+      # builds carry, plus a few for Linux alone. A source that cannot be fetched fails the release.
+      - name: Source of the GPL packages the bundles carry (attached to the release)
+        run: |
+          python packaging/gpl_sources.py dist/gpl-sources
+          cat dist/gpl-sources/SOURCES.md
+          tar -czf "dist/ELI_v2-${{ needs.guard.outputs.version }}-gpl-sources.tar.gz" -C dist gpl-sources
+          rm -rf dist/gpl-sources
+
       - name: Checksums + GitHub 2 GiB asset-size guard
         run: |
           cd dist
@@ -577,6 +588,11 @@ jobs:
           \`ldd --version\`; docs/CROSS_PLATFORM.md lists which distributions that is).
           On an older system use the linux-portable package, which installs from source.
 
+          Source: ELI's own is this tag of the repository. The builds also carry packages under the
+          GPL (piper-tts with espeak-ng compiled into it, and PyAutoGUI's helpers; THIRD_PARTY_NOTICES.md
+          names them). Their exact source, at the versions these builds carry, is attached here as
+          \`ELI_v2-${V}-gpl-sources.tar.gz\`; the SOURCES.md inside lists each file and where it came from.
+
           Verify: \`sha256sum -c SHA256SUMS.txt\`
           EOF
 
@@ -676,6 +692,8 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           name: ELI v${{ needs.guard.outputs.version }}
+          # the notes above GitHub's list of changes: they say where the GPL sources are
+          body_path: dist/RELEASE_NOTES.md
           generate_release_notes: true
           files: |
             dist/*.zip

@@ -144,3 +144,96 @@ def test_a_package_bundles_no_non_commercial_model_unless_asked(tmp_path, monkey
     script = (REPO / "scripts" / "package_desktop_app.sh").read_text(encoding="utf-8")
     assert "eli.core.model_download --starter" in script
     assert not [e["filename"] for e in md.CATALOG if e["filename"] in script], "a model is named in the script"
+
+
+def _gpl_sources():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("gpl_sources", REPO / "packaging" / "gpl_sources.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_each_release_attaches_the_source_of_the_gpl_packages_it_carries():
+    """piper-tts and espeak-ng (GPL-3.0) are bundled, and no release said where their exact source was:
+    GPL-3.0 lets a binary be passed on only with its source, or directions to it, beside it."""
+    import importlib.util
+    gs = _gpl_sources()
+    assert gs.is_gpl(["GPL-3.0-or-later"]) and gs.is_gpl(["GPLv2"])
+    assert gs.is_gpl(["Copyright (c) 2014, a maintainer",
+                      "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)"])
+    assert not gs.is_gpl(["LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only"])       # used under the LGPL
+    assert not gs.is_gpl(["License :: OSI Approved :: GNU Lesser General Public License v3 (LGPLv3)"])
+    assert not gs.is_gpl(["Apache-2.0"]) and not gs.is_gpl(["MIT"]) and not gs.is_gpl(["EUPL-1.2"])
+    cmake = (
+        "include(ExternalProject)\n"
+        "ExternalProject_Add(\n    speech_external\n"
+        '    GIT_REPOSITORY "https://github.com/example-org/example-speech.git"\n'
+        '    GIT_TAG "0123456789abcdef0123456789abcdef01234567"\n'
+        "    CMAKE_ARGS -DCMAKE_INSTALL_PREFIX:PATH=${OUT}\n)\n"
+        "FetchContent_Declare(data URL https://example.org/data-1.0.tar.gz)\n"
+    )
+    assert gs.cmake_fetches(cmake) == [
+        ("git", "https://github.com/example-org/example-speech.git", "0123456789abcdef0123456789abcdef01234567"),
+        ("url", "https://example.org/data-1.0.tar.gz", "")]
+    assert gs.github_archive("https://github.com/example-org/example-speech.git", "v1.0") == \
+        "https://github.com/example-org/example-speech/archive/v1.0.tar.gz"
+    if importlib.util.find_spec("piper") is not None:
+        assert "piper-tts" in {d["name"] for d in gs.gpl_distributions()}
+
+    release = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    linux = release.split("\n  build-linux:", 1)[1].split("\n  build-source-artifacts:", 1)[0]
+    assert "python packaging/gpl_sources.py dist/gpl-sources" in linux and "-gpl-sources.tar.gz" in linux
+    notes = release.split("Write release notes stub", 1)[1].split("Verify:", 1)[0]
+    assert "gpl-sources.tar.gz" in notes, "the release notes do not say where the GPL source is"
+    assert "body_path: dist/RELEASE_NOTES.md" in release.split("\n  release:", 1)[1]
+    notices = (REPO / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    assert "gpl-sources.tar.gz" in notices and "packaging/gpl_sources.py" in notices
+
+
+def test_the_gpl_source_archive_holds_each_sdist_and_what_its_build_fetches(tmp_path, monkeypatch, capsys):
+    """The fetch, with the network replaced: a GPL package's sdist from PyPI, checked against PyPI's
+    digest, and the source its CMake build fetches, at the commit the build names."""
+    import hashlib
+    import io
+    import json
+    import tarfile
+    gs = _gpl_sources()
+    cmake = (b'ExternalProject_Add(engine\n    GIT_REPOSITORY "https://github.com/example-org/example-engine.git"\n'
+             b'    GIT_TAG "89abcdef0123456789abcdef0123456789abcdef"\n)\n')
+    sdist = io.BytesIO()
+    with tarfile.open(fileobj=sdist, mode="w:gz") as tar:
+        info = tarfile.TarInfo("example_speech-1.0/CMakeLists.txt")
+        info.size = len(cmake)
+        tar.addfile(info, io.BytesIO(cmake))
+    sdist = sdist.getvalue()
+    engine = b"engine source"
+    digest = {"value": hashlib.sha256(sdist).hexdigest()}
+    served = {
+        "https://files.example.org/example_speech-1.0.tar.gz": sdist,
+        "https://github.com/example-org/example-engine/archive/89abcdef0123456789abcdef0123456789abcdef.tar.gz": engine,
+    }
+
+    def fake_get(url):
+        if url == gs.PYPI_JSON.format(name="example-speech", version="1.0"):
+            return json.dumps({"urls": [
+                {"packagetype": "bdist_wheel", "url": "https://files.example.org/x.whl", "filename": "x.whl",
+                 "digests": {"sha256": "0"}},
+                {"packagetype": "sdist", "url": "https://files.example.org/example_speech-1.0.tar.gz",
+                 "filename": "example_speech-1.0.tar.gz", "digests": {"sha256": digest["value"]}}]}).encode()
+        return served[url]
+
+    monkeypatch.setattr(gs, "_get", fake_get)
+    monkeypatch.setattr(gs, "gpl_distributions", lambda: [{"name": "example-speech", "version": "1.0",
+                                                           "licence": "GPL-3.0-or-later", "home": ""}])
+    out = tmp_path / "gpl-sources"
+    assert gs.fetch_all(out) == 0
+    assert (out / "example_speech-1.0.tar.gz").read_bytes() == sdist
+    fetched = [p for p in out.iterdir() if "example-engine" in p.name]
+    assert len(fetched) == 1 and fetched[0].read_bytes() == engine
+    listing = (out / "SOURCES.md").read_text(encoding="utf-8")
+    assert "example-speech 1.0 (GPL-3.0-or-later)" in listing and "fetched by its CMake build" in listing
+
+    digest["value"] = "f" * 64                      # PyPI's digest no longer matches the file
+    assert gs.fetch_all(tmp_path / "again") == 1
+    assert "does not match" in capsys.readouterr().err

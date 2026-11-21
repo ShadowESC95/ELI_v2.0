@@ -20,14 +20,31 @@ the versions in `requirements.lock.txt`.
 >   into it.** It is ELI's text-to-speech engine, imported in-process, and the
 >   frozen builds include it (`ELI.spec` collects the `piper` package). Those
 >   components are under the GPL in every copy, and whoever redistributes a bundle
->   takes on GPL-3.0's obligations for them, including offering their source
->   (upstream: <https://github.com/OHF-Voice/piper1-gpl>,
->   <https://github.com/espeak-ng/espeak-ng>). Apache-2.0 code may be combined with
->   GPL-3.0 code; on the FSF's reading, a bundle that combines them is distributed
->   under GPL-3.0's terms as a whole.
+>   takes on GPL-3.0's obligations for them, including offering their source; each
+>   release attaches that source (see *Source code of the GPL components* below).
+>   Apache-2.0 code may be combined with GPL-3.0 code; on the FSF's reading, a bundle
+>   that combines them is distributed under GPL-3.0's terms as a whole.
 > - **Through PyAutoGUI** (BSD-3-Clause), the builds also carry MouseInfo
 >   (GPLv3+ per its package metadata), PyMsgBox (BSD licence text, GPLv3+ classifier
 >   in its metadata) and, on Linux, python3-Xlib (GPLv2).
+
+---
+
+## Source code of the GPL components
+
+The release builds (exe, dmg, AppImage, the portable packages) carry these packages under the
+GPL, at the versions in `requirements.lock.txt`: **piper-tts** with **espeak-ng** compiled into
+it, and PyAutoGUI's helpers **MouseInfo**, **PyMsgBox** and, on Linux, **python3-xlib**. Their
+exact source, at the versions a release carries, is attached to that release on GitHub as
+**`ELI_v2-<version>-gpl-sources.tar.gz`**, next to the binaries: each package's source
+distribution from PyPI (checked against PyPI's digest) and the espeak-ng commit piper-tts's
+build compiles in, listed with where each came from in the `SOURCES.md` inside.
+`packaging/gpl_sources.py` makes it in the release workflow, from the packages the build
+installed; it may also hold the source of build tools under the GPL (PyInstaller), whose
+licences carry no such obligation for the programs they build. Upstream: piper-tts
+<https://github.com/OHF-Voice/piper1-gpl>, espeak-ng <https://github.com/espeak-ng/espeak-ng>,
+MouseInfo <https://github.com/asweigart/mouseinfo>, PyMsgBox
+<https://github.com/asweigart/pymsgbox>, python3-xlib <https://pypi.org/project/python3-xlib/>.
 
 ---
 

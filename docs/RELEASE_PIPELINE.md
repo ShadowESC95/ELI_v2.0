@@ -20,6 +20,7 @@ produces on the Release page:
 | `ELI_v2-<v>-macos-arm64.dmg` | macOS Apple Silicon — drag ELI.app to Applications |
 | `ELI_v2-<v>-x86_64.AppImage` | Linux — `chmod +x` and run (needs glibc 2.39 or newer; needs libfuse2, or `--appimage-extract-and-run`) |
 | `ELI_v2-<v>-linux-portable.tar.gz` | classic source tarball (`./ELI_Setup.sh`) with the Piper voices, the text embedder, the GPU packs and offline GUI wheels |
+| `ELI_v2-<v>-gpl-sources.tar.gz` | the exact source of the GPL packages the builds carry (piper-tts with espeak-ng, PyAutoGUI's helpers), listed in its `SOURCES.md` (`packaging/gpl_sources.py`) |
 | `eli_v2_0-<v>-py3-none-any.whl` | pip-installable wheel (`pip install eli_v2_0-*.whl[full]`) |
 | `eli_v2_0-<v>.tar.gz` | Python sdist for source installs |
 | `ELI_v2-<v>-amd64.deb` | Debian package (`eli-v2` launcher) |
