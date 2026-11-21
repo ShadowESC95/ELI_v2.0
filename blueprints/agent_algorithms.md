@@ -245,7 +245,7 @@ run(user_input, intent):
                           system=spec.system_prompt,
                           max_tokens=spec.max_tokens,
                           temperature=spec.temperature,
-                          background=True)
+                          background=not in_user_turn())
     verdict = spec.evaluate(output)                        # the measure
     return AgentResult(ok=verdict.ok,
                        confidence=verdict.score,
@@ -268,8 +268,8 @@ Three properties worth stating:
 Because a spec contains no code, `SpecAgent` bypasses the custom-agent trust chain
 entirely — there is nothing to hash, scan or approve.
 
-One consequence of `background=True` worth knowing: the broker treats the call as background
-work although it runs inside the user's turn. It returns an empty reply whenever a
-foreground generation ran within the last `ELI_BG_DEFER_WINDOW` seconds (30 by default,
-longer after a slow turn) and caps the output at `ELI_BG_MAX_TOKENS` (256). In a running
-conversation a spec agent therefore often scores an empty reply and contributes nothing.
+Inside the user's turn (`request_context.in_user_turn()`) the call is foreground work, with the
+spec's own `max_tokens`. Outside one (a background deepening pass, the GUI's proactive
+analysis) it stays background work: the broker returns an empty reply while a foreground
+generation ran within the last `ELI_BG_DEFER_WINDOW` seconds (30 by default, longer after a
+slow turn) and caps the output at `ELI_BG_MAX_TOKENS` (256).

@@ -3372,6 +3372,7 @@ class SpecAgent(_BaseAgent):
 
         try:
             from eli.cognition.inference_broker import get_inference_broker
+            from eli.kernel.request_context import in_user_turn
             broker = get_inference_broker()
             if broker is None or not broker.gguf_ready:
                 return AgentResult(agent=self.name, ok=False, confidence=0.0, data={},
@@ -3382,7 +3383,10 @@ class SpecAgent(_BaseAgent):
                 system=self.spec.system_prompt,
                 max_tokens=int(self.spec.max_tokens or 512),
                 temperature=float(self.spec.temperature or 0.4),
-                background=True,
+                # Inside the user's turn this is the turn's own work. Sent as background work it came
+                # back empty whenever a turn had just used the model, which in a conversation is
+                # always, and was cut to the background token cap.
+                background=not in_user_turn(),
             )
         except Exception as exc:
             return AgentResult(agent=self.name, ok=False, confidence=0.0, data={},
