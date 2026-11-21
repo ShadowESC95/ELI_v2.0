@@ -147,6 +147,23 @@ def test_a_count_set_in_the_app_takes_over_from_the_exported_one(tmp_path, monke
     assert load_request("/m/b.gguf").n_gpu_layers is None
 
 
+def test_the_tuner_counts_an_exported_context_as_the_operators(tmp_path, monkeypatch):
+    """The window's tuner counts the context box as the operator's only when it was changed this
+    session or saved for this model. An exported ELI_N_CTX was taken for a leftover, auto was saved
+    in its place, and that save, read as the user setting auto, removed the export."""
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(tmp_path / "settings.json"))
+    for var in ("ELI_N_CTX", "ELI_GGUF_N_CTX", "ELI_SETTINGS_PUBLISHED"):
+        monkeypatch.delenv(var, raising=False)
+    assert rs.exported_setting("n_ctx") is None
+    monkeypatch.setenv("ELI_N_CTX", "16384")
+    assert rs.exported_setting("n_ctx") == 16384
+    rs.save_settings({"n_ctx": 8192})                 # set in the app: the export no longer governs
+    assert rs.exported_setting("n_ctx") is None
+    src = _tuner_source()
+    assert re.search(r'_rs_exported\("n_ctx"\)', src) and "or _ctx_exported)" in src, (
+        "the tuner decides whether the context is the operator's without looking at what they exported")
+
+
 def test_the_gui_defers_to_the_shared_rule():
     """GUI and headless must decide identically or they will drift apart."""
     src = _tuner_source()

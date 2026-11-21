@@ -9663,17 +9663,22 @@ class EliMainWindow(QMainWindow):
                 _spin_ctx = int(self.n_ctx_input.value())
             except Exception:
                 _spin_ctx = 0
-            # The box counts as the operator's only when it was changed this session or was saved
-            # for this model (startup dialog rule): a number left over from another model, or the
-            # tuner's own figure from an older build, is not a choice.
+            # The box counts as the operator's only when it was changed this session, was saved
+            # for this model (startup dialog rule) or is a context they exported (ELI_N_CTX /
+            # ELI_GGUF_N_CTX): a number left over from another model, or the tuner's own figure
+            # from an older build, is not a choice. An exported one was taken for a leftover, and
+            # the auto written back in its place removed the export.
             try:
-                from eli.core.runtime_settings import load_settings as _rs_saved_ctx
+                from eli.core.runtime_settings import (
+                    exported_setting as _rs_exported, load_settings as _rs_saved_ctx)
                 _saved = _rs_saved_ctx() or {}
+                _ctx_exported = _rs_exported("n_ctx") is not None
             except Exception:
-                _saved = {}
+                _saved, _ctx_exported = {}, False
             _ctx_is_theirs = (
                 _spin_ctx != int(_saved.get("n_ctx") or 0)
-                or Path(str(_saved.get("n_ctx_model") or "")).name == Path(str(model_path)).name)
+                or Path(str(_saved.get("n_ctx_model") or "")).name == Path(str(model_path)).name
+                or _ctx_exported)
             if _forced_ctx.isdigit() and int(_forced_ctx) > 0:
                 _user_pinned_ctx = int(_forced_ctx)
             elif _spin_ctx > 0 and _ctx_is_theirs:

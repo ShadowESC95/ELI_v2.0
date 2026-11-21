@@ -929,6 +929,14 @@ def _operator_setting(key: str, published: Optional[Dict[str, Optional[str]]] = 
     return None
 
 
+def exported_setting(key: str) -> Optional[Any]:
+    """Setting `key` as the operator exported it, read as the settings read it; None when no export
+    is in force. A value in force by export is the operator's choice (the order above), so code
+    that decides whether a number is someone's choice or a leftover must count it as a choice."""
+    raw = _operator_setting(key)
+    return None if raw is None else _coerce_value(key, raw)
+
+
 def exported_gpu_layers() -> Optional[int]:
     """The GPU-layer count the operator exported (ELI_GGUF_N_GPU_LAYERS, ELI_N_GPU_LAYERS or the
     older ELI_GPU_LAYERS), for whatever model loads, as every other exported load variable is; None
