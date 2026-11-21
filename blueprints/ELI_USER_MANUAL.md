@@ -394,8 +394,8 @@ topic, not only reminders.
   presentation?" is answered from the calendar and the clock, not from the web.
 - The calendar is also written to `calendar.ics` in ELI's data folder, which any calendar app can
   import. Repeating events are not supported.
-- "start a pomodoro" (25 minutes; ELI tells you when it ends, as it does a reminder) · "stop the
-  pomodoro" · "pomodoro status"
+- "start a pomodoro" (25 minutes; ELI tells you when it ends, as it does a reminder) · "start a 50
+  minute pomodoro" · "start a pomodoro break" (5 minutes) · "stop the pomodoro" · "pomodoro status"
 - "research the best solar inverters overnight" · "build me a script at 2am" → **background jobs**
 - "show background jobs" · "check job 5"
 

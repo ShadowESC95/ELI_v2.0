@@ -233,6 +233,28 @@ def test_the_end_of_a_pomodoro_is_announced_and_a_stopped_one_is_not(monkeypatch
         agenda.set_delivery(None)
 
 
+@pytest.mark.parametrize("said,minutes,kind", [
+    ("start a 50 minute pomodoro", 50, "work"),
+    ("start a pomodoro for 45 minutes", 45, "work"),
+    ("begin a 15-minute pomodoro break", 15, "break"),
+    ("start a pomodoro", 25, "work"),
+])
+def test_a_pomodoro_runs_for_the_length_said(monkeypatch, tmp_path, said, minutes, kind):
+    """The router sent no length, so every session ran 25 minutes, and "start a 50 minute pomodoro"
+    opened an app called "a 50 minute pomodoro"."""
+    import json
+    import eli.core.paths as paths
+    from eli.execution.router_enhanced import route
+    monkeypatch.setattr(paths, "config_dir", lambda: tmp_path)
+    routed = route(said)
+    assert routed["action"] == "POMODORO_START", routed
+    started = _executor().execute("POMODORO_START", routed["args"])
+    assert started["ok"] and started["minutes"] == minutes and started["session"] == kind
+    saved = json.loads((tmp_path / "pomodoro.json").read_text(encoding="utf-8"))
+    assert saved["duration"] == minutes * 60
+    _executor().execute("POMODORO_STOP", {})
+
+
 @pytest.mark.parametrize("alias", ["LAUNCH_APP", "OPEN_APPLICATION"])
 def test_an_open_app_alias_gets_the_install_offer_when_the_app_is_missing(monkeypatch, alias):
     """When the portable layer could not open the app, the alias went on as itself, which nothing

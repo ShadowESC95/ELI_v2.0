@@ -274,7 +274,7 @@ _add("Tasks, time & planning", "SET_TIMER", "Set a timer", "“set a timer for 1
 _add("Tasks, time & planning", "ADD_EVENT", "Add a calendar event", "“add an event tomorrow at 3pm”")
 _add("Tasks, time & planning", "LIST_EVENTS", "List events", "“list my events”")
 _add("Tasks, time & planning", "REMOVE_EVENT", "Remove a calendar event or reminder", "“cancel the dentist appointment”")
-_add("Tasks, time & planning", "POMODORO_START", "Start a pomodoro", "“start a pomodoro”")
+_add("Tasks, time & planning", "POMODORO_START", "Start a pomodoro work or break session, of the length said (25 minutes, or 5 for a break, when none is)", "“start a pomodoro”", "“start a 50 minute pomodoro”", "“start a pomodoro break”")
 _add("Tasks, time & planning", "POMODORO_STOP", "Stop the pomodoro", "“stop the pomodoro”")
 _add("Tasks, time & planning", "POMODORO_STATUS", "Pomodoro status", "“pomodoro status”")
 _add("Tasks, time & planning", "BACKGROUND_JOBS", "List background/scheduled jobs", "“show background jobs”")

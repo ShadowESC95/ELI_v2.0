@@ -280,7 +280,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `ADD_EVENT` | Add a calendar event | “add an event tomorrow at 3pm” | Core |
 | `LIST_EVENTS` | List events | “list my events” | Core |
 | `REMOVE_EVENT` | Remove a calendar event or reminder | “cancel the dentist appointment” | Core |
-| `POMODORO_START` | Start a pomodoro | “start a pomodoro” | Plugin |
+| `POMODORO_START` | Start a pomodoro work or break session, of the length said (25 minutes, or 5 for a break, when none is) | “start a pomodoro” · “start a 50 minute pomodoro” · “start a pomodoro break” | Plugin |
 | `POMODORO_STOP` | Stop the pomodoro | “stop the pomodoro” | Plugin |
 | `POMODORO_STATUS` | Pomodoro status | “pomodoro status” | Plugin |
 | `BACKGROUND_JOBS` | List background/scheduled jobs | “show background jobs” | Core |

@@ -532,6 +532,36 @@ def asks_for_tested_code(text: str) -> bool:
                 and not _WRITES_TESTS_RE.search(norm) and not _looks_like_generation_complaint(norm))
 
 
+# A pomodoro to start, with the length said and whether it is a break: "start a pomodoro", "start a 50
+# minute pomodoro", "begin a pomodoro for 45 minutes", "start a 10-minute pomodoro break". The length
+# was never read, so every session ran 25 minutes, and a request with one in it opened an app called
+# "a 50 minute pomodoro".
+_POMODORO_LENGTH = r"(?P<n{0}>\d{{1,3}})\s*-?\s*(?P<u{0}>minutes?|mins?|m|hours?|hrs?|h)\b"
+_POMODORO_START = re.compile(
+    r"(?:please\s+)?(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?)?"
+    r"(?:(?:start|begin|run|set|do|kick\s+off)\s+(?:me\s+|up\s+)?(?:(?:a|an|the|my|another|one|new)\s+)?"
+    r"(?:" + _POMODORO_LENGTH.format(1) + r"(?:\s+long)?\s+)?(?:new\s+)?pomodoro"
+    r"(?:\s+(?P<kind>break|work))?(?:\s+(?:timer|session))?"
+    r"(?:\s+(?:for|of|lasting)\s+(?:a\s+)?" + _POMODORO_LENGTH.format(2) + r")?"
+    r"|pomodoro\s+start)[.!]*", re.I)
+
+
+def pomodoro_request(text: str) -> Optional[dict]:
+    """What a request to start a pomodoro asks for, as POMODORO_START's args: {} for the technique's
+    own length, "minutes" when a length is said, "type": "break" for a break. None when the text is
+    not a request to start one."""
+    m = _POMODORO_START.fullmatch(normalise_voice_text(text))
+    if not m:
+        return None
+    args: dict = {}
+    n, unit = (m.group("n1"), m.group("u1")) if m.group("n1") else (m.group("n2"), m.group("u2"))
+    if n:
+        args["minutes"] = int(n) * (60 if unit.lower().startswith("h") else 1)
+    if (m.group("kind") or "").lower() == "break":
+        args["type"] = "break"
+    return args
+
+
 def _looks_like_generation_complaint(norm: str) -> bool:
     if not norm:
         return False
@@ -557,7 +587,7 @@ def try_route(text: str) -> Optional[dict]:
     if not norm:
         return None
 
-    if re.fullmatch(r"(?:(?:start|begin)\s+(?:a\s+|the\s+|my\s+)?pomodoro|pomodoro\s+start)(?:\s+timer)?", norm):
+    if pomodoro_request(norm) is not None:     # the router's (POMODORO_START with its length)
         return None
 
     # ── Shell command prepass ────────────────────────────────────────────────

@@ -1735,9 +1735,12 @@ def _route_plugin_bridge_prepass(raw: str, low: str):
             return _mk("CPU_USAGE", {}, 0.95, matched_by="system.hw_temperature")
         return _mk("GPU_STATUS", {}, 0.95, matched_by="system.hw_temperature")
 
-    # Pomodoro plugin.
-    if re.match(r"^(?:(?:start|begin)\s+(?:a\s+|the\s+|my\s+)?pomodoro|pomodoro\s+start)(?:\s+timer)?$", low):
-        return _mk("POMODORO_START", {}, 0.98, matched_by="plugin.prepass.pomodoro_start")
+    # Pomodoro plugin. A length said ("start a 50 minute pomodoro") is the session's length.
+    from eli.execution.portable_intent_contract import pomodoro_request
+    _pom = pomodoro_request(low)
+    if _pom is not None:
+        return _mk("POMODORO_START", _pom, 0.98, matched_by="plugin.prepass.pomodoro_start",
+                   entities=_pom or None)
 
     if re.match(r"^(?:(?:stop|end|cancel)\s+(?:the\s+|my\s+)?pomodoro(?:\s+timer)?|pomodoro\s+stop)$", low):
         return _mk("POMODORO_STOP", {}, 0.98, matched_by="plugin.prepass.pomodoro_stop")
@@ -4478,15 +4481,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     if re.match(r"^(?:ram\s+usage|memory\s+usage|show\s+ram\s+usage|show\s+memory\s+usage|how\s+much\s+ram\s+is\s+used)$", low):
         return _mk("RAM_USAGE", {}, 0.96, matched_by="plugin.ram_usage")
 
-    # Pomodoro plugin
-    if re.match(r"^(?:(?:start|begin)\s+(?:a\s+|the\s+|my\s+)?pomodoro|pomodoro\s+start)(?:\s+timer)?$", low):
-        return _mk("POMODORO_START", {}, 0.96, matched_by="plugin.pomodoro_start")
-
-    if re.match(r"^(?:(?:stop|end|cancel)\s+(?:the\s+|my\s+)?pomodoro(?:\s+timer)?|pomodoro\s+stop)$", low):
-        return _mk("POMODORO_STOP", {}, 0.96, matched_by="plugin.pomodoro_stop")
-
-    if re.match(r"^(?:pomodoro\s+status|show\s+pomodoro|pomodoro)$", low):
-        return _mk("POMODORO_STATUS", {}, 0.94, matched_by="plugin.pomodoro_status")
+    # (the Pomodoro is the plugin prepass's, _route_plugin_bridge_prepass, which runs first)
 
     # Notes plugin
     _new_note_m = re.match(
