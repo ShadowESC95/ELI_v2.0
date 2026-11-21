@@ -6094,17 +6094,17 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
+    # Start and stop say what they did: both replies used to be fixed ("proactive started") over a
+    # start that launched a module that does not exist.
     if a == "PROACTIVE_START":
         try:
-            st = proactive_start()
-            return {"ok": True, "action": a, **st, "content": "proactive started", "response": "proactive started"}
+            return proactive_start()
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
     if a == "PROACTIVE_STOP":
         try:
-            st = proactive_stop()
-            return {"ok": True, "action": a, **st, "content": "proactive stopped", "response": "proactive stopped"}
+            return proactive_stop()
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
@@ -12544,100 +12544,44 @@ except Exception:
 
 
 # ----------------------------
-# Proactive daemon control (real PID management)
+# Proactive daemon control: the daemon ELI runs is a thread in this process (the GUI and the engine
+# start it with proactive_daemon.start_daemon). These act on that one. They used to launch
+# `python -m eli.proactive.proactive_daemon`, a module that does not exist, keep its pid in a file,
+# and stop by killing whatever process had that pid.
 # ----------------------------
-def _proactive_paths():
-    base = Path(os.environ.get("ELI_ARTIFACTS_DIR", "artifacts")) / "proactive"
-    base.mkdir(parents=True, exist_ok=True)
-    return base, base / "daemon.pid", base / "daemon.log"
-
-
 def proactive_status() -> Dict[str, Any]:
-    base, pidf, logf = _proactive_paths()
-    pid = None
-    if pidf.exists():
-        try:
-            pid = int(pidf.read_text().strip())
-        except Exception:
-            pid = None
-    alive = False
-    if pid:
-        try:
-            import psutil as _psutil
-            alive = _psutil.pid_exists(int(pid))
-        except Exception:
-            # psutil missing — the signal-0 probe is POSIX-only. On Windows os.kill with
-            # ANY signal calls TerminateProcess, so os.kill(pid, 0) would KILL the process.
-            if os.name != "nt":
-                try:
-                    os.kill(pid, 0)
-                    alive = True
-                except Exception:
-                    alive = False
-    # In-process daemon: the GUI runs it as a thread (no separate PID), so the PID check above
-    # falsely reports STOPPED. Also honour the in-process signals: the singleton's running flag and
-    # the named daemon thread.
-    if not alive:
-        try:
-            import threading as _th
-            from eli.planning import proactive_daemon as _pd
-            if getattr(getattr(_pd, "_daemon", None), "running", False):
-                alive = True
-            elif any(t.name == "eli-proactive-daemon" and t.is_alive()
-                     for t in _th.enumerate()):
-                alive = True
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
+    from eli.planning.proactive_daemon import is_running
+    alive = bool(is_running().get("running"))
     msg = f"Proactive daemon is {'RUNNING' if alive else 'STOPPED'}."
-    return {"ok": True, "action": "PROACTIVE_STATUS", "pid": pid, "running": alive, "log": str(logf), "content": msg, "response": msg}
+    return {"ok": True, "action": "PROACTIVE_STATUS", "running": alive, "content": msg, "response": msg}
 
 
 def proactive_start() -> Dict[str, Any]:
-    base, pidf, logf = _proactive_paths()
-    st = proactive_status()
-    if st.get("running"):
-        return st
+    from eli.planning import proactive_daemon as _pd
+    if _pd.is_running().get("running"):
+        msg = "The proactive daemon is already running."
+        return {"ok": True, "action": "PROACTIVE_START", "running": True, "already_running": True,
+                "content": msg, "response": msg}
     try:
-        py = sys.executable if "sys" in globals() else "python3"
-    except Exception:
-        py = "python3"
-    # run as module so imports work
-    argv = [py, "-m", "eli.proactive.proactive_daemon"]
-    try:
-        lf = open(logf, "a", encoding="utf-8")
-        p = subprocess.Popen(argv, stdout=lf, stderr=lf, cwd=str(Path.cwd()))
-        pidf.write_text(str(p.pid), encoding="utf-8")
-        msg = "Proactive daemon started."
-        return {"ok": True, "action": "PROACTIVE_START", "pid": p.pid, "cmd": argv, "log": str(logf), "content": msg, "response": msg}
+        _pd.start_daemon()
     except Exception as e:
-        msg = "Failed to start proactive daemon."
-        return {"ok": False, "action": "PROACTIVE_START", "error": repr(e), "content": msg, "response": msg}
+        msg = f"The proactive daemon did not start: {e}"
+        return {"ok": False, "action": "PROACTIVE_START", "running": False, "error": repr(e),
+                "content": msg, "response": msg}
+    running = bool(_pd.is_running().get("running"))
+    msg = "Started the proactive daemon." if running else "The proactive daemon did not start: its thread is not running."
+    return {"ok": running, "action": "PROACTIVE_START", "running": running, "content": msg, "response": msg}
 
 
 def proactive_stop() -> Dict[str, Any]:
-    base, pidf, logf = _proactive_paths()
-    pid = None
-    if pidf.exists():
-        try:
-            pid = int(pidf.read_text().strip())
-        except Exception:
-            pid = None
-    if not pid:
-        msg = "Proactive daemon not running (no PID)."
-        return {"ok": True, "action": "PROACTIVE_STOP", "content": msg, "response": msg}
-    try:
-        os.kill(pid, 15)
-    except Exception:
-        log.debug("suppressed exception", exc_info=True)
-    try:
-        pidf.unlink(missing_ok=True)  # py3.8+: if not available it will throw
-    except Exception:
-        try:
-            pidf.unlink()
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-    msg = "Proactive daemon stopped."
-    return {"ok": True, "action": "PROACTIVE_STOP", "pid": pid, "content": msg, "response": msg}
+    from eli.planning import proactive_daemon as _pd
+    r = _pd.stop_daemon()
+    if r["stopped"]:
+        msg = "Stopped the proactive daemon." if r["was_running"] else "The proactive daemon was not running."
+    else:
+        msg = ("Asked the proactive daemon to stop. It is finishing the step it was in "
+               "and will not start another.")
+    return {"ok": True, "action": "PROACTIVE_STOP", "running": False, **r, "content": msg, "response": msg}
 
 
 class Executor:

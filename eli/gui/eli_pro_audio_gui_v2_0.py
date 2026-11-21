@@ -10763,8 +10763,17 @@ class EliMainWindow(QMainWindow):
         if label is None:
             return
         daemon = getattr(self, "_proactive_daemon", None)
-        # daemon being set means it was started; running flag lags by one thread tick
+        # Whether its loop is live now, not whether it was once started: a stop from chat
+        # (PROACTIVE_STOP) or a crash ends the loop while this window still holds the daemon.
+        running = False
         if daemon is not None:
+            try:
+                from eli.planning.proactive_daemon import is_running as _pd_is_running
+                running = bool(_pd_is_running().get("running"))
+            except Exception:
+                log.debug("proactive daemon state unavailable", exc_info=True)
+                running = False
+        if running:
             count = getattr(self, "_proactive_event_count", 0)
             label.setText(f"  🟢 Proactive: active  |  events: {count}  ")
             label.setToolTip("ELI proactive daemon is running. See 🎯 Proactive tab.")

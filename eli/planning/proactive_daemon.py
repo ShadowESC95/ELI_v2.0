@@ -77,6 +77,7 @@ class ProactiveDaemon:
         self.package_root = Path(__file__).resolve().parents[2]
         self.running = False
         self.paused = False
+        self._stop_event = threading.Event()
         self.suggestion_queue = queue.Queue()
 
         # Two DB handles
@@ -975,6 +976,10 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
         """
         Main proactive daemon loop
         """
+        # This run's own stop flag. stop() sets it, so a loop asleep between ticks ends at once, and a
+        # restart (start_daemon) hands the next run a new one: a loop still finishing its last step
+        # after a stop then ends instead of looping on beside the new one.
+        stop = self._stop_event
         self.running = True
         log.debug("[PROACTIVE] Daemon started - continuous learning active")
 
@@ -992,10 +997,10 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
         last_news_fetch = 0.0
         last_autonomy = 0.0
 
-        while self.running:
+        while self.running and not stop.is_set():
             try:
                 if self.paused:
-                    time.sleep(5)
+                    stop.wait(5)
                     continue
 
                 # While the user's request is generating, hold back the daemon's LLM-heavy work (insights,
@@ -1400,18 +1405,19 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
                     last_report = current_date
 
                 _maybe_update_persona_from_db()
-                time.sleep(60)
+                stop.wait(60)
 
             except KeyboardInterrupt:
                 break
             except Exception as e:
                 log.debug(f"[PROACTIVE] Daemon error: {e}")
-                time.sleep(60)
+                stop.wait(60)
 
         log.debug("[PROACTIVE] Daemon stopped")
 
     def stop(self):
         self.running = False
+        self._stop_event.set()
 
     def pause(self):
         self.paused = True
@@ -1422,9 +1428,13 @@ Date: {datetime.now().strftime("%A %B %d %H:%M")} | Interactions last 24h: {inte
 
 # Singleton instance
 _daemon = None
-_daemon_started = False
 _daemon_thread = None
 _daemon_start_lock = threading.Lock()
+
+# How long stop_daemon() waits to see the loop end. A stop wakes a loop that is asleep between
+# ticks at once; a step already running (a model call can take minutes) is not cut off, so the
+# wait is short and the result says whether the loop has ended or is finishing that step.
+_STOP_WAIT_S = 5.0
 
 
 def is_running() -> dict:
@@ -1485,20 +1495,43 @@ def _guarded_daemon_run(daemon) -> None:
 
 
 def start_daemon():
-    global _daemon_started
-    with _daemon_start_lock:
-        if _daemon_started:
-            return _daemon
-        daemon = get_daemon()
-        _daemon_started = True
-    thread = threading.Thread(
-        target=_guarded_daemon_run, args=(daemon,),
-        daemon=True, name="eli-proactive-daemon",
-    )
-    thread.start()
+    """Run the daemon's loop on a thread in this process, unless one is already running it.
+
+    It used to start once per process: after a stop or a crash this returned the old daemon and
+    started nothing, so PROACTIVE_START and the GUI's restart-after-crash did nothing. The same
+    daemon object is kept, so whoever holds it (the GUI reads its suggestion_queue) still has it.
+    """
     global _daemon_thread
-    _daemon_thread = thread
+    with _daemon_start_lock:
+        daemon = get_daemon()
+        thread = _daemon_thread
+        if thread is not None and thread.is_alive() and not daemon._stop_event.is_set():
+            return daemon
+        # A loop asked to stop may still be finishing a step; it keeps the flag that stopped it,
+        # and this run gets its own.
+        daemon._stop_event = threading.Event()
+        daemon.running = True
+        thread = threading.Thread(
+            target=_guarded_daemon_run, args=(daemon,),
+            daemon=True, name="eli-proactive-daemon",
+        )
+        _daemon_thread = thread
+        thread.start()
     return daemon
+
+
+def stop_daemon(wait_s: float = _STOP_WAIT_S) -> dict:
+    """Stop the daemon running in this process. Returns what happened: whether it was running,
+    and whether its loop has ended (`stopped`) or is finishing the step it was in."""
+    with _daemon_start_lock:
+        daemon, thread = _daemon, _daemon_thread
+        was_running = bool(is_running().get("running"))
+        if daemon is not None:
+            daemon.stop()
+    if thread is not None and thread.is_alive() and thread is not threading.current_thread():
+        thread.join(wait_s)
+    alive = bool(thread is not None and thread.is_alive())
+    return {"was_running": was_running, "stopped": not alive, "thread_alive": alive}
 
 
 # _ELI_PERSONA_DB_AUTOUPDATE_HOOK_V1

@@ -16,6 +16,7 @@ capability you are actively using is the same class of fault as claiming one you
 """
 import json
 import re
+import threading
 import time
 from datetime import datetime
 
@@ -146,6 +147,76 @@ def test_frontier_status_prefers_the_in_process_answer(monkeypatch):
     assert proactive["running"] is True
     assert proactive["detected_via"] == "in_process"
     assert proactive["pid"] == 0, "in-process daemons have no pid, and that is fine"
+
+
+class _LoopDaemon:
+    """Stands in for ProactiveDaemon: the same running flag / stop event protocol, no work."""
+
+    def __init__(self):
+        self.running = False
+        self.paused = False
+        self._stop_event = threading.Event()
+
+    def run(self):
+        stop = self._stop_event
+        self.running = True
+        while self.running and not stop.is_set():
+            stop.wait(60)
+
+    def stop(self):
+        self.running = False
+        self._stop_event.set()
+
+
+def test_proactive_start_and_stop_act_on_the_in_process_daemon(monkeypatch, tmp_path):
+    """PROACTIVE_START launched `python -m eli.proactive.proactive_daemon`, which does not exist,
+    and replied "proactive started"; PROACTIVE_STOP only killed the pid in a file. The daemon ELI
+    runs is a thread in its own process, so that is the one they start and stop."""
+    import subprocess
+    import eli.planning.proactive_daemon as pd
+    from eli.execution.executor_enhanced import execute
+    launched = []
+    monkeypatch.setattr(subprocess, "Popen", lambda *a, **k: launched.append(a))
+    monkeypatch.setenv("ELI_ARTIFACTS_DIR", str(tmp_path))
+    fake = _LoopDaemon()
+    monkeypatch.setattr(pd, "_daemon", fake, raising=False)
+    monkeypatch.setattr(pd, "_daemon_thread", None, raising=False)
+    try:
+        started = execute("PROACTIVE_START", {})
+        assert not launched, "no process is launched: the daemon runs in this process"
+        assert started["ok"] is True and pd.is_running()["running"] is True
+        assert "Started" in started["response"]
+        assert execute("PROACTIVE_STATUS", {})["running"] is True
+
+        stopped = execute("PROACTIVE_STOP", {})
+        assert stopped["stopped"] is True and pd.is_running()["running"] is False
+        assert "Stopped" in stopped["response"]
+        assert "was not running" in execute("PROACTIVE_STOP", {})["response"]
+
+        # a stopped (or crashed) daemon starts again; it used to be started once per process
+        again = execute("PROACTIVE_START", {})
+        assert again["ok"] is True and pd.is_running()["running"] is True
+        assert "already running" in execute("PROACTIVE_START", {})["response"]
+    finally:
+        pd.stop_daemon()
+
+
+def test_a_stop_ends_a_sleeping_daemon_loop_at_once():
+    """The loop slept with time.sleep between ticks, so a stop took effect only when the sleep ran out."""
+    import eli.cognition.gguf_inference  # noqa: F401 -- imported by run() before its loop starts
+    import eli.planning.proactive_daemon as pd
+    daemon = object.__new__(pd.ProactiveDaemon)
+    daemon.running, daemon.paused, daemon._stop_event = False, True, threading.Event()
+    loop = threading.Thread(target=daemon.run, daemon=True)
+    loop.start()
+    for _ in range(200):
+        if daemon.running:
+            break
+        time.sleep(0.01)
+    time.sleep(0.5)          # inside the paused loop's wait by now
+    daemon.stop()
+    loop.join(2.0)
+    assert not loop.is_alive()
 
 
 # ── the probe budget ──────────────────────────────────────────────────────────
