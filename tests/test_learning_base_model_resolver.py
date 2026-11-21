@@ -8,7 +8,7 @@ def test_rejects_missing_explicit_base_without_default_fallback(tmp_path):
         allow_default_candidates=False,
     )
     assert r["ok"] is False
-    assert "No valid local trainable Phi-3 base model directory found." in r["problems"]
+    assert "No valid local trainable Hugging Face base model directory found." in r["problems"]
 
 
 def test_rejects_gguf_file_without_default_fallback(tmp_path):

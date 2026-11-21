@@ -19,9 +19,6 @@ except Exception:
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 log = get_logger(__name__)
-RUNS_DIR = PROJECT_ROOT / "training/runs"
-
-ALLOWED_TARGETS = {"eli_phi", "eli_phi_ultra"}
 
 
 def _rel(path: Path) -> str:
@@ -477,7 +474,7 @@ def build_training_job(
         "safety_contract": [
             "Default mode is dry-run only.",
             "--execute is required for training.",
-            "Only eli_phi and eli_phi_ultra are allowed.",
+            "Only targets the operator has declared are allowed.",
             "Only reviewed target-scoped rows are trainable.",
             "GGUF files are never trained directly.",
             "Output adapter path must not overwrite the active adapter.",
@@ -784,8 +781,10 @@ def run_training(job: dict[str, Any], on_event=None) -> dict[str, Any]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="Gated ELI Phi LoRA trainer")
-    parser.add_argument("--target", choices=sorted(ALLOWED_TARGETS), required=True)
+    from eli.learning.lora_trainer_guard import allowed_targets, runs_dir
+    parser = argparse.ArgumentParser(description="Gated ELI LoRA trainer")
+    parser.add_argument("--target", required=True,
+                        help="a declared target: " + ", ".join(sorted(allowed_targets())))
     parser.add_argument("--execute", action="store_true", help="Actually run training")
     parser.add_argument("--max-steps", type=int, default=1)
     parser.add_argument("--seq-len", type=int, default=384)
@@ -821,8 +820,7 @@ def main(argv: list[str] | None = None) -> int:
             "error": str(exc),
         }
 
-    RUNS_DIR.mkdir(parents=True, exist_ok=True)
-    plan_path = RUNS_DIR / f"lora_train_{args.target}_{_stamp()}.json"
+    plan_path = runs_dir() / f"lora_train_{args.target}_{_stamp()}.json"
     job["plan_path"] = str(plan_path)
     _safe_write_json(plan_path, job)
 

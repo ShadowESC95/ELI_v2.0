@@ -22,19 +22,11 @@ except Exception:
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
 DEFAULT_IN = PROJECT_ROOT / "training/datasets/eli_supervised_v0.with_self_model.jsonl"
-REGISTRY = PROJECT_ROOT / "models/lora/registry/eli_phi_targets.json"
-
-ALLOWED_TARGETS = {"eli_phi", "eli_phi_ultra"}
-
 
 def _load_allowed_targets() -> set[str]:
-    if not REGISTRY.exists():
-        return set(ALLOWED_TARGETS)
-    data = json.loads(REGISTRY.read_text(encoding="utf-8"))
-    allowed = data.get("allowed_targets", {})
-    if isinstance(allowed, dict):
-        return set(allowed.keys()) & ALLOWED_TARGETS
-    return set(ALLOWED_TARGETS)
+    """The declared targets (built-ins plus the operator's), as the guard allows them."""
+    from eli.learning.lora_trainer_guard import allowed_targets
+    return set(allowed_targets())
 
 
 def _row_targets(row: dict[str, Any]) -> set[str]:
@@ -140,9 +132,8 @@ def main() -> None:
     ap.add_argument("--src", type=Path, default=DEFAULT_IN)
     ap.add_argument(
         "--target",
-        choices=sorted(ALLOWED_TARGETS),
         default=None,
-        help="Target adapter/runtime family. If omitted, exports both allowed Phi targets.",
+        help="A declared target. If omitted, exports every declared target.",
     )
     ap.add_argument("--out", type=Path, default=None)
     args = ap.parse_args()
@@ -151,10 +142,7 @@ def main() -> None:
         print(json.dumps(export_for_target(args.src, args.target, args.out), indent=2))
         return
 
-    reports = [
-        export_for_target(args.src, "eli_phi", None),
-        export_for_target(args.src, "eli_phi_ultra", None),
-    ]
+    reports = [export_for_target(args.src, t, None) for t in sorted(_load_allowed_targets())]
     print(json.dumps({"ok": True, "reports": reports}, indent=2))
 
 

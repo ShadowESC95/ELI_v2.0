@@ -6,7 +6,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from eli.learning.base_model_resolver import resolve_base_model_path
+from eli.learning.base_model_resolver import BASE_UNRESOLVED, resolve_base_model_path
 from eli.learning import lora_trainer_guard as guard
 
 
@@ -82,7 +82,7 @@ def preflight_target(
     problems: list[str] = []
 
     if not base.get("ok"):
-        problems.append("trainable Phi-3 base model unresolved")
+        problems.append(BASE_UNRESOLVED)
 
     if missing_modules:
         problems.append("missing training modules: " + ", ".join(missing_modules))
@@ -107,12 +107,10 @@ def preflight_target(
 
 
 def preflight_all() -> dict[str, Any]:
+    """Preflight for every declared target: the built-ins and the operator's own."""
     return {
         "ok": True,
-        "reports": [
-            preflight_target("eli_phi"),
-            preflight_target("eli_phi_ultra"),
-        ],
+        "reports": [preflight_target(t) for t in sorted(guard.allowed_targets())],
     }
 
 

@@ -255,3 +255,29 @@ def test_the_parser_gets_the_time_not_the_paragraph():
     r = _eli_schedule_prepass("It rained this morning. Schedule a code review task for 8:45am today")
     assert r["args"]["when"] == "for 8:45am today"
     assert _eli_schedule_prepass("can you open the music app at 8pm?")["args"]["when"] == "at 8pm"
+
+
+def test_the_lora_job_trains_the_target_it_is_for(monkeypatch):
+    """It always trained eli_phi, whichever target the autonomy scheduler found ready."""
+    import eli.learning.lora_pipeline as lp
+    import eli.learning.lora_trainer_guard as guard
+    import eli.learning.training_preflight as tp
+    from eli.runtime import scheduled_tasks as st
+    trained = []
+    monkeypatch.setattr(lp, "run_pipeline", lambda target, **kw: trained.append(target) or
+                        {"target": target, "summary": f"ran {target}"})
+    monkeypatch.setattr(guard, "allowed_targets",
+                        lambda: {"eli_phi", "eli_phi_ultra", "my_qwen"})
+
+    res = st._worker_lora("Autonomous check: my_qwen is ready for LoRA training -- run it.")
+    assert res["ok"] and trained == ["my_qwen"]
+
+    trained.clear()
+    monkeypatch.setattr(tp, "preflight_all", lambda: {"reports": [
+        {"target": "eli_phi", "can_train": False}, {"target": "eli_phi_ultra", "can_train": True}]})
+    assert st._worker_lora("train the lora tonight")["ok"] and trained == ["eli_phi_ultra"]
+
+    trained.clear()
+    monkeypatch.setattr(tp, "preflight_all", lambda: {"reports": []})
+    res = st._worker_lora("train the lora tonight")
+    assert res["ok"] is False and trained == []

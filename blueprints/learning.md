@@ -152,7 +152,7 @@ first time.
 - It **isn't**: (a) automatic by default — it is driven by the operator, through the
   Training tab, the chat actions, or a scheduled overnight job. The one exception is the
   `goal_driven` operator mode: there the autonomy scheduler checks at most once a week
-  and, when a built-in target passes preflight, queues the overnight `lora` job itself
+  and, when a declared target passes preflight, queues the overnight `lora` job for it
   (`autonomy_scheduler._maybe_check_lora_retrain`); that job still trains only on rows a
   person approved. (b) connected to the live
   inference model by itself — it trains an adapter on a Hugging Face base, while

@@ -9,7 +9,7 @@ from typing import Any
 
 from eli.learning.dataset_filters import is_bad_response, load_jsonl, row_is_reviewed
 from eli.utils.log import get_logger
-from eli.learning.base_model_resolver import resolve_base_model_path
+from eli.learning.base_model_resolver import BASE_UNRESOLVED, resolve_base_model_path
 
 
 try:
@@ -20,15 +20,11 @@ except Exception:
 
 log = get_logger(__name__)
 REGISTRY_PATH = PROJECT_ROOT / "models/lora/registry/eli_phi_targets.json"
-def _runs_dir() -> Path:
-    try:
-        from eli.core.paths import learning_dir
-        return Path(learning_dir()) / "runs"
-    except Exception:
-        return PROJECT_ROOT / "training" / "runs"
-
-
-RUNS_DIR = _runs_dir()
+def runs_dir() -> Path:
+    """Where every LoRA run plan and report is written (guard, trainer, eval): one
+    folder, learning_dir()/runs, read when written so it follows the data dir."""
+    from eli.core.paths import learning_dir
+    return Path(learning_dir()) / "runs"
 
 # Built-ins. `allowed_targets()` is the live allowlist — built-ins PLUS whatever the
 # operator declared in the registry. The contract is unchanged (nothing trains unless
@@ -387,18 +383,18 @@ def build_training_plan(
 
 
 def write_plan(plan: dict[str, Any], *, out: Path | None = None) -> Path:
-    RUNS_DIR.mkdir(parents=True, exist_ok=True)
     if out is None:
         stamp = time.strftime("%Y%m%d_%H%M%S")
-        out = RUNS_DIR / f"lora_guard_{plan['target']}_{stamp}.json"
+        out = runs_dir() / f"lora_guard_{plan['target']}_{stamp}.json"
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(_eli_json_dumps_hardened(plan, indent=2, ensure_ascii=False), encoding="utf-8")
     return _eli_attach_base_resolution_any(out)
 
 
 def main(argv: list[str] | None = None) -> int:
-    ap = argparse.ArgumentParser(description="ELI Phi-targeted LoRA trainer guard.")
-    ap.add_argument("--target", default="all", help="eli_phi, eli_phi_ultra, or all")
+    ap = argparse.ArgumentParser(description="ELI LoRA trainer guard.")
+    ap.add_argument("--target", default="all",
+                    help="a declared target (built-in or from the Training tab), or all")
     ap.add_argument("--dataset", default="", help="Optional dataset override for single-target mode")
     ap.add_argument("--registry", "--registry-path", dest="registry_path", default="", help="Optional target registry override")
     ap.add_argument("--project-root", default="", help="Optional project root for resolving relative registry paths")
@@ -406,18 +402,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--out", default="", help="Optional plan output path for single-target mode")
     args = ap.parse_args(argv)
 
-    targets = sorted(ALLOWED_TARGETS) if args.target == "all" else [args.target]
+    targets = sorted(allowed_targets()) if args.target == "all" else [args.target]
     reports = []
 
+    # Paths not given keep build_training_plan's defaults (None is not a path).
+    where: dict[str, Any] = {}
+    if args.registry_path:
+        where["registry_path"] = Path(args.registry_path).expanduser()
+    if args.project_root:
+        where["project_root"] = Path(args.project_root).expanduser()
     for target in targets:
-        registry_path = Path(args.registry_path).expanduser() if args.registry_path else None
-        project_root = Path(args.project_root).expanduser() if args.project_root else None
         plan = build_training_plan(
             target,
-            registry_path=registry_path,
-            project_root=project_root,
             dataset_path=args.dataset or None,
             execute=bool(args.execute),
+            **where,
         )
         out = Path(args.out).expanduser() if args.out and len(targets) == 1 else None
         plan_path = write_plan(plan, out=out)
@@ -441,7 +440,7 @@ def _eli_attach_base_resolution(report):
     cfg = report.get("config") or {}
     target = str(report.get("target") or cfg.get("target") or "").strip()
 
-    if target not in {"eli_phi", "eli_phi_ultra"}:
+    if target not in allowed_targets():
         return report
 
     requested = cfg.get("base_model_path") or report.get("base_model_path") or ""
@@ -458,7 +457,7 @@ def _eli_attach_base_resolution(report):
     ]
 
     if not resolution.get("ok"):
-        msg = "trainable Phi-3 base model unresolved"
+        msg = BASE_UNRESOLVED
         if msg not in problems:
             problems.append(msg)
 
@@ -502,7 +501,7 @@ def _eli_harden_lora_guard_report(report):
     cfg = report.get("config") or {}
     target = str(report.get("target") or cfg.get("target") or "").strip()
 
-    if target not in {"eli_phi", "eli_phi_ultra"}:
+    if target not in allowed_targets():
         return report
 
     requested = cfg.get("base_model_path") or report.get("base_model_path") or ""
@@ -519,7 +518,7 @@ def _eli_harden_lora_guard_report(report):
     ]
 
     if not resolution.get("ok"):
-        msg = "trainable Phi-3 base model unresolved"
+        msg = BASE_UNRESOLVED
         if msg not in problems:
             problems.append(msg)
 
@@ -602,15 +601,15 @@ def _eli_normalize_plan_base_model_v5(report):
 
         problems = [
             p for p in problems
-            if p != "trainable Phi-3 base model unresolved"
+            if p != BASE_UNRESOLVED
         ]
 
         report["train_ready"] = bool(report.get("ok", True)) and not problems
         if report.get("dry_run", True):
             report["will_train"] = False
     else:
-        if "trainable Phi-3 base model unresolved" not in problems:
-            problems.append("trainable Phi-3 base model unresolved")
+        if BASE_UNRESOLVED not in problems:
+            problems.append(BASE_UNRESOLVED)
         report["train_ready"] = False
         report["will_train"] = False
 

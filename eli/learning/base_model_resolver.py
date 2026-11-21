@@ -14,6 +14,9 @@ except Exception:
 
 log = get_logger(__name__)
 
+# The problem every LoRA report gives when no trainable base resolves, for any target.
+BASE_UNRESOLVED = "trainable base model unresolved"
+
 DEFAULT_PHI3_BASE_CANDIDATES = [
     PROJECT_ROOT / "phi-3-mini-base",
     PROJECT_ROOT / "models/hf/phi-3-mini-base",
@@ -115,12 +118,14 @@ def base_search_roots() -> list[Path]:
 
     Deliberately not Phi-specific: a redistributed copy has whatever the operator
     downloaded, and the layout differs between a dev checkout (models/hf) and a
-    packaged install (data dir).
+    packaged install (data dir). `training/base/` (learning_dir()/base) is where the
+    training documents download a base, so it is searched too.
     """
     roots: list[Path] = [PROJECT_ROOT / "models" / "hf", PROJECT_ROOT / "models", PROJECT_ROOT]
     try:
-        from eli.core.paths import models_dir, data_dir
+        from eli.core.paths import models_dir, data_dir, learning_dir
         roots.insert(0, Path(models_dir()) / "hf")
+        roots.insert(1, Path(learning_dir()) / "base")
         roots.append(Path(data_dir()) / "models" / "hf")
     except Exception:
         log.debug("[lora] eli.core.paths unavailable; using project-relative roots only",
@@ -180,14 +185,14 @@ def resolve_base_model_path(
     allow_default_candidates: bool = True,
 ) -> dict[str, Any]:
     """
-    Resolve a local trainable Hugging Face Phi-3 base model.
+    Resolve a local trainable Hugging Face base model (any family).
 
     If path is supplied and allow_default_candidates=False, only that explicit
     path is tested. This is required for isolated unit tests so they do not
     silently pass by falling back to a downloaded real model.
 
-    If allow_default_candidates=True, the resolver may fall back to known local
-    Phi-3 base locations.
+    If allow_default_candidates=True, the resolver may fall back to the built-in
+    targets' Phi-3 locations, then to any trainable base under base_search_roots().
     """
     checked: list[dict[str, Any]] = []
 
@@ -221,7 +226,7 @@ def resolve_base_model_path(
         "relative": "",
         "source": "",
         "checked": checked,
-        "problems": ["No valid local trainable Phi-3 base model directory found."],
+        "problems": ["No valid local trainable Hugging Face base model directory found."],
         "warnings": [],
     }
 

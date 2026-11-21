@@ -91,3 +91,62 @@ def test_family_matching_is_tolerant_but_not_blind():
     assert tr.family_matches("", "anything")   # unpinned target accepts what it finds
     assert tr.family_matches("qwen3", None)    # unreadable config is not a mismatch
     assert not tr.family_matches("qwen3", "llama")
+
+
+# ── the declared list is the list, everywhere ────────────────────────────────
+
+def _declare_qwen(tmp_path):
+    base = _hf_model(tmp_path / "bases" / "qwen-small", "qwen3")
+    res = tr.create_target("my_qwen", base)
+    assert res["ok"], res.get("problems")
+    return base
+
+
+def test_a_declared_target_reaches_every_learning_entry_point(learning_dir, tmp_path, capsys):
+    """The trainer CLI's --target, the guard's "all", preflight_all (and LORA_STATUS on
+    it) and the eval job only knew the two built-ins."""
+    _declare_qwen(tmp_path)
+    from eli.learning import lora_eval, lora_trainer, lora_trainer_guard as guard
+    from eli.learning import training_preflight as tp
+
+    assert "my_qwen" in [r["target"] for r in tp.preflight_all()["reports"]]
+    job = lora_trainer.build_training_job("my_qwen")
+    assert not any("target not allowed" in p for p in job.get("problems") or [])
+    assert "Only targets the operator has declared are allowed." in job["safety_contract"]
+    assert lora_trainer.main(["--target", "my_qwen"]) in (0, 1)   # argparse used to refuse it
+    capsys.readouterr()
+    assert not any("unsupported target" in p for p in lora_eval.build_eval_job("my_qwen")["problems"])
+
+    guard.main(["--target", "all"])
+    reports = json.loads(capsys.readouterr().out)["reports"]
+    assert "my_qwen" in {r["target"] for r in reports}
+
+
+def test_an_unresolved_base_is_not_called_phi_3_for_another_family(learning_dir, tmp_path):
+    _declare_qwen(tmp_path)
+    from eli.learning.training_preflight import preflight_target
+    rep = preflight_target("my_qwen", base_model_path=tmp_path / "missing",
+                           allow_default_candidates=False)
+    assert rep["problems"] and "Phi-3" not in " ".join(rep["problems"])
+
+
+def test_run_plans_have_one_folder_the_learning_dir(learning_dir, capsys):
+    """Run plans went to PROJECT_ROOT/training/runs (the install folder on a packaged
+    build) while the guard wrote to learning_dir()/runs."""
+    from pathlib import Path
+    from eli.learning import lora_eval, lora_trainer, lora_trainer_guard as guard
+    runs = Path(learning_dir) / "runs"
+    assert guard.runs_dir() == runs
+    lora_trainer.main(["--target", "eli_phi"])
+    assert json.loads(capsys.readouterr().out)["plan_path"].startswith(str(runs))
+    report = lora_eval.write_report({"target": "eli_phi", "base_only": True})
+    assert report["report_path"].startswith(str(runs))
+
+
+def test_training_base_is_a_base_search_root(learning_dir, tmp_path):
+    """Every training document downloads the base into training/base/."""
+    from pathlib import Path
+    from eli.learning.base_model_resolver import base_search_roots, discover_base_models
+    assert Path(learning_dir) / "base" in base_search_roots()
+    found = _hf_model(Path(learning_dir) / "base" / "tiny-llama", "llama")
+    assert str(found.resolve()) in {d["path"] for d in discover_base_models()}

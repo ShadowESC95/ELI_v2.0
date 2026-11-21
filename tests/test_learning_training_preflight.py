@@ -1,5 +1,6 @@
 import importlib
 import pytest
+from eli.learning.base_model_resolver import BASE_UNRESOLVED
 from eli.learning.training_preflight import preflight_target
 
 def _spec_present(mod: str) -> bool:
@@ -26,7 +27,7 @@ def test_preflight_blocks_missing_phi_base_when_isolated(tmp_path):
     )
 
     assert report["can_train"] is False
-    assert "trainable Phi-3 base model unresolved" in report["problems"]
+    assert BASE_UNRESOLVED in report["problems"]
     assert report["base_model_resolution"]["ok"] is False
 
 
@@ -54,4 +55,4 @@ def test_preflight_report_does_not_leak_weak_base_warning():
 
     blob = str(report)
     assert "base model path missing:" not in blob
-    assert "trainable Phi-3 base model unresolved" not in report.get("problems", [])
+    assert BASE_UNRESOLVED not in report.get("problems", [])

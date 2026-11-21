@@ -31,17 +31,18 @@ phi-hardcoded**:
   existing modules. **Dry-run by default** (runs every gate, touches no GPU, writes
   no adapter — safe from chat); real training only `execute=True`.
 - **Wired into ELI:**
-  - `LORA_STATUS` action (read-only): preflight readiness for each built-in target
-    (`eli_phi`, `eli_phi_ultra`; `training_preflight.preflight_all`).
+  - `LORA_STATUS` action (read-only): preflight readiness for each declared target, the
+    built-ins and the operator's own (`training_preflight.preflight_all`).
   - `LORA_TRAIN` action: runs the pipeline DAG — **dry-run from chat**; real training
     only via the scheduled task / explicit GUI (execute flag not exposed in chat).
   - Router: "lora status" / "is lora ready" → LORA_STATUS; "train a lora" /
     "fine-tune yourself" / "run lora training" → LORA_TRAIN.
   - Scheduled `lora` kind (`_worker_lora`): "train a lora overnight [N steps]" →
-    `SCHEDULE_TASK` runs `run_pipeline(execute=True)` unattended, on the built-in
-    `eli_phi` target, for N steps (50 when the request names none, at most 2000). In the
-    `goal_driven` operator mode the autonomy scheduler queues this job itself, at most
-    once a week, when a built-in target passes preflight.
+    `SCHEDULE_TASK` runs `run_pipeline(execute=True)` unattended, on the declared target
+    the request names (else the first one preflight reports ready), for N steps (50 when
+    the request names none, at most 2000). In the `goal_driven` operator mode the autonomy
+    scheduler queues this job itself, at most once a week, for a declared target that
+    passes preflight, and names that target in the job.
   - Manifest: `capability_manifest.json` lists both (231 capabilities in v2.5.36).
 - Tests: `tests/test_lora_pipeline.py` (target-module resolver, DAG order + dry-run
   no-train, both actions, routing, scheduled kind).
@@ -94,8 +95,10 @@ a dry-run readiness check, and cancel. See `gui.md`.
 
 ### 6. Paths
 
-Runs, datasets and the registry follow `paths.learning_dir()` (source tree in dev,
-user data dir on a packaged install) instead of writing into a read-only mount.
+Runs (the guard's, the trainer's and the eval's plans and reports, all in
+`learning_dir()/runs` through `lora_trainer_guard.runs_dir()`), operator datasets and the
+registry follow `paths.learning_dir()` (source tree in dev, user data dir on a packaged
+install) instead of writing into a read-only mount.
 
 ### Still manual
 

@@ -14,9 +14,6 @@ try:
     PROJECT_ROOT = canonical_root(Path(__file__).resolve().parents[2])
 except Exception:
     PROJECT_ROOT = Path(__file__).resolve().parents[2]
-RUNS_DIR = PROJECT_ROOT / "training/runs"
-
-ALLOWED_TARGETS = {"eli_phi", "eli_phi_ultra"}
 DEFAULT_EVAL_PATH = PROJECT_ROOT / "training/evals/eli_self_model_eval.jsonl"
 
 
@@ -289,7 +286,8 @@ def build_eval_job(
 ) -> dict[str, Any]:
     problems: list[str] = []
 
-    if target not in ALLOWED_TARGETS:
+    from eli.learning.lora_trainer_guard import allowed_targets
+    if target not in allowed_targets():
         problems.append(f"unsupported target: {target}")
 
     adapter = inspect_adapter(adapter_dir, base_only=base_only)
@@ -319,7 +317,7 @@ def build_eval_job(
         "safety_contract": [
             "Default mode is dry-run only.",
             "--execute is required for model generation.",
-            "Only eli_phi and eli_phi_ultra adapters are evaluated here.",
+            "Only adapters of declared targets are evaluated here.",
             "--base-only evaluates the HF base without loading a PEFT adapter.",
             "Eval checks expected and forbidden strings; it is not a full benchmark.",
             "GGUF files are not loaded here; this evaluates HF base and optional PEFT adapter.",
@@ -462,10 +460,11 @@ def run_eval(job: dict[str, Any]) -> dict[str, Any]:
 
 
 def write_report(job: dict[str, Any]) -> dict[str, Any]:
-    RUNS_DIR.mkdir(parents=True, exist_ok=True)
+    from eli.learning.lora_trainer_guard import runs_dir
     stamp = time.strftime("%Y%m%d_%H%M%S")
     mode = "base" if job.get("base_only") else "adapter"
-    path = RUNS_DIR / f"lora_eval_{job['target']}_{mode}_{stamp}.json"
+    path = runs_dir() / f"lora_eval_{job['target']}_{mode}_{stamp}.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(job, indent=2, ensure_ascii=False), encoding="utf-8")
     job["report_path"] = str(path)
     return job
@@ -473,7 +472,8 @@ def write_report(job: dict[str, Any]) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Evaluate ELI Phi LoRA adapter or base model against self-model probes.")
-    ap.add_argument("--target", choices=sorted(ALLOWED_TARGETS), default="eli_phi")
+    ap.add_argument("--target", default="eli_phi",
+                    help="a declared target (built-in or from the Training tab)")
     ap.add_argument("--adapter-dir", default="")
     ap.add_argument("--eval-path", default=str(DEFAULT_EVAL_PATH))
     ap.add_argument("--execute", action="store_true")

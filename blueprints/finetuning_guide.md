@@ -303,9 +303,9 @@ machine because it *reports* rather than assumes.
 Intel XPU), free VRAM, whether `bitsandbytes` is present for 4-bit, which of
 `torch / transformers / peft / accelerate / datasets` are missing, and every
 trainable Hugging Face base directory it can find with its family and size. It looks
-in `models/hf/`, `models/`, the program folder, the data folder's `models/hf/` and
-`ELI_HF_BASE_DIR`, not in `training/base/`: a base downloaded there as in §3 is chosen
-with **Browse…** in Step 2. If the machine cannot train, it says so in a sentence
+in `models/hf/`, `training/base/` (where §3 downloads one; the data folder's
+`training/base/` on an installed copy), `models/`, the program folder, the data folder's
+`models/hf/` and `ELI_HF_BASE_DIR`. If the machine cannot train, it says so in a sentence
 instead of starting a job that never finishes.
 
 **Step 2 — Target.** Declare a target against any local HF base. The family is read
