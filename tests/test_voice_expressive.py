@@ -172,6 +172,22 @@ def test_create_voice_routes(text):
     assert (route(text).get("action") or "").upper() == "CREATE_VOICE"
 
 
+@pytest.mark.parametrize("text,file,name", [
+    ("create a voice called Nova from clip.mp4", "clip.mp4", "Nova"),
+    ("create a voice named Nova from ~/Music/take two.wav", "~/Music/take two.wav", "Nova"),
+    ("make a voice from /tmp/sample set/clip.mp3 called Orbit", "/tmp/sample set/clip.mp3", "Orbit"),
+    ("clone my voice from recording.wav and call it Atlas", "recording.wav", "Atlas"),
+    ("create a voice called Nova Prime using the file /srv/clips/take 2.wav", "/srv/clips/take 2.wav", "Nova Prime"),
+    ('clone a voice from "my clip.mp4" as Echo', "my clip.mp4", "Echo"),
+])
+def test_create_voice_reads_the_file_and_the_name(text, file, name):
+    """The file pattern took the whole sentence ("create a voice called Nova from clip.mp4") and the
+    name pattern took "Nova from clip"."""
+    from eli.execution.router_enhanced import route
+    args = route(text)["args"]
+    assert args.get("file") == file and args.get("name") == name
+
+
 def test_create_voice_registered_capability():
     import json
     from pathlib import Path
