@@ -96,7 +96,7 @@ jobs:
           python - <<'PY'
           from fastapi.testclient import TestClient
           from api.server import app
-          c = TestClient(app)
+          c = TestClient(app, base_url="http://localhost")   # a name of this machine: tokenless access needs one
           eps = [
               "/v1/cognition/orchestration", "/v1/home/mesh/status", "/v1/home/mesh/ping",
               "/v1/system", "/v1/tasks", "/v1/autonomy/goals", "/v1/net", "/v1/net/egress",
