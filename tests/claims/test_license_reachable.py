@@ -95,3 +95,25 @@ def test_every_command_that_starts_eli_reads_its_flags():
         assert _re.search(rf'^{_re.escape(name)} = "eli\.__main__:main"', block, _re.M), name
     frozen = (REPO / "packaging" / "pyinstaller" / "eli_entry.py").read_text(encoding="utf-8")
     assert '"--mcp-server" in argv' in frozen and 'mode == "mcp"' in frozen
+
+
+def test_the_frozen_builds_carry_only_the_wake_word_files_eli_loads():
+    """ELI.spec collected all of openwakeword's data, so its pre-trained wake-word models (CC BY-NC-SA
+    4.0, non-commercial) went into every bundle, though ELI runs only the feature extractor."""
+    import inspect
+    import re
+    from pathlib import Path
+    from eli.perception import wakeword
+
+    spec = (REPO / "ELI.spec").read_text(encoding="utf-8")
+    named = [line for line in spec.splitlines() if '"openwakeword"' in line and not line.lstrip().startswith("#")]
+    assert named and all("_wake_feature_files(" in line for line in named), named
+
+    oww = pytest.importorskip("openwakeword")
+    from openwakeword.utils import AudioFeatures
+    loaded = set(re.findall(r'"(\w+)\.(?:onnx|tflite)"', inspect.getsource(AudioFeatures.__init__)))
+    assert loaded and set(wakeword.FEATURE_MODELS) == loaded, "FEATURE_MODELS is not what ELI's extractor loads"
+    hooks = pytest.importorskip("PyInstaller.utils.hooks")
+    kept = {Path(src).stem for src, _dest in wakeword.feature_model_files(hooks.collect_data_files("openwakeword"))}
+    pretrained = {Path(p).stem for p in oww.get_pretrained_model_paths()}
+    assert kept == loaded and pretrained and not kept & pretrained

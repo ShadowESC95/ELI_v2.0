@@ -179,6 +179,18 @@ def _mix_snr(sig: np.ndarray, noise: np.ndarray, snr_db: float) -> np.ndarray:
 
 
 # ── openWakeWord feature extractor (lazy singleton) ──────────────────────────
+# The openWakeWord files ELI runs: AudioFeatures' melspectrogram and speech-embedding models. Its
+# pre-trained wake-word models (alexa, hey_jarvis, ...) are CC BY-NC-SA 4.0, non-commercial, and ELI
+# never loads one, as it trains its own head. ELI.spec bundles these files of the package and no other.
+FEATURE_MODELS = ("melspectrogram", "embedding_model")
+
+
+def feature_model_files(files):
+    """Of (source, destination) pairs from the openwakeword package, the feature extractor's model
+    files (for any runtime: .onnx, .tflite) and nothing else."""
+    return [(src, dest) for src, dest in files if Path(src).stem in FEATURE_MODELS]
+
+
 _af_lock = threading.Lock()
 _af = None
 

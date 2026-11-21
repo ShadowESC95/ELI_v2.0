@@ -364,8 +364,13 @@ if sys.platform.startswith("linux"):
         print(f"[ELI.spec] bundling Qt xcb dependency: {_path} -> {_qt_lib_dest}")
 
 # docx: the blank document python-docx starts every saved .docx from
-for pkg in ("llama_cpp", "faster_whisper", "openwakeword", "piper", "docx"):
+for pkg in ("llama_cpp", "faster_whisper", "piper", "docx"):
     datas += _optional_collect(pkg, data=True)
+# openWakeWord: only its feature extractor's models, the files ELI loads (FEATURE_MODELS in
+# eli/perception/wakeword.py). The package's pre-trained wake-word models are CC BY-NC-SA 4.0
+# (non-commercial) and ELI never loads them, so they stay out of the bundle.
+from eli.perception.wakeword import feature_model_files as _wake_feature_files  # noqa: E402
+datas += _wake_feature_files(_optional_collect("openwakeword", data=True))
 # coqui-tts ships model/config JSON inside the package; submodules alone leave the
 # engine importable but unable to build a model.
 # (2) and (4): these packages are read as SOURCE at import time, so .py files must

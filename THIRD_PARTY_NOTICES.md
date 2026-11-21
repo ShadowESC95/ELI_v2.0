@@ -62,7 +62,7 @@ Full pinned versions: `requirements-full.txt`, `requirements.lock.txt`.
 | **pytesseract** | Apache-2.0 | On-screen OCR (Tesseract itself is a system package) |
 | **playwright** | Apache-2.0 | Browser automation plugin |
 | **bleak** | MIT | Bluetooth discovery |
-| **openwakeword** | Apache-2.0 code; the **pre-trained models in its package are CC BY-NC-SA 4.0** (non-commercial), per its own licence note | Wake word. ELI uses only its feature extractor (melspectrogram and speech-embedding models) and trains its own detector head (`eli/perception/wakeword.py`); the frozen builds collect the whole package's data, so the other pre-trained models travel with them |
+| **openwakeword** | Apache-2.0 code; the **pre-trained models in its package are CC BY-NC-SA 4.0** (non-commercial), per its own licence note | Wake word. ELI uses only its feature extractor (melspectrogram and speech-embedding models) and trains its own detector head (`eli/perception/wakeword.py`); the frozen builds carry those two model files and none of the package's pre-trained wake-word models |
 | **yt-dlp** | Unlicense | YouTube playback |
 | **coqui-tts** (XTTS-v2; source installs only, `.[natural]`) | MPL-2.0 code; the XTTS-v2 model weights it downloads are under the Coqui Public Model License (non-commercial) | Optional neural voice and voice cloning |
 | **torch**, **transformers**, **peft**, **trl**, **datasets** (`.[training]`) | BSD-3-Clause / Apache-2.0 | Opt-in LoRA fine-tuning |

@@ -119,7 +119,7 @@ These are downloaded by the user from Hugging Face; ELI does not redistribute th
 |---|---|---|
 | **faster-whisper** `small.en` (STT weights) | [Systran/faster-whisper-small.en](https://huggingface.co/Systran/faster-whisper-small.en) | MIT |
 | **Piper** `en_US-amy-medium` (default TTS) | [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) | See the voice table above |
-| **openWakeWord** models (inside the `openwakeword` package) | [dscripka/openWakeWord](https://github.com/dscripka/openWakeWord) | Code Apache-2.0; its pre-trained models CC BY-NC-SA 4.0 per its own licence note. ELI uses only the feature-extractor models and trains its own detector head |
+| **openWakeWord** models (inside the `openwakeword` package) | [dscripka/openWakeWord](https://github.com/dscripka/openWakeWord) | Code Apache-2.0; its pre-trained models CC BY-NC-SA 4.0 per its own licence note. ELI uses only the feature-extractor models and trains its own detector head; the release builds carry those two and none of the pre-trained wake-word models |
 
 See `packaging/VOICE_LICENSE_REVIEW.md` for maintainer voice classifications.
 
