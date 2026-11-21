@@ -283,6 +283,49 @@ def test_linux_nvidia_path_does_not_take_a_stale_cuda_wheel():
     assert "GGML_CUDA=on" in nvidia, "no CUDA source-build fallback when no wheel qualifies"
 
 
+def _choose_build(**given):
+    """install.sh's build decision, run by itself: (CPU_ONLY, BUILD_LABEL) for this hardware and these flags."""
+    text = _sh_text()
+    start = text.index("_choose_build() {")
+    body = text[start:text.index("\n}\n", start) + 3]
+    names = dict(BUILD_FLAG="", CPU_ONLY=0, FORCE_GPU=0, HAS_NVIDIA=0, HAS_AMD=0, HAS_INTEL_IGPU=0,
+                 HAS_INTEL_ARC=0, HAS_QUALCOMM_IGPU=0, OS="Linux", ASSUME_YES=0, _RAMGB=32)
+    env = {k: v for k, v in __import__("os").environ.items() if k not in ("ELI_INSTALL_CPU_ONLY", "ELI_FORCE_GPU")}
+    for name in ("ELI_INSTALL_CPU_ONLY", "ELI_FORCE_GPU"):
+        if name in given:
+            env[name] = str(given.pop(name))
+    names.update(given)
+    script = ("set -euo pipefail\n" + "".join(f"{k}={shlex.quote(str(v))}\n" for k, v in names.items())
+              + body + '_choose_build >/dev/null\necho "$CPU_ONLY|$BUILD_LABEL"\n')
+    ran = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+    assert ran.returncode == 0, ran.stderr
+    cpu, label = ran.stdout.strip().split("|")
+    return int(cpu), label
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="runs the installer's own shell function")
+def test_asking_for_the_gpu_build_gets_it_where_the_cpu_build_would_be_chosen():
+    """--gpu set CPU_ONLY=0, which it already was, so it changed nothing: with no GPU found, on an
+    Intel iGPU laptop or a low-RAM non-interactive install the build was the CPU one all the same."""
+    assert "--gpu)         BUILD_FLAG=gpu ;;" in _sh_text()
+    assert _choose_build() == (1, "CPU-only")                                  # nothing found
+    assert _choose_build(BUILD_FLAG="gpu") == (0, "GPU (CUDA)")                # as -Gpu on Windows
+    assert _choose_build(ELI_FORCE_GPU=1) == (0, "GPU (CUDA)")
+    igpu = dict(HAS_INTEL_IGPU=1, ASSUME_YES=1)
+    assert _choose_build(**igpu) == (1, "CPU-only (Intel iGPU laptop)")
+    assert _choose_build(BUILD_FLAG="gpu", **igpu) == (0, "GPU (Intel Vulkan)")
+    small = dict(HAS_QUALCOMM_IGPU=1, ASSUME_YES=1, _RAMGB=8)
+    assert _choose_build(**small) == (1, "CPU-only (low RAM)")
+    assert _choose_build(BUILD_FLAG="gpu", **small) == (0, "GPU (Qualcomm Vulkan)")
+    # The CPU build is still the CPU build, however it is asked for, and the line beats the environment.
+    assert _choose_build(BUILD_FLAG="cpu", HAS_NVIDIA=1) == (1, "CPU-only")
+    assert _choose_build(ELI_INSTALL_CPU_ONLY=1, HAS_NVIDIA=1) == (1, "CPU-only")
+    assert _choose_build(ELI_INSTALL_CPU_ONLY=1, ELI_FORCE_GPU=1) == (1, "CPU-only")   # as the hardware policy
+    assert _choose_build(BUILD_FLAG="gpu", ELI_INSTALL_CPU_ONLY=1) == (0, "GPU (CUDA)")
+    assert _choose_build(HAS_NVIDIA=1) == (0, "GPU (CUDA)")
+    assert _choose_build(OS="Darwin") == (0, "GPU (Metal)")
+
+
 def test_linux_nvidia_build_finds_nvcc_off_path():
     """The CUDA toolkit is routinely installed without being on PATH."""
     text = _sh_text()

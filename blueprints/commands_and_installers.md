@@ -85,7 +85,7 @@ On Iris Xe / ≤8 GB prefer `./scripts/eli_setup.sh` or `bash install.sh --yes
 |---|---|
 | `--yes` / `-y` | No prompts — use detected defaults (CI / piped installs). With no model flag it also downloads one chat model sized to your VRAM (as `--auto-model`) unless `--no-model` is given. A run without a terminal behaves the same |
 | `--cpu-only` | Force the CPU build (ignore GPU); `ELI_INSTALL_CPU_ONLY=1` does the same |
-| `--gpu` | Only cancels an earlier `--cpu-only` on the same line. It does not force a GPU build: with no GPU detected, `install.sh` still builds for the CPU (the Windows `-Gpu` does force one) |
+| `--gpu` | Build for the GPU found even where the installer would pick the CPU build (an Intel iGPU, ≤8 GB RAM with `--yes`); with no GPU found, build for CUDA, as the Windows `-Gpu` does (an NVIDIA card whose driver cannot answer right now). Of `--cpu-only` and `--gpu` the last on the line wins, and either beats `ELI_INSTALL_CPU_ONLY` / `ELI_FORCE_GPU=1` (which does the same as `--gpu`) |
 | `--install-cuda` / `--cuda` | When the installed engine turns out to have no GPU offload: best-effort install the CUDA toolkit (nvcc), then rebuild llama-cpp-python with CUDA |
 | `--auto-model` / `--auto` | Download one model sized to your VRAM after install |
 | `--choose-model` / `--choose` | Pick any number of models from the catalog menu |

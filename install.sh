@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # ELI v2.0 — Linux / macOS installer
-# Usage: bash install.sh [--cpu-only] [--skip-torch]
+# Usage: bash install.sh [--cpu-only | --gpu] [--skip-torch] [--yes] [--install-cuda] [--latest]
+#                        [--auto-model | --choose-model | --model=KEY | --no-model]
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -21,6 +22,8 @@ export ELI_MODELS_DIR="${ELI_MODELS_DIR:-$SCRIPT_DIR/models}"
 export ELI_CACHE_DIR="${ELI_CACHE_DIR:-$SCRIPT_DIR/cache}"
 export PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}"
 CPU_ONLY=0
+FORCE_GPU=0      # --gpu: the GPU build even where the CPU one is preferred (see _choose_build)
+BUILD_FLAG=""    # cpu | gpu, from --cpu-only / --gpu (the last one given wins)
 SKIP_TORCH=0
 USE_LATEST=0     # default: install the frozen lock (reproducible). --latest = version ranges.
 INSTALL_CUDA=0   # --install-cuda: best-effort install the CUDA toolkit (nvcc) for users
@@ -36,8 +39,8 @@ HAS_QUALCOMM_IGPU=0 # Qualcomm Adreno / Snapdragon (Vulkan path, shared memory)
 
 for arg in "$@"; do
     case "$arg" in
-        --cpu-only)    CPU_ONLY=1 ;;
-        --gpu)         CPU_ONLY=0 ;;
+        --cpu-only)    BUILD_FLAG=cpu ;;
+        --gpu)         BUILD_FLAG=gpu ;;
         --skip-torch)  SKIP_TORCH=1 ;;
         --latest)      USE_LATEST=1 ;;
         --install-cuda|--cuda) INSTALL_CUDA=1 ;;
@@ -48,9 +51,6 @@ for arg in "$@"; do
         --no-model)    NO_MODEL=1 ;;
     esac
 done
-if [ "${ELI_INSTALL_CPU_ONLY:-}" = "1" ]; then
-    CPU_ONLY=1
-fi
 [ -t 0 ] || ASSUME_YES=1   # not a TTY (piped install) → never block on prompts
 # Non-interactive: VRAM-sized default chat model unless --no-model.
 if [ "$ASSUME_YES" -eq 1 ] && [ "$NO_MODEL" -eq 0 ] && [ -z "$FETCH_MODEL" ]; then
@@ -397,39 +397,65 @@ if [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_IGPU" -eq 0 
     else warn "GPU         none detected — ELI will run on ${B}CPU${R} (much slower)"; fi
 fi
 
-# Default the build to the hardware unless the user forced it. AMD / Intel iGPU / Arc boxes
-# get a Vulkan build attempt instead of being silently dropped to CPU.
-if [ "$CPU_ONLY" -eq 0 ] && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] \
-        && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$HAS_INTEL_ARC" -eq 0 ] \
-        && [ "$HAS_QUALCOMM_IGPU" -eq 0 ] && [ "$OS" != "Darwin" ]; then
-    CPU_ONLY=1
-fi
-if   [ "$CPU_ONLY" -eq 1 ]; then BUILD_LABEL="CPU-only"
-elif [ "$OS" = "Darwin" ];  then BUILD_LABEL="GPU (Metal)"
-elif [ "$HAS_AMD" -eq 1 ];  then BUILD_LABEL="GPU (AMD ROCm)"
-elif [ "$HAS_INTEL_ARC" -eq 1 ]; then BUILD_LABEL="GPU (Intel Arc Vulkan)"
-elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Intel Vulkan)"
-elif [ "$HAS_QUALCOMM_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Qualcomm Vulkan)"
-else                             BUILD_LABEL="GPU (CUDA)"; fi
-
-# Portable / non-interactive installs on Intel iGPU: Vulkan source builds often
-# OOM or fail on ≤8 GB RAM laptops. CPU wheels are reliable; AppImage GPU pack
-# remains the optional Vulkan path for frozen builds.
-if [ "$HAS_INTEL_IGPU" -eq 1 ] && [ "$CPU_ONLY" -eq 0 ]; then
-    # Interactive ≤8 GB: same CPU preference (Vulkan OOM is common).
-    if [ "$ASSUME_YES" -eq 1 ] || { [ "${_RAMGB:-99}" -le 8 ] 2>/dev/null; }; then
-        echo "[..] Intel integrated GPU — install uses CPU llama-cpp for reliability."
-        echo "     (Use the AppImage + GPU pack for Vulkan offload, or rebuild manually.)"
-        CPU_ONLY=1
-        BUILD_LABEL="CPU-only (Intel iGPU laptop)"
+# Which llama-cpp build to make. --cpu-only or --gpu decides (the last one on the line); without
+# either, ELI_INSTALL_CPU_ONLY=1 or ELI_FORCE_GPU=1, the variables eli.setup.hardware_policy reads
+# (the CPU one first, as there); otherwise the hardware found above. AMD / Intel / Qualcomm boxes get
+# a Vulkan build attempt instead of being dropped to the CPU. Asked for, the GPU build is the one for
+# the GPU found, even where the CPU build is preferred below (Intel iGPU, low RAM), and with no GPU
+# found the CUDA one, as -Gpu does on Windows: an NVIDIA card whose driver cannot answer right now.
+_choose_build() {
+    case "$BUILD_FLAG" in
+        cpu) CPU_ONLY=1 ;;
+        gpu) FORCE_GPU=1 ;;
+        *)
+            case "${ELI_INSTALL_CPU_ONLY:-}" in 1|true|TRUE|True|yes|YES|on|ON) CPU_ONLY=1 ;; esac
+            if [ "$CPU_ONLY" -eq 0 ]; then
+                case "${ELI_FORCE_GPU:-}" in 1|true|TRUE|True|yes|YES|on|ON) FORCE_GPU=1 ;; esac
+            fi ;;
+    esac
+    local found_gpu=0
+    if [ "$HAS_NVIDIA" -eq 1 ] || [ "$HAS_AMD" -eq 1 ] || [ "$HAS_INTEL_IGPU" -eq 1 ] \
+            || [ "$HAS_INTEL_ARC" -eq 1 ] || [ "$HAS_QUALCOMM_IGPU" -eq 1 ] || [ "$OS" = "Darwin" ]; then
+        found_gpu=1
     fi
-fi
-if [ "$ASSUME_YES" -eq 1 ] && [ "${_RAMGB:-99}" -le 8 ] 2>/dev/null && [ "$CPU_ONLY" -eq 0 ] \
-        && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_ARC" -eq 0 ]; then
-    echo "[..] ${_RAMGB} GB RAM — non-interactive install uses CPU llama-cpp for reliability."
-    CPU_ONLY=1
-    BUILD_LABEL="CPU-only (low RAM)"
-fi
+    if [ "$CPU_ONLY" -eq 0 ] && [ "$FORCE_GPU" -eq 0 ] && [ "$found_gpu" -eq 0 ]; then
+        CPU_ONLY=1
+    fi
+    if   [ "$CPU_ONLY" -eq 1 ]; then BUILD_LABEL="CPU-only"
+    elif [ "$OS" = "Darwin" ];  then BUILD_LABEL="GPU (Metal)"
+    elif [ "$HAS_AMD" -eq 1 ];  then BUILD_LABEL="GPU (AMD ROCm)"
+    elif [ "$HAS_INTEL_ARC" -eq 1 ]; then BUILD_LABEL="GPU (Intel Arc Vulkan)"
+    elif [ "$HAS_INTEL_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Intel Vulkan)"
+    elif [ "$HAS_QUALCOMM_IGPU" -eq 1 ]; then BUILD_LABEL="GPU (Qualcomm Vulkan)"
+    else                             BUILD_LABEL="GPU (CUDA)"; fi
+    if [ "$FORCE_GPU" -eq 1 ]; then
+        if [ "$found_gpu" -eq 0 ]; then
+            echo "[..] No GPU detected, and the GPU build was asked for: building for CUDA (NVIDIA)."
+            echo "     Without a working CUDA toolkit it is built for the CPU, and the summary says so."
+        fi
+        return 0
+    fi
+    # Portable / non-interactive installs on Intel iGPU: Vulkan source builds often
+    # OOM or fail on ≤8 GB RAM laptops. CPU wheels are reliable; AppImage GPU pack
+    # remains the optional Vulkan path for frozen builds.
+    if [ "$HAS_INTEL_IGPU" -eq 1 ] && [ "$CPU_ONLY" -eq 0 ]; then
+        # Interactive ≤8 GB: same CPU preference (Vulkan OOM is common).
+        if [ "$ASSUME_YES" -eq 1 ] || { [ "${_RAMGB:-99}" -le 8 ] 2>/dev/null; }; then
+            echo "[..] Intel integrated GPU — install uses CPU llama-cpp for reliability."
+            echo "     (--gpu builds it for Vulkan anyway; the AppImage's GPU pack is the other way to offload.)"
+            CPU_ONLY=1
+            BUILD_LABEL="CPU-only (Intel iGPU laptop)"
+        fi
+    fi
+    if [ "$ASSUME_YES" -eq 1 ] && [ "${_RAMGB:-99}" -le 8 ] 2>/dev/null && [ "$CPU_ONLY" -eq 0 ] \
+            && [ "$HAS_NVIDIA" -eq 0 ] && [ "$HAS_AMD" -eq 0 ] && [ "$HAS_INTEL_ARC" -eq 0 ]; then
+        echo "[..] ${_RAMGB} GB RAM — non-interactive install uses CPU llama-cpp for reliability (--gpu builds for the GPU anyway)."
+        CPU_ONLY=1
+        BUILD_LABEL="CPU-only (low RAM)"
+    fi
+    return 0
+}
+_choose_build
 
 # ── Plan — what is about to happen ───────────────────────────────────────────
 section "Plan"
@@ -561,7 +587,10 @@ if [ "$SKIP_TORCH" -eq 0 ]; then
         _TORCH_KIND=""
         if [ "$HAS_NVIDIA" -eq 1 ]; then _TORCH_KIND=cuda
         elif [ "$HAS_AMD" -eq 1 ]; then _TORCH_KIND=rocm
-        elif [ "$HAS_INTEL_ARC" -eq 1 ]; then _TORCH_KIND=xpu; fi
+        elif [ "$HAS_INTEL_ARC" -eq 1 ]; then _TORCH_KIND=xpu
+        elif [ "$FORCE_GPU" -eq 1 ] && [ "$HAS_INTEL_IGPU" -eq 0 ] && [ "$HAS_QUALCOMM_IGPU" -eq 0 ]; then
+            _TORCH_KIND=cuda    # --gpu with no GPU found takes the CUDA path, as the engine does
+        fi
         if [ -z "$_TORCH_KIND" ] || ! _install_pytorch_gpu "$_TORCH_KIND"; then
             "$PYTHON_VENV" -c "import torch" 2>/dev/null || _install_pytorch_cpu \
                 || { warn "PyTorch install failed — continuing without torch."; SKIP_TORCH=1; }
@@ -919,6 +948,10 @@ if [ "$CPU_ONLY" -eq 0 ] && [ "$OS" != "Darwin" ]; then
         echo "       Re-run with --install-cuda to auto-install the CUDA toolkit + rebuild, or manually:"
         echo "         CUDACXX=\"\$(command -v nvcc || echo /usr/local/cuda/bin/nvcc)\" \\"
         echo "         CMAKE_ARGS=\"-DGGML_CUDA=on\" \"$PYTHON_VENV\" -m pip install --force-reinstall --no-cache-dir llama-cpp-python"
+    fi
+    # The summary names the build that is installed, not the one that was planned.
+    if ! "$PYTHON_VENV" -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>/dev/null; then
+        BUILD_LABEL="CPU-only (the GPU build did not compile)"
     fi
 fi
 

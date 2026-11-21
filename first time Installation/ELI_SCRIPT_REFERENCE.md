@@ -147,7 +147,7 @@ flowchart TD
 |------|--------|
 | `--yes` / `-y` | Non-interactive; auto model via VRAM (also when stdin is not a terminal) |
 | `--cpu-only` | CPU PyTorch + CPU llama-cpp (also `ELI_INSTALL_CPU_ONLY=1`) |
-| `--gpu` | Cancels an earlier `--cpu-only` only; with no GPU detected the build is still CPU (no forcing in `install.sh`) |
+| `--gpu` | The GPU build for the GPU found, even where the CPU build would be chosen (Intel iGPU, ≤8 GB RAM with `--yes`); with no GPU found the CUDA build (as Windows `-Gpu`). The last of `--cpu-only` / `--gpu` wins; either beats the environment (`ELI_FORCE_GPU=1` = `--gpu`) |
 | `--skip-torch` | Skip PyTorch |
 | `--latest` | Use `requirements.txt` ranges instead of frozen lock |
 | `--install-cuda` / `--cuda` | When the engine has no GPU offload: best-effort CUDA toolkit + rebuild llama-cpp |
@@ -171,7 +171,7 @@ flowchart TD
 
 **Step-by-step:**
 
-1. Parse CLI flags (`--cpu-only`, `--gpu`, `--skip-torch`, `--latest`, `--install-cuda`, `--yes`, model flags); `ELI_INSTALL_CPU_ONLY=1` forces CPU.
+1. Parse CLI flags (`--cpu-only`, `--gpu`, `--skip-torch`, `--latest`, `--install-cuda`, `--yes`, model flags); with neither `--cpu-only` nor `--gpu` on the line, `ELI_INSTALL_CPU_ONLY=1` forces CPU and `ELI_FORCE_GPU=1` the GPU build.
 2. Export canonical paths: `ELI_PROJECT_ROOT`, `ELI_DATA_DIR`, `ELI_CONFIG_DIR`, `ELI_MODELS_DIR`, `ELI_CACHE_DIR`, `PYTHONPATH`.
 3. Pick the Python (`scripts/eli_env.py pick`, unless `PYTHON` is set): of those installed, the one the most locked packages come ready-made for on this machine. Print **system report**: Python version, CPU/RAM/disk, NVIDIA/AMD/Intel/Qualcomm GPU detection.
 4. Confirm plan (unless `--yes` or non-TTY); optional model menu.
@@ -1252,7 +1252,7 @@ Not set by the launchers: `ELI_NOTEBOOK_DIR` (default `$ELI_DATA_DIR/notebook`),
 | Variable | Purpose |
 |----------|---------|
 | `ELI_INSTALL_CPU_ONLY` | `1` / `0` forces the CPU or the GPU path in `eli_setup.sh` and the wizard; `1` also forces CPU in `install.sh` |
-| `ELI_FORCE_GPU` | `1` makes the hardware policy pick the GPU path when `ELI_INSTALL_CPU_ONLY` is unset |
+| `ELI_FORCE_GPU` | `1` makes the hardware policy pick the GPU path when `ELI_INSTALL_CPU_ONLY` is unset, and `install.sh` build for the GPU as `--gpu` does (unless `ELI_INSTALL_CPU_ONLY=1` or a flag says otherwise) |
 | `ELI_INSTALL_ROOT` | AppImage/deb copy target (`~/.local/share/ELI_v2`) |
 | `ELI_APPIMAGE_FORCE_SYNC` | Force AppImage tree re-sync (source-portable AppImage) |
 | `ELI_ASSET_RELEASE_TAG` | GitHub assets tag (default `local-assets-v2.1`) |
