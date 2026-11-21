@@ -99,6 +99,43 @@ def is_control_action(action: Any) -> bool:
     return normalise_action(action) in CONTROL_ACTIONS
 
 
+# Asking for more of what ELI just said: "be more in depth", "go deeper", "tell me more".
+_DEEPER_RE = re.compile(r"\b(?:be (?:more )?(?:in depth|detailed|specific)|(?:go |be )?(?:more )?(?:in depth|deeper))\b")
+_FOR_MORE_RE = re.compile(
+    r"\b(?:be (?:more )?(?:in depth|detailed|specific)|(?:go |be )?(?:more )?(?:in depth|deeper)"
+    r"|more detail|tell me more|what else|go on|elaborate|expand)\b")
+
+# What a nudge for more is made of besides asking for it: who is asked and how, how much more, and what
+# was just said. A word outside these names a subject of the request's own.
+_NUDGE_WORDS = frozenset((
+    # who is asked, and how
+    "please", "pls", "plz", "eli", "hey", "ok", "okay", "alright", "right", "well", "so", "now", "then", "just",
+    "and", "but", "also", "mate", "man", "dude", "bro", "buddy", "bud", "pal", "come", "cmon", "yeah", "yes",
+    "sure", "thanks", "thank", "cheers", "again", "though", "can", "could", "would", "will", "you", "u", "i",
+    "we", "me", "us", "want", "need", "like", "d", "ll", "let", "lets", "s", "not", "no", "don", "t",
+    # the verbs it is said with
+    "be", "go", "get", "give", "tell", "say", "explain", "elaborate", "expand", "continue", "keep", "going",
+    "do", "try", "make", "talk", "dig", "delve", "describe", "write", "add",
+    # how much more
+    "more", "much", "bit", "little", "lot", "lots", "way", "even", "far", "further", "deeper", "detail",
+    "details", "detailed", "depth", "specific", "better", "longer", "properly", "thoroughly", "fully",
+    "really", "very", "too", "quite", "some", "any", "all", "everything", "anything", "else", "time",
+    # what was just said
+    "it", "its", "that", "this", "those", "these", "them", "they", "one", "ones", "answer", "answers", "reply",
+    "response", "explanation", "point", "points", "part", "parts", "last", "above", "earlier", "previous",
+    "said", "wrote", "mean", "meant", "what", "your", "yours", "yourself", "my", "the", "a", "an", "of", "on",
+    "about", "into", "in", "to", "for", "with", "over", "through", "at", "there", "here", "thing", "things",
+    "topic", "subject", "question",
+))
+
+
+def _names_nothing_else(low: str, asks_for_more: "re.Pattern") -> bool:
+    """Whether a request for more names nothing besides what was just said. "analyse my screen in depth"
+    asks for the screen analysed in depth; read as a nudge to say more, it went to chat and the screen
+    was never looked at."""
+    return all(w in _NUDGE_WORDS for w in re.findall(r"[a-z]+", asks_for_more.sub(" ", low)))
+
+
 def is_persona_self_knowledge_query(user_input: Any) -> bool:
     """Conversational self-description — CHAT + verified self-facts, not the runtime one-liner."""
     low = re.sub(r"\s+", " ", str(user_input or "").strip().lower())
@@ -113,10 +150,7 @@ def is_persona_self_knowledge_query(user_input: Any) -> bool:
     # "be more in depth" / "go deeper" only count here as short nudges continuing a self-description
     # ELI just gave — a full new sentence that happens to say "in depth" ("give me an in depth
     # response about how you're doing") is a fresh question, not a nudge, and has no "yourself" in it.
-    if len(low.split()) <= 8 and re.search(
-        r"\b(?:be (?:more )?(?:in depth|detailed|specific)|(?:go |be )?(?:more )?(?:in depth|deeper))\b",
-        low,
-    ):
+    if len(low.split()) <= 8 and _DEEPER_RE.search(low) and _names_nothing_else(low, _DEEPER_RE):
         return True
     return bool(
         re.search(
@@ -143,26 +177,15 @@ def is_identity_depth_followup(user_input: Any) -> bool:
     """Short depth/elaboration requests after an identity answer — stay conversational.
 
     Length-gated: a full new sentence that happens to contain "in depth" ("give me an in
-    depth response about X") is a fresh question, not a two-word nudge like "go deeper".
+    depth response about X") is a fresh question, not a two-word nudge like "go deeper". A
+    short one that names its own subject ("analyse my screen in depth") is that request.
     """
     low = re.sub(r"\s+", " ", str(user_input or "").strip().lower())
     if not low or len(low.split()) > 8:
         return False
     if re.search(r"\b(?:reasoning modes?|all modes|every mode)\b", low):
         return False
-    return bool(re.search(
-        r"\b(?:"
-        r"be (?:more )?(?:in depth|detailed|specific)"
-        r"|(?:go |be )?(?:more )?(?:in depth|deeper)"
-        r"|more detail"
-        r"|tell me more"
-        r"|what else"
-        r"|go on"
-        r"|elaborate"
-        r"|expand"
-        r")\b",
-        low,
-    ))
+    return bool(_FOR_MORE_RE.search(low)) and _names_nothing_else(low, _FOR_MORE_RE)
 
 
 # Diagnostics about ELI's own behaviour: told in ELI's own words from their evidence, never shown

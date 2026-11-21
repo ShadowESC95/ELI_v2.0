@@ -42,3 +42,17 @@ def test_fresh_questions_are_not_routed_as_the_identity_depth_followup():
 def test_short_nudges_still_match():
     for msg in SHORT_NUDGES:
         assert is_identity_depth_followup(msg), msg
+    for msg in ("be more in depth eli", "do better, much more in depth", "can you go deeper on that",
+                "expand on your answer"):
+        assert is_identity_depth_followup(msg), msg
+
+
+def test_a_short_request_that_names_its_own_subject_is_that_request():
+    """"analyze my screen in depth" was read as a nudge to say more about the last answer and went to
+    chat; the screen was never looked at."""
+    for msg in ("analyze my screen in depth", "describe my screen in depth"):
+        assert not is_identity_depth_followup(msg), msg
+        assert not is_persona_self_knowledge_query(msg), msg
+        r = route(msg)
+        assert r["action"] == "SCREEN_READ_ANALYZE", (msg, r)
+        assert r["args"].get("depth") == "deep", (msg, r)

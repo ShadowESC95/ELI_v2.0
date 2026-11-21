@@ -4967,7 +4967,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         # Live screen: "look at my screen", "read the screen", "analyse my display"
         # → capture + vision, not a memory lookup.
         if re.search(r"\b(?:my|the)\s+(?:screen|display|monitor)\b", low):
-            return _mk("SCREEN_READ_ANALYZE", {}, 0.92,
+            # With the words that asked: "analyse my screen in depth" is a deep read, and with no
+            # question the handler had nothing to tell the depth from.
+            from eli.perception.screen_analysis import analysis_depth_from_text
+            _depth = analysis_depth_from_text(raw)
+            return _mk("SCREEN_READ_ANALYZE", {"query": raw, **({"depth": _depth} if _depth else {})}, 0.92,
                        matched_by="screen.analyze_referential")
         # A bare generic file-noun ("read the document", "summarize the file") with no filename or
         # path isn't a memory topic; there's nothing to recall. Defer to CHAT so ELI asks which
