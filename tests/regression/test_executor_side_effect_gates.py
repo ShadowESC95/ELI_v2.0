@@ -208,6 +208,31 @@ def test_pomodoro_start_stop_uses_temp_config_dir(monkeypatch, tmp_path):
     assert stop.get("ok") is True
 
 
+def test_the_end_of_a_pomodoro_is_announced_and_a_stopped_one_is_not(monkeypatch, tmp_path):
+    """POMODORO_* kept a start time and nothing else. The pomodoro plugin's timer, which announced
+    the end, never ran: the executor answers its actions first."""
+    import json
+    import eli.core.paths as paths
+    from eli.runtime import agenda
+    monkeypatch.setattr(paths, "config_dir", lambda: tmp_path)
+    delivered = []
+    agenda.set_delivery(lambda item, missed: delivered.append(item["id"]))
+    try:
+        ex = _executor()
+        assert ex.execute("POMODORO_START", {"minutes": 1})["ok"] is True
+        first = json.loads((tmp_path / "pomodoro.json").read_text(encoding="utf-8"))
+        agenda.fire_due(now_ts=first["start"] + 61)
+        assert first.get("reminder_id") in delivered, "the end of the session was not announced"
+
+        ex.execute("POMODORO_START", {"minutes": 1})
+        second = json.loads((tmp_path / "pomodoro.json").read_text(encoding="utf-8"))
+        ex.execute("POMODORO_STOP", {})
+        agenda.fire_due(now_ts=second["start"] + 61)
+        assert second["reminder_id"] not in delivered, "a stopped session was announced"
+    finally:
+        agenda.set_delivery(None)
+
+
 def test_open_url_uses_mocked_helper(monkeypatch):
     ex = _executor()
 

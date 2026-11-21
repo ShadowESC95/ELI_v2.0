@@ -1,14 +1,14 @@
 from __future__ import annotations
-from eli.plugins.base.base import Plugin
 
-try:
-    import psutil as _psutil
-    _HAS_PSUTIL = True
-except ImportError:
-    _HAS_PSUTIL = False
+from eli.plugins.base.base import Plugin
 
 
 class SystemStatsPlugin(Plugin):
+    """The system-stats plugin's actions are ELI's own SYSTEM_STATS / CPU_USAGE / RAM_USAGE.
+
+    It kept a second, smaller copy of those readings, which never ran: the executor answers these
+    actions first. One implementation now, the executor's (CPU frequency and temperature, battery,
+    and a stated failure when psutil, which ELI needs, is missing)."""
     name = "system_stats"
     description = "CPU, RAM, disk, network monitoring"
 
@@ -20,58 +20,16 @@ class SystemStatsPlugin(Plugin):
         }
         super().__init__()
 
+    @staticmethod
+    def _action(action: str, args: dict) -> dict:
+        from eli.execution.executor_enhanced import execute
+        return execute(action, dict(args or {}))
+
     def system_stats(self, args: dict) -> dict:
-        if not _HAS_PSUTIL:
-            return self._fallback_stats()
-        from eli.core.mem_units import bytes_to_gib
-        cpu = _psutil.cpu_percent(interval=0.5)
-        mem = _psutil.virtual_memory()
-        disk = _psutil.disk_usage("/")
-        msg = (
-            f"CPU: {cpu:.1f}%  |  "
-            f"RAM: {mem.percent:.1f}% ({bytes_to_gib(mem.used):.1f}/{bytes_to_gib(mem.total):.1f} GB)  |  "
-            f"Disk: {disk.percent:.1f}% ({bytes_to_gib(disk.used):.0f}/{bytes_to_gib(disk.total):.0f} GB)"
-        )
-        return {
-            "ok": True, "content": msg, "response": msg,
-            "cpu_percent": cpu, "ram_percent": mem.percent,
-            "disk_percent": disk.percent,
-        }
+        return self._action("SYSTEM_STATS", args)
 
     def cpu_usage(self, args: dict) -> dict:
-        if not _HAS_PSUTIL:
-            return self._fallback_stats()
-        percpu = _psutil.cpu_percent(interval=0.5, percpu=True)
-        avg = sum(percpu) / len(percpu)
-        core_str = ", ".join(f"{c:.0f}%" for c in percpu[:8])
-        suffix = "…" if len(percpu) > 8 else ""
-        msg = f"CPU: {avg:.1f}% avg  [{core_str}{suffix}]"
-        return {"ok": True, "content": msg, "response": msg, "avg": avg, "per_core": percpu}
+        return self._action("CPU_USAGE", args)
 
     def ram_usage(self, args: dict) -> dict:
-        if not _HAS_PSUTIL:
-            return self._fallback_stats()
-        from eli.core.mem_units import bytes_to_gib
-        mem = _psutil.virtual_memory()
-        swap = _psutil.swap_memory()
-        msg = (
-            f"RAM: {bytes_to_gib(mem.used):.1f}/{bytes_to_gib(mem.total):.1f} GB ({mem.percent:.1f}%)  |  "
-            f"Swap: {bytes_to_gib(swap.used):.1f}/{bytes_to_gib(swap.total):.1f} GB ({swap.percent:.1f}%)"
-        )
-        return {
-            "ok": True, "content": msg, "response": msg,
-            "ram_percent": mem.percent, "swap_percent": swap.percent,
-        }
-
-    def _fallback_stats(self) -> dict:
-        import subprocess
-        try:
-            out = subprocess.check_output(["free", "-m"], text=True)
-            lines = out.strip().splitlines()
-            parts = lines[1].split()
-            total_mb, used_mb = int(parts[1]), int(parts[2])
-            msg = f"RAM: {used_mb} / {total_mb} MB  (psutil not installed — install for full stats)"
-        except Exception:
-            msg = "System stats unavailable: psutil, which ELI needs, isn't installed (pip install psutil)."
-            return {"ok": False, "error": "psutil missing", "content": msg, "response": msg}
-        return {"ok": True, "content": msg, "response": msg}
+        return self._action("RAM_USAGE", args)

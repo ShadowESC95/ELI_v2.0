@@ -1,43 +1,20 @@
 """
 TTS (Text-to-Speech) plugin for ELI.
-Uses pyttsx3 for offline TTS.
+
+Its actions are ELI's own SPEAK: the text goes to ELI's voice (eli.perception.tts_router, the
+voice chosen in Settings). It used to speak through pyttsx3, a second speech engine with none of
+ELI's voices, and never ran, because the executor answers SPEAK first.
 """
 from typing import Dict, Any
 from eli.plugins.base import Plugin
 
-try:
-    import pyttsx3
-    _engine = None
-
-    def _get_engine():
-        global _engine
-        if _engine is None:
-            _engine = pyttsx3.init()
-        return _engine
-
-except ImportError:
-    pyttsx3 = None
-    _get_engine = None
-
 
 class TTSPlugin(Plugin):
     name = "tts"
-    description = "Text-to-speech: speaks text aloud using pyttsx3"
+    description = "Text-to-speech: speaks text aloud in ELI's voice"
 
     def handle(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        text = args.get("text") or args.get("content") or args.get("message") or ""
-        if not text:
-            return {"ok": False, "content": "No text provided to speak"}
-
-        if pyttsx3 is None:
-            return {"ok": False, "content": "pyttsx3 not installed — TTS unavailable"}
-
-        try:
-            engine = _get_engine()
-            engine.say(text)
-            engine.runAndWait()
-            return {"ok": True, "content": f"Spoke: {text[:60]}"}
-        except Exception as e:
-            return {"ok": False, "content": f"TTS error: {e}"}
+        from eli.execution.executor_enhanced import execute
+        return execute("SPEAK", dict(args or {}))
 
     actions = {"speak": handle, "say": handle, "tts": handle}

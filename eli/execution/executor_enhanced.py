@@ -5303,6 +5303,11 @@ def _h_mcp_call(a: str, args: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "action": a, "tool": tool, "content": body, "response": body}
 
 
+# The Pomodoro technique's own lengths, used when a session is started without one.
+_POMODORO_WORK_MIN = 25
+_POMODORO_BREAK_MIN = 5
+
+
 def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     args = args or {}
     # Normalize action for dispatch (accept open_app, OPEN_APP, open-app, etc.)
@@ -11646,9 +11651,15 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
     # ---- POMODORO (START / STOP / STATUS) ----
+    # The session is kept in config/pomodoro.json and its end is an agenda reminder, so the end is
+    # announced the way every reminder is (desktop notification, alarm sound, the Proactive tab), and
+    # after a restart too. Nothing announced it before: this kept a start time only, and the pomodoro
+    # plugin's timer, which did announce it, never ran, since its actions are these and this answers
+    # first. The plugin runs these now.
     if a in ("POMODORO_START", "POMODORO_STOP", "POMODORO_STATUS"):
         try:
             from eli.core.paths import config_dir as _pcd
+            from eli.runtime import agenda as _pom_agenda
             import json as _pj, time as _pt
             pom_file = _pcd() / "pomodoro.json"
 
@@ -11664,34 +11675,55 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 pom_file.parent.mkdir(parents=True, exist_ok=True)
                 pom_file.write_text(_pj.dumps(d), encoding="utf-8")
 
+            def _pom_cancel(st):
+                if st.get("reminder_id"):
+                    _pom_agenda.cancel([int(st["reminder_id"])], user_id=str(st.get("user_id") or ""))
+
+            state = _pom_load()
+            now = _pt.time()
+            ends = float(state.get("start") or now) + float(state.get("duration") or 0)
+            live = bool(state.get("running")) and now < ends
+            kind = str(state.get("session") or "work")
+
             if a == "POMODORO_STATUS":
-                state = _pom_load()
-                if not state.get("running"):
-                    msg = "No Pomodoro running."
-                else:
-                    elapsed = int(_pt.time() - state.get("start", _pt.time()))
-                    duration = state.get("duration", 1500)
-                    remaining = max(0, duration - elapsed)
-                    msg = (f"Pomodoro running — {elapsed // 60}m {elapsed % 60}s elapsed, "
+                if live:
+                    elapsed, remaining = int(now - float(state["start"])), int(ends - now)
+                    msg = (f"Pomodoro {kind} session running — {elapsed // 60}m {elapsed % 60}s elapsed, "
                            f"{remaining // 60}m {remaining % 60}s remaining.")
-                return {"ok": True, "action": a, "content": msg, "response": msg}
+                elif state.get("running"):
+                    msg = f"No Pomodoro running. The last {kind} session ended at {_pt.strftime('%H:%M', _pt.localtime(ends))}."
+                else:
+                    msg = "No Pomodoro running."
+                return {"ok": True, "action": a, "running": live, "content": msg, "response": msg}
 
             if a == "POMODORO_START":
-                minutes = int(args.get("minutes") or args.get("duration") or 25)
-                state = {"running": True, "start": _pt.time(), "duration": minutes * 60}
-                _pom_save(state)
-                msg = f"Pomodoro started: {minutes} minutes. Focus!"
-                return {"ok": True, "action": a, "content": msg, "response": msg}
+                kind = str(args.get("type") or args.get("session") or "work").strip().lower()
+                kind = "break" if kind == "break" else "work"
+                minutes = int(args.get("minutes") or args.get("duration")
+                              or (_POMODORO_BREAK_MIN if kind == "break" else _POMODORO_WORK_MIN))
+                if live:
+                    _pom_cancel(state)      # a new session replaces the one running
+                who = _agenda_turn_context(args)[0]
+                end_ts = now + minutes * 60
+                rem = _pom_agenda.add_reminder(f"Pomodoro {kind} session over ({minutes} min)", end_ts,
+                                               user_id=who, source="POMODORO")
+                _pom_save({"running": True, "start": now, "duration": minutes * 60, "session": kind,
+                           "reminder_id": rem["id"], "user_id": who})
+                msg = (f"Pomodoro started: a {minutes}-minute {kind} session. "
+                       f"I'll tell you when it ends, at {_pt.strftime('%H:%M', _pt.localtime(end_ts))}.")
+                return {"ok": True, "action": a, "minutes": minutes, "session": kind,
+                        "content": msg, "response": msg}
 
             if a == "POMODORO_STOP":
-                state = _pom_load()
-                if state.get("running"):
-                    elapsed = int(_pt.time() - state.get("start", _pt.time()))
-                    state["running"] = False
-                    _pom_save(state)
+                if live:
+                    _pom_cancel(state)
+                    elapsed = int(now - float(state["start"]))
                     msg = f"Pomodoro stopped after {elapsed // 60}m {elapsed % 60}s."
                 else:
                     msg = "No Pomodoro was running."
+                if state.get("running"):
+                    state["running"] = False
+                    _pom_save(state)
                 return {"ok": True, "action": a, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
