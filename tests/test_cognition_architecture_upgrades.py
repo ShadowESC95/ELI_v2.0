@@ -14,12 +14,91 @@ def test_pipeline_trace_stage_names():
 
 
 def test_orchestrator_planner_mode_maps_quick_to_fast():
-    from eli.cognition.reasoning_modes import orchestrator_planner_mode, mode_orchestrator_depth
+    from eli.cognition.reasoning_modes import orchestrator_planner_mode, orchestrator_react_steps
     assert orchestrator_planner_mode("quick") == "fast"
     assert orchestrator_planner_mode("Normal") == "balanced"
     assert orchestrator_planner_mode("Expert") == "deep"
-    assert mode_orchestrator_depth("quick") == "light"
-    assert mode_orchestrator_depth("research") == "full"
+    # The ReAct depth comes from the same table, whatever name the mode arrives under.
+    assert orchestrator_react_steps("quick") == orchestrator_react_steps("fast") == 1
+    assert orchestrator_react_steps(None) == 1
+    assert orchestrator_react_steps("normal") == orchestrator_react_steps("research") == 3
+
+
+class _ReactEngine:
+    """Just enough engine for AgentOrchestrator.run() to reach its non-CHAT ReAct loop."""
+
+    def __init__(self, intent, decisions):
+        from types import SimpleNamespace
+        self.session_id, self.user_id = "s-react", "u-react"
+        self.document_rag = None
+        self.prompts = []
+        self._intent = intent
+        self._decisions = list(decisions)
+        self.memory = SimpleNamespace(get_recent_conversation=lambda **k: [],
+                                      add_observation=lambda *a, **k: None)
+        self.inference_broker = SimpleNamespace(infer=self._infer)
+
+    def _infer(self, prompt, **kw):
+        self.prompts.append(prompt)
+        return self._decisions.pop(0) if self._decisions else "ANSWER"
+
+    def parse_intent(self, text, recent):
+        return dict(self._intent)
+
+    def verify_persona_lock(self):
+        return True
+
+
+def _run_react(monkeypatch, mode, decisions):
+    from types import SimpleNamespace
+    from eli.cognition import agent_bus as ab
+    from eli.cognition.orchestrator import AgentOrchestrator
+    from eli.runtime import grounded_remediation as gr
+
+    monkeypatch.setattr(gr, "handle_confirmation", lambda text: None)
+    monkeypatch.setattr(gr, "try_handle_query", lambda text: None)
+    monkeypatch.setattr(ab, "get_bus", lambda: SimpleNamespace(
+        dispatch=lambda *a, **k: ab.DispatchResult(intent_action="GET_WEATHER", intent_confidence=0.9)))
+    engine = _ReactEngine({"action": "GET_WEATHER", "args": {"location": "Lisbon"}, "confidence": 0.9},
+                          decisions)
+    orch = AgentOrchestrator(engine)
+    ran = []
+
+    def _execute(intent, user_input):
+        ran.append((intent["action"], dict(intent.get("args") or {})))
+        return {"ok": True, "content": f"{intent['action']} done"}
+
+    monkeypatch.setattr(orch.executor_agent, "execute", _execute)
+    orch.run("what's the weather in Lisbon tomorrow", reasoning_mode=mode)
+    return engine, ran
+
+
+def test_quick_runs_the_routed_action_alone_with_no_react_decision(monkeypatch):
+    """Its one-pass case looked for a mode named "fast", which the engine never passes."""
+    engine, ran = _run_react(monkeypatch, "quick", ["TOOL:WEB_SEARCH Lisbon forecast"])
+    assert [a for a, _ in ran] == ["GET_WEATHER"]
+    assert engine.prompts == []
+
+
+def test_the_next_tool_gets_the_arguments_written_for_it_not_the_last_ones(monkeypatch):
+    engine, ran = _run_react(monkeypatch, "normal", ["TOOL:WEB_SEARCH Lisbon forecast for Saturday"])
+    assert [a for a, _ in ran] == ["GET_WEATHER", "WEB_SEARCH"]
+    assert ran[1][1] == {"query": "Lisbon forecast for Saturday"}       # as written, no "location"
+
+
+def test_the_react_loop_never_starts_an_action_only_the_users_words_may_start(monkeypatch):
+    for decision in ("TOOL:SHELL_EXEC rm -rf ~/notes", "TOOL:MEMORY_FORGET everything",
+                     "TOOL:CONFIRM_CODE_FIX", "TOOL:NOT_AN_ACTION x"):
+        engine, ran = _run_react(monkeypatch, "normal", [decision])
+        assert [a for a, _ in ran] == ["GET_WEATHER"], decision
+
+
+def test_the_next_tool_reads_json_arguments_too():
+    from eli.cognition.orchestrator import _react_next_step
+    assert _react_next_step('TOOL:WEB_SEARCH {"q": "tide times"}', "asked") == (
+        "WEB_SEARCH", {"q": "tide times", "query": "tide times"})
+    assert _react_next_step("TOOL: DATE.", "what day is it") == ("DATE", {"query": "what day is it"})
+    assert _react_next_step("ANSWER", "x") is None
 
 
 def test_mode_chat_agent_profile_quick_is_lean():

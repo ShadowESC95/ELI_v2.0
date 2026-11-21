@@ -45,6 +45,29 @@ def test_a_model_guess_can_never_rename_the_user_or_change_elis_setup():
     assert not (_EXPLICIT_ONLY_ACTIONS - set(SUPPORTED_ACTIONS)), "names an action that doesn't exist"
 
 
+def test_an_action_a_model_proposes_is_held_to_the_resolvers_catalogue(monkeypatch):
+    """The orchestrator's ReAct loop and the engine's failure re-plan ran any supported action
+    the model named: the shell, forgetting, a plugin install."""
+    from types import SimpleNamespace
+    from eli.cognition import gguf_inference
+    from eli.cognition.llm_intent import model_may_choose
+    from eli.execution import executor_enhanced
+    from eli.kernel.engine import CognitiveEngine
+
+    assert model_may_choose("web_search") and model_may_choose("DATE")
+    for name in ("SHELL_EXEC", "MEMORY_FORGET", "PLUGIN_INSTALL", "CONFIRM_CODE_FIX", "CHAT", "NO_SUCH_ACTION"):
+        assert not model_may_choose(name), name
+
+    ran = []
+    monkeypatch.setattr(executor_enhanced, "execute", lambda a, args=None: ran.append(a) or {"ok": True})
+    monkeypatch.setattr(gguf_inference, "generate_json",
+                        lambda prompt, **kw: {"action": "SHELL_EXEC", "args": {"command": "ls ~"}})
+    failed = {"ok": False, "error": "no such file"}
+    me = SimpleNamespace(_gguf_available=True)
+    out = CognitiveEngine._eli_tool_failure_replan(me, "list my files", "LIST_DIR", {"path": "~/x"}, failed)
+    assert out is failed and ran == []
+
+
 def test_every_supported_action_has_a_real_dispatch_branch():
     """Uses the same dispatch detection as the claims suite.
 

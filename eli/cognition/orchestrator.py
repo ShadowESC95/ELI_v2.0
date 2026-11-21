@@ -4,22 +4,18 @@
 
 from __future__ import annotations
 
+import json
 import re
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from eli.execution.executor_enhanced import execute as execute_action
-from eli.execution.executor_enhanced import SUPPORTED_ACTIONS as _SUPPORTED_ACTIONS
-
-# Normalized set for O(1) validation of ReAct-proposed tool actions.
-_VALID_ACTIONS = {str(a).strip().upper() for a in (_SUPPORTED_ACTIONS or [])}
-
-
 
 from eli.cognition import memory_diag as _memory_diag
 from eli.cognition import query_planner as _query_planner
 from eli.cognition.evidence_format import this_conversation as _this_conversation
+from eli.cognition.reasoning_modes import orchestrator_react_steps as _react_steps_for_mode
 from eli.utils.log import get_logger
 log = get_logger(__name__)
 
@@ -141,6 +137,35 @@ def _handed_over_allowance() -> float:
         return 0.0
 
 
+def _react_next_step(decision: Any, user_input: str) -> Optional[Tuple[str, Dict[str, Any]]]:
+    """The tool the model asked to run next ("TOOL:<ACTION> <args>"), as (action, args), or None
+    to stop. Only an action a model may pick on its own is taken (llm_intent.model_may_choose: no
+    explicit-only or internal action). Its args are the ones the model wrote for it, a JSON object
+    or a free-text query, never the previous action's."""
+    line = next((ln.strip() for ln in str(decision or "").splitlines() if ln.strip()), "")
+    if not line.upper().startswith("TOOL:"):
+        return None
+    parts = line[len("TOOL:"):].strip().split(None, 1)
+    # Stray punctuation the model may append (TOOL:DATE.)
+    action = (parts[0] if parts else "").strip(" .,:;!?\"'`").upper()
+    from eli.cognition.llm_intent import model_may_choose, normalize_args
+    if not action or not model_may_choose(action):
+        log.debug(f"[ORCHESTRATOR] ReAct proposed {action!r}, which a model may not pick; stopping loop")
+        return None
+    rest = parts[1].strip() if len(parts) > 1 else ""
+    args: Dict[str, Any] = {}
+    if rest.startswith("{"):
+        try:
+            parsed = json.loads(rest[: rest.rfind("}") + 1])
+            args = normalize_args(parsed) if isinstance(parsed, dict) else {}
+        except ValueError:
+            log.debug("[ORCHESTRATOR] ReAct args were not a JSON object", exc_info=True)
+    elif rest:
+        args = {"query": rest}
+    args.setdefault("query", user_input)
+    return action, args
+
+
 class PlannerAgent:
     def __init__(self, engine):
         self.engine = engine
@@ -150,11 +175,17 @@ class PlannerAgent:
                        stm: ShortTermEpisodic,
                        reasoning_mode: Optional[str] = None) -> Dict[str, Any]:
         """
-        Build a retrieval plan tuned to the active reasoning mode.
+        Build a retrieval plan for the reasoning mode (reasoning_modes.orchestrator_planner_mode).
 
-        fast     — skip HyDE, smaller search budgets, single ReAct pass
-        balanced — current default: HyDE skipped for short queries
-        deep     — full HyDE, large result sets, full ReAct loop
+        fast     — Quick, and a turn with no mode: no HyDE, keyword search at a quarter of its
+                   budget; semantic hits, documents and the knowledge graph only when the evidence
+                   comes back thin (or the question is about a document, or about who the user is)
+        balanced — Normal and Advanced: keyword, semantic and knowledge-graph search, and HyDE may
+                   expand the query (build_hyde_query still skips it for a query under eight
+                   words, one that opens with a greeting or an acknowledgement, or one about
+                   the user)
+        deep     — Research and Expert: the balanced channels with higher floors; every limit is
+                   widened by the mode's budget multiplier, as in the other plans
         """
         low = (user_input or "").lower()
         try:
@@ -233,7 +264,6 @@ class PlannerAgent:
                 "prefer_identity": identity,
                 "prefer_runtime":  runtime,
                 "skip_hyde":       True,      # signals MemoryAgent to never run HyDE
-                "max_react_iter":  1,
             }
         elif mode == "deep":
             # The mode budget (research 200%, expert 250% by default) already
@@ -253,7 +283,6 @@ class PlannerAgent:
                 "prefer_identity": identity,
                 "prefer_runtime":  runtime,
                 "skip_hyde":       False,
-                "max_react_iter":  3,
             }
         else:  # balanced (default)
             return {
@@ -271,7 +300,6 @@ class PlannerAgent:
                 "prefer_identity": identity,
                 "prefer_runtime":  runtime,
                 "skip_hyde":       False,
-                "max_react_iter":  3,
             }
 
 
@@ -950,12 +978,11 @@ class AgentOrchestrator:
                 wm.trace["agent_bus_nonchat"] = {"error": str(_bus_err)}
                 log.debug(f"[ORCHESTRATOR] Non-chat AgentBus unavailable: {_bus_err}")
 
-            # ── ReAct observation loop (mode-aware max iterations) ───────────
-            _mode_for_react = (reasoning_mode or "balanced").lower()
-            MAX_REACT_ITER = 1 if _mode_for_react == "fast" else 3
+            # ── ReAct observation loop: the mode sets how many tools it may chain ──
+            _react_steps = _react_steps_for_mode(reasoning_mode)
             observations: list = []
             result = {}
-            for _react_i in range(MAX_REACT_ITER):
+            for _react_i in range(_react_steps):
                 result = self.executor_agent.execute(intent, user_input)
                 obs_text = str(
                     result.get("content") or result.get("response") or result.get("error") or ""
@@ -967,7 +994,7 @@ class AgentOrchestrator:
                     except Exception:
                         log.debug("suppressed exception", exc_info=True)
 
-                if _react_i < MAX_REACT_ITER - 1 and obs_text:
+                if _react_i < _react_steps - 1 and obs_text:
                     _obs_ctx = "\n".join(observations)
                     _react_prompt = (
                         f"User asked: {user_input}\n\n"
@@ -981,34 +1008,17 @@ class AgentOrchestrator:
                         _react_decision = _broker.infer(
                             _react_prompt, max_tokens=80, temperature=0.2
                         )
-                        _react_decision = (_react_decision or "").strip().upper()
                     except Exception:
                         _react_decision = "ANSWER"
-
-                    if _react_decision.startswith("ANSWER") or not _react_decision.startswith("TOOL:"):
-                        break
-
                     try:
-                        _tool_line = _react_decision[5:].strip()
-                        _tok = _tool_line.split()[0] if _tool_line.split() else ""
-                        # Strip stray punctuation the model may append (TOOL:DATE.)
-                        _next_action = _tok.strip(" .,:;!?\"'`").upper()
-                        # Only chain to a real, registered action. An unknown or
-                        # hallucinated action ends the loop instead of switching
-                        # to garbage the executor can't handle.
-                        if not _next_action or (_VALID_ACTIONS and _next_action not in _VALID_ACTIONS):
-                            log.debug(f"[ORCHESTRATOR] ReAct proposed unknown action {_next_action!r}; stopping loop")
-                            break
-                        # Merge args — preserve the original args, add observation context.
-                        intent = dict(intent)
-                        _merged_args = dict(intent.get("args") or {}) if isinstance(intent.get("args"), dict) else {}
-                        _merged_args.setdefault("query", user_input)
-                        _merged_args["observation_context"] = _obs_ctx
-                        intent["action"] = _next_action
-                        intent["args"] = _merged_args
-                        action = _next_action
+                        _next = _react_next_step(_react_decision, user_input)
                     except Exception:
+                        log.debug("[ORCHESTRATOR] ReAct step not read; stopping loop", exc_info=True)
+                        _next = None
+                    if _next is None:
                         break
+                    action, _next_args = _next
+                    intent = dict(intent, action=action, args=_next_args)
                 else:
                     break
 

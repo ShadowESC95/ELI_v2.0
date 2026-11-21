@@ -647,14 +647,14 @@ def orchestrator_planner_mode(mode: object) -> str:
     }.get(key, "balanced")
 
 
-def mode_orchestrator_depth(mode: object) -> str:
-    """Gradient depth for CHAT orchestrator: light → standard → full (not a binary cliff)."""
-    key = canonical_mode(mode)
-    if key == "quick":
-        return "light"
-    if key in {"chain_of_thought", "self_consistency"}:
-        return "standard"
-    return "full"
+# Tools the orchestrator's ReAct loop may run for one action, by planner profile: the routed
+# action, then each one the model asks for next. Quick runs the routed action alone.
+_REACT_STEPS = {"fast": 1, "balanced": 3, "deep": 3}
+
+
+def orchestrator_react_steps(mode: object) -> int:
+    """How many tools the orchestrator's ReAct loop may chain in this reasoning mode."""
+    return _REACT_STEPS[orchestrator_planner_mode(mode)]
 
 
 def mode_chat_agent_profile(mode: object, *, code_query: bool = False) -> Optional[Set[str]]:

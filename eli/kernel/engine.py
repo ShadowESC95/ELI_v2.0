@@ -11216,16 +11216,14 @@ Answer:"""
             if alt_action == failed_action.upper():
                 return failed_result  # Same action would fail again
 
-            # Only run an action the executor supports. The replan LLM sometimes emits a nonexistent name
-            # ("WEBSITE_SEARCH" for WEB_SEARCH), which only gives "unsupported executor action" in the
-            # user's face. Keep the original result instead. Real actions pass through.
-            try:
-                from eli.execution.executor_enhanced import SUPPORTED_ACTIONS as _SUP
-                if alt_action not in {str(a).upper() for a in _SUP}:
-                    log.debug(f"[REPLAN] proposed {alt_action} not in SUPPORTED_ACTIONS — keeping original result")
-                    return failed_result
-            except Exception:
-                log.debug("suppressed exception", exc_info=True)
+            # Only run an action a model may pick on its own. The replan LLM sometimes emits a nonexistent
+            # name ("WEBSITE_SEARCH" for WEB_SEARCH), which only gives "unsupported executor action" in the
+            # user's face, and a real explicit-only one (the shell, forgetting, a plugin install) must never
+            # start from a model's guess. Keep the original result instead.
+            from eli.cognition.llm_intent import model_may_choose
+            if not model_may_choose(alt_action):
+                log.debug(f"[REPLAN] proposed {alt_action}, which a model may not pick — keeping original result")
+                return failed_result
 
             log.debug(f"[REPLAN] Retrying {failed_action} → {alt_action} (attempt {_retry_count + 1})")
             from eli.execution.executor_enhanced import execute as _exec

@@ -351,9 +351,10 @@ exist, and said "the audit trail is now active" for logging that was always on.
 ## Behaviours that keep answers grounded
 - **Admin and persona actions are explicit only.** The LLM intent resolver cannot choose
   `SET_USER_NAME`, persona locks, tone and voice changes, memory deletion, plugin or MCP
-  changes, self-patching, shell or training actions (`llm_intent._EXPLICIT_ONLY_ACTIONS`);
-  only a router rule matching the user's words can. A guessed `PERSONA_LOCK_CLEAR` once ran
-  before the turn was downgraded to chat.
+  changes, self-patching, shell or training actions (`llm_intent._EXPLICIT_ONLY_ACTIONS`),
+  and neither can a model picking the orchestrator's next ReAct tool or an alternative to a
+  failed action (`llm_intent.model_may_choose`); only a router rule matching the user's words
+  can. A guessed `PERSONA_LOCK_CLEAR` once ran before the turn was downgraded to chat.
 - **A name is set only by a declaration.** One extractor
   (`identity_validation.extract_explicit_identity_facts`) is shared by the router, the
   knowledge graph, working memory and the executor; hypotheticals and negations ("if my name

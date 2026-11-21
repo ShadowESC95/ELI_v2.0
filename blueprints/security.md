@@ -50,8 +50,9 @@ on Windows) after the gate has read all of it. **ELI Full Control** on → no bl
 
 `shell_gate.py` is on self-improvement's protected list (`self_improvement._PROTECTED_PATCH_PATHS`),
 so a self-patch cannot strip it. The intent model is never offered RUN_CMD or SHELL_EXEC
-(`llm_intent._EXPLICIT_ONLY_ACTIONS`), and ELI does not carry out a promise in its own reply that
-names one (`engine._followthrough_may_run`).
+(`llm_intent._EXPLICIT_ONLY_ACTIONS`), a model that names one as the orchestrator's next ReAct
+tool or as the alternative to a failed action is not followed (`llm_intent.model_may_choose`),
+and ELI does not carry out a promise in its own reply that names one (`engine._followthrough_may_run`).
 
 **Not on the runtime path:** `SecurityManager.is_command_allowed` and `safe_subprocess`
 (`runtime/security.py`, an allowlist read from `ELI_ALLOWED_CMDS` that refuses everything when it

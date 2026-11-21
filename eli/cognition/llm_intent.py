@@ -67,6 +67,13 @@ def _catalogue() -> List[str]:
         return []
 
 
+def model_may_choose(action: Any) -> bool:
+    """Whether a model may pick `action` on its own: it is in the catalogue the resolver offers
+    (a real action, neither internal nor explicit-only). Asked before running any action a model
+    proposed, the next tool of the orchestrator's ReAct loop or an alternative after a failure."""
+    return str(action or "").strip().upper() in set(_catalogue())
+
+
 def _catalogue_prompt_lines(catalogue: List[str]) -> str:
     """"NAME: description" per action, from the same curated map the capabilities
     doc renders from — bare names alone left near-neighbours (ANALYZE_PDF vs

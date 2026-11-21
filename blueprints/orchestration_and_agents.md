@@ -31,8 +31,9 @@ itself (`correction_patterns.is_meta_conversation`). Other actions reach it only
 `ELI_FORCE_ORCHESTRATOR_ALL_ACTIONS=1` or `ELI_FORCE_ORCHESTRATOR_ALL_MODES=1` is set. The
 mode sets the depth (`reasoning_modes.py`): `orchestrator_planner_mode()` picks the retrieval
 plan (Quick → `fast`, Normal and Advanced → `balanced`, Research and Expert → `deep`),
-`mode_budget_multiplier()` scales its limits, and `mode_chat_agent_profile()` picks the
-specialists. `mode_orchestrator_depth()` is defined there too, but nothing calls it.
+`mode_budget_multiplier()` scales its limits, `mode_chat_agent_profile()` picks the
+specialists, and `orchestrator_react_steps()` says how many tools its ReAct loop may chain
+(Quick 1, the other modes 3).
 Components:
 
 - **`PlannerAgent.plan_retrieval()`** produces a mode-aware retrieval plan:
@@ -46,7 +47,6 @@ Components:
     it);
   - `deep`: the same channels with the larger budgets of Research and Expert, never less than
     balanced.
-  Each plan also carries `max_react_iter` (1 for fast, 3 otherwise), which nothing reads.
   The orchestrator then attaches the time window found in the question to the plan
   (`query_planner.plan_window`, which gives one only when the message asks about the past).
 - **`OrchestratorMemoryAgent`** reaches `retrieve_for_turn()` in `memory/retrieval.py`
@@ -66,11 +66,14 @@ Flow inside `AgentOrchestrator.run()`:
 - **Non-CHAT actions** (only when the engine hands one over; see *When each runs*): dispatch the
   AgentBus for specialist evidence, then a **ReAct
   observation loop**: run the executor, ask the loaded model for `ANSWER` or
-  `TOOL:<action> <args>`, chain to the next tool and accumulate observations. Up to three
-  iterations (`MAX_REACT_ITER`); its one-iteration case tests for the mode name `fast`, which
-  the engine never passes (Quick arrives as `quick`). The proposed tool is validated against the
-  executor's `SUPPORTED_ACTIONS` (207 actions) and the loop stops on an unknown action;
-  `intent["args"]` are merged rather than overwritten. For "grounded synthesis" actions the
+  `TOOL:<action> <args>`, chain to the next tool and accumulate observations. The mode sets
+  how many tools it may run (`orchestrator_react_steps`): Quick runs the routed action alone,
+  with no decision call, and the other modes up to three. The proposed tool must be one a model
+  may pick on its own (`llm_intent.model_may_choose`, the intent resolver's catalogue: no
+  explicit-only or internal action), or the loop stops; it gets the arguments the model wrote
+  for it (a JSON object, or free text as its `query`, the user's message otherwise), never
+  the previous action's. The engine's failure re-plan holds a proposed alternative to the same
+  rule. For "grounded synthesis" actions the
   observations are assembled into context and passed to the model; for direct actions the
   executor result is returned as is.
 - **CHAT**: planner → shared retrieval → `dispatch_specialists()` (the mode's specialists plus
