@@ -76,6 +76,28 @@ def test_the_brief_tells_the_model_not_to_guess():
 
 # ── the daemon ────────────────────────────────────────────────────────────────
 
+def test_safe_mode_starts_no_proactive_daemon(monkeypatch):
+    """`eli_startup.sh --safe-mode` exported ELI_SAFE_MODE and ELI_DISABLE_PROACTIVE, which nothing
+    read: the daemon started as on any other run."""
+    import types
+    import eli.planning.proactive_daemon as pd
+    from eli.kernel.engine import CognitiveEngine
+
+    started = []
+    monkeypatch.setattr(pd, "start_daemon", lambda: started.append(True) or "daemon")
+    monkeypatch.delenv("ELI_PROACTIVE", raising=False)
+    monkeypatch.delenv("ELI_PROACTIVE_STARTED", raising=False)
+    engine = types.SimpleNamespace(add_observation=lambda *a, **k: None)
+
+    monkeypatch.setenv("ELI_SAFE_MODE", "1")
+    CognitiveEngine._start_proactive_listener(engine)
+    assert started == [] and engine.proactive_daemon is None
+
+    monkeypatch.delenv("ELI_SAFE_MODE")
+    CognitiveEngine._start_proactive_listener(engine)
+    assert started == [True] and engine.proactive_daemon == "daemon"
+
+
 def test_is_running_does_not_construct_a_daemon():
     """A status check that creates the thing it reports on is not a status check."""
     import eli.planning.proactive_daemon as pd

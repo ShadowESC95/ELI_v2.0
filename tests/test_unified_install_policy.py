@@ -210,3 +210,56 @@ def test_startup_support_assets_always_scoped_network():
     src = Path("eli/gui/panels/startup.py").read_text(encoding="utf-8")
     assert 'allow_network("firstboot-support-assets")' in src
     assert "offline — asset prefetch skipped" not in src
+
+
+# ── scripts/eli_startup.sh (RUN_ELI.sh), run in a tree whose setup, Python and restore only log ─
+def _startup_tree(tmp_path, *, with_venv: bool):
+    """A copy of eli_startup.sh whose setup, Python and asset restore write down what they were
+    asked to do, in order, and nothing else."""
+    import shlex
+    import shutil
+    repo = Path(__file__).resolve().parents[1]
+    root = tmp_path / "tree"
+    (root / "scripts").mkdir(parents=True)
+    for name in ("eli_startup.sh", "eli_isolate_env.sh"):
+        shutil.copy(repo / "scripts" / name, root / "scripts" / name)
+    log = tmp_path / "ran.log"
+    fake_python = root / "scripts" / "fake_python"
+    fake_python.write_text("#!/usr/bin/env bash\n"
+                           f'echo "python $* SAFE=${{ELI_SAFE_MODE:-}} DISABLE=${{ELI_DISABLE_PROACTIVE:-}}" >> {shlex.quote(str(log))}\n',
+                           encoding="utf-8")
+    fake_python.chmod(0o755)
+    (root / "scripts" / "eli_setup.sh").write_text(
+        "#!/usr/bin/env bash\nset -e\n"
+        f"echo setup >> {shlex.quote(str(log))}\n"
+        'ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"\n'
+        'mkdir -p "$ROOT/.venv/bin" && cp "$ROOT/scripts/fake_python" "$ROOT/.venv/bin/python"\n',
+        encoding="utf-8")
+    if with_venv:
+        (root / ".venv" / "bin").mkdir(parents=True)
+        shutil.copy(fake_python, root / ".venv" / "bin" / "python")
+    return root, log
+
+
+def _run_startup(root, log, *args):
+    import os
+    import subprocess
+    env = {k: v for k, v in os.environ.items() if k not in ("ELI_SAFE_MODE", "ELI_DISABLE_PROACTIVE")}
+    ran = subprocess.run(["bash", str(root / "scripts" / "eli_startup.sh"), *args, "--no-log"],
+                         capture_output=True, text=True, env=env, timeout=60)
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    steps = []
+    for line in log.read_text(encoding="utf-8").splitlines():
+        if line == "setup":
+            steps.append("setup")
+        elif "restore_github_asset_files.py" in line:
+            steps.append("restore")
+        elif " -m eli" in line:
+            steps.append("launch " + line.split(" SAFE=", 1)[1])
+    return steps
+
+
+def test_safe_mode_reaches_eli_as_the_variable_it_reads(tmp_path):
+    root, log = _startup_tree(tmp_path, with_venv=True)
+    assert _run_startup(root, log, "--safe-mode", "--no-setup") == ["launch 1 DISABLE="]
+    assert _run_startup(root, log, "--no-setup")[-1] == "launch  DISABLE="

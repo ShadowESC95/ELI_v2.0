@@ -84,6 +84,30 @@ def installed(tmp_path, monkeypatch):
     return mgr, pdir, state
 
 
+def test_safe_mode_loads_no_plugin_at_start_and_one_enabled_in_the_session_still_runs(tmp_path, monkeypatch):
+    """`eli_startup.sh --safe-mode` exported ELI_SAFE_MODE, which nothing read: every plugin was
+    imported at start as on any other run, so a broken one could not be told apart from ELI."""
+    import eli.plugins.manager as M
+
+    pdir = tmp_path / "plugins"
+    (pdir / "greeter").mkdir(parents=True)
+    (pdir / "greeter" / "plugin.py").write_text(PLUGIN_SRC, encoding="utf-8")
+    state = {"enabled": ["greeter"], "disabled": []}
+    monkeypatch.setattr(M, "_plugins_dir", lambda: pdir)
+    monkeypatch.setattr(M, "_load_state", lambda: dict(state))
+    monkeypatch.setattr(M, "_save_state", lambda s: state.update(s))
+
+    monkeypatch.setenv("ELI_SAFE_MODE", "1")
+    mgr = M.PluginManager()
+    assert mgr._loaded == {}, "safe mode loaded plugin code at start"
+    assert mgr.dispatch("GREETER_HELLO", {}) is None
+    assert mgr.enable("greeter")["ok"]
+    assert mgr.dispatch("GREETER_HELLO", {"who": "eli"})["content"] == "hello eli"
+
+    monkeypatch.delenv("ELI_SAFE_MODE")
+    assert "greeter" in M.PluginManager()._loaded, "an ordinary start loads the enabled plugin"
+
+
 def test_plugin_action_is_dispatchable(installed):
     mgr, _, _ = installed
     res = mgr.dispatch("GREETER_HELLO", {"who": "eli"})

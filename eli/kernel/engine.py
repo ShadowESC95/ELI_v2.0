@@ -16807,6 +16807,10 @@ Answer:"""
             log.debug("[COGNITIVE] Proactive daemon disabled by ELI_PROACTIVE=0")
             self.proactive_daemon = None
             return
+        if config.safe_mode():
+            log.info("[COGNITIVE] Safe mode (ELI_SAFE_MODE=1): the proactive daemon is not started")
+            self.proactive_daemon = None
+            return
         if os.environ.get("ELI_PROACTIVE_STARTED") == "1":
             log.debug(
                 "[COGNITIVE] Proactive daemon already running - skipping duplicate start")

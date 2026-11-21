@@ -66,7 +66,7 @@ These were the dangerous ones: each names an implementation ELI does not contain
 |---|---|
 | Progressive web app on port **8502** | The server listens on **8081** by default (`eli/runtime/server_util.py:53`; `--port` > `ELI_API_PORT` > the saved `api_port` setting > 8081, bound at `api/server.py:2276`; the GUI moves to the next free port when another program holds it). `8502` appears in no code — only as a token id in `models/phi-3-mini-base/tokenizer.json` and in the claims test that checks for it. |
 | `pynvml` GPU telemetry | Zero occurrences in the code and the dependency files; not a dependency. NVIDIA VRAM is read by running **`nvidia-smi`** (`eli/core/hardware_profile.py:392` `nvidia_smi_path()`, used by `:1195` `detect_hardware()`); AMD, Intel and Qualcomm GPUs on Linux are found through the kernel's DRM sysfs (`:643`, `/sys/class/drm`). An earlier version of this row said `nvidia-smi` parsing had been removed; it never was. |
-| "Safe Mode" | Does not exist. No such setting, flag, or code path. |
+| "Safe Mode" | Not a mode of the app, only a start flag: `scripts/eli_startup.sh --safe-mode` (`RUN_ELI.sh --safe-mode`) sets `ELI_SAFE_MODE=1`, and ELI then starts no proactive daemon and loads no plugin at start (`eli.core.config.safe_mode()`). Nothing else changes, and there is no setting for it. |
 | Immutable `Context` objects passed between stages via Pydantic | No `pydantic` import in `eli/kernel/` or `eli/core/`. Stages pass plain dicts; per-turn values live in `contextvars` (`eli/kernel/request_context.py`); there is no immutability guarantee. |
 | The full suite runs on Windows, macOS and Linux on every PR merge | Now **partly** true — see below. It was not true at all when claimed. |
 

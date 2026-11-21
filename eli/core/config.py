@@ -362,3 +362,13 @@ def network_allowed() -> bool:
     if env is not None:
         return env.strip().lower() not in ("1", "true", "yes")
     return bool(get("network_enabled", False))
+
+
+# ---------- Safe mode ----------
+
+def safe_mode() -> bool:
+    """True when ELI was started in safe mode: ELI_SAFE_MODE=1, which `scripts/eli_startup.sh
+    --safe-mode` (RUN_ELI.sh --safe-mode) sets. The proactive daemon does not start and no plugin code
+    is loaded at start, so a fault in either can be told apart from ELI itself. A plugin enabled during
+    the session still loads, and MCP servers start only when one of their tools is used, as always."""
+    return (os.getenv("ELI_SAFE_MODE") or "").strip().lower() in ("1", "true", "yes", "on")

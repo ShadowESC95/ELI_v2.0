@@ -238,7 +238,12 @@ class PluginManager:
         return list(found.values())
 
     def _auto_load(self) -> None:
-        """Load all enabled plugins from disk at startup."""
+        """Load all enabled plugins from disk at startup. In safe mode (ELI_SAFE_MODE=1) none is: no
+        plugin code runs until one is enabled in the session."""
+        from eli.core.config import safe_mode
+        if safe_mode():
+            log.info("[PLUGIN] Safe mode (ELI_SAFE_MODE=1): no plugin is loaded at start")
+            return
         enabled = set(self._state.get("enabled", []))
         for pkg_dir in self._all_plugin_dirs():
             plugin_py = pkg_dir / "plugin.py"
