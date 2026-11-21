@@ -356,16 +356,39 @@ def test_notes_go_to_the_data_folder_and_appending_keeps_every_line(tmp_path, mo
     from eli.core import paths
     from eli.execution.executor_enhanced import _eli_safe_write_note
     monkeypatch.delenv("ELI_NOTEBOOK_DIR", raising=False)
+    monkeypatch.delenv("ELI_NOTES_DIR", raising=False)
     monkeypatch.setenv("ELI_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.chdir(tmp_path)
     paths.data_dir.cache_clear()        # resolved (and cached) while the executor was imported
-    assert paths.notebook_dir() == tmp_path / "data" / "notebook"
+    assert paths.notes_dir() == tmp_path / "data" / "notes"
     first = _eli_safe_write_note({"text": "buy oat milk"})
     _eli_safe_write_note({"text": "call the garage"})
     page = Path(first["path"])
-    assert page.parent == tmp_path / "data" / "notebook" and not (tmp_path / "eli_notebook").exists()
+    assert page.parent == tmp_path / "data" / "notes" and not (tmp_path / "eli_notebook").exists()
     lines = [l for l in page.read_text(encoding="utf-8").splitlines() if l.strip()]
     assert len(lines) == 2 and lines[0].endswith("buy oat milk") and lines[1].endswith("call the garage")
+
+
+def test_every_note_is_listed_and_searched_wherever_it_was_written(tmp_path, monkeypatch):
+    """WRITE_NOTE wrote its lines to the notebook folder and NEW_NOTE / LIST_NOTES / SEARCH_NOTES
+    used the notes folder, so "search notes" never found a line written with "note: ...". A daily
+    page an older version left in the notebook folder is still found, and a second note with the
+    same title no longer replaces the first."""
+    from eli.execution.executor_enhanced import execute
+    monkeypatch.setenv("ELI_NOTES_DIR", str(tmp_path / "notes"))
+    monkeypatch.setenv("ELI_NOTEBOOK_DIR", str(tmp_path / "notebook"))
+    (tmp_path / "notebook").mkdir()
+    (tmp_path / "notebook" / "2020-01-02.md").write_text("- [09:00:00] water the fern\n", encoding="utf-8")
+    execute("WRITE_NOTE", {"text": "renew the bike lock code"})
+    execute("NEW_NOTE", {"title": "garden", "content": "plant the tulip bulbs"})
+    execute("NEW_NOTE", {"title": "garden", "content": "fix the hose reel"})
+    found = execute("SEARCH_NOTES", {"query": "bike lock"})
+    assert len(found["hits"]) == 1 and "renew the bike lock code" in found["response"]
+    assert len(execute("SEARCH_NOTES", {"query": "fern"})["hits"]) == 1
+    listed = execute("LIST_NOTES", {})["notes"]
+    assert "2020-01-02.md" in listed and len(listed) == 4
+    assert len(execute("SEARCH_NOTES", {"query": "tulip"})["hits"]) == 1
+    assert len(execute("SEARCH_NOTES", {"query": "hose reel"})["hits"]) == 1
 
 
 def test_notes_are_kept_in_the_data_folder_not_where_eli_was_started(tmp_path, monkeypatch):

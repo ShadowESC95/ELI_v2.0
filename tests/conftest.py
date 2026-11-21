@@ -68,6 +68,8 @@ os.environ["ELI_AGENT_DB"]  = str(ROOT / "artifacts" / "_pytest" / "db" / "agent
 # replaced the real persona.auto.txt with fixture content. Pin both to the sandbox.
 os.environ["ELI_PERSONA_AUTO_PATH"] = str(ROOT / "artifacts" / "_pytest" / "persona.auto.txt")
 os.environ["ELI_NOTEBOOK_DIR"]      = str(ROOT / "artifacts" / "_pytest" / "eli_notebook")
+# Every note (WRITE_NOTE's daily pages too) is written to notes_dir().
+os.environ["ELI_NOTES_DIR"]         = str(ROOT / "artifacts" / "_pytest" / "eli_notes")
 
 # storage.WORLD_DIR is frozen at import time, so this must be set before that module
 # ever loads — a full-suite run once wrote real events into the actual world state.
@@ -118,12 +120,13 @@ def _assert_db_isolated() -> None:
             f"{_persona_resolved}, outside the throwaway {_safe}. A test could "
             f"overwrite the real persona overlay. Check eli.core.paths overrides "
             f"in conftest.")
-    _notebook_resolved = Path(_p.notebook_dir()).resolve()
-    if _safe not in _notebook_resolved.parents:
-        raise RuntimeError(
-            f"TEST ISOLATION BREACH: notebook_dir() resolves to "
-            f"{_notebook_resolved}, outside the throwaway {_safe}. Check "
-            f"eli.core.paths overrides in conftest.")
+    for _name, _fn in (("notebook_dir", _p.notebook_dir), ("notes_dir", _p.notes_dir)):
+        _notes_resolved = Path(_fn()).resolve()
+        if _safe not in _notes_resolved.parents:
+            raise RuntimeError(
+                f"TEST ISOLATION BREACH: {_name}() resolves to "
+                f"{_notes_resolved}, outside the throwaway {_safe}. Check "
+                f"eli.core.paths overrides in conftest.")
     # persona.py used to duplicate persona_auto_path()'s resolution, so the check above
     # passed while its own write constant still pointed at the real file. Check it directly.
     from eli.cognition import persona as _persona_mod

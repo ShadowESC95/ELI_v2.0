@@ -11583,54 +11583,64 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
     # ---- NOTE ACTIONS (LIST_NOTES / NEW_NOTE / SEARCH_NOTES) ----
+    # One folder for every note (paths.notes_dir, ELI_NOTES_DIR overrides): WRITE_NOTE's daily pages
+    # and these notes. Listing and searching also read the daily pages kept in the notebook folder up
+    # to 2.5.36 (_note_files). The notes plugin's own actions are these.
     if a in ("LIST_NOTES", "NEW_NOTE", "SEARCH_NOTES"):
         try:
-            from pathlib import Path as _P
             from eli.core.paths import notes_dir as _notes_dir
-            # ELI_NOTES_DIR, else the data folder's notes/ (paths.notes_dir). An unset variable was
-            # Path(""), which is "." and truthy, so notes were kept in, and LIST_NOTES listed,
-            # whatever folder ELI had been started from.
-            _notes_env = os.environ.get("ELI_NOTES_DIR", "").strip()
-            notes_dir = _P(_notes_env).expanduser() if _notes_env else _P(_notes_dir())
+            notes_dir = Path(_notes_dir())
             notes_dir.mkdir(parents=True, exist_ok=True)
 
             if a == "NEW_NOTE":
-                import time as _nt
-                title = (args.get("title") or args.get("text") or "").strip()
-                content = (args.get("content") or args.get("text") or "").strip()
-                fname = (title[:40].replace(" ", "_").replace("/", "_") or
-                         _nt.strftime("note_%Y%m%d_%H%M%S")) + ".md"
-                note_path = notes_dir / fname
-                note_path.write_text(f"# {title or fname}\n\n{content}\n", encoding="utf-8")
+                title = (args.get("title") or args.get("name") or args.get("text") or "").strip()
+                content = (args.get("content") or args.get("text") or args.get("body") or "").strip()
+                if not (title or content):
+                    msg = "What should the note say?"
+                    return {"ok": False, "action": a, "error": "No note text", "content": msg, "response": msg}
+                stem = (re.sub(r"[\\/:*?\"<>|\s]+", "_", title)[:_NOTE_NAME_CHARS].strip("._")
+                        or time.strftime("note_%Y%m%d_%H%M%S"))
+                # A note is never replaced: a second note with the same title gets the next free name.
+                n = 1
+                while True:
+                    note_path = notes_dir / (f"{stem}.md" if n == 1 else f"{stem}_{n}.md")
+                    try:
+                        with open(note_path, "x", encoding="utf-8") as fh:
+                            fh.write(f"# {title or stem}\n\n{content}\n")
+                        break
+                    except FileExistsError:
+                        n += 1
                 msg = f"Note saved: {note_path}"
                 return {"ok": True, "action": a, "path": str(note_path), "content": msg, "response": msg}
 
+            notes = _note_files()
             if a == "LIST_NOTES":
-                notes = sorted(notes_dir.glob("*.md"), key=lambda p: p.stat().st_mtime, reverse=True)
                 if not notes:
                     msg = f"No notes found in {notes_dir}"
                     return {"ok": True, "action": a, "notes": [], "content": msg, "response": msg}
                 lines = [f"Notes ({len(notes)}):"]
-                for n in notes[:30]:
+                for n in notes[:_NOTES_LISTED]:
                     lines.append(f"  {n.name}")
                 msg = "\n".join(lines)
                 return {"ok": True, "action": a, "notes": [n.name for n in notes],
                         "content": msg, "response": msg}
 
             if a == "SEARCH_NOTES":
-                query = (args.get("query") or args.get("text") or "").strip().lower()
+                query = (args.get("query") or args.get("q") or args.get("text") or "").strip().lower()
                 if not query:
                     return {"ok": False, "action": a, "error": "No query",
                             "content": "Provide a search query.", "response": "Provide a search query."}
-                hits = []
-                for note in notes_dir.glob("*.md"):
-                    text = note.read_text(encoding="utf-8", errors="replace").lower()
-                    if query in text:
+                hits, shown = [], []
+                for note in notes:
+                    text = note.read_text(encoding="utf-8", errors="replace")
+                    if query in text.lower():
                         hits.append(note.name)
+                        line = next((ln.strip() for ln in text.splitlines() if query in ln.lower()), "")
+                        shown.append(f"  {note.name}: {line}" if line else f"  {note.name}")
                 if not hits:
                     msg = f"No notes matched '{query}'"
                 else:
-                    msg = f"Found {len(hits)} note(s) matching '{query}':\n" + "\n".join(f"  {h}" for h in hits[:20])
+                    msg = f"Found {len(hits)} note(s) matching '{query}':\n" + "\n".join(shown[:_NOTE_HITS_SHOWN])
                 return {"ok": True, "action": a, "hits": hits, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
@@ -12767,19 +12777,41 @@ def _eli_safe_read_file(args=None):
     }
 
 _NOTE_LOCK = threading.Lock()
+# How much of a title names its note's file (the note keeps the whole title), and how many notes a
+# listing and a search name one by one; the count each gives covers all of them.
+_NOTE_NAME_CHARS = 40
+_NOTES_LISTED = 30
+_NOTE_HITS_SHOWN = 20
+
+
+def _note_files():
+    """Every note, newest first: the notes folder (paths.notes_dir), which WRITE_NOTE and NEW_NOTE
+    both write to, and the daily pages WRITE_NOTE kept in the notebook folder up to 2.5.36. The two
+    actions used to write to different folders, and listing and searching read only one of them."""
+    from eli.core.paths import notebook_dir, notes_dir
+    folders = [Path(notes_dir())]
+    try:
+        legacy = Path(notebook_dir())
+        if legacy.is_dir() and legacy.resolve() != folders[0].resolve():
+            folders.append(legacy)
+    except OSError:
+        log.debug("notebook folder unreadable", exc_info=True)
+    files = [p for f in folders if f.is_dir() for p in f.glob("*.md") if p.is_file()]
+    return sorted(files, key=lambda p: p.stat().st_mtime, reverse=True)
 
 
 def _eli_safe_write_note(args=None):
-    """A note goes on the end of today's page in the notebook (paths.notebook_dir), appended under
+    """A note goes on the end of today's page in the notes folder (paths.notes_dir), appended under
     a lock so two writers cannot lose each other's lines. It was read whole and written back, in a
-    folder relative to wherever ELI had been started from."""
+    folder relative to wherever ELI had been started from, and later in a notebook folder that
+    listing and searching notes never looked in."""
     from datetime import datetime
-    from eli.core.paths import notebook_dir
+    from eli.core.paths import notes_dir
     _args = args or {}
     txt = str(_args.get("text") or "").rstrip()
     if not txt:
         return {"ok": False, "action": "WRITE_NOTE", "content": "Missing note text."}
-    nb = notebook_dir()
+    nb = notes_dir()
     nb.mkdir(parents=True, exist_ok=True)
     now = datetime.now()
     daily = nb / f"{now.strftime('%Y-%m-%d')}.md"

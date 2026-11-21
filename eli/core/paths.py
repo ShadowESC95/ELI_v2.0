@@ -323,7 +323,12 @@ def scripts_dir() -> Path:
     return data_dir() / "scripts"
 
 def notes_dir() -> Path:
-    """User notes directory."""
+    """User notes: where every note ELI writes goes (WRITE_NOTE's daily pages, NEW_NOTE's notes) and
+    what LIST_NOTES and SEARCH_NOTES read. Override: ELI_NOTES_DIR (read by the executor alone before,
+    so the document index and the notes plugin looked somewhere else)."""
+    override = os.environ.get("ELI_NOTES_DIR", "").strip()
+    if override:
+        return Path(override).expanduser().resolve()
     return data_dir() / "notes"
 
 def learning_dir() -> Path:
@@ -446,7 +451,8 @@ def persona_auto_path() -> Path:
 
 
 def notebook_dir() -> Path:
-    """ELI notebook / journal directory: the user's data, so it lives with the rest of it.
+    """Where WRITE_NOTE kept its daily pages up to 2.5.36. New lines go to notes_dir() now, so that
+    searching and listing notes find them; the pages already here are still listed and searched.
 
     Override: ELI_NOTEBOOK_DIR — same escape-hatch pattern as persona_auto_path(). It was the
     source tree in dev mode and the working directory in the note writer, so notes landed in the
