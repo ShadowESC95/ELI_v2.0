@@ -130,8 +130,12 @@ def test_look_at_what_is_on_reads_the_media_session():
     assert route("look at what i'm watching")["action"] == "NOW_PLAYING"
 
 
-def test_every_folder_a_message_names_is_read(tmp_path):
+def test_every_folder_a_message_names_is_read(tmp_path, monkeypatch):
+    from eli.execution import router_enhanced as R
     from eli.execution.router_enhanced import route
+    # the router keeps the last folder read; put back as it was, or every later test runs with a
+    # folder of PDFs in hand ("read the document" in tests/test_04_router.py became a folder job)
+    monkeypatch.setattr(R, "_last_used_path", R._last_used_path)
     dirs = [tmp_path / "1. First (a b)", tmp_path / "2. Second + more", tmp_path / "3. Third, thing"]
     for d in dirs:
         d.mkdir()
