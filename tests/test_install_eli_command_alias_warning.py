@@ -29,6 +29,17 @@ def _run_installer(tmp_path, rc_content=None):
     )
 
 
+def test_the_help_names_what_the_installed_command_runs(tmp_path):
+    """The help said the command runs scripts/eli_startup.sh; the launcher it writes runs eli.sh."""
+    cp = _run_installer(tmp_path)
+    launcher = (tmp_path / "home" / ".local" / "bin" / "eli-v2").read_text(encoding="utf-8")
+    runs = [line.split()[1] for line in launcher.splitlines() if line.startswith("exec ")]
+    assert cp.returncode == 0 and runs == [f'"{ROOT}/eli.sh"']
+    shown = subprocess.run(["bash", str(SCRIPT), "--help"], capture_output=True, text=True, timeout=30).stdout
+    said = shown.split("The installed command runs:", 1)[1].split()[0]
+    assert said == f"{ROOT}/eli.sh", shown
+
+
 def test_warns_when_an_rc_alias_points_elsewhere(tmp_path):
     cp = _run_installer(tmp_path, rc_content="alias eli-v2='/some/old/stale/path/eli.sh'\n")
     assert "defines an 'alias eli-v2=' NOT pointing at" in cp.stderr

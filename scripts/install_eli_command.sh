@@ -21,7 +21,7 @@ Installs:
   $BIN_DIR/$NAME
 
 The installed command runs:
-  $ROOT/scripts/eli_startup.sh "\$@"
+  $ROOT/eli.sh "\$@"
 EOF_USAGE
 }
 
