@@ -9723,8 +9723,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         # or the system temp dir; refuse elsewhere unless ELI Full Control is on.
         _allowed = False
         try:
-            from eli.runtime.security import SecurityManager as _SM_cf
-            _allowed, _ = _SM_cf().is_path_allowed(str(p))
+            from eli.runtime.security import get_security_manager as _sm_cf
+            _allowed, _ = _sm_cf().is_path_allowed(str(p))
         except Exception:
             _allowed = False
         if not _allowed:
