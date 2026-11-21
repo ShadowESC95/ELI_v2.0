@@ -1,7 +1,8 @@
 """CLAIM: every code path/module the blueprints reference actually exists.
 
-Parses path-like `*.py` and dotted `eli.x.y` references out of local blueprint
-markdown (not shipped in git — PDFs only). Skips when no local *.md present.
+Parses path-like `*.py` and dotted `eli.x.y` references out of the blueprint markdown
+(git tracks blueprints/*.md beside their PDFs; see _helpers.blueprint_files). Skips only
+where no blueprint markdown is present, such as a copy that carries the PDFs alone.
 """
 from __future__ import annotations
 
@@ -13,7 +14,7 @@ from . import _helpers as H
 
 pytestmark = pytest.mark.skipif(
     not H.blueprint_files(),
-    reason="blueprints/*.md are local-only (git ships PDFs); run capabilities_doc locally",
+    reason="no blueprints/*.md here (git tracks them; a copy with only the PDFs has nothing to check)",
 )
 
 _FILE_REFS = H.blueprint_file_refs()
