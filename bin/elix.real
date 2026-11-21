@@ -31,7 +31,25 @@ else
 fi
 export ELI_PROJECT_ROOT
 
+# bin/elix used to save its model choice in .env.eli_v2_0, under this line, and every start then
+# loaded that model over the one chosen in the app. It now saves its choice in the app's own
+# settings, so the lines it left there are taken out (only those: the rest of the file stays).
+_ELIX_MARK='# Selected by bin/elix model picker'
+_drop_old_elix_choice() {
+  local file="$1" kept
+  grep -qxF "$_ELIX_MARK" "$file" 2>/dev/null || return 0
+  kept="$(awk -v mark="$_ELIX_MARK" '
+    $0 == mark { skip = 1; next }
+    skip && /^(export[ \t]+)?(ELI_GGUF_MODEL_PATH|ELI_MODEL_PATH|ELI_MODEL|GGUF_MODEL_PATH)=/ { next }
+    { skip = 0; print }
+  ' "$file")" || return 1
+  printf '%s\n' "$kept" > "$file" || return 1
+  echo "[ELI] Took out of $file the model bin/elix had saved there; the model is kept in ELI's settings now." >&2
+}
+
 if [ -f "$ELI_PROJECT_ROOT/.env.eli_v2_0" ]; then
+  _drop_old_elix_choice "$ELI_PROJECT_ROOT/.env.eli_v2_0" \
+    || echo "[ELI] Could not edit $ELI_PROJECT_ROOT/.env.eli_v2_0: remove the lines under '$_ELIX_MARK', or that model keeps loading over the one chosen in the app." >&2
   # shellcheck disable=SC1090
   source "$ELI_PROJECT_ROOT/.env.eli_v2_0"
 fi

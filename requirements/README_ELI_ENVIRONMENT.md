@@ -40,8 +40,9 @@ The runner:
 - exports `ELI_PROJECT_ROOT`;
 - exports the repository root through `PYTHONPATH`;
 - sources an optional `.env.eli_v2_0`, then unsets the model variables (`ELI_GGUF_MODEL_PATH`,
-  `ELI_MODEL_PATH`, `ELI_MODEL`, `GGUF_MODEL_PATH`) so a model saved there — the legacy
-  `bin/elix` launcher writes it — cannot bypass the picker;
+  `ELI_MODEL_PATH`, `ELI_MODEL`, `GGUF_MODEL_PATH`) so a model saved there — older versions of the
+  legacy `bin/elix` launcher wrote it; it now saves its choice in the app's settings — cannot
+  bypass the picker;
 - launches the maintained setup entry point:
 
 ```bash

@@ -247,7 +247,7 @@ flowchart TD
 |---|---|
 | **Path** | `/bin/elix` (+ `/bin/elix.real`) |
 | **When to use** | Legacy; the launchers above replace it. |
-| **What it does:** In a terminal, lists the GGUFs under `models/` and asks for one, exports it as `ELI_GGUF_MODEL_PATH` / `ELI_MODEL_PATH` / `ELI_MODEL` / `GGUF_MODEL_PATH`, and saves it into `.env.eli_v2_0`; then `bin/elix.real` sources `.env.eli_v2_0` and runs `python -m eli.gui.app`. Because every later `bin/elix` start loads that file, the saved model takes precedence over the model picked in the app until the lines are removed from `.env.eli_v2_0`. `ELIX_SKIP_MODEL_PICKER=1` (or no terminal) skips the question; `bin/elix.real --list-capabilities` prints `capability_manifest.json`. |
+| **What it does:** In a terminal, lists the GGUFs under `models/`, shows the model the app has saved as the current one and asks for one; the choice is saved as the app's own model (`model_path` in the settings the app reads, the same setting a model picked in the app goes to, so whichever was chosen last is the one that loads). Then `bin/elix.real` sources `.env.eli_v2_0` and runs `python -m eli.gui.app`. Earlier versions saved the choice into `.env.eli_v2_0` as `ELI_GGUF_MODEL_PATH` / `ELI_MODEL_PATH` / `ELI_MODEL` / `GGUF_MODEL_PATH`, which every start then loaded over the model picked in the app; `bin/elix.real` takes those lines out of the file (only those). If the settings cannot be written, the chosen model is used for that start only. `ELIX_SKIP_MODEL_PICKER=1` (or no terminal) skips the question; `bin/elix.real --list-capabilities` prints `capability_manifest.json`. |
 | **Exit codes:** `130` on cancel, `2` on an invalid choice, `1` if `bin/elix.real` is missing. |
 
 ---
@@ -481,7 +481,7 @@ Upload asset chunks to GitHub Release via `gh`.
 
 ### `scripts/run_eli_repo_venv.sh`
 
-Isolate the environment (`eli_isolate_env`, `eli_env_ready`), activate `.venv`, source optional `.env.eli_v2_0`, unset the model env vars (so a model the legacy `bin/elix` saved there cannot bypass the picker), launch `python -m eli.gui.app --setup`.
+Isolate the environment (`eli_isolate_env`, `eli_env_ready`), activate `.venv`, source optional `.env.eli_v2_0`, unset the model env vars (so a model the legacy `bin/elix` used to save there cannot bypass the picker), launch `python -m eli.gui.app --setup`.
 
 ---
 
@@ -1215,7 +1215,7 @@ Not set by the launchers: `ELI_NOTEBOOK_DIR` (default `$ELI_DATA_DIR/notebook`),
 
 | Variable | Purpose |
 |----------|---------|
-| `ELI_MODEL_PATH` / `ELI_GGUF_MODEL_PATH` | Override model file, ahead of the model picked in the app (launchers often unset these to force picker; the legacy `bin/elix` saves them in `.env.eli_v2_0` and loads that file on every start) |
+| `ELI_MODEL_PATH` / `ELI_GGUF_MODEL_PATH` | Override model file, ahead of the saved model, until a model is picked in the app (launchers often unset these to force picker) |
 | `ELI_MODEL_TRAIN_CTX` | Override training context from GGUF metadata |
 | `ELI_FORCE_CTX` | Force context window size (the startup dialog sets it) |
 | `ELI_FORCE_GPU_LAYERS` | `0` keeps every layer on the CPU (the startup dialog's CPU mode sets it); no other value is read |

@@ -314,7 +314,7 @@ These are the promises the software makes, in plain terms:
 | Out-of-memory / crashes mid-answer | Your model is too big for your GPU/RAM. Download a smaller one (`--auto` picks a safe size). |
 | Phone can't reach the web app | Use `--lan`, make sure both devices are on the same Wi-Fi, and check your firewall allows port 8081. |
 | macOS won't screenshot / move mouse | System Settings → Privacy & Security → grant Screen Recording + Accessibility, then retry. |
-| Wrong model loaded | Settings tab → pick a different model, or drop a new `.gguf` into `models/`. A model path set in the environment overrides the one picked in the app: an exported `ELI_GGUF_MODEL_PATH`, or the model the old `bin/elix` launcher saved in `.env.eli_v2_0` (it loads that file on every start). Remove it. |
+| Wrong model loaded | Settings tab → pick a different model, or drop a new `.gguf` into `models/`. A model path exported in the environment (`ELI_GGUF_MODEL_PATH`) is the one that loads at every start, until a model is picked in the app: remove it. (`bin/elix` saves its choice as the app's own model; the lines older versions of it left in `.env.eli_v2_0` are taken out at the next `bin/elix` start.) |
 
 Still stuck? Open an issue with what you saw:
 **https://github.com/ShadowESC95/ELI_v2.0/issues** — a plain "I tried it and this

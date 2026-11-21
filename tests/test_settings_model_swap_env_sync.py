@@ -249,3 +249,95 @@ def test_the_think_switch_follows_a_change_made_through_the_settings(saved_auto_
     assert os.environ["ELI_MODEL_THINK"] == "1"
     rs.save_settings({"model_thinking": False})
     assert os.environ["ELI_MODEL_THINK"] == "0"
+
+
+# ── the legacy bin/elix launcher ──────────────────────────────────────────────────────────────────
+def _elix_install(tmp_path):
+    """A copy of bin/elix and bin/elix.real in a folder of their own, two models, a saved choice, and
+    a stand-in for the venv's python that records what the app would be started with."""
+    import json
+    import shutil
+    import sys
+    repo = Path(__file__).resolve().parents[1]
+    root = tmp_path / "install"
+    (root / "bin").mkdir(parents=True)
+    for name in ("elix", "elix.real"):
+        shutil.copy2(repo / "bin" / name, root / "bin" / name)
+    models = root / "models"
+    models.mkdir()
+    alpha, beta = models / "alpha.gguf", models / "beta.gguf"
+    for model in (alpha, beta):
+        model.write_bytes(b"GGUF")
+    (root / "config").mkdir()
+    (root / "config" / "settings.json").write_text(
+        json.dumps({"provider": "custom_gguf", "model_path": str(beta)}), encoding="utf-8")
+    venv_bin = root / ".venv" / "bin"
+    venv_bin.mkdir(parents=True)
+    python = venv_bin / "python"
+    python.write_text('#!/usr/bin/env bash\n'
+                      'if [ "${1:-}" = "-m" ] && [ "${2:-}" = "eli.gui.app" ]; then\n'
+                      '  printf "%s" "${ELI_GGUF_MODEL_PATH:-}" > "$ELIX_TEST_RECORD"; exit 0\n'
+                      'fi\n'
+                      'exec "$ELIX_TEST_PYTHON" "$@"\n', encoding="utf-8")
+    python.chmod(0o755)
+    home = tmp_path / "home"
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ELI_") and k != "GGUF_MODEL_PATH"}
+    env.update(PYTHONPATH=str(repo), ELIX_TEST_PYTHON=sys.executable, ELIX_TEST_RECORD=str(tmp_path / "started"),
+               ELI_TEST_MODE="1", HOME=str(home), XDG_DATA_HOME=str(home / "data"),
+               XDG_CONFIG_HOME=str(home / "config"))
+    return root, alpha, beta, env
+
+
+def _run_elix(root, env, answer=None):
+    """bin/elix, with `answer` typed at its model question (it asks only on a terminal)."""
+    import pty
+    import subprocess
+    if answer is None:
+        return subprocess.run(["bash", str(root / "bin" / "elix")], stdin=subprocess.DEVNULL, env=env,
+                              cwd=str(root), capture_output=True, text=True, timeout=300)
+    master, terminal = pty.openpty()
+    try:
+        proc = subprocess.Popen(["bash", str(root / "bin" / "elix")], stdin=terminal, stdout=subprocess.PIPE,
+                                stderr=subprocess.STDOUT, env=env, cwd=str(root), text=True)
+        os.write(master, answer.encode() + b"\n")
+        out, _ = proc.communicate(timeout=300)
+    finally:
+        os.close(terminal)
+        os.close(master)
+    return subprocess.CompletedProcess(proc.args, proc.returncode, out, "")
+
+
+@pytest.mark.skipif(not __import__("sys").platform.startswith("linux") or not __import__("shutil").which("bash"),
+                    reason="runs the bash launcher (GNU find, bash 4)")
+def test_the_legacy_elix_launcher_keeps_its_model_choice_in_the_apps_settings(tmp_path):
+    """bin/elix saved its choice in .env.eli_v2_0 as ELI_GGUF_MODEL_PATH, bin/elix.real loaded that
+    file on every start, and the variable comes before the settings: a model picked in the app was
+    ignored at the next elix start. Its choice is now the app's own model setting."""
+    import json
+    root, alpha, beta, env = _elix_install(tmp_path)
+    settings = root / "config" / "settings.json"
+    started = tmp_path / "started"
+    old_choice = "".join(f"export {name}={alpha}\n" for name in
+                         ("ELI_GGUF_MODEL_PATH", "ELI_MODEL_PATH", "ELI_MODEL", "GGUF_MODEL_PATH"))
+    (root / ".env.eli_v2_0").write_text(
+        f"export ELIX_TEST_FLAG=1\n\n# Selected by bin/elix model picker\n{old_choice}", encoding="utf-8")
+
+    ran = _run_elix(root, env)                                   # no terminal: no question
+    assert ran.returncode == 0, ran.stdout + ran.stderr
+    assert started.read_text() == ""                             # the app's own choice decides
+    left = (root / ".env.eli_v2_0").read_text(encoding="utf-8")
+    assert "ELIX_TEST_FLAG=1" in left and "ELI_GGUF_MODEL_PATH" not in left and "bin/elix" not in left
+
+    ran = _run_elix(root, env, answer="1")                       # alpha
+    assert ran.returncode == 0, ran.stdout
+    assert f"Current: {beta}" in ran.stdout
+    assert json.loads(settings.read_text())["model_path"] == str(alpha)
+    assert started.read_text() == ""
+
+    saved = json.loads(settings.read_text())                     # the app picks beta
+    saved.update(model_path=str(beta), custom_model_path=str(beta))
+    settings.write_text(json.dumps(saved), encoding="utf-8")
+    ran = _run_elix(root, env, answer="")                        # Enter: the current model
+    assert f"Current: {beta}" in ran.stdout
+    assert json.loads(settings.read_text())["model_path"] == str(beta)
+    assert started.read_text() == ""

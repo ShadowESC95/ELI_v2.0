@@ -6,11 +6,42 @@ BIN_DIR="$(dirname "$THIS")"
 ROOT="$(cd "$BIN_DIR/.." && pwd)"
 REAL="$ROOT/bin/elix.real"
 ENVFILE="$ROOT/.env.eli_v2_0"
+PY="$ROOT/.venv/bin/python"
+[ -x "$PY" ] || PY="python3"
 
 if [ ! -x "$REAL" ]; then
   echo "❌ Missing executable launcher: $REAL" >&2
   exit 1
 fi
+
+# The model chosen here is the app's own model setting, read and saved in the settings the app reads
+# when bin/elix.real starts it (its .env.eli_v2_0, then its default folders). Choosing in the app and
+# choosing here are the same setting, so whichever was made last is the model that loads. This
+# launcher used to keep its choice in .env.eli_v2_0, and every start then loaded it over the app's.
+#   _app_model          prints the model the app has saved
+#   _app_model PATH     saves PATH as the app's model
+_app_model() {
+  (
+    export ELI_PROJECT_ROOT="$ROOT"
+    if [ -f "$ENVFILE" ]; then
+      # shellcheck disable=SC1090
+      source "$ENVFILE"
+    fi
+    export ELI_CONFIG_DIR="${ELI_CONFIG_DIR:-$ROOT/config}"
+    export PYTHONPATH="$ROOT${PYTHONPATH:+:$PYTHONPATH}"
+    "$PY" - "$@" <<'PY'
+import sys
+from eli.core.runtime_settings import load_settings_from_disk, update_settings
+if len(sys.argv) > 1:
+    chosen = sys.argv[1]
+    update_settings(provider="custom_gguf", model_path=chosen, custom_model_path=chosen,
+                    gguf_model_path=chosen)
+else:
+    saved = load_settings_from_disk()
+    print(saved.get("model_path") or saved.get("custom_model_path") or saved.get("bundled_model_path") or "")
+PY
+  )
+}
 
 # Do not prompt during non-interactive calls, tests, automation, or explicit skip.
 if [ ! -t 0 ] || [ "${ELIX_SKIP_MODEL_PICKER:-0}" = "1" ]; then
@@ -49,10 +80,7 @@ if [ "${#MODELS[@]}" -eq 0 ]; then
   exec "$REAL" "$@"
 fi
 
-CURRENT=""
-if [ -f "$ENVFILE" ]; then
-  CURRENT="$(grep -E '^(export[[:space:]]+)?(ELI_GGUF_MODEL_PATH|ELI_MODEL_PATH|ELI_MODEL|GGUF_MODEL_PATH)=' "$ENVFILE" 2>/dev/null | tail -1 | sed -E 's/^[^=]+=//' | sed -E "s/^['\"]//; s/['\"]$//" || true)"
-fi
+CURRENT="$(_app_model 2>/dev/null | tail -1 || true)"
 
 echo
 echo "🧠 ELI GGUF runtime model picker"
@@ -107,54 +135,13 @@ echo
 echo "✅ Selected model:"
 echo "$SELECTED"
 
-# Export several common names so whichever layer ELI reads gets the same selected model.
-export ELI_GGUF_MODEL_PATH="$SELECTED"
-export ELI_MODEL_PATH="$SELECTED"
-export ELI_MODEL="$SELECTED"
-export GGUF_MODEL_PATH="$SELECTED"
-
-# Persist into .env.eli_v2_0 so launchers that source env after this still receive the selected model.
-python3 - "$ENVFILE" "$SELECTED" <<'PY'
-from __future__ import annotations
-
-import shlex
-import sys
-from pathlib import Path
-
-envfile = Path(sys.argv[1])
-selected = sys.argv[2]
-
-keys = {
-    "ELI_GGUF_MODEL_PATH",
-    "ELI_MODEL_PATH",
-    "ELI_MODEL",
-    "GGUF_MODEL_PATH",
-}
-
-lines = []
-if envfile.exists():
-    for line in envfile.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        remove = False
-        for key in keys:
-            if stripped.startswith(f"{key}=") or stripped.startswith(f"export {key}="):
-                remove = True
-                break
-        if not remove:
-            lines.append(line)
-
-quoted = shlex.quote(selected)
-lines.extend([
-    "",
-    "# Selected by bin/elix model picker",
-    f"export ELI_GGUF_MODEL_PATH={quoted}",
-    f"export ELI_MODEL_PATH={quoted}",
-    f"export ELI_MODEL={quoted}",
-    f"export GGUF_MODEL_PATH={quoted}",
-])
-
-envfile.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
-PY
+if [ -n "$CURRENT" ] && [ "$(readlink -f "$CURRENT" 2>/dev/null || true)" = "$SELECTED" ]; then
+  :   # already the app's model
+elif ! _app_model "$SELECTED" >/dev/null; then
+  # The settings could not be written: this start still loads the model chosen, without keeping it.
+  echo "⚠️  Could not save the model in ELI's settings; using it for this start only." >&2
+  export ELI_GGUF_MODEL_PATH="$SELECTED"
+fi
 
 echo
 echo "🚀 Continuing normal ELI boot..."
