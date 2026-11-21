@@ -1,4 +1,4 @@
-"""LoRA training pipeline — the DAG that chains the standalone learning stages.
+"""LoRA training pipeline — a fixed sequence that chains the standalone learning stages.
 
 The individual mechanisms (preflight, dataset, trainer, eval) were correct but
 orphaned — nothing ran them in order. This is the explicit, ordered pipeline ELI
@@ -36,7 +36,7 @@ def run_pipeline(
     overwrite: bool = False,
     on_event=None,
 ) -> Dict[str, Any]:
-    """Run the LoRA DAG end to end. Returns {ok, executed, target, stages:[...],
+    """Run the LoRA stages in order, end to end. Returns {ok, executed, target, stages:[...],
     summary}. Stops at the first stage that makes training impossible (dry-run still
     reports every reachable gate)."""
     stages: List[Dict[str, Any]] = []

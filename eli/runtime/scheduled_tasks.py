@@ -296,10 +296,9 @@ def _lora_targets_for(request: str) -> List[str]:
 
 
 def _worker_lora(request: str):
-    """Overnight LoRA fine-tune via the pipeline DAG (preflight→build→train→eval),
-    execute=True, for the target the request names or the one that is ready. Still bound
-    by the trainer's safety contract (reviewed rows only, GGUF never trained, adapter
-    never overwritten)."""
+    """Overnight LoRA fine-tune via the LoRA pipeline (preflight→build→train→eval, in order),
+    execute=True, for the target the request names or the one that is ready. Still bound by the
+    trainer's safety contract (reviewed rows only, GGUF never trained, adapter never overwritten)."""
     try:
         from eli.learning.lora_pipeline import run_pipeline
         m = re.search(r"(\d+)\s*steps?", request or "")

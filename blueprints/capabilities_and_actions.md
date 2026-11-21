@@ -246,7 +246,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `RUN_TESTS` | Run the pytest suite and summarise the results document | “run the test suite” · “generate a test report” | Core |
 | `GENERATE_TESTS` | ELI writes + sandbox-verifies behavioural tests for its own functions (Phase 4) | “generate tests for your code” · “grow your test coverage” | Core |
 | `LORA_STATUS` | Report LoRA fine-tune readiness (preflight: modules, base model, reviewed data) | “lora status” · “is lora ready” | Core |
-| `LORA_TRAIN` | Run the LoRA training pipeline DAG (preflight→build→train→eval); dry-run from chat, real training via the overnight task | “train a lora” · “fine-tune yourself” | Core |
+| `LORA_TRAIN` | Run the LoRA training pipeline (preflight→build→train→eval, in order); dry-run from chat, real training via the overnight task | “train a lora” · “fine-tune yourself” | Core |
 | `ORCHESTRATION_STATUS` | Explain the agent DAG orchestrator: execution layers, dependencies, critical path, and last run | “orchestration status” · “show your agent dag” | Core |
 | `TEST_REVIEW` | Run the suite, back up the report + write an errors file, summarise results, and offer result-driven fix options | “test review” | Core |
 

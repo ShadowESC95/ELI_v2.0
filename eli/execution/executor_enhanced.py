@@ -6823,7 +6823,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             msg = f"LORA_STATUS failed: {e}"
             return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
 
-    # ---- LORA_TRAIN — run the LoRA pipeline DAG (DRY-RUN by default) ----
+    # ---- LORA_TRAIN — run the LoRA pipeline's stages in order (DRY-RUN by default) ----
     # From chat this is always a dry-run readiness pass (preflight→build→eval); real
     # training (execute=True) only via the scheduled `lora` task / explicit GUI.
     if a == "LORA_TRAIN":

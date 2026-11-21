@@ -58,8 +58,8 @@ Pure stdlib; the orchestrator does no LLM/IO — the node callables do.
 - Also on `eli/core/dag`: the coding planner (`coding/plan_graph.py`), MULTI_COMMAND's
   dependency order (`command_dependency_graph.py`), `TEST_REVIEW`'s examination of failing
   modules (`test_review.propose_fixes`, in parallel on `run_graph`) and `SELF_IMPROVE`'s
-  `propose_via_agent` (below). The LoRA pipeline (`learning/lora_pipeline.py`) calls itself a
-  DAG but runs its stages as a fixed sequence and does not use the engine.
+  `propose_via_agent` (below). The LoRA pipeline (`learning/lora_pipeline.py`) runs its
+  stages as a fixed sequence and does not use the engine.
 
 ## Tests
 `tests/test_dag_orchestrator.py` (14) cover every feature; `tests/test_dag.py` covers the

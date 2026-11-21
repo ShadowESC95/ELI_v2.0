@@ -140,7 +140,7 @@ behaviours**. Alias families are grouped below so the real surface is visible.
 | `SELF_REPAIR_PLAYBOOK`, `AUTOPILOT_DEBUG` | Which mechanism fixes which class of problem (`repair_playbook`, live) / a failure (error text or traceback) turned into a plan: affected files and their git history, the static examiner, root cause, rollback, patch, validation; `run_tests` runs the targets' tests, `verify` re-runs failing tests read-only. |
 | `SELF_UPGRADE` | Upgrade by install kind (AppImage download checked against its SHA-256, packaged build, or a source checkout: release wheel, `git pull --ff-only`, pip), then maintenance: rebuild FAISS/KG, refresh manifest + system index. Says "NOT upgraded" when nothing new was installed. |
 | `SELF_UPDATE` | Not an upgrade: refreshes ELI's self-model (persona and user-profile overlays, capability manifest, world-model runtime) through `control_contracts.build_control_evidence`. |
-| `LORA_STATUS`, `LORA_TRAIN` | LoRA training readiness per target (`training_preflight.preflight_all`) / the LoRA pipeline DAG (`lora_pipeline.run_pipeline`), a dry run from chat (preflight → dataset → eval); real training only with `execute`, from the scheduled task or the Training tab. |
+| `LORA_STATUS`, `LORA_TRAIN` | LoRA training readiness per target (`training_preflight.preflight_all`) / the LoRA pipeline's stages in order (`lora_pipeline.run_pipeline`), a dry run from chat (preflight → dataset → eval); real training only with `execute`, from the scheduled task or the Training tab. |
 
 ## 10. Introspection & audits (grounded, deterministic)
 | Action(s) | What it does |
@@ -708,7 +708,7 @@ is unique under `eli/`; recount the others with `wc -l`.
 ## `learning/`
 | Module | Lines | Role |
 |---|---:|---|
-| `lora_pipeline.py` | 149 | LoRA training pipeline — the DAG that chains the standalone learning stages. |
+| `lora_pipeline.py` | 149 | LoRA training pipeline — a fixed sequence that chains the standalone learning stages. |
 | `review_queue.py` | 270 | The human review gate that had no way to be passed. |
 | `target_registry.py` | 266 | User-declared LoRA training targets — the registry that replaces the Phi-3 lock. |
 

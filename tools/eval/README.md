@@ -107,8 +107,8 @@ dependency) and reports:
 
 - **% of statement-lines hit** across `eli/` (denominator = AST statements)
 - **per-module hot/cold heatmap**, ranked by line-hit count
-- **which executor actions ever route** (action coverage against every action name the
-  executor dispatches on, counted from `executor_enhanced.py` at run time)
+- **which executor actions ever route** (action coverage against the executor's own
+  `SUPPORTED_ACTIONS`, read at run time)
 - **which bus agents ever fire** (the 15 built-in ones plus any custom agents; agents/engine modes)
 - **cold files** (0 lines hit) ranked by size → the precise cut/refactor list
 

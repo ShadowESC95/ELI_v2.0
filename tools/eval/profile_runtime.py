@@ -6,8 +6,10 @@ ELI and measures, with NO external dependency (uses sys.settrace):
 
   • exact executed-line set per eli/ file  → % of (AST) statement lines hit
   • per-module hot/cold heatmap (by package + per file), ranked by hit-count
-  • which of the ~160 executor actions ever ROUTE       (action coverage)
-  • which of the 14 bus agents ever FIRE                (agent coverage; --agents/--engine)
+  • which of the executor's actions ever ROUTE          (action coverage; 207 in SUPPORTED_ACTIONS)
+  • which of the bus agents ever FIRE                   (agent coverage; --agents/--engine; 15
+                                                         built in, plus enabled custom agents)
+  (counts measured 2026-11-21; each run prints its own)
 
 Modes (cost vs completeness):
   --mode route   (default) per turn → router.route()        fast, no model
@@ -84,12 +86,9 @@ def _executable_lines(path: Path) -> set:
 
 
 def _action_universe() -> set:
-    import re
-    src = (_ELI_DIR / "execution" / "executor_enhanced.py").read_text(encoding="utf-8")
-    acts = set(re.findall(r'a == "([A-Z_]+)"', src))
-    for grp in re.findall(r'a in \(([^)]+)\)', src):
-        acts.update(re.findall(r'"([A-Z_]+)"', grp))
-    return acts
+    # The executor's own list. Scraping `a == "X"` branches out of its source found 178 of 207.
+    from eli.execution.executor_enhanced import SUPPORTED_ACTIONS
+    return {str(a).upper() for a in SUPPORTED_ACTIONS}
 
 
 def _agent_universe() -> list:
@@ -206,7 +205,7 @@ def main(argv=None) -> int:
     # actions
     universe = _action_universe()
     fired = set(a for a in actions if a and a != "?")
-    print(f"  ACTIONS routed: {len(fired)} distinct  (executor knows ~{len(universe)})")
+    print(f"  ACTIONS routed: {len(fired)} distinct  (executor knows {len(universe)})")
     for a, n in actions.most_common(12):
         print(f"      {n:5d}  {a}")
     print()

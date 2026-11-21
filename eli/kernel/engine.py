@@ -5182,9 +5182,12 @@ class CognitiveEngine:
         preset carries `passes`, `threshold`, `max_tokens`,
         `temperature`, `top_p`, plus mode-specific extras
         (`samples`, `branches`, `stages`, per-stage max_tokens,
-        per-stage temperatures). Falls back to safe defaults if the
-        preset for this mode is missing — the engine never crashes on
-        an unknown mode.
+        per-stage temperatures). The name goes through
+        `reasoning_modes.canonical_mode` first, which reads a name it
+        does not know as Quick, so an unknown mode gets Quick's profile.
+        When the settings hold no preset for the mode (before the first
+        run, or a damaged settings file), a generic default profile for
+        that mode is used.
         """
         mode = str(reasoning_mode or "quick").strip().lower() or "quick"
         # The public names ("normal", "advanced") are presets' canonical keys here: the chat loop

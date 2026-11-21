@@ -40,8 +40,9 @@ and GENERATE_SCRIPT (both real code-generation actions whose primary
 success path returns a JSON event blob, same as FIX_FILE), SHOW_DIFF
 (routes straight to chat()), WEB_SEARCH (its own code comment: the results
 are evidence for the model to answer from, not the answer), EXECUTE_GOAL
-(no executor handler at all to verify against), and NOOP (no single
-handler in the dispatch ladder).
+(its handler only lists the generic step names of an execution plan built
+for the goal and carries none of them out, so its text is no outcome to
+show as it is), and NOOP (no single handler in the dispatch ladder).
 
 No test previously verified this set's membership at all, so it could (and
 did) silently miss actions as new ones were added. This is a regression
@@ -117,11 +118,13 @@ AUDITED_2026_09_18_PASS4 = {
 # Deliberately NOT in the set, verified by reading the handler: their content
 # is either not meant for verbatim display (FIX_FILE/CODE_SOLVE/GENERATE_SCRIPT:
 # JSON event blob on the primary success path; RUN_TESTS: handler's own comment
-# states the design intent is LLM narration) or the action never reaches a
-# verifiable single handler (CHAT is the model call itself; SHOW_DIFF routes
-# straight to chat(); WEB_SEARCH's own comment says its results are evidence
-# for the model, not the answer, and the same holds for WEB_FETCH, a linked page's
-# text (2026-10-19); EXECUTE_GOAL has no executor handler at all; NOOP has no
+# states the design intent is LLM narration; EXECUTE_GOAL: its handler in
+# executor_enhanced lists the generic step names of an execution plan for the
+# goal (action_dispatch, context_assembly, final_response) and runs none of
+# them) or the action never reaches a verifiable single handler (CHAT is the
+# model call itself; SHOW_DIFF routes straight to chat(); WEB_SEARCH's own
+# comment says its results are evidence for the model, not the answer, and the
+# same holds for WEB_FETCH, a linked page's text (2026-10-19); NOOP has no
 # single handler in the dispatch ladder).
 AUDITED_2026_09_18_EXCLUDED = {
     "FIX_FILE", "RUN_TESTS", "CODE_SOLVE", "GENERATE_SCRIPT", "CHAT",

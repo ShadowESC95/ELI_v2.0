@@ -3188,8 +3188,9 @@ class CriticAgent(_BaseAgent):
     Deterministic, no LLM: it pulls the representative text each retriever surfaced
     this turn, measures pairwise term agreement, and emits a corroboration-vs-
     contradiction signal. Self-gates to nothing on <2 grounded sources, so it never
-    fires on trivial turns. Depends on memory/system/knowledge_graph, so it runs
-    after them in the topological layers and sees their results.
+    fires on trivial turns. Depends on memory, system, knowledge_graph and file_code
+    (_AGENT_DEPENDENCIES), so it runs after them in the topological layers and sees
+    their results.
     """
     name = "critic"
     timeout_s = 2.0

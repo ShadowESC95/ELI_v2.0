@@ -26,14 +26,15 @@ phi-hardcoded**:
   leaves: q/k/v/o_proj, qkv_proj, gate/up/down_proj, c_attn, query_key_value, …),
   honours an explicit adapter-config override, and falls back to PEFT's
   architecture-agnostic `"all-linear"`. No hardcoded architecture on the train path.
-- **Pipeline DAG** (`eli/learning/lora_pipeline.py::run_pipeline`): the explicit
-  ordered chain **preflight → build_job → [train] → eval(inspect)**, reusing the
+- **Pipeline** (`eli/learning/lora_pipeline.py::run_pipeline`): the explicit
+  ordered chain **preflight → build_job → [train] → eval(inspect)**, a fixed sequence (it
+  does not use the `eli/core/dag` engine), reusing the
   existing modules. **Dry-run by default** (runs every gate, touches no GPU, writes
   no adapter — safe from chat); real training only `execute=True`.
 - **Wired into ELI:**
   - `LORA_STATUS` action (read-only): preflight readiness for each declared target, the
     built-ins and the operator's own (`training_preflight.preflight_all`).
-  - `LORA_TRAIN` action: runs the pipeline DAG — **dry-run from chat**; real training
+  - `LORA_TRAIN` action: runs the pipeline — **dry-run from chat**; real training
     only via the scheduled task / explicit GUI (execute flag not exposed in chat).
   - Router: "lora status" / "is lora ready" → LORA_STATUS; "train a lora" /
     "fine-tune yourself" / "run lora training" → LORA_TRAIN.
@@ -44,7 +45,7 @@ phi-hardcoded**:
     scheduler queues this job itself, at most once a week, for a declared target that
     passes preflight, and names that target in the job.
   - Manifest: `capability_manifest.json` lists both (231 capabilities in v2.5.36).
-- Tests: `tests/test_lora_pipeline.py` (target-module resolver, DAG order + dry-run
+- Tests: `tests/test_lora_pipeline.py` (target-module resolver, stage order + dry-run
   no-train, both actions, routing, scheduled kind).
 
 ## The deferred base-profile change, done

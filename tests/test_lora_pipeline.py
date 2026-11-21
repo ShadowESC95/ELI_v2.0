@@ -1,4 +1,4 @@
-"""LoRA wiring tests — pipeline DAG, model-agnostic target modules, actions, routing.
+"""LoRA wiring tests — pipeline stage order, model-agnostic target modules, actions, routing.
 
 Model-free (torch is mocked by conftest). Asserts the pipeline is WIRED and runs the
 correct stages in order as a dry-run, never training. The actual fine-tune
@@ -29,7 +29,7 @@ def test_target_modules_not_hardcoded_to_phi():
     assert '["qkv_proj"]' not in src and "_resolve_target_modules(model" in src
 
 
-# ── pipeline DAG (dry-run) ───────────────────────────────────────────────────
+# ── pipeline stages in order (dry-run) ───────────────────────────────────────
 def test_pipeline_runs_stages_in_order_dry_run():
     from eli.learning.lora_pipeline import run_pipeline
     r = run_pipeline("eli_phi", execute=False)
