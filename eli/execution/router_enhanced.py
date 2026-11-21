@@ -661,14 +661,10 @@ from eli.execution.portable_intent_contract import asks_for_tested_code as _asks
 
 
 def _code_solve_route(raw: str) -> Dict[str, Any]:
-    """CODE_SOLVE for a request to write code and test it, in the language it names (Python when it
-    names none)."""
-    _cs_lang = "python"
-    _cs_lm = re.search(r"\b(bash|shell|javascript|js|typescript|ts|ruby|go|golang|lua)\b", str(raw or "").lower())
-    if _cs_lm:
-        _cs_lang = {"js": "javascript", "ts": "typescript", "golang": "go",
-                    "shell": "bash"}.get(_cs_lm.group(1), _cs_lm.group(1))
-    return _mk("CODE_SOLVE", {"description": raw, "language": _cs_lang}, 0.95,
+    """CODE_SOLVE for a request to write code and test it, in the language it names as a language
+    (portable_intent_contract.named_language; Python when it names none)."""
+    from eli.execution.portable_intent_contract import named_language
+    return _mk("CODE_SOLVE", {"description": raw, "language": named_language(raw) or "python"}, 0.95,
                matched_by="dev.code_solve")
 
 
@@ -8912,12 +8908,11 @@ try:
                     r"marketing|campaign|youtube))\b", _rgs.I)
                 if _NON_CODE_SCRIPT2.search(raw2) or _CREATIVE_SCRIPT2.search(raw2):
                     return None
-                # Explicit language keywords
-                _LANG_RE = _rgs.compile(
-                    r"\b(?:bash|python|shell|sh|javascript|js|typescript|ts|ruby|perl|"
-                    r"powershell|zsh|fish|lua|go|golang|rust|c\+\+|cpp|java|"
-                    r"script|function|program|module|code)\b", _rgs.I)
-                if _LANG_RE.search(raw2):
+                # Code by what it is, or a language named as one ("make a list of places to go" is
+                # not Go: portable_intent_contract.named_language)
+                from eli.execution.portable_intent_contract import named_language
+                if (_rgs.search(r"\b(?:script|function|program|module|code)\b", low2)
+                        or named_language(raw2)):
                     # "build me a script at 2am" asks for it then, not now.
                     return _eli_schedule_prepass(raw2) or {
                         "action": "GENERATE_SCRIPT",

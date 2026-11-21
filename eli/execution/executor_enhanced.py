@@ -9122,25 +9122,18 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         _bg = _maybe_background_codegen(a, args)
         if _bg is not None:
             return _bg
-        # Detect target language from description
+        # The language the description names as a language (named_language), Python when it names
+        # none. Read as a substring, "ts" in "counts" made a Python script TypeScript, and the "go"
+        # in "ready to go" made it Go.
+        from eli.execution.portable_intent_contract import named_language as _named_language
         _lang_map = {
-            "bash": ("bash", ".sh"), "shell": ("bash", ".sh"), "sh": ("bash", ".sh"),
-            "javascript": ("JavaScript", ".js"), "js": ("JavaScript", ".js"),
-            "typescript": ("TypeScript", ".ts"), "ts": ("TypeScript", ".ts"),
-            "rust": ("Rust", ".rs"), "ruby": ("Ruby", ".rb"),
-            "go": ("Go", ".go"), "golang": ("Go", ".go"),
-            "c++": ("C++", ".cpp"), "cpp": ("C++", ".cpp"),
-            "c script": ("C", ".c"), "java": ("Java", ".java"),
-            "lua": ("Lua", ".lua"), "perl": ("Perl", ".pl"),
+            "bash": ("bash", ".sh"), "javascript": ("JavaScript", ".js"),
+            "typescript": ("TypeScript", ".ts"), "rust": ("Rust", ".rs"), "ruby": ("Ruby", ".rb"),
+            "go": ("Go", ".go"), "c++": ("C++", ".cpp"), "cpp": ("C++", ".cpp"), "c": ("C", ".c"),
+            "java": ("Java", ".java"), "lua": ("Lua", ".lua"), "perl": ("Perl", ".pl"),
         }
-        _detected_lang = "Python"
-        _detected_ext = ".py"
+        _detected_lang, _detected_ext = _lang_map.get(_named_language(desc) or "", ("Python", ".py"))
         _desc_low = desc.lower()
-        for _kw, (_lang, _ext) in _lang_map.items():
-            if _kw in _desc_low:
-                _detected_lang = _lang
-                _detected_ext = _ext
-                break
 
         # ── Route through the verified coding agent (plan → DAG/tree-search →
         # execute → repair → bug-memory) for top-tier, runnable scripts. Falls

@@ -208,6 +208,43 @@ def test_writing_tests_and_writing_a_plain_script_keep_their_own_actions():
     assert route("write a script that renames files")["action"] == "GENERATE_SCRIPT"
 
 
+@pytest.mark.parametrize("text", ["make a list of places to go", "write it down and go", "create a backup and go",
+                                  "build the index and go"])
+def test_the_word_go_is_not_the_go_language(text):
+    """The code rules read "go" anywhere as the Go language, so these were Go scripts to write."""
+    assert route(text)["action"] not in ("GENERATE_SCRIPT", "CODE_SOLVE")
+
+
+@pytest.mark.parametrize("text,language", [
+    ("write a script that renames files and test it and go", "python"),
+    ("write a script in go that prints hello and test it", "go"),
+    ("write a golang function that adds two numbers and test it", "go"),
+])
+def test_the_coding_agent_gets_the_language_named_as_a_language(text, language):
+    got = route(text)
+    assert got["action"] == "CODE_SOLVE" and got["args"]["language"] == language, got
+
+
+@pytest.mark.parametrize("text", ["write a go program that prints hello", "build me a small rust cli",
+                                  "create a typescript interface for a user"])
+def test_code_in_a_language_named_as_one_is_still_a_script_to_write(text):
+    assert route(text)["action"] == "GENERATE_SCRIPT"
+
+
+def test_a_python_script_that_counts_is_written_in_python(monkeypatch):
+    """GENERATE_SCRIPT found the language by substring: "ts" in "counts" made it TypeScript."""
+    import types
+    import eli.coding.sandbox as sandbox
+    from eli.execution import executor_enhanced as ex
+    asked = []
+    monkeypatch.setattr("eli.coding.solve", lambda desc, language=None, **k: asked.append(language) or
+                        {"code": "print('ok')\n", "solved": True}, raising=False)
+    monkeypatch.setattr(sandbox, "run_code", lambda *a, **k: types.SimpleNamespace(crashed=False, traceback_tail=""))
+    out = ex._execute_impl("GENERATE_SCRIPT", {"description": "write a python script that counts lines",
+                                               "_no_background": True})
+    assert asked == ["python"] and out["filename"].endswith(".py"), (asked, out)
+
+
 @pytest.mark.parametrize("text, parts", [
     ("open spotify and pause", ["open spotify", "pause"]),
     ("remind me to call mum and open spotify", ["remind me to call mum", "open spotify"]),

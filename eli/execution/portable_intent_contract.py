@@ -419,22 +419,41 @@ def _normalise_script_language(candidate: str) -> str | None:
     return None
 
 
+# Where a word names a programming language: as the kind of code to be written ("write a go program",
+# "build me a small rust cli"), after in/using/with ("a script in go", "written in rust"), or as what a
+# code verb writes ("write some lua to parse a log"). Go, bash, ruby, rust, java and swift are ordinary
+# words too, and anywhere else they are those: "make a list of places to go" and "write it down and go"
+# were Go scripts. A name that is nothing but a language ("typescript") is one wherever it stands.
+_LANGUAGE_WORD = r"([a-z][a-z0-9+#.\-]{0,20})"
+_LANGUAGE_PLACES = (
+    re.compile(r"\b(?:write|create|generate|make|build|code|develop|implement|give\s+me)\s+(?:me\s+|us\s+)?"
+               r"(?:(?:a|an|the|some|my|another|simple|small|quick|short|tiny|little|basic|new)\s+){0,3}"
+               + _LANGUAGE_WORD + r"\s+(?:script|code|program(?:me)?|function|module|class|app|tool|snippet|cli|"
+               r"one-?liner)s?\b"),
+    re.compile(r"\b(?:in|using|with|written\s+in)\s+" + _LANGUAGE_WORD + r"(?![\w+#])"),
+    re.compile(r"\b(?:write|code|program)\s+(?:me\s+|us\s+)?(?:some\s+|a\s+(?:bit|little)\s+(?:of\s+)?)?"
+               + _LANGUAGE_WORD + r"\s+(?:to|that|which|for)\b"),
+)
+_ONLY_A_LANGUAGE = frozenset({"python", "python3", "javascript", "typescript", "golang", "kotlin", "powershell",
+                              "pwsh", "csharp", "c++", "cpp", "c#", "fortran", "php", "lua", "zsh", "nodejs"})
+
+
+def named_language(text: str) -> Optional[str]:
+    """The programming language a request names as a language (the first one said), or None."""
+    norm = normalise_voice_text(text)
+    found = [(m.start(1), _normalise_script_language(m.group(1)))
+             for rx in _LANGUAGE_PLACES for m in rx.finditer(norm)]
+    found += [(m.start(), _normalise_script_language(m.group()))
+              for m in re.finditer(r"(?<![\w+#.])[a-z][a-z0-9+#]*(?![\w+#])", norm) if m.group() in _ONLY_A_LANGUAGE]
+    return min(((at, lang) for at, lang in found if lang), default=(0, None))[1]
+
+
 def infer_script_language(text: str) -> str:
     norm = normalise_voice_text(text)
 
-    m = re.search(
-        r"\b(?:generate|write|create|build|make)\s+(?:a|an|the)?\s*([a-z0-9+#.\-]{1,40})\s+(?:script|code|program|module|tool|app)\b",
-        norm,
-    )
-    if m:
-        language = _normalise_script_language(m.group(1))
-        if language:
-            return language
-
-    for m in re.finditer(r"\b(?:in|using|with)\s+([a-z0-9+#.\-]{1,40})\b", norm):
-        language = _normalise_script_language(m.group(1))
-        if language:
-            return language
+    language = named_language(norm)
+    if language:
+        return language
 
     if (
         re.search(r"\b(?:generate|write|create|build|make|define)\b", norm)
