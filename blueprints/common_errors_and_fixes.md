@@ -567,7 +567,8 @@ ollama pull llama3.2            # pull one if the list is empty
 ```
 
 Per-OS start: **Windows/macOS** — Ollama starts itself (tray / menu bar); launch "Ollama" if it
-isn't running. **Linux** — `systemctl --user start ollama`, or `ollama serve`.
+isn't running. **Linux** — `sudo systemctl start ollama` (the service Ollama's installer sets
+up), or `ollama serve`.
 
 For Ollama on a **different machine**, on that machine:
 

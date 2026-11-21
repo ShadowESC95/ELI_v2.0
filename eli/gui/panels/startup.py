@@ -326,10 +326,13 @@ def _ollama_unreachable_message(host: str, err) -> str:
     h = shown.lower()
     is_loopback = any(x in h for x in ("localhost", "127.", "::1", "0.0.0.0"))
     if is_loopback:
+        # Both callers only list the models, which never starts Ollama (client.ensure_server_running
+        # runs when an Ollama model is used): this used to say ELI had tried to start it.
         return (
             f"Could not reach Ollama at {shown}.\n\n"
-            "ELI tried to start a local Ollama server automatically but it didn't come "
-            f"up — it may not be installed, or it failed to start.\n\n{hint}\n\n"
+            "Listing the models only asks an Ollama server that is already running; ELI starts an "
+            "installed one when an Ollama model is used, not for this list. Ollama may not be "
+            f"installed, or not be running.\n\n{hint}\n\n"
             "This is a local address, so ELI's offline-by-default guard is not the "
             f"problem — the Net toggle can stay OFF.\n\n{err}"
         )

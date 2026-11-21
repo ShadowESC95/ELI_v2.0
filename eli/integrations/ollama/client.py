@@ -146,8 +146,9 @@ def install_hint() -> str:
         return ("Install Ollama from https://ollama.com/download — it starts automatically "
                 "and lives in the system tray. If it isn't running, launch \"Ollama\" from "
                 "the Start menu. Pull a model with `ollama pull llama3.2`.")
+    # Ollama's Linux installer sets it up as a system service (ollama.service), not a user one.
     return ("Install Ollama with `curl -fsSL https://ollama.com/install.sh | sh`, then start it "
-            "with `systemctl --user start ollama` (or run `ollama serve`). "
+            "with `sudo systemctl start ollama` (or run `ollama serve`). "
             "Pull a model with `ollama pull llama3.2`.")
 
 

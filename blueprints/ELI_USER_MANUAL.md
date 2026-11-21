@@ -866,7 +866,8 @@ Detect** on the toolbar re-runs that sizing).
 handy when you've curated models there, or want ELI to share one Ollama install.
 
 1. Install and start Ollama (`https://ollama.com/download`). On Windows and macOS it starts
-   itself; on Linux use `systemctl --user start ollama` (or `ollama serve`).
+   itself; on Linux use `sudo systemctl start ollama` (the service Ollama's installer sets up)
+   or `ollama serve`.
 2. Pull at least one model, e.g. `ollama pull llama3.2`.
 3. In ELI: **Settings → Model → Backend = Ollama**, then **Refresh Ollama Models** and pick one.
    It's also in the startup model picker and the toolbar dropdown.

@@ -85,6 +85,27 @@ def test_install_hint_is_os_specific(monkeypatch):
         assert needle in client.install_hint()
 
 
+def test_the_linux_hint_starts_the_service_ollamas_installer_sets_up(monkeypatch):
+    """Ollama's Linux installer sets up a system service; `systemctl --user start ollama` names a
+    user service that does not exist."""
+    import sys as _sys
+    monkeypatch.setattr(_sys, "platform", "linux")
+    assert "sudo systemctl start ollama" in client.install_hint()
+    assert "--user" not in client.install_hint()
+
+
+def test_the_unreachable_message_does_not_claim_a_start_that_never_happened():
+    """Refresh only lists the models, which never starts Ollama, yet the message said ELI had tried
+    to start a local server and it had not come up."""
+    try:
+        from eli.gui.panels import startup
+    except Exception as exc:  # Qt bindings are stubbed in the headless test env
+        pytest.skip(f"GUI panels unavailable here: {exc}")
+    said = startup._ollama_unreachable_message("localhost:11434", OSError("connection refused")).lower()
+    assert "tried to start" not in said and "didn't come up" not in said
+    assert "already running" in said and "connection refused" in said
+
+
 def test_gui_query_normalises_the_same_way(monkeypatch):
     """The startup picker/wizard must accept exactly what the client accepts."""
     try:
@@ -98,8 +119,8 @@ def test_gui_query_normalises_the_same_way(monkeypatch):
         raise OSError("no server")
 
     monkeypatch.setattr("urllib.request.urlopen", fake_urlopen)
-    # the query first auto-starts an installed Ollama; that is not under test, and must not
-    # launch a real `ollama serve` on the machine running the tests
+    # listing never starts Ollama; should that change, a real `ollama serve` must not be launched on
+    # the machine running the tests
     monkeypatch.setattr("eli.integrations.ollama.client.ensure_server_running", lambda *a, **k: None)
     names, err = startup._query_ollama_tags("localhost:11434", timeout=1)
     assert names is None and err is not None
