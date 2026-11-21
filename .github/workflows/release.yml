@@ -472,10 +472,13 @@ jobs:
       # GPL-3.0 lets the bundles carry piper-tts (espeak-ng inside it) and the other GPL packages when
       # their exact source goes with them. This environment holds every package the Windows and macOS
       # builds carry, plus a few for Linux alone. A source that cannot be fetched fails the release.
+      # Beside it, LGPL_SOURCES.md says where the source of each LGPL package (Qt for Python and the
+      # Qt inside it among them) is, at the version the builds carry; one it cannot find fails it too.
       - name: Source of the GPL packages the bundles carry (attached to the release)
         run: |
           python packaging/gpl_sources.py dist/gpl-sources
           cat dist/gpl-sources/SOURCES.md
+          cat dist/gpl-sources/LGPL_SOURCES.md
           # piper-tts compiles espeak-ng in: its source has to be here, fetched or inside piper's sdist
           # (each listing is read into a variable first: a piped grep -q under pipefail fails when it matches)
           if ls dist/gpl-sources/piper* >/dev/null 2>&1; then
@@ -599,6 +602,9 @@ jobs:
           GPL (piper-tts with espeak-ng compiled into it, and PyAutoGUI's helpers; THIRD_PARTY_NOTICES.md
           names them). Their exact source, at the versions these builds carry, is attached here as
           \`ELI_v2-${V}-gpl-sources.tar.gz\`; the SOURCES.md inside lists each file and where it came from.
+          The packages under the LGPL (Qt for Python and the Qt libraries inside it, zeroconf, chardet,
+          python-xlib and the others it names) are not attached: LGPL_SOURCES.md, in the same archive,
+          gives each one's version and the address of that version's source.
 
           Verify: \`sha256sum -c SHA256SUMS.txt\`
           EOF

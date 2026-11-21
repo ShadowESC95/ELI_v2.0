@@ -14,8 +14,8 @@ the versions in `requirements.lock.txt`.
 > - **PySide6 / shiboken6 (Qt) — LGPL-3.0.** ELI loads them as separate shared
 >   libraries (a Python extension module is always linked dynamically), which the
 >   LGPL allows from Apache-licensed code. Anyone redistributing ELI binaries must
->   still pass on the LGPL terms and Qt's source offer, and leave users able to
->   replace those libraries.
+>   still pass on the LGPL terms and the directions to their source (*Source code of
+>   the LGPL components* below), and leave users able to replace those libraries.
 > - **piper-tts 1.4 — GPL-3.0-or-later, with espeak-ng (GPL-3.0-or-later) compiled
 >   into it.** It is ELI's text-to-speech engine, imported in-process, and the
 >   frozen builds include it (`ELI.spec` collects the `piper` package). Those
@@ -45,6 +45,22 @@ licences carry no such obligation for the programs they build. Upstream: piper-t
 <https://github.com/OHF-Voice/piper1-gpl>, espeak-ng <https://github.com/espeak-ng/espeak-ng>,
 MouseInfo <https://github.com/asweigart/mouseinfo>, PyMsgBox
 <https://github.com/asweigart/pymsgbox>, python3-xlib <https://pypi.org/project/python3-xlib/>.
+
+---
+
+## Source code of the LGPL components
+
+The release builds also carry packages under the LGPL: **PySide6** with **PySide6_Essentials**,
+**PySide6_Addons** and **shiboken6** (Qt for Python), the **Qt** libraries inside those wheels,
+**zeroconf**, **chardet**, **python-xlib**, and any other LGPL package the build installs. Their
+source is not attached. GPL-3.0 section 6(d), which LGPL-3.0 section 4 applies, lets it be offered
+from another server when clear directions next to the object code say where: **`LGPL_SOURCES.md`**,
+inside `ELI_v2-<version>-gpl-sources.tar.gz` next to the binaries on each release, names each of
+those packages, the version the builds carry and the address of that version's source (its sdist on
+PyPI with its sha256, or the source archive its project publishes, and Qt's source at the Qt version
+the wheels carry). `packaging/gpl_sources.py` writes it in the release workflow from the packages the
+build installed; an address PyPI does not list is used only once it answers, and a build with a
+package whose source it cannot find is not released.
 
 ---
 

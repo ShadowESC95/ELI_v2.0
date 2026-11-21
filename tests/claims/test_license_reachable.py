@@ -227,6 +227,7 @@ def test_the_gpl_source_archive_holds_each_sdist_and_what_its_build_fetches(tmp_
     monkeypatch.setattr(gs, "_get", fake_get)
     monkeypatch.setattr(gs, "gpl_distributions", lambda: [{"name": "example-speech", "version": "1.0",
                                                            "licence": "GPL-3.0-or-later", "home": ""}])
+    monkeypatch.setattr(gs, "lgpl_distributions", lambda: [])     # the next test covers those
     out = tmp_path / "gpl-sources"
     assert gs.fetch_all(out) == 0
     assert (out / "example_speech-1.0.tar.gz").read_bytes() == sdist
@@ -285,6 +286,7 @@ def test_a_compiled_package_whose_sdist_lacks_its_build_files_gets_the_tagged_re
     package = {"name": "example-voice", "version": "2.0", "licence": "GPL-3.0-or-later",
                "home": "http://github.com/example-org/example-voice", "compiled": "yes"}
     monkeypatch.setattr(gs, "gpl_distributions", lambda: [package])
+    monkeypatch.setattr(gs, "lgpl_distributions", lambda: [])     # the LGPL listing has its own test
     out = tmp_path / "gpl-sources"
     assert gs.fetch_all(out) == 0
     names = sorted(p.name for p in out.iterdir())
@@ -296,4 +298,69 @@ def test_a_compiled_package_whose_sdist_lacks_its_build_files_gets_the_tagged_re
     package["compiled"] = ""
     again = tmp_path / "pure"
     assert gs.fetch_all(again) == 0
-    assert sorted(p.name for p in again.iterdir()) == ["SOURCES.md", "example_voice-2.0.tar.gz"]
+    assert sorted(p.name for p in again.iterdir()) == [gs.LGPL_LISTING, "SOURCES.md", "example_voice-2.0.tar.gz"]
+
+
+def test_the_release_says_where_the_source_of_each_lgpl_package_it_carries_is(tmp_path, monkeypatch, capsys):
+    """Qt for Python and the Qt inside it, zeroconf, chardet and python-xlib (LGPL) had only an upstream
+    project link. GPL-3.0 section 6(d), which LGPL-3.0 section 4 applies, lets their source stay on
+    another server when directions beside the binaries say exactly where: LGPL_SOURCES.md, beside
+    SOURCES.md in the release's GPL source archive, names each package, its version and the address of
+    that version's source, read from the installed packages when the release is built."""
+    import importlib.util
+    import re
+    gs = _gpl_sources()
+    assert gs.is_lgpl(["LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only"]) and gs.is_lgpl(["LGPLv2+"])
+    assert not gs.is_lgpl(["GPL-3.0-or-later"]) and not gs.is_lgpl(["MIT"])
+    for name in ("PySide6/Qt/lib/libQt6Core.so.6", "PySide6/Qt6Gui.dll", "PySide6/Qt/lib/QtCore.framework/QtCore"):
+        assert gs._QT_LIBRARY.search(name), name
+    for name in ("PySide6/QtCore.abi3.so", "PySide6/QtCore.pyi", "PySide6/QtCore.pyd", "shiboken6/libshiboken6.abi3.so.6.0"):
+        assert not gs._QT_LIBRARY.search(name) and not gs._QT_CORE.search(name), name
+    assert gs._QT_CORE.search("PySide6/Qt/lib/libQt6Core.so.6") and not gs._QT_CORE.search("PySide6/Qt/lib/libQt6Gui.so.6")
+
+    # the network and the Qt binding replaced: invented packages, one of each kind
+    qt_core = "ExampleQt/Qt/lib/libQt6Core.so.6"
+    packages = [
+        {"name": "example-mdns", "version": "1.2.0", "licence": "LGPL-2.1-or-later", "home": "", "repos": [],
+         "qt_libraries": [], "qt_core": ""},
+        {"name": "ExampleQt_Essentials", "version": "6.0.1", "licence": "LGPL-3.0-only OR GPL-3.0-only", "home": "",
+         "repos": ["https://code.qt.io/cgit/pyside/pyside-setup.git/"], "qt_libraries": [qt_core], "qt_core": qt_core},
+        {"name": "example-x11", "version": "0.9", "licence": "LGPLv2+", "home": "https://github.com/example-org/example-x11",
+         "repos": ["https://github.com/example-org/example-x11"], "qt_libraries": [], "qt_core": ""},
+    ]
+    sdist = {"url": "https://files.example.org/example_mdns-1.2.0.tar.gz", "filename": "example_mdns-1.2.0.tar.gz",
+             "sha256": "ab" * 32}
+    pyside = gs.SOURCE_ARCHIVES["code.qt.io/cgit/pyside/pyside-setup.git"][0].format(version="6.0.1")
+    qt = gs.QT_SOURCE[0].format(minor="6.0", version="6.0.2")
+    x11 = "https://github.com/example-org/example-x11/archive/v0.9.tar.gz"
+    answering = {pyside, qt, x11}
+    monkeypatch.setattr(gs, "pypi_sdist", lambda name, version: sdist if (name, version) == ("example-mdns", "1.2.0") else None)
+    monkeypatch.setattr(gs, "_answers", lambda url: url in answering)
+    monkeypatch.setattr(gs, "qt_version", lambda package: {"ExampleQt": "6.0.2"}[package])
+    monkeypatch.setattr(gs, "gpl_distributions", lambda: [])
+    monkeypatch.setattr(gs, "lgpl_distributions", lambda: packages)
+    out = tmp_path / "gpl-sources"
+    assert gs.fetch_all(out) == 0, capsys.readouterr().err
+    listing = (out / gs.LGPL_LISTING).read_text(encoding="utf-8").splitlines()
+    assert f"- example-mdns 1.2.0 (LGPL-2.1-or-later): {sdist['url']} (sha256 {'ab' * 32})" in listing
+    assert f"- ExampleQt_Essentials 6.0.1 (LGPL-3.0-only OR GPL-3.0-only): {pyside}" in listing
+    assert f"- example-x11 0.9 (LGPLv2+): {x11}" in listing
+    assert f"- Qt 6.0.2, the libraries inside ExampleQt_Essentials (under their licence): {qt}" in listing
+    assert (out / "SOURCES.md").is_file() and pyside.endswith("pyside-setup-everywhere-src-6.0.1.tar.xz")
+
+    answering.discard(qt)                           # Qt's source answers nowhere: the release stops
+    assert gs.fetch_all(tmp_path / "again") == 1
+    assert "LGPL source not found: Qt, the libraries inside ExampleQt_Essentials" in capsys.readouterr().err
+
+    if importlib.util.find_spec("PySide6") is not None:   # the wheels as installed: which Qt they carry
+        carriers = [p for p in gs.lgpl_distributions() if p["qt_core"]]
+        assert carriers and re.fullmatch(r"\d+\.\d+\.\d+", gs.qt_version(carriers[0]["qt_core"].split("/", 1)[0]))
+
+    release = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+    linux = release.split("\n  build-linux:", 1)[1].split("\n  build-source-artifacts:", 1)[0]
+    assert "cat dist/gpl-sources/LGPL_SOURCES.md" in linux
+    notes = release.split("Write release notes stub", 1)[1].split("Verify:", 1)[0]
+    assert "LGPL_SOURCES.md" in notes and "gpl-sources.tar.gz" in notes
+    notices = (REPO / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    lgpl = notices[notices.index("## Source code of the LGPL components"):]
+    assert "LGPL_SOURCES.md" in lgpl and "gpl-sources.tar.gz" in lgpl and "packaging/gpl_sources.py" in lgpl

@@ -1,4 +1,5 @@
-"""The source of every GPL package a release bundle carries, at the version it carries.
+"""The source of every GPL package a release bundle carries, at the version it carries, and where the
+source of every LGPL one is.
 
 GPL-3.0 lets a program be passed on as a binary when its Corresponding Source goes with it, or is
 offered beside it. The frozen builds carry piper-tts (espeak-ng compiled into it) and PyAutoGUI's
@@ -6,17 +7,28 @@ helpers MouseInfo, PyMsgBox and, on Linux, python3-xlib, all under the GPL (THIR
 The release workflow runs this in the Linux build's environment, which holds every package the
 Windows and macOS builds carry plus a few for Linux alone, and attaches what it fetched to the release:
 
-    python packaging/gpl_sources.py OUT_DIR    # each one's source into OUT_DIR, listed in SOURCES.md
+    python packaging/gpl_sources.py OUT_DIR    # the GPL sources into OUT_DIR, listed in SOURCES.md,
+                                               # and LGPL_SOURCES.md beside them
     python packaging/gpl_sources.py --list     # name them (no network)
 
-Which packages: every installed distribution whose licence metadata names the GPL or AGPL and offers
-no LGPL choice (Qt's packages are used under the LGPL and keep their own source offer). The source is
-that version's sdist from PyPI, checked against PyPI's digest; without one, the project's repository
-at the version's tag. A package that carries compiled code whose build files the sdist leaves out
-also gets the repository at the tag: piper-tts's sdist has neither its CMakeLists.txt nor the C source
-of its espeak bridge. When a package's build fetches more source (CMake ExternalProject or
-FetchContent, as piper-tts does for espeak-ng), that is fetched too, at the commit the build names.
-Anything that cannot be fetched stops the run: a release must not go out without it.
+GPL packages: every installed distribution whose licence metadata names the GPL or AGPL and offers no
+LGPL choice. The source is that version's sdist from PyPI, checked against PyPI's digest; without one,
+the project's repository at the version's tag. A package that carries compiled code whose build files
+the sdist leaves out also gets the repository at the tag: piper-tts's sdist has neither its
+CMakeLists.txt nor the C source of its espeak bridge. When a package's build fetches more source (CMake
+ExternalProject or FetchContent, as piper-tts does for espeak-ng), that is fetched too, at the commit
+the build names.
+
+LGPL packages (Qt for Python and the Qt libraries inside its wheels, zeroconf, chardet, python-xlib and
+whatever else the environment holds): every installed distribution whose licence metadata names the
+LGPL. Their source is not attached; GPL-3.0 section 6(d), which LGPL-3.0 section 4 applies, lets it be
+offered from another server when clear directions next to the object code say where. LGPL_SOURCES.md
+is those directions: each package, its version and the address of that version's source: the sdist
+PyPI lists for it, with its digest; for a project with none, the archive it publishes (SOURCE_ARCHIVES)
+or its GitHub repository at the version's tag; for Qt, its source at the version the wheels carry
+(QT_SOURCE). An address not read from PyPI is used only once it answers.
+
+Anything that cannot be fetched or found stops the run: a release must not go out without it.
 
 Standard library only: it runs before anything else is known to be installed.
 """
@@ -26,6 +38,7 @@ import hashlib
 import io
 import json
 import re
+import subprocess
 import sys
 import tarfile
 import urllib.request
@@ -35,6 +48,28 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 PYPI_JSON = "https://pypi.org/pypi/{name}/{version}/json"
+LGPL_LISTING = "LGPL_SOURCES.md"
+
+# Projects that put no sdist on PyPI, by the repository their metadata names, with the archive of each
+# version's source the project publishes, tried in order (the first that answers is listed). Qt for
+# Python's wheels (PySide6, PySide6_Essentials, PySide6_Addons, shiboken6) come from one tree.
+SOURCE_ARCHIVES: Dict[str, Tuple[str, ...]] = {
+    "code.qt.io/cgit/pyside/pyside-setup.git": (
+        "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-{version}-src/"
+        "pyside-setup-everywhere-src-{version}.tar.xz",
+        "https://code.qt.io/cgit/pyside/pyside-setup.git/snapshot/pyside-setup-v{version}.tar.gz",
+    ),
+}
+# Qt itself, the C++ libraries inside those wheels, at the version they carry: the archive a release
+# stays in first, then where a current release is published before it moves there.
+QT_SOURCE: Tuple[str, ...] = (
+    "https://download.qt.io/archive/qt/{minor}/{version}/single/qt-everywhere-src-{version}.tar.xz",
+    "https://download.qt.io/official_releases/qt/{minor}/{version}/single/qt-everywhere-src-{version}.tar.xz",
+)
+# A distribution file that is a Qt library (libQt6Core.so.6, Qt6Core.dll, QtCore.framework/...), and
+# the one that is Qt's core, whose package is asked which Qt it is.
+_QT_LIBRARY = re.compile(r"(?:^|/)(?:lib)?Qt\d+\w*\.(?:so[.\d]*|dll|dylib)$|(?:^|/)Qt\w*\.framework/")
+_QT_CORE = re.compile(r"(?:^|/)(?:lib)?Qt\d*Core(?:\.so[.\d]*|\.dll|\.dylib)?$|(?:^|/)QtCore\.framework/")
 
 _GPL = re.compile(r"(?<![A-Za-z])A?GPL|GNU (?:AFFERO )?GENERAL PUBLIC LICEN[CS]E", re.I)
 _LGPL = re.compile(r"(?<![A-Za-z])LGPL|GNU (?:LESSER|LIBRARY) (?:GENERAL )?PUBLIC LICEN[CS]E", re.I)
@@ -74,13 +109,117 @@ def _compiled(dist: metadata.Distribution) -> bool:
     return any(re.search(r"\.(?:so|pyd|dylib)(?:\.\d+)*$", str(f)) for f in (dist.files or []))
 
 
-def _home_page(dist: metadata.Distribution) -> str:
+def is_lgpl(facts: List[str]) -> bool:
+    """Under the LGPL, or with the LGPL among the licences offered (Qt for Python's wheels)."""
+    return bool(_LGPL.search("\n".join(facts)))
+
+
+def lgpl_distributions() -> List[Dict[str, object]]:
+    """Each installed LGPL distribution, with the repositories its metadata names and the Qt
+    libraries among its files (Qt for Python's wheels carry Qt's)."""
+    found: Dict[str, Dict[str, object]] = {}
+    for dist in metadata.distributions():
+        name = str(dist.metadata.get("Name") or "").strip()
+        facts = licence_facts(dist)
+        if name and is_lgpl(facts):
+            files = [str(f).replace("\\", "/") for f in (dist.files or [])]
+            found[name.lower()] = {"name": name, "version": str(dist.version), "licence": "; ".join(facts),
+                                   "home": _home_page(dist), "repos": _project_urls(dist),
+                                   "qt_libraries": [f for f in files if _QT_LIBRARY.search(f)],
+                                   "qt_core": next((f for f in files if _QT_CORE.search(f)), "")}
+    return [found[k] for k in sorted(found)]
+
+
+def _project_urls(dist: metadata.Distribution) -> List[str]:
     urls = [str(dist.metadata.get("Home-page") or "")]
     urls += [u.split(",", 1)[-1].strip() for u in (dist.metadata.get_all("Project-URL") or [])]
+    return [u for u in urls if u]
+
+
+def _home_page(dist: metadata.Distribution) -> str:
+    urls = _project_urls(dist)
     for url in urls:
         if "github.com/" in url:
             return url
     return next((u for u in urls if u), "")
+
+
+def _answers(url: str) -> bool:
+    """Whether the server hands out this file: its first byte comes back."""
+    request = urllib.request.Request(url, headers={"User-Agent": "eli-release-gpl-sources", "Range": "bytes=0-0"})
+    try:
+        with urllib.request.urlopen(request, timeout=120) as response:
+            return bool(response.read(1))
+    except Exception as exc:  # an address that does not answer is reported by the caller, with the others tried
+        print(f"[lgpl-sources] {url}: {exc}", file=sys.stderr)
+        return False
+
+
+def first_answering(urls: List[str]) -> Optional[str]:
+    return next((url for url in urls if _answers(url)), None)
+
+
+def qt_version(package: str) -> str:
+    """The Qt a binding package carries, asked of its QtCore in a process of its own."""
+    code = "import importlib, sys; print(importlib.import_module(sys.argv[1] + '.QtCore').qVersion())"
+    ran = subprocess.run([sys.executable, "-c", code, package], capture_output=True, text=True, timeout=300)
+    found = re.fullmatch(r"\d+\.\d+\.\d+", ran.stdout.strip())
+    if ran.returncode != 0 or not found:
+        raise ValueError(f"{package}.QtCore did not say which Qt it is: {(ran.stderr or ran.stdout).strip()[-300:]}")
+    return found.group(0)
+
+
+def lgpl_source(pkg: Dict[str, object]) -> str:
+    """Where this version's source is: PyPI's sdist with its digest, else the archive its project
+    publishes (SOURCE_ARCHIVES, by the repository its metadata names), else its GitHub repository at
+    the version's tag; each but PyPI's checked to answer."""
+    name, version = str(pkg["name"]), str(pkg["version"])
+    try:
+        sdist, pypi = pypi_sdist(name, version), "no sdist on PyPI"
+    except Exception as exc:  # not on PyPI at all, or PyPI did not answer: the other addresses decide
+        sdist, pypi = None, f"PyPI: {exc}"
+    if sdist:
+        return f"{sdist['url']} (sha256 {sdist['sha256']})"
+    repos = [str(u) for u in pkg.get("repos") or []] or [str(pkg.get("home") or "")]
+    tried = [t.format(version=version) for repo in repos for key, templates in SOURCE_ARCHIVES.items()
+             if key in repo for t in templates]
+    tried += [u for repo in repos for tag in (f"v{version}", version) for u in [github_archive(repo, tag)] if u]
+    tried = list(dict.fromkeys(tried))
+    url = first_answering(tried)
+    if not url:
+        raise ValueError(f"{pypi}, and none of these answers: {', '.join(tried) or 'no address to try'}")
+    return url
+
+
+def lgpl_listing(packages: List[Dict[str, object]]) -> Tuple[List[str], List[str]]:
+    """The lines of LGPL_SOURCES.md, and what could not be found."""
+    lines = ["# Where the source of the LGPL components in this release's builds is", "",
+             "The builds carry these packages under the GNU Lesser General Public License, at the versions",
+             "below. Their source is not in this archive: each line says where that version's source was",
+             "when the release was built. See THIRD_PARTY_NOTICES.md for the licences.", ""]
+    failed: List[str] = []
+    for pkg in packages:
+        try:
+            lines.append(f"- {pkg['name']} {pkg['version']} ({pkg['licence']}): {lgpl_source(pkg)}")
+        except Exception as exc:
+            failed.append(f"{pkg['name']} {pkg['version']}: {exc}")
+    carriers = [pkg for pkg in packages if pkg.get("qt_libraries")]
+    core = next((str(pkg["qt_core"]) for pkg in carriers if pkg.get("qt_core")), "")
+    if carriers:
+        names = ", ".join(str(pkg["name"]) for pkg in carriers)
+        try:
+            if not core:
+                raise ValueError("no Qt core library among their files")
+            version = qt_version(core.split("/", 1)[0])
+            minor = ".".join(version.split(".")[:2])
+            tried = [t.format(minor=minor, version=version) for t in QT_SOURCE]
+            url = first_answering(tried)
+            if not url:
+                raise ValueError(f"none of these answers: {', '.join(tried)}")
+            lines.append(f"- Qt {version}, the libraries inside {names} (under their licence): {url}")
+        except Exception as exc:
+            failed.append(f"Qt, the libraries inside {names}: {exc}")
+    return lines, failed
 
 
 def cmake_fetches(text: str) -> List[Tuple[str, str, str]]:
@@ -193,15 +332,22 @@ def fetch_all(out_dir: Path) -> int:
         except Exception as exc:
             failed.append(f"{name} {version}: {exc}")
     (out_dir / "SOURCES.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+    lgpl_lines, lgpl_failed = lgpl_listing(lgpl_distributions())
+    (out_dir / LGPL_LISTING).write_text("\n".join(lgpl_lines) + "\n", encoding="utf-8")
     for problem in failed:
         print(f"::error::GPL source not fetched: {problem}", file=sys.stderr)
-    return 1 if failed else 0
+    for problem in lgpl_failed:
+        print(f"::error::LGPL source not found: {problem}", file=sys.stderr)
+    return 1 if failed or lgpl_failed else 0
 
 
 def main(argv: List[str]) -> int:
     if argv[:1] == ["--list"]:
         for pkg in gpl_distributions():
             print(f"{pkg['name']}=={pkg['version']}  ({pkg['licence']})")
+        for pkg in lgpl_distributions():
+            qt = "  carries Qt libraries" if pkg["qt_libraries"] else ""
+            print(f"{pkg['name']}=={pkg['version']}  ({pkg['licence']}, source not attached: {LGPL_LISTING}){qt}")
         return 0
     if len(argv) != 1 or argv[0].startswith("-"):
         print(__doc__, file=sys.stderr)
