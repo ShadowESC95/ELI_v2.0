@@ -128,3 +128,41 @@ def test_the_registry_template_is_valid_json():
     data = json.loads(template.read_text(encoding="utf-8"))
     assert [p["id"] for p in data["plugins"]] == ["unit_converter", "filesystem_mcp"]
     assert data["plugins"][1]["kind"] == "mcp"
+
+
+def test_an_mcp_listing_is_signed_over_its_server_definition(tmp_path):
+    """An MCP listing has no file: the signature covers what the client will start."""
+    pytest.importorskip("cryptography")
+    key = tmp_path / "ed25519.key"
+    gen = _run("--new-key", str(key))
+    pub = [l for l in gen.stdout.splitlines() if "public_key:" in l][0].split(":", 1)[1].strip()
+    manifest = tmp_path / "server.json"
+    manifest.write_text(json.dumps({
+        "id": "files_mcp", "kind": "mcp", "name": "Files (MCP)", "version": "1.0.0",
+        "description": "Reads files under one folder.", "author": "community.example",
+        "license": "MIT", "permissions": ["filesystem_read"],
+        "mcp": {"transport": "stdio", "command": "npx",
+                "args": ["-y", "example-files-server", "/srv/shared"]}}), encoding="utf-8")
+
+    r = _run("--manifest", str(manifest), "--sign-key", str(key), "--publisher", "acme")
+    assert r.returncode == 0, r.stderr
+    listing = json.loads(r.stdout)
+    assert listing["kind"] == "mcp" and listing["publisher_id"] == "acme"
+
+    from eli.plugins.integrity import mcp_listing_payload, sha256_of
+    payload = mcp_listing_payload(listing)
+    assert listing["sha256"] == sha256_of(payload)
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+    Ed25519PublicKey.from_public_bytes(base64.b64decode(pub)).verify(
+        base64.b64decode(listing["signature"]), payload)
+
+
+def test_an_mcp_listing_without_a_command_is_refused(tmp_path):
+    manifest = tmp_path / "server.json"
+    manifest.write_text(json.dumps({
+        "id": "files_mcp", "kind": "mcp", "name": "Files (MCP)", "version": "1.0.0",
+        "description": "Reads files.", "author": "a", "license": "MIT",
+        "mcp": {"transport": "stdio"}}), encoding="utf-8")
+    r = _run("--manifest", str(manifest))
+    assert r.returncode == 1
+    assert "command" in r.stderr

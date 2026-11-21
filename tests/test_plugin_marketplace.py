@@ -307,3 +307,16 @@ def test_unsigned_does_not_block_but_is_reported(env, served):
     res = M.quick_install(_clean_listing(BENIGN_SOURCE))
     assert res["review_needed"] is False
     assert any("Unsigned" in n for n in res["notes"])
+
+
+def test_a_paid_listing_stops_the_quick_path_even_with_a_licence(env, served):
+    """A stored licence key gets past the payment stage; buying is still a decision."""
+    served(BENIGN_SOURCE)
+    listing = dict(_clean_listing(BENIGN_SOURCE), price=4.5, currency="EUR")
+    M.set_licence_key("converter", "KEY-1")
+    res = M.quick_install(listing)
+    assert res["review_needed"] is True
+    assert any("costs money" in r for r in res["reasons"])
+    from eli.plugins.manager import _plugins_dir
+    from pathlib import Path
+    assert not (Path(_plugins_dir()) / "converter").exists()

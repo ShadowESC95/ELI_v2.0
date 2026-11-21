@@ -35,9 +35,9 @@ convention:
    has no third outcome. If a scanner could approve, the review would attest to
    nothing but the scanner's opinion.
 3. **The signature is the approval.** Signing happens at publish time with a key
-   only the maintainer holds. A plugin listing on the official registry that is not
-   validly signed by that key is **refused by the client**, not warned about — see
-   §5 (which also covers MCP server listings, which are not signature-checked).
+   only the maintainer holds. A plugin or MCP server listing on the official registry
+   that is not validly signed by that key is **refused by the client**, not warned
+   about — see §5.
 4. **Curation is not the only door.** Operators can still add community
    registries. That keeps the curated store honest: the maintainer cannot become
    the only way to get a plugin, and cannot quietly delist a competitor.
@@ -173,6 +173,12 @@ python tools/marketplace/publish.py plugins/<the-submission>/plugin.py \
     --publisher eli-marketplace
 ```
 
+An MCP server has no file to sign: its listing is the server definition. Sign it from
+its manifest (the listing fields, `"kind": "mcp"` and an `"mcp"` object) with
+`publish.py --manifest <server>.json --sign-key ~/.eli-marketplace-key --publisher
+eli-marketplace`; the `sha256` and signature cover the id, the `mcp` object and the
+permissions.
+
 That emits the listing JSON — including `sha256` and `signature` — to paste into
 `index.json`. Merge, and it is live (`publish-site.yml` rebuilds the shopfront from the
 merged index). The publisher id must be `eli-marketplace`: the client refuses a curated
@@ -213,10 +219,14 @@ in ELI's data folder in an installed copy, `ELI_PLUGINS_DIR` overrides — switc
 with no permission granted.
 
 MCP server listings (`"kind": "mcp"`) take a different path. ELI never sees a server's
-source, only the command that starts it, so there is nothing to hash or scan, and in this
-release no signature or curation check applies to them on either kind of registry. What
-ELI checks is that the runtime exists and that the server answers a real MCP handshake —
-which means starting it — before it saves the server, switched off.
+source, only the command that starts it, so there is nothing to scan. What the `sha256`
+and signature cover instead is the server definition — the listing's id, its `mcp` object
+(command, arguments, environment, paths) and its permissions, as canonical JSON
+(`integrity.mcp_listing_payload`) — and they are checked as a plugin's file is, before
+anything starts: a mismatch is refused on either kind of registry, and on the curated one
+an unsigned listing or one signed by any key but `eli-marketplace` is refused. Then ELI
+checks that the runtime exists and that the server answers a real MCP handshake — which
+means starting it — before it saves the server, switched off.
 
 Two further guards, both tested:
 
@@ -226,12 +236,11 @@ Two further guards, both tested:
   official key cannot be removed. Otherwise "signed by the maintainer" would mean
   "signed by whoever edited your config". If you do not want the curated registry,
   switch the registry off — do not remove the key, which would stop verification
-  without stopping installs. In this release the only switch that holds is
-  `"disabled": ["eli-official"]` in `plugin_registries.json` in ELI's config folder
-  (`config/` in a source checkout), and adding or removing a source rewrites that file
-  without it. The Sources tab has no toggle, and
-  `set_registry_enabled()` or `remove_registry()` on the official entry report success
-  without changing anything.
+  without stopping installs. **Switch off** / **Switch on** in the Marketplace's Sources
+  tab (`set_registry_enabled()`) is kept as `"disabled": ["eli-official"]` in
+  `plugin_registries.json` in ELI's config folder (`config/` in a source checkout).
+  **Remove** (`remove_registry()`) is kept as `"removed": ["eli-official"]`, and adding a
+  source with the id `eli-official` and the store's own address lists it again.
 
 ---
 

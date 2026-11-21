@@ -17,11 +17,13 @@ and performs a real MCP `initialize` handshake followed by `tools/list`. An entr
 is only marked working when a server has answered with its tool list. Nothing is
 taken on faith.
 
-One thing this cannot do, and says so plainly: an MCP server is a child process, so
-`netguard`'s socket guard — a monkeypatch inside ELI's own interpreter — does not
-apply to it. A server that wants the network will reach it whatever ELI's offline
-toggle says. Consent text for MCP installs must state that rather than imply a
-containment that does not exist.
+An MCP server is a child process, so `netguard`'s socket guard — a monkeypatch
+inside ELI's own interpreter — does not apply to it. Containment comes from
+`subprocess_sandbox` instead: where it can isolate (Linux with bubblewrap), a server
+that did not declare `network` starts with no network and a read-only view with
+$HOME masked; elsewhere only its no-new-privileges and resource limits apply.
+Consent text for MCP installs says which of those this machine gives
+(`network_caveat()`), rather than implying a containment that does not exist.
 """
 from __future__ import annotations
 

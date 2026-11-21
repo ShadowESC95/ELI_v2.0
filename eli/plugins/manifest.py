@@ -1,9 +1,8 @@
 """Plugin manifests: what a plugin says it is, checked against what it does.
 
-ELI's own marketplace is the community's, not the vendor's. Nobody curates it,
-nobody vets uploads, and ELI must never imply otherwise. That removes the usual
-first line of defence — "the store checked it" — so everything has to come from
-the artifact itself:
+Community registries are not curated, and even the curated registry's review is
+a claim ELI cannot re-check from here, so "the store checked it" is never the
+defence. Everything ELI enforces comes from the artifact itself:
 
   * the manifest DECLARES the permissions the plugin needs, in the same vocabulary
     the consent dialog speaks (`permissions.CAPABILITIES`);

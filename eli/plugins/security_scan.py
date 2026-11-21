@@ -1,6 +1,6 @@
 """Multi-engine malware scanner for community plugins.
 
-Nobody curates the marketplace, so this is the backend that does the curating —
+Community registries are not curated, so this is the backend that does the checking —
 run over every upload before a listing is trusted, and again on the operator's own
 machine before a download is written to disk. Checking twice matters: a registry
 can be compromised, and a scan you did not run yourself is a claim, not a result.

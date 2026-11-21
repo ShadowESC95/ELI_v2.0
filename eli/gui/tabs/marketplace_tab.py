@@ -1,12 +1,12 @@
-"""Settings ▸ Plugins ▸ Marketplace — browse, scan, install, and revoke.
+"""Settings ▸ Advanced ▸ Marketplace — browse, scan, install, and revoke.
 
 Four panes, matching the four decisions an operator actually makes:
 
-  Browse      what the community registries are offering, with the verification
-              state and permission risk shown BEFORE anything is downloaded
+  Browse      what the registries are offering, with the verification state and
+              permission risk shown BEFORE anything is downloaded
   Installed   what is on this machine, what it may do, and a switch to turn it off
   Permissions every grant given, and a way to take any of them back
-  Registries  which community sources this machine trusts at all
+  Registries  which sources this machine installs from, and a switch for each
 
 The install path is deliberately slow. A listing is downloaded to memory, hashed,
 signature-checked, statically analysed against its own manifest, and run through
@@ -93,10 +93,12 @@ class MarketplaceTab(QWidget):
         v.setContentsMargins(6, 6, 6, 6)
 
         banner = QLabel(
-            "<b>Community marketplace.</b> <span style='color:#6c7086'>These plugins are "
-            "written by other people, not by ELI, and nobody vets them. ELI checks what it "
-            "can — the file matches the listing, who signed it, and a malware scan — then "
-            "shows you the result and lets you decide.</span>")
+            "<b>Marketplace.</b> <span style='color:#6c7086'>These plugins are written by "
+            "other people, not by ELI. Listings on ELI Marketplace were reviewed and signed "
+            "before they appeared there; community sources you add are not reviewed by "
+            "anyone. Either way ELI checks what it can — the file matches the listing, who "
+            "signed it, and a malware scan — then shows you the result and lets you "
+            "decide.</span>")
         banner.setWordWrap(True)
         banner.setStyleSheet("padding:6px;background:#2e3440;border-radius:4px;")
         v.addWidget(banner)
@@ -124,7 +126,7 @@ class MarketplaceTab(QWidget):
         top.addWidget(b)
         v.addLayout(top)
 
-        self._browse_status = QLabel("Press Refresh to load community registries.")
+        self._browse_status = QLabel("Press Refresh to load the registries.")
         self._browse_status.setStyleSheet(f"color:{_DIM};")
         self._browse_status.setWordWrap(True)
         v.addWidget(self._browse_status)
@@ -604,13 +606,15 @@ class MarketplaceTab(QWidget):
     def _page_mcp(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
-        v.addWidget(QLabel(
-            "<b>MCP servers run as their own programs alongside ELI.</b><br>"
-            "<span style='color:#bf616a'>ELI's offline switch cannot stop them reaching "
-            "the internet, and ELI cannot see what they send.</span> "
-            "<span style='color:#6c7086'>That is how MCP works, not a fault in ELI. What "
-            "ELI does guarantee is that a server here actually starts and answers — it is "
-            "verified with a real handshake before being saved.</span>"))
+        from eli.plugins.mcp import network_caveat
+        caveat = QLabel(
+            f"<b>MCP servers run as their own programs alongside ELI.</b><br>"
+            f"<span style='color:#bf616a'>{network_caveat()}</span> "
+            f"<span style='color:#6c7086'>What ELI does guarantee is that a server here "
+            f"actually starts and answers — it is verified with a real handshake before "
+            f"being saved.</span>")
+        caveat.setWordWrap(True)
+        v.addWidget(caveat)
         self._mcp_table = QTableWidget(0, 5)
         self._mcp_table.setHorizontalHeaderLabels(
             ["Server", "Command", "Enabled", "Verified", "Tools"])
@@ -739,16 +743,20 @@ class MarketplaceTab(QWidget):
     def _page_registries(self) -> QWidget:
         w = QWidget()
         v = QVBoxLayout(w)
-        v.addWidget(QLabel(
-            "Community registries this machine will install from. Adding one is a trust "
-            "decision: its listings become installable. ELI ships with none — the built-in "
-            "entry is just ELI's own bundled plugins."))
+        intro = QLabel(
+            "Registries this machine will install from. ELI ships two, both switched on: "
+            "the built-in entry (ELI's own bundled plugins) and ELI Marketplace, which is "
+            "curated — every listing on it is reviewed and signed, and ELI refuses one "
+            "that is not. Switch either off here. Adding a community registry is a trust "
+            "decision: its listings become installable, and nobody has reviewed them.")
+        intro.setWordWrap(True)
+        v.addWidget(intro)
 
         home_row = QHBoxLayout()
         home_row.addWidget(QLabel("Marketplace website:"))
         self._home_edit = QLineEdit()
         self._home_edit.setPlaceholderText(
-            "https://…  (ELI ships no default — the marketplace is the community's)")
+            "https://…  (a store's website, for browsing only — none is set by default)")
         home_row.addWidget(self._home_edit, 1)
         save_home = QPushButton("Save")
         save_home.clicked.connect(self._save_home)
@@ -780,8 +788,22 @@ class MarketplaceTab(QWidget):
         rm = QPushButton("Remove")
         rm.clicked.connect(self._remove_registry)
         form.addWidget(rm)
+        for label, on in (("Switch on", True), ("Switch off", False)):
+            b = QPushButton(label)
+            b.clicked.connect(lambda _=False, on=on: self._set_registry_enabled(on))
+            form.addWidget(b)
         v.addLayout(form)
         return w
+
+    def _set_registry_enabled(self, enabled: bool) -> None:
+        r = self._reg_table.currentRow()
+        if r < 0:
+            return
+        from eli.plugins.marketplace import set_registry_enabled
+        res = set_registry_enabled(self._reg_table.item(r, 0).text(), enabled)
+        if not res["ok"]:
+            QMessageBox.warning(self, "Sources", "\n".join(res["problems"]))
+        self._refresh_registries()
 
     def _save_home(self) -> None:
         from eli.plugins.marketplace import set_marketplace_home
@@ -799,9 +821,9 @@ class MarketplaceTab(QWidget):
         if not url:
             QMessageBox.information(
                 self, "Marketplace",
-                "No marketplace website is set.\n\nELI ships without one on purpose — "
-                "the marketplace belongs to the community, not to ELI's author. Paste "
-                "the address of one you trust above, or add a registry URL directly.")
+                "No marketplace website is set.\n\nA website is only for browsing. ELI "
+                "Marketplace is already one of your sources; paste the address of another "
+                "store's website above, or add its registry URL directly.")
             return
         import webbrowser
         webbrowser.open(url)

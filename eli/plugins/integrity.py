@@ -1,8 +1,7 @@
-"""Integrity and publisher identity for community plugins.
+"""Integrity and publisher identity for marketplace plugins and MCP servers.
 
-The marketplace belongs to the community, so there is no vendor to vouch for an
-upload and ELI must never pretend otherwise. What ELI CAN do is make two much
-narrower promises, both verifiable on the operator's own machine:
+A listing is data from a registry ELI does not control, so ELI makes two narrow
+promises about it, both verifiable on the operator's own machine:
 
   * **You got what the listing described.** The listing carries a sha256 of the
     plugin source; the download is hashed before it is ever written to disk. A
@@ -10,11 +9,12 @@ narrower promises, both verifiable on the operator's own machine:
     man-in-the-middle on a plain-http source, or a publisher silently swapping the
     file under an unchanged listing.
 
-  * **It came from a publisher you already chose to trust.** Optional ed25519
-    signatures verified against keys the OPERATOR added. Not a key the ELI author
-    holds — there is no central authority here by design. An unsigned plugin, or
-    one from an unknown key, is not blocked; it is reported as unverified, loudly,
-    and the operator decides.
+  * **It came from a publisher you already chose to trust.** ed25519 signatures
+    verified against keys the OPERATOR added, plus the one key ELI ships: its own
+    curated marketplace's, which signs every listing that registry approves. On a
+    community registry an unsigned plugin, or one from an unknown key, is not
+    blocked; it is reported as unverified, loudly, and the operator decides. On the
+    curated registry it is refused (marketplace._integrity_refusal).
 
 Hash checking is mandatory and dependency-free. Signature checking needs
 `cryptography`; where it is absent the plugin is reported as unverifiable rather
@@ -52,6 +52,25 @@ def _publishers_path() -> Path:
 
 def sha256_of(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
+
+
+def mcp_listing_payload(listing: Dict[str, Any]) -> bytes:
+    """The bytes an MCP listing's sha256 and signature cover.
+
+    An MCP listing has no file to download: what ELI installs is its server
+    definition (command, args, env, paths), under the listing's id and with the
+    permissions that decide its sandbox. Those, as canonical JSON (sorted keys, no
+    whitespace), are what the publisher signs and what is checked before the server
+    is ever started.
+    """
+    body = {
+        "id": str(listing.get("id") or ""),
+        "kind": "mcp",
+        "mcp": listing.get("mcp") or {},
+        "permissions": [str(p) for p in (listing.get("permissions") or [])],
+    }
+    return json.dumps(body, sort_keys=True, separators=(",", ":"),
+                      ensure_ascii=False).encode("utf-8")
 
 
 def verify_hash(data: bytes, expected: Optional[str]) -> Dict[str, Any]:
@@ -107,9 +126,9 @@ def _save_publishers(pubs: Dict[str, Dict[str, Any]]) -> None:
 # key the user has to install by hand is a key most users will never install —
 # and an unverifiable curated registry is just an uncurated one with a badge.
 #
-# Empty until the marketplace is stood up; see docs/MARKETPLACE.md. Overridable
-# via ELI_MARKETPLACE_PUBLISHER_KEY for testing and for anyone running their own
-# curated registry from an ELI build.
+# This build ships the public key of ELI's own marketplace (docs/MARKETPLACE.md §3).
+# Overridable via ELI_MARKETPLACE_PUBLISHER_KEY for testing and for anyone running
+# their own curated registry from an ELI build; an empty value keeps this key.
 OFFICIAL_PUBLISHER_ID = "eli-marketplace"
 OFFICIAL_PUBLISHER_KEY = "EDziNM24LH45Cn8OzuKS2SJQJp3QiT8B7DWXQX17hVY="
 
@@ -284,7 +303,7 @@ def status_summary(status: str) -> str:
 
 
 __all__ = [
-    "sha256_of", "verify_hash", "verify_signature", "assess", "status_summary",
+    "sha256_of", "mcp_listing_payload", "verify_hash", "verify_signature", "assess", "status_summary",
     "trust_publisher", "untrust_publisher", "trusted_publishers", "signing_available",
     "OFFICIAL_PUBLISHER_ID", "OFFICIAL_PUBLISHER_KEY",
     "VERIFIED_SIGNED", "VERIFIED_HASH_ONLY", "UNVERIFIED", "FAILED",

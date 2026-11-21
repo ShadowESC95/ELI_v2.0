@@ -16,11 +16,16 @@ client will run, and prints the entry to paste into `index.json`. It refuses to
 emit a listing for something that would be rejected on the other end — better a
 publisher finds out here than every user finds out separately.
 
+An MCP server has no file to publish: its listing is the server definition, so
+`--manifest` alone (a manifest with "kind": "mcp" and an "mcp" object) emits that
+listing, with its sha256 and signature over eli.plugins.integrity.mcp_listing_payload.
+
 Usage:
     python tools/marketplace/publish.py plugin.py \\
         --manifest eli_plugin.json \\
         --source-url https://acme.github.io/eli-registry/plugins/thing.py
     python tools/marketplace/publish.py plugin.py --sign-key ed25519.key --publisher acme
+    python tools/marketplace/publish.py --manifest server.json --sign-key ed25519.key --publisher acme
     python tools/marketplace/publish.py --new-key ed25519.key
 """
 from __future__ import annotations
@@ -56,6 +61,60 @@ def _new_key(path: Path) -> int:
     return 0
 
 
+def _sign_into(listing: dict, payload: bytes, args) -> int:
+    """Add publisher_id and signature over `payload` when --sign-key was given."""
+    if not args.sign_key:
+        return 0
+    if not args.publisher:
+        print("--sign-key needs --publisher (the id operators will trust).",
+              file=sys.stderr)
+        return 1
+    try:
+        from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+        key = Ed25519PrivateKey.from_private_bytes(Path(args.sign_key).read_bytes())
+    except Exception as exc:
+        print(f"Could not load the signing key: {exc}", file=sys.stderr)
+        return 1
+    listing["publisher_id"] = args.publisher
+    listing["signature"] = base64.b64encode(key.sign(payload)).decode()
+    return 0
+
+
+def _publish_mcp(raw_manifest: dict, args) -> int:
+    """The listing for an MCP server: its definition, checked the way the client will."""
+    from eli.plugins.integrity import mcp_listing_payload, sha256_of
+    from eli.plugins.manifest import validate_manifest
+    from eli.plugins.mcp import validate_entry
+
+    check = validate_manifest(raw_manifest)
+    spec = raw_manifest.get("mcp") if isinstance(raw_manifest.get("mcp"), dict) else {}
+    entry = validate_entry({**spec, "id": raw_manifest.get("id"),
+                            "permissions": raw_manifest.get("permissions") or []})
+    problems = list(check["problems"]) + list(entry["problems"])
+    if not spec:
+        problems.append("An MCP listing needs an 'mcp' object (transport, command, args...).")
+    if problems:
+        print("Manifest problems:", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
+        return 1
+    manifest = check["manifest"]
+    listing = {k: manifest[k] for k in ("id", "name", "version", "description",
+                                         "author", "license")}
+    listing["kind"] = "mcp"
+    listing["permissions"] = manifest.get("permissions") or []
+    listing["mcp"] = spec
+    for optional in ("homepage", "price", "currency", "purchase_url"):
+        if manifest.get(optional):
+            listing[optional] = manifest[optional]
+    payload = mcp_listing_payload(listing)
+    listing["sha256"] = sha256_of(payload)
+    if _sign_into(listing, payload, args):
+        return 1
+    print(json.dumps(listing, indent=2, ensure_ascii=False))
+    return 0
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -72,8 +131,18 @@ def main(argv=None) -> int:
 
     if args.new_key:
         return _new_key(Path(args.new_key))
+    if not args.plugin and args.manifest:
+        manifest_path = Path(args.manifest)
+        if not manifest_path.is_file():
+            print(f"No manifest at {manifest_path}.", file=sys.stderr)
+            return 1
+        raw_manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        if isinstance(raw_manifest, dict) and (raw_manifest.get("kind") == "mcp"
+                                               or raw_manifest.get("mcp")):
+            return _publish_mcp(raw_manifest, args)
     if not args.plugin:
-        ap.error("a plugin file is required (or use --new-key)")
+        ap.error("a plugin file is required, or --manifest for an MCP server "
+                 "(or use --new-key)")
 
     plugin_path = Path(args.plugin)
     if not plugin_path.is_file():
@@ -146,19 +215,8 @@ def main(argv=None) -> int:
         if manifest.get(optional):
             listing[optional] = manifest[optional]
 
-    if args.sign_key:
-        if not args.publisher:
-            print("--sign-key needs --publisher (the id operators will trust).",
-                  file=sys.stderr)
-            return 1
-        try:
-            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-            key = Ed25519PrivateKey.from_private_bytes(Path(args.sign_key).read_bytes())
-        except Exception as exc:
-            print(f"Could not load the signing key: {exc}", file=sys.stderr)
-            return 1
-        listing["publisher_id"] = args.publisher
-        listing["signature"] = base64.b64encode(key.sign(raw)).decode()
+    if _sign_into(listing, raw, args):
+        return 1
 
     if not str(listing["source"]).startswith("https://"):
         print("warning: the source URL is not https. Plain http stops the one-click "

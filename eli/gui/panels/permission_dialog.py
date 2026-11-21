@@ -11,7 +11,8 @@ allowed to ask again. Without the second, a plugin can nag until the operator
 clicks the wrong button out of fatigue.
 
 Wording rules this file keeps:
-  * Never imply ELI vetted the plugin. Nobody curated the marketplace.
+  * Never imply ELI vetted the plugin. Community registries are not curated, and
+    curation is a layer on top of consent, not a replacement for it.
   * Name the plugin every time, so consent cannot be harvested by whichever plugin
     happens to ask while the operator is thinking about a different one.
   * The risk colour is decoration; the sentence has to carry the meaning on its own.

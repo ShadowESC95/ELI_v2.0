@@ -193,3 +193,129 @@ def test_community_listing_is_not_held_to_the_curated_bar(official, monkeypatch)
     listing = _listing(registry="somecommunity", registry_label="Some Community")
     res = _preview(monkeypatch, listing)
     assert res.get("stage") != "curation"
+
+
+# ── switching the shipped registries off ─────────────────────────────────────
+
+def _registry_file(tmp_path, monkeypatch, registries=()):
+    import json
+    p = tmp_path / "plugin_registries.json"
+    if registries:
+        p.write_text(json.dumps({"version": 1, "registries": list(registries)}),
+                     encoding="utf-8")
+    monkeypatch.setattr(marketplace, "_registries_path", lambda: p)
+    return p
+
+
+def _entry(registry_id):
+    return next((r for r in marketplace.list_registries() if r["id"] == registry_id), None)
+
+
+def test_switching_the_official_registry_off_sticks(official, tmp_path, monkeypatch):
+    """It used to report success and change nothing: the switch was never written, and
+    a stored entry under the official id is dropped on read."""
+    _registry_file(tmp_path, monkeypatch, [
+        {"id": "other", "url": "https://registry.example.org/index.json",
+         "label": "Other", "enabled": True}])
+    official_id = marketplace.OFFICIAL_REGISTRY_ID
+
+    assert marketplace.set_registry_enabled(official_id, False)["ok"] is True
+    assert _entry(official_id)["enabled"] is False
+    # Another change rewrites the file; the switch must survive it.
+    assert marketplace.remove_registry("other")["ok"] is True
+    assert _entry(official_id)["enabled"] is False
+
+    fetched = []
+    monkeypatch.setattr(marketplace, "_fetch_one",
+                        lambda reg, timeout=10: fetched.append(reg["id"]) or
+                        {"ok": True, "plugins": [], "offline": False})
+    marketplace.browse()
+    assert official_id not in fetched, "a switched-off registry was still fetched"
+
+    assert marketplace.set_registry_enabled(official_id, True)["ok"] is True
+    assert _entry(official_id)["enabled"] is True
+
+
+def test_removing_the_official_registry_sticks_until_it_is_added_back(
+        official, tmp_path, monkeypatch):
+    _registry_file(tmp_path, monkeypatch)
+    official_id = marketplace.OFFICIAL_REGISTRY_ID
+
+    assert marketplace.remove_registry(official_id)["ok"] is True
+    assert _entry(official_id) is None
+    assert marketplace.set_registry_enabled(marketplace.BUNDLED_REGISTRY_ID, True)["ok"]
+    assert _entry(official_id) is None, "a later rewrite brought the removed registry back"
+
+    wrong = marketplace.add_registry(official_id, "https://elsewhere.example.org/index.json")
+    assert wrong["ok"] is False, "the official id must not name another address"
+    back = marketplace.add_registry(official_id, marketplace.official_registry_url())
+    assert back["ok"] is True
+    entry = _entry(official_id)
+    assert entry and entry["enabled"] is True and entry["curated"] is True
+
+
+# ── MCP server listings ──────────────────────────────────────────────────────
+
+def _mcp_listing(**over):
+    base = {
+        "id": "files_mcp", "kind": "mcp", "name": "Files (MCP)", "version": "1.0.0",
+        "description": "Reads files under one folder.", "author": "a", "license": "MIT",
+        "permissions": ["filesystem_read"],
+        "mcp": {"transport": "stdio", "command": "npx",
+                "args": ["-y", "example-files-server", "/srv/shared"]},
+        "registry": marketplace.OFFICIAL_REGISTRY_ID,
+        "registry_label": "ELI Marketplace",
+    }
+    base.update(over)
+    return base
+
+
+@pytest.fixture()
+def started(monkeypatch):
+    """Record install_server calls instead of starting anything."""
+    from eli.plugins import mcp
+    calls = []
+    monkeypatch.setattr(mcp, "install_server",
+                        lambda spec, **kw: calls.append(spec) or {"ok": True, "id": spec["id"]})
+    return calls
+
+
+def _signed_mcp(priv, **over):
+    listing = _mcp_listing(**over)
+    payload = integrity.mcp_listing_payload(listing)
+    listing.update(sha256=integrity.sha256_of(payload),
+                   publisher_id=integrity.OFFICIAL_PUBLISHER_ID,
+                   signature=_sign(priv, payload))
+    return listing
+
+
+def test_unsigned_curated_mcp_listing_is_refused_before_it_starts(official, started):
+    res = marketplace.install_mcp(_mcp_listing())
+    assert res["ok"] is False and res["stage"] == "curation"
+    assert started == [], "an unverified server definition was started"
+
+
+def test_signed_curated_mcp_listing_is_installed(official, started):
+    res = marketplace.install_mcp(_signed_mcp(official))
+    assert res["ok"] is True, res
+    assert [s["id"] for s in started] == ["files_mcp"]
+
+
+def test_a_changed_server_definition_under_a_valid_signature_is_refused(official, started):
+    """The signature covers the command, its arguments and the permissions."""
+    listing = _signed_mcp(official)
+    listing["mcp"] = dict(listing["mcp"], args=["-y", "example-files-server", "/"])
+    assert marketplace.install_mcp(listing)["ok"] is False
+    listing = _signed_mcp(official)
+    listing["permissions"] = ["filesystem_read", "network"]
+    assert marketplace.install_mcp(listing)["ok"] is False
+    assert started == []
+
+
+def test_community_mcp_listing_gets_the_plugin_integrity_check(official, started):
+    unsigned = _mcp_listing(registry="somecommunity", registry_label="Some Community")
+    assert marketplace.install_mcp(unsigned)["ok"] is True
+    stale = dict(unsigned, sha256="0" * 64)
+    res = marketplace.install_mcp(stale)
+    assert res["ok"] is False and res["stage"] == "integrity"
+    assert len(started) == 1

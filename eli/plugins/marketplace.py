@@ -46,9 +46,9 @@ _lock = threading.RLock()
 BUNDLED_REGISTRY_ID = "builtin"
 OFFICIAL_REGISTRY_ID = "eli-official"
 
-# ELI's own curated marketplace. Empty until it is stood up — see docs/MARKETPLACE.md
-# — and overridable so anyone can run their own curated registry from an ELI build.
-# The client half is complete either way; this is only the address it points at.
+# ELI's own curated marketplace (docs/MARKETPLACE.md). ELI_MARKETPLACE_URL overrides it,
+# so anyone can run their own curated registry from an ELI build; an empty value keeps
+# this address. A build with no address lists no official registry at all.
 OFFICIAL_REGISTRY_URL = "https://plugins.geteli.tech/index.json"
 OFFICIAL_REGISTRY_LABEL = "ELI Marketplace"
 
@@ -103,57 +103,76 @@ def _bundled() -> Dict[str, Any]:
     }
 
 
-def _load_registries() -> List[Dict[str, Any]]:
+# The entries ELI ships. A stored entry may not use their ids, so their switches are kept
+# by id: "disabled" (listed, switched off) and "removed" (not listed; official only).
+_SHIPPED_IDS = (BUNDLED_REGISTRY_ID, OFFICIAL_REGISTRY_ID)
+
+
+def _read_registry_file() -> Dict[str, Any]:
     p = _registries_path()
-    out = [_bundled()]
-    official = _official()
-    if official:
-        out.append(official)
-    reserved = {BUNDLED_REGISTRY_ID, OFFICIAL_REGISTRY_ID}
-    if p.is_file():
-        try:
-            data = json.loads(p.read_text(encoding="utf-8"))
-            disabled = set(data.get("disabled") or [])
-            if official and OFFICIAL_REGISTRY_ID in disabled:
-                official["enabled"] = False
-            for r in (data.get("registries") or []):
-                # A stored entry may not claim a reserved id, and may not claim to be
-                # curated: `curated` is what makes a signature mandatory, so a config
-                # file that could set it could also grant itself the official badge.
-                if isinstance(r, dict) and r.get("id") not in reserved:
-                    entry = dict(r)
-                    entry.pop("curated", None)
-                    entry.pop("official", None)
-                    out.append(entry)
-        except Exception:
-            log.debug("[MARKET] unreadable registry list", exc_info=True)
+    if not p.is_file():
+        return {}
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        log.debug("[MARKET] unreadable registry list", exc_info=True)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _load_registries() -> List[Dict[str, Any]]:
+    data = _read_registry_file()
+    disabled = {str(x) for x in (data.get("disabled") or [])}
+    removed = {str(x) for x in (data.get("removed") or [])}
+    out: List[Dict[str, Any]] = []
+    for entry in (_bundled(), _official()):
+        if not entry or (entry["id"] in removed and not entry.get("builtin")):
+            continue
+        if entry["id"] in disabled:
+            entry["enabled"] = False
+        out.append(entry)
+    for r in (data.get("registries") or []):
+        # A stored entry may not claim a reserved id, and may not claim to be
+        # curated: `curated` is what makes a signature mandatory, so a config
+        # file that could set it could also grant itself the official badge.
+        if isinstance(r, dict) and r.get("id") not in _SHIPPED_IDS:
+            entry = dict(r)
+            entry.pop("curated", None)
+            entry.pop("official", None)
+            out.append(entry)
     return out
 
 
-def _save_registries(registries: List[Dict[str, Any]]) -> None:
+def _save_registries(registries: List[Dict[str, Any]], *,
+                     removed: Optional[set] = None) -> None:
+    """Write the stored registries, and the shipped entries' switches by id."""
     p = _registries_path()
     p.parent.mkdir(parents=True, exist_ok=True)
-    keep = [r for r in registries if r.get("id") != BUNDLED_REGISTRY_ID]
-    existing_home = ""
-    if p.is_file():
-        try:
-            existing_home = str(json.loads(p.read_text(encoding="utf-8")).get("home") or "")
-        except Exception:
-            log.debug("[MARKET] could not preserve the marketplace home", exc_info=True)
+    data = _read_registry_file()
+    listed = {r.get("id") for r in registries}
+    # A shipped entry this build does not list (no official address, say) keeps its switch.
+    disabled = {str(x) for x in (data.get("disabled") or []) if x not in listed}
+    disabled.update(r["id"] for r in registries
+                    if r.get("id") in _SHIPPED_IDS and not r.get("enabled", True))
+    if removed is None:
+        removed = {str(x) for x in (data.get("removed") or [])}
+    data.update({
+        "version": 1, "updated": time.strftime("%Y-%m-%dT%H:%M:%S"),
+        "home": str(data.get("home") or ""),
+        "registries": [r for r in registries if r.get("id") not in _SHIPPED_IDS],
+        "disabled": sorted(disabled), "removed": sorted(removed),
+    })
     tmp = p.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(
-        {"version": 1, "updated": time.strftime("%Y-%m-%dT%H:%M:%S"),
-         "home": existing_home, "registries": keep}, indent=2), encoding="utf-8")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
     tmp.replace(p)
 
 
 def marketplace_home() -> str:
-    """The community marketplace website, if the operator has pointed ELI at one.
+    """A marketplace website, if the operator has pointed ELI at one.
 
-    Empty by default and deliberately so. ELI ships no default store URL: the
-    marketplace belongs to the community, and baking in an address would make the
-    ELI author its gatekeeper, its moderator, and the party answerable for whatever
-    strangers publish there. The GUI shows this as a link only once it is set.
+    Empty by default. ELI's own marketplace reaches ELI through its registry (the
+    official entry in list_registries()), not through a website, so nothing is
+    needed here to use it. The GUI shows this as a link only once it is set.
 
     A website is discovery only. It can never trigger an install — it hands out a
     registry URL and a listing id, and the desktop client does the fetching,
@@ -211,6 +230,8 @@ def add_registry(registry_id: str, url: str, label: str = "") -> Dict[str, Any]:
         return {"ok": False, "problems": ["A registry id and URL are both required."]}
     if registry_id == BUNDLED_REGISTRY_ID:
         return {"ok": False, "problems": ["That id is reserved."]}
+    if registry_id == OFFICIAL_REGISTRY_ID:
+        return _restore_official(url)
     if not url.startswith(("https://", "http://")):
         return {"ok": False, "problems": ["Registry URL must be http(s)."]}
 
@@ -254,6 +275,27 @@ def add_registry(registry_id: str, url: str, label: str = "") -> Dict[str, Any]:
     return {"ok": True, "problems": [], "warnings": warnings}
 
 
+def _restore_official(url: str) -> Dict[str, Any]:
+    """Adding the official id back lists ELI's own marketplace again, at this build's
+    address. Its id cannot name any other address."""
+    official = _official()
+    if not official:
+        return {"ok": False, "problems": ["This build has no address for ELI's own marketplace."]}
+    if url.rstrip("/") != official["url"].rstrip("/"):
+        return {"ok": False, "problems": [
+            f"{OFFICIAL_REGISTRY_ID!r} is the id of {OFFICIAL_REGISTRY_LABEL} "
+            f"({official['url']}); give a community registry its own id."]}
+    with _lock:
+        data = _read_registry_file()
+        removed = {str(x) for x in (data.get("removed") or [])}
+        if OFFICIAL_REGISTRY_ID not in removed:
+            return {"ok": False, "problems": [f"Registry {OFFICIAL_REGISTRY_ID!r} already exists."]}
+        removed.discard(OFFICIAL_REGISTRY_ID)
+        regs = _load_registries() + [official]
+        _save_registries(regs, removed=removed)
+    return {"ok": True, "problems": [], "warnings": []}
+
+
 def remove_registry(registry_id: str) -> Dict[str, Any]:
     if registry_id == BUNDLED_REGISTRY_ID:
         return {"ok": False, "problems": ["The built-in registry cannot be removed."]}
@@ -261,7 +303,12 @@ def remove_registry(registry_id: str) -> Dict[str, Any]:
         regs = _load_registries()
         if not any(r["id"] == registry_id for r in regs):
             return {"ok": False, "problems": [f"No such registry: {registry_id!r}"]}
-        _save_registries([r for r in regs if r["id"] != registry_id])
+        removed = {str(x) for x in (_read_registry_file().get("removed") or [])}
+        if registry_id == OFFICIAL_REGISTRY_ID:
+            # It ships with ELI, so removing it is recorded rather than forgotten;
+            # add_registry() with its id lists it again.
+            removed.add(registry_id)
+        _save_registries([r for r in regs if r["id"] != registry_id], removed=removed)
     return {"ok": True, "problems": []}
 
 
@@ -434,6 +481,46 @@ def _download(url: str, *, licence: Optional[str], timeout: float = 30,
                       max_bytes=MAX_PLUGIN_BYTES, allow_private=allow_private)
 
 
+def _integrity_refusal(listing: Dict[str, Any], verdict: Dict[str, Any],
+                       name: str) -> Optional[Dict[str, Any]]:
+    """The refusal for a listing whose integrity verdict does not let it install, or None.
+
+    A hash or signature mismatch is refused on any registry. A curated listing MUST
+    also carry a valid signature from the registry's own key. On a community registry
+    an unsigned listing is ordinary and gets a warning; on the official one it is
+    evidence of tampering, because nothing reaches that index without being signed at
+    approval time. Treating it as a warning there would let an attacker who can
+    rewrite the index — or sit in the middle of the download — strip the signature and
+    be waved through with a yellow badge.
+    """
+    from eli.plugins import integrity
+
+    if not verdict["ok"]:
+        return {"ok": False, "stage": "integrity", "integrity": verdict,
+                "problems": verdict["warnings"], "warnings": []}
+    if not is_curated(str(listing.get("registry") or "")):
+        return None
+    sig = verdict.get("signature") or {}
+    expected = integrity.OFFICIAL_PUBLISHER_ID
+    if verdict.get("status") != integrity.VERIFIED_SIGNED:
+        return {
+            "ok": False, "stage": "curation", "integrity": verdict, "warnings": [],
+            "problems": [
+                f"'{name}' is listed on a curated registry but its signature "
+                f"did not verify. Every listing on {listing.get('registry_label') or 'that store'} "
+                f"is signed when it is approved, so an unsigned or unverifiable one "
+                f"means the listing or the file was altered after approval. Refused.",
+                sig.get("reason") or "No valid signature was present."]}
+    if str(listing.get("publisher_id") or "") != expected:
+        return {
+            "ok": False, "stage": "curation", "integrity": verdict, "warnings": [],
+            "problems": [
+                f"'{name}' is signed by '{listing.get('publisher_id')}', not by "
+                f"the curated registry's own key ('{expected}'). A valid signature "
+                f"from the wrong signer is still the wrong signer. Refused."]}
+    return None
+
+
 def preview_install(listing: Dict[str, Any], *, timeout: float = 30) -> Dict[str, Any]:
     """Everything the operator needs to decide, WITHOUT installing anything.
 
@@ -486,35 +573,9 @@ def preview_install(listing: Dict[str, Any], *, timeout: float = 30) -> Dict[str
                 "problems": [f"Could not download the plugin: {exc}"], "warnings": []}
 
     verdict = integrity.assess(raw, listing)
-    if not verdict["ok"]:
-        return {"ok": False, "stage": "integrity", "integrity": verdict,
-                "problems": verdict["warnings"], "warnings": []}
-
-    # A curated listing MUST carry a valid signature from the registry's own key.
-    # On a community registry an unsigned plugin is ordinary and gets a warning; on
-    # the official one it is evidence of tampering, because nothing reaches that
-    # index without being signed at approval time. Treating it as a warning there
-    # would let an attacker who can rewrite the index — or sit in the middle of the
-    # download — strip the signature and be waved through with a yellow badge.
-    if is_curated(str(listing.get("registry") or "")):
-        sig = verdict.get("signature") or {}
-        expected = integrity.OFFICIAL_PUBLISHER_ID
-        if verdict.get("status") != integrity.VERIFIED_SIGNED:
-            return {
-                "ok": False, "stage": "curation", "integrity": verdict, "warnings": [],
-                "problems": [
-                    f"'{m['name']}' is listed on a curated registry but its signature "
-                    f"did not verify. Every plugin on {listing.get('registry_label') or 'that store'} "
-                    f"is signed when it is approved, so an unsigned or unverifiable one "
-                    f"means the listing or the file was altered after approval. Refused.",
-                    sig.get("reason") or "No valid signature was present."]}
-        if str(listing.get("publisher_id") or "") != expected:
-            return {
-                "ok": False, "stage": "curation", "integrity": verdict, "warnings": [],
-                "problems": [
-                    f"'{m['name']}' is signed by '{listing.get('publisher_id')}', not by "
-                    f"the curated registry's own key ('{expected}'). A valid signature "
-                    f"from the wrong signer is still the wrong signer. Refused."]}
+    refusal = _integrity_refusal(listing, verdict, m["name"])
+    if refusal:
+        return refusal
 
     try:
         source = raw.decode("utf-8")
@@ -719,6 +780,16 @@ def needs_review(preview: Dict[str, Any]) -> List[str]:
     if preview.get("pip"):
         reasons.append(f"it installs {len(preview['pip'])} package(s) from PyPI")
 
+    manifest = preview.get("manifest") or {}
+    try:
+        price = float(manifest.get("price") or 0)
+    except (TypeError, ValueError):
+        price = 0.0
+    if price > 0:
+        # A stored licence key gets a paid plugin past the payment stage; whether to
+        # install something that costs money is still the operator's decision.
+        reasons.append(f"it costs money ({price:g} {manifest.get('currency') or 'EUR'})")
+
     source = str((preview.get("manifest") or {}).get("source") or "")
     if source.startswith("http://"):
         reasons.append("the download is plain http and can be altered in transit")
@@ -766,20 +837,31 @@ def install_mcp(listing: Dict[str, Any], *, verify: bool = True,
     """Add an MCP server from a marketplace listing.
 
     Unlike a plugin there is no code to scan — ELI never sees the server's source,
-    only the command that starts it. What CAN be checked is that the runtime exists
-    and that the server answers a real MCP handshake, and that is what install_server
-    does before writing anything.
+    only the command that starts it. That definition is what the listing's checksum
+    and signature cover (integrity.mcp_listing_payload), and it is held to the same
+    check as a plugin's file before anything starts: a mismatch is refused on any
+    registry, and a curated listing must be signed by the curated registry's key.
+    Then install_server checks that the runtime exists and that the server answers a
+    real MCP handshake before writing anything.
     """
-    from eli.plugins import mcp
+    from eli.plugins import integrity, mcp
 
     spec = dict(listing.get("mcp") or {})
     if not spec:
         return {"ok": False, "problems": ["This listing has no MCP server definition."]}
+
+    verdict = integrity.assess(integrity.mcp_listing_payload(listing), listing)
+    refusal = _integrity_refusal(listing, verdict, str(listing.get("name") or listing.get("id")))
+    if refusal:
+        return refusal
+
     spec.setdefault("id", listing.get("id"))
     spec.setdefault("permissions", listing.get("permissions") or [])
 
     result = mcp.install_server(spec, verify=verify, enable=False, timeout=timeout)
     result["caveat"] = mcp.network_caveat()
+    result["integrity"] = verdict
+    result["warnings"] = list(result.get("warnings") or []) + list(verdict["warnings"])
     return result
 
 
