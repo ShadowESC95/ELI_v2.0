@@ -67,6 +67,22 @@ def test_install_android_sh_emits_progress_markers():
     assert "eli_progress finish 100" in text
 
 
+def test_build_packages_runs_builders_that_exist_and_names_what_they_make():
+    """The macos target called packaging/macos/build-macos-app.sh, which does not exist, so it only
+    printed that there was no macOS builder; and its notes and checksums named the .deb
+    eli-v2.0_<v>_amd64.deb, while build-deb.sh writes ELI_v2-<v>-amd64.deb."""
+    import re
+    text = Path("build_packages.sh").read_text(encoding="utf-8")
+    called = re.findall(r'"\$PROJECT_ROOT/(packaging/[^"]+\.(?:sh|ps1))"', text)
+    assert "packaging/macos/build-dmg.sh" in called
+    assert not [p for p in called if not Path(p).is_file()], called
+    deb_writer = Path("packaging/debian/build-deb.sh").read_text(encoding="utf-8")
+    deb = re.search(r'DEB="\$OUT_DIR/(ELI_v2-\$\{VERSION\}-amd64\.deb)"', deb_writer).group(1)
+    assert f"dist/{deb}" in text and "ELI_v2-*-amd64.deb" in text and "eli-v2.0_" not in text
+    dmg_writer = Path("packaging/macos/build-dmg.sh").read_text(encoding="utf-8")
+    assert 'DMG="$ROOT/dist/ELI_v2-${VERSION}-macos-${ARCH}.dmg"' in dmg_writer and "ELI_v2-*.dmg" in text
+
+
 def test_build_packages_scopes_windows_arm64():
     text = Path("build_packages.sh").read_text(encoding="utf-8")
     assert "windows-arm64-lean" in text

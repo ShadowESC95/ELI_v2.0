@@ -264,7 +264,7 @@ flowchart TD
 
 1. Resolve version from `pyproject.toml`; prefer `.venv/bin/python`.
 2. Pre-flight: compile all `.py` (git ls-files or find); optional full pytest (`SKIP_TESTS=1` to skip).
-3. For each target: invoke sub-builders under `packaging/` or stage Windows zips (`ELI_v2-<v>-windows-portable.zip`, `-windows-portable-full.zip`, `-windows-arm64-portable.zip`, `-windows-arm64-portable-full.zip`, each with `ELI_Setup.bat`, `install.bat`, `install.ps1`, `eli.bat`). `appimage` runs the source-portable `packaging/linux/build-appimage.sh`; `macos` looks for a `packaging/macos/build-macos-app.sh` that does not exist and only prints a note (the dmg comes from `packaging/macos/build-dmg.sh`).
+3. For each target: invoke sub-builders under `packaging/` or stage Windows zips (`ELI_v2-<v>-windows-portable.zip`, `-windows-portable-full.zip`, `-windows-arm64-portable.zip`, `-windows-arm64-portable-full.zip`, each with `ELI_Setup.bat`, `install.bat`, `install.ps1`, `eli.bat`). `appimage` runs the source-portable `packaging/linux/build-appimage.sh`; `deb` runs `packaging/debian/build-deb.sh` and copies its `ELI_v2-<v>-amd64.deb` into `dist/`; `macos`, on a Mac only, builds `dist/ELI.app` with PyInstaller (`ELI.spec`) and then `packaging/macos/build-dmg.sh` (`dist/ELI_v2-<v>-macos-<arch>.dmg`), as the release workflow does.
 4. Write `dist/SHA256SUMS.txt` and `dist/RELEASE_NOTES.md`.
 
 **Environment:** `SKIP_TESTS`, `SKIP_COMPILE`, `WHEELHOUSE_PYTHON_VERSIONS` (default `311 312`), `ELI_PORTABLE_WHEELHOUSE` (default `1`: offline PySide6 bootstrap wheels in the Windows zips).

@@ -14,7 +14,7 @@
 #   wheelhouse Windows dependency wheelhouse staged under dist/wheelhouse
 #   deb      Debian .deb       (requires dpkg-deb; runs build-deb.sh)
 #   appimage Linux AppImage    (requires appimagetool; falls back to tar.gz)
-#   macos    macOS .app/.dmg   (use on macOS for the .dmg; tar.gz elsewhere)
+#   macos    macOS .app + .dmg (on a Mac: PyInstaller ELI.spec, then packaging/macos/build-dmg.sh)
 #   windows          Windows x64 portable zip with offline wheelhouse (large)
 #   windows-lean     Windows x64 portable zip — source + wheel only (online pip install)
 #   windows-arm64        Windows on ARM (WoA/Snapdragon) full offline portable (experimental)
@@ -295,8 +295,12 @@ for target in ${TARGETS[@]+"${TARGETS[@]}"}; do
             echo ""
             if [ -f "$PROJECT_ROOT/packaging/debian/build-deb.sh" ]; then
                 echo "[deb] Invoking packaging/debian/build-deb.sh…"
-                bash "$PROJECT_ROOT/packaging/debian/build-deb.sh" "$VERSION" || \
+                # It writes dist/app_packages/; the checksums and notes below read dist/, as release.yml does.
+                if bash "$PROJECT_ROOT/packaging/debian/build-deb.sh" "$VERSION"; then
+                    cp "$DIST/app_packages/ELI_v2-${VERSION}-amd64.deb" "$DIST/"
+                else
                     echo "[deb] build-deb.sh failed (probably missing dpkg-deb / fakeroot)."
+                fi
             else
                 echo "[deb] No .deb builder yet (packaging/debian/ does not exist)."
                 echo "[deb] Use the portable tarball or AppImage instead: bash build_packages.sh appimage"
@@ -310,13 +314,15 @@ for target in ${TARGETS[@]+"${TARGETS[@]}"}; do
             ;;
         macos)
             echo ""
-            if [ -f "$PROJECT_ROOT/packaging/macos/build-macos-app.sh" ]; then
-                echo "[macos] Invoking packaging/macos/build-macos-app.sh…"
-                bash "$PROJECT_ROOT/packaging/macos/build-macos-app.sh" "$VERSION" || \
-                    echo "[macos] macOS builder failed (run on macOS for a real .dmg)."
+            # As release.yml's macOS job: the .app from ELI.spec, then the .dmg around it. PyInstaller
+            # builds for the system it runs on, so this is a Mac-only target.
+            if [ "$(uname -s)" != "Darwin" ]; then
+                echo "[macos] The .app and .dmg are built on a Mac; skipped on $(uname -s)."
+            elif ( cd "$PROJECT_ROOT" && "$PY" -m PyInstaller --noconfirm --clean ELI.spec ); then
+                echo "[macos] Invoking packaging/macos/build-dmg.sh…"
+                bash "$PROJECT_ROOT/packaging/macos/build-dmg.sh" || echo "[macos] build-dmg.sh failed."
             else
-                echo "[macos] No macOS builder yet (packaging/macos/ does not exist)."
-                echo "[macos] macOS users: install from source — bash install.sh (Metal auto-detected)."
+                echo "[macos] PyInstaller could not build dist/ELI.app (pip install -r requirements-build.txt)."
             fi
             ;;
         windows-lean)
@@ -415,11 +421,10 @@ echo "[finalise] Computing SHA-256 checksums…"
                           ELI_v2-*.dmg 2>/dev/null \
                           ELI_v2-*.AppImage 2>/dev/null \
                           ELI_v2-*-Setup.exe 2>/dev/null \
-                          eli-v2.0_*_amd64.deb 2>/dev/null \
+                          ELI_v2-*-amd64.deb 2>/dev/null \
                           ELI_v2-*-windows-portable*.zip 2>/dev/null \
                           ELI_v2-*-windows-arm64-portable*.zip 2>/dev/null \
-                          ELI_v2-*-linux-portable.tar.gz 2>/dev/null \
-                          ELI_v2-*-macos-app.tar.gz 2>/dev/null > SHA256SUMS.txt || true )
+                          ELI_v2-*-linux-portable.tar.gz 2>/dev/null > SHA256SUMS.txt || true )
 
 cat > "$DIST/RELEASE_NOTES.md" <<EOF
 # ELI v2 ${VERSION}
@@ -437,13 +442,13 @@ $(cat "$DIST/SHA256SUMS.txt" 2>/dev/null || echo "(checksum file missing)")
 
 ## Install quick reference
 - **pip / wheel**: \`pip install dist/eli_v2_0-${VERSION}-py3-none-any.whl[full]\`
-- **Debian/Ubuntu**: \`sudo dpkg -i dist/eli-v2.0_${VERSION}_amd64.deb && sudo apt -f install\`
+- **Debian/Ubuntu**: \`sudo dpkg -i dist/ELI_v2-${VERSION}-amd64.deb && sudo apt -f install\`
 - **Linux portable**: extract \`dist/ELI_v2-${VERSION}-linux-portable.tar.gz\`, run \`./INSTALL_ELI.sh\`
 - **Windows x64 lean**: extract \`dist/ELI_v2-${VERSION}-windows-portable.zip\`, run \`install.bat\`
 - **Windows x64 full offline**: extract \`dist/ELI_v2-${VERSION}-windows-portable-full.zip\`, run \`install.bat\`
 - **Windows on ARM (WoA) lean**: extract \`dist/ELI_v2-${VERSION}-windows-arm64-portable.zip\`, run \`install.bat\` (experimental)
 - **Windows on ARM full offline**: extract \`dist/ELI_v2-${VERSION}-windows-arm64-portable-full.zip\` (wheel gaps expected)
-- **macOS**: build on a Mac host with \`bash build_packages.sh macos\`
+- **macOS**: \`ELI_v2-${VERSION}-macos-<arch>.dmg\`, built on a Mac with \`bash build_packages.sh macos\`
 - **Android / Termux**: \`bash scripts/install_android.sh\` or \`python -m eli.setup --full-install\` (headless profile)
 
 EOF
