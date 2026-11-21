@@ -26,18 +26,32 @@ log = get_logger(__name__)
 # the CPU backend even when GPU offload is enabled.
 _PREBUILT_WHEEL_CPU_FLAGS: Sequence[str] = ("avx_vnni", "avx512vnni", "avx512_vnni")
 
+# The instruction sets ggml compiles in by default once native tuning is off, as (GGML option, the flag
+# /proc/cpuinfo names it by). In llama.cpp's ggml/CMakeLists.txt, GGML_NATIVE=OFF in a build that is not
+# cross-compiled turns INS_ENB on, and with it each of these options: the CPU backend is then compiled
+# with -msse4.2 -mavx -mavx2 -mbmi2 -mfma -mf16c whatever -march says, and dies with an illegal
+# instruction on a CPU without one. install.sh:_GGML_X86_DEFAULT_ISA is the same list.
+GGML_X86_DEFAULT_ISA: Sequence[Tuple[str, str]] = (
+    ("SSE42", "sse4_2"), ("AVX", "avx"), ("AVX2", "avx2"), ("BMI2", "bmi2"), ("FMA", "fma"), ("F16C", "f16c"))
 
-def _linux_cpu_flags() -> frozenset[str]:
+# What x86-64-v2, the level assumed when the CPU's flags cannot be read, promises.
+_X86_64_V2_FLAGS = frozenset({"cx16", "lahf_lm", "popcnt", "pni", "ssse3", "sse4_1", "sse4_2"})
+
+
+def _linux_cpu_flags(*, every_core: bool = False) -> frozenset[str]:
+    """The flags /proc/cpuinfo lists: on any processor, or with every_core on all of them."""
     try:
         txt = Path("/proc/cpuinfo").read_text(errors="replace")
     except OSError:
         return frozenset()
-    flags: set[str] = set()
+    per_core: list[frozenset[str]] = []
     for line in txt.splitlines():
         if line.lower().startswith("flags"):
             _, _, rest = line.partition(":")
-            flags.update(rest.lower().split())
-    return frozenset(flags)
+            per_core.append(frozenset(rest.lower().split()))
+    if not per_core:
+        return frozenset()
+    return frozenset.intersection(*per_core) if every_core else frozenset().union(*per_core)
 
 
 def _windows_cpu_has_any(substrings: Iterable[str]) -> Optional[bool]:
@@ -90,8 +104,9 @@ def safe_source_cmake_flags() -> str:
     if sys.platform == "darwin":
         return "-DGGML_NATIVE=OFF"
 
+    off = ""
     if machine in ("x86_64", "amd64"):
-        flags = _linux_cpu_flags()
+        flags = _linux_cpu_flags(every_core=True)
         if flags:
             if "avx2" in flags:
                 march = "x86-64-v3"
@@ -101,7 +116,9 @@ def safe_source_cmake_flags() -> str:
                 march = "x86-64"
         else:
             # Conservative default when /proc/cpuinfo is unavailable.
-            march = "x86-64-v2"
+            march, flags = "x86-64-v2", _X86_64_V2_FLAGS
+        # then each instruction set ggml would still compile in that this CPU lacks, switched off
+        off = "".join(f" -DGGML_{option}=OFF" for option, flag in GGML_X86_DEFAULT_ISA if flag not in flags)
     elif machine in ("aarch64", "arm64"):
         march = "armv8-a"
     elif machine in ("armv7l", "armv7", "armhf"):
@@ -112,7 +129,7 @@ def safe_source_cmake_flags() -> str:
 
     return (
         f"-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march={march} "
-        f"-DCMAKE_CXX_FLAGS=-march={march}"
+        f"-DCMAKE_CXX_FLAGS=-march={march}{off}"
     )
 
 

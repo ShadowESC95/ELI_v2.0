@@ -155,7 +155,8 @@ GPU pack is prebuilt.
 3. Installs **llama-cpp-python** 0.3.35 or newer with GPU acceleration (NVIDIA: the CUDA
    wheel index when it has a new enough build, else a CUDA source build; AMD: ROCm, then
    Vulkan; Intel Arc / iGPU and Qualcomm Adreno: Vulkan; Metal; CPU), checks that it starts
-   on this CPU (rebuilding with portable CPU flags if it dies with an illegal instruction),
+   on this CPU (rebuilding with portable CPU flags if it dies with an illegal instruction: a baseline
+   for the architecture, with each instruction set ggml would compile in that this CPU lacks switched off),
    then **verifies `llama_supports_gpu_offload()`** and, if it landed CPU-only,
    prints the exact CUDA-rebuild command (closes the silent-CPU-wheel trap).
 4. Installs the ELI package (`[full]`, editable) + all remaining dependencies from the

@@ -177,7 +177,7 @@ flowchart TD
 4. Confirm plan (unless `--yes` or non-TTY); optional model menu.
 5. Check build prerequisites (compiler, Python headers, PortAudio headers, `python3-venv`, the window's system libraries); add them when that needs no password, else print the one command. Create or rebuild `.venv` if broken/copied from another machine (`eli_env.py repair` first, then `eli_env.py create`).
 6. Upgrade pip; install PyTorch: the newest CUDA/ROCm/XPU build for this Python and driver (`eli_env.py torch-index`), checked on the GPU, else the oldest on offer, else CPU. MPS on macOS.
-7. Install **llama-cpp-python** ≥0.3.35 with GPU-appropriate `CMAKE_ARGS` (NVIDIA: the CUDA wheel index only when it has ≥0.3.35 for this Python, else a CUDA source build with `nvcc`, else a CPU-safe source build); smoke-test `llama_backend_init()` and rebuild with CPU-safe flags on SIGILL.
+7. Install **llama-cpp-python** ≥0.3.35 with GPU-appropriate `CMAKE_ARGS` (NVIDIA: the CUDA wheel index only when it has ≥0.3.35 for this Python, else a CUDA source build with `nvcc`, else a CPU-safe source build); smoke-test `llama_backend_init()` and rebuild with CPU-safe flags on SIGILL. A CPU-safe build is a baseline `-march` for this CPU with native tuning off, plus `-DGGML_<set>=OFF` for each instruction set ggml compiles in by default (SSE4.2, AVX, AVX2, BMI2, FMA, F16C) that every core's `/proc/cpuinfo` flags lack (`python -m eli.core.llama_cpu_compat cmake-flags` prints the same).
 8. Verify GPU offload when not CPU-only (with `--install-cuda`: fetch `nvcc` and rebuild with CUDA).
 9. `pip install -e ".[full]"` (editable, constrained by the lock) or bundled wheel fallback.
 10. Install from `requirements.lock.txt` (`requirements.txt` with `--latest`, `requirements-macos.txt` on macOS) over what is there (`--ignore-installed`), leaving out llama-cpp-python when the build from step 7 imports, so it is not replaced by a PyPI build without the GPU flags; on failure the ranges in `requirements-full.txt`, then one requirement at a time (`eli_env.py install-each`).
@@ -1292,7 +1292,7 @@ Symptoms gathered from installer logic, startup repair paths, and field reports.
 
 ### `llama-cpp-python` missing or SIGILL / Illegal instruction
 
-**Cause:** No ready-made llama-cpp-python new enough exists for any Python, so it is built here and needs a toolchain; or a prebuilt wheel uses AVX-VNNI instructions your CPU lacks.  
+**Cause:** No ready-made llama-cpp-python new enough exists for any Python, so it is built here and needs a toolchain; or a prebuilt wheel uses AVX-VNNI instructions your CPU lacks; or a source build made by 2.5.37 or older for a CPU without AVX2 still held AVX2 code, which ggml compiles in by default with native tuning off (re-run `install.sh`: it now switches off each instruction set the CPU lacks).  
 **Fix:** Install the build toolchain (`base-devel`, `cmake`, `git`) for source build. Startup auto-repair: `eli_startup.sh` re-runs `install.sh` on probe failure (exit 132 if still broken).
 
 ### GPU detected but ELI runs CPU-only / slow

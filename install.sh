@@ -631,6 +631,29 @@ print('llama-runtime-smoke-ok')
 " >/dev/null 2>&1
 }
 
+# Whether every processor /proc/cpuinfo lists has this flag (no when it cannot be read).
+_cpu_has_flag() {
+    [ -r /proc/cpuinfo ] || return 1
+    awk -v f="$1" '/^flags[ \t]*:/ { n++; for (i = 3; i <= NF; i++) if ($i == f) { m++; break } }
+                   END { exit !(n > 0 && m == n) }' /proc/cpuinfo 2>/dev/null
+}
+
+# The instruction sets ggml compiles in by default once native tuning is off, as GGML_<option>:<the
+# flag /proc/cpuinfo names it by>. In llama.cpp's ggml/CMakeLists.txt, GGML_NATIVE=OFF in a build that
+# is not cross-compiled turns INS_ENB on, and with it each of these options: the CPU backend is then
+# compiled with -msse4.2 -mavx -mavx2 -mbmi2 -mfma -mf16c whatever -march says, and dies with an
+# illegal instruction on a CPU without one. eli/core/llama_cpu_compat.py has the same list.
+_GGML_X86_DEFAULT_ISA="SSE42:sse4_2 AVX:avx AVX2:avx2 BMI2:bmi2 FMA:fma F16C:f16c"
+
+# -DGGML_<option>=OFF for each of those this CPU lacks.
+_ggml_x86_isa_off() {
+    local _pair _off=""
+    for _pair in $_GGML_X86_DEFAULT_ISA; do
+        _cpu_has_flag "${_pair#*:}" || _off="$_off -DGGML_${_pair%%:*}=OFF"
+    done
+    echo "${_off# }"
+}
+
 _llama_safe_cpu_cmake_flags() {
     # Baseline ISA flags so the built runtime is portable across the machines of
     # this ARCHITECTURE, rather than tuned to the one that compiled it.
@@ -641,7 +664,7 @@ _llama_safe_cpu_cmake_flags() {
     # ARM servers and Asahi/Linux-on-Apple-Silicon could not install at all. Each
     # architecture gets its own baseline, and anything unrecognised gets GGML_NATIVE
     # off with no -march at all, which always compiles.
-    local _arch _kernel
+    local _arch _kernel _off
     _arch="$(uname -m 2>/dev/null || echo unknown)"
     _kernel="$(uname -s 2>/dev/null || echo unknown)"
 
@@ -655,13 +678,15 @@ _llama_safe_cpu_cmake_flags() {
 
     case "$_arch" in
         x86_64|amd64)
-            # x86-64-v3 = AVX2/FMA — covers most 2013+ desktops; avoids VNNI-only wheels.
-            if [ -r /proc/cpuinfo ] && grep -qE '(^|[[:space:]])avx2([[:space:]]|$)' /proc/cpuinfo; then
-                echo "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64-v3 -DCMAKE_CXX_FLAGS=-march=x86-64-v3"
-            elif [ -r /proc/cpuinfo ] && grep -qE '(^|[[:space:]])sse4_2([[:space:]]|$)' /proc/cpuinfo; then
-                echo "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64-v2 -DCMAKE_CXX_FLAGS=-march=x86-64-v2"
+            # x86-64-v3 = AVX2/FMA — covers most 2013+ desktops; avoids VNNI-only wheels. Then each
+            # instruction set ggml would still compile in that this CPU lacks, switched off.
+            _off="$(_ggml_x86_isa_off)"
+            if _cpu_has_flag avx2; then
+                echo "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64-v3 -DCMAKE_CXX_FLAGS=-march=x86-64-v3${_off:+ $_off}"
+            elif _cpu_has_flag sse4_2; then
+                echo "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64-v2 -DCMAKE_CXX_FLAGS=-march=x86-64-v2${_off:+ $_off}"
             else
-                echo "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64 -DCMAKE_CXX_FLAGS=-march=x86-64"
+                echo "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=-march=x86-64 -DCMAKE_CXX_FLAGS=-march=x86-64${_off:+ $_off}"
             fi
             ;;
         aarch64|arm64)

@@ -588,6 +588,56 @@ def test_linux_installer_smoke_tests_llama_runtime_not_just_import():
     assert "x86-64-v3" in text
 
 
+# Invented flag sets: one CPU with AVX2, one with AVX but no AVX2 / FMA / F16C / BMI2, one with neither.
+_CPU_AVX2 = ("fpu tsc msr pae cx8 apic sep cmov clflush mmx fxsr sse sse2 syscall nx lm pni pclmulqdq ssse3 fma "
+             "cx16 sse4_1 sse4_2 movbe popcnt aes xsave avx f16c lahf_lm abm bmi1 avx2 bmi2")
+_CPU_AVX = ("fpu tsc msr pae cx8 apic sep cmov clflush mmx fxsr sse sse2 syscall nx lm pni pclmulqdq ssse3 "
+            "cx16 sse4_1 sse4_2 popcnt aes xsave avx lahf_lm")
+_CPU_SSSE3 = "fpu tsc msr pae cx8 apic sep cmov clflush mmx fxsr sse sse2 syscall nx lm pni ssse3 cx16 lahf_lm"
+
+
+def _cpuinfo(*cores: str) -> str:
+    return "".join(f"processor\t: {n}\nmodel name\t: Example CPU\nflags\t\t: {flags}\n\n" for n, flags in enumerate(cores))
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="runs the installer's own shell function")
+def test_a_cpu_build_holds_no_instruction_set_the_cpu_lacks(tmp_path, monkeypatch):
+    """With native tuning off, ggml compiles SSE4.2, AVX, AVX2, BMI2, FMA and F16C into its CPU backend by
+    default (llama.cpp's ggml/CMakeLists.txt: GGML_NATIVE=OFF turns INS_ENB on), whatever -march says, so
+    the "CPU-safe" build for a CPU without AVX2 still held AVX2 code and died on it. Each one the CPU's
+    flags lack is now switched off, and eli.core.llama_cpu_compat gives the same flags."""
+    import eli.core.llama_cpu_compat as lcc
+    sh = _sh_text()
+    start = sh.index("_cpu_has_flag() {")
+    end = sh.index("\n}\n", sh.index("_llama_safe_cpu_cmake_flags() {")) + 3
+    expect = {
+        (_CPU_AVX2,): "-march=x86-64-v3",
+        (_CPU_AVX,): "-march=x86-64-v2 -DGGML_AVX2=OFF -DGGML_BMI2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF",
+        (_CPU_SSSE3,): "-march=x86-64 -DGGML_SSE42=OFF -DGGML_AVX=OFF -DGGML_AVX2=OFF -DGGML_BMI2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF",
+        (_CPU_AVX2, _CPU_AVX): "-march=x86-64-v2 -DGGML_AVX2=OFF -DGGML_BMI2=OFF -DGGML_FMA=OFF -DGGML_F16C=OFF",  # on every core
+    }
+    for cores, tail in expect.items():
+        info = tmp_path / "cpuinfo"
+        info.write_text(_cpuinfo(*cores), encoding="utf-8")
+        body = sh[start:end].replace("/proc/cpuinfo", str(info))
+        script = 'set -euo pipefail\nuname() { case "$1" in -m) echo x86_64 ;; *) echo Linux ;; esac; }\n' + body + "_llama_safe_cpu_cmake_flags\n"
+        ran = subprocess.run(["bash", "-c", script], capture_output=True, text=True)
+        assert ran.returncode == 0, ran.stderr
+        march, _, off = tail.partition(" ")
+        flags = f"-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS={march} -DCMAKE_CXX_FLAGS={march}" + (f" {off}" if off else "")
+        assert ran.stdout.strip() == flags, (cores, ran.stdout)
+
+        class _Info:
+            def read_text(self, **_kw):
+                return _cpuinfo(*cores)
+        monkeypatch.setattr(lcc, "Path", lambda *_a, **_k: _Info())
+        monkeypatch.setattr(lcc.platform, "machine", lambda: "x86_64")
+        monkeypatch.setattr(lcc.sys, "platform", "linux")
+        assert lcc.safe_source_cmake_flags() == flags, cores
+    assert [opt for opt, _flag in lcc.GGML_X86_DEFAULT_ISA] == ["SSE42", "AVX", "AVX2", "BMI2", "FMA", "F16C"]
+    assert sh.count('_GGML_X86_DEFAULT_ISA="SSE42:sse4_2 AVX:avx AVX2:avx2 BMI2:bmi2 FMA:fma F16C:f16c"') == 1
+
+
 def test_install_sh_emits_gui_progress_markers():
     text = (Path(__file__).resolve().parents[1] / "install.sh").read_text(encoding="utf-8")
     assert "eli_progress()" in text
