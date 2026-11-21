@@ -63,6 +63,9 @@ _SPLIT_VERBS = (
     # desktop-control imperatives
     r"|click|press|type|copy|paste|scroll|move|select|record|toggle"
     r"|install|uninstall|connect|disconnect|increase|decrease|lower|raise"
+    # what a picture to make starts with (GENERATE_IMAGE, portable_intent_contract._ASK_FOR_A_PICTURE):
+    # "draw a cat, then open spotify" was one request for chat
+    r"|draw|paint|sketch|illustrate|render|produce"
 )
 _IMP_START = re.compile(r"^\s*(" + _SPLIT_VERBS + r")\b", re.I)
 # Verbs a command also starts with that do not divide a sentence in two: "save it and tell me when

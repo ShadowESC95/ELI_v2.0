@@ -132,3 +132,30 @@ def test_capability_imperatives_are_actually_in_the_manifest():
              "enable", "disable", "send", "update", "review"}
     orphans = sorted(_CAPABILITY_IMPERATIVES - verbs - extra)
     assert not orphans, f"verbs claimed as capabilities but absent from the manifest: {orphans}"
+
+
+def test_splitter_knows_every_verb_a_picture_request_starts_with():
+    """GENERATE_IMAGE's request starts with "draw", "paint", "sketch"...: verbs the splitter did not
+    know, so "draw a cat, then open spotify" was one message for chat."""
+    from eli.execution.portable_intent_contract import _ASK_FOR_A_PICTURE
+    verbs = re.search(r"\(\?P<verb>([^)]*)\)", _ASK_FOR_A_PICTURE.pattern).group(1).split("|")
+    unknown = [v for v in verbs if not _IMP_START.search(f"{v} something")]
+    assert not unknown, f"picture verbs the splitter cannot divide at: {unknown}"
+
+
+@pytest.mark.parametrize("phrase,parts", [
+    ("draw a cat, then open spotify", ["draw a cat", "open spotify"]),
+    ("open spotify, then draw a cat", ["open spotify", "draw a cat"]),
+    ("paint a sunset and set a timer for 5 minutes", ["paint a sunset", "set a timer for 5 minutes"]),
+])
+def test_a_picture_and_another_command_are_two_commands(phrase, parts):
+    out = _route(phrase)
+    assert out["action"] == "MULTI_COMMAND" and out["args"]["commands"] == parts, out
+    picture = next(p for p in parts if not p.startswith(("open", "set")))
+    assert _route(picture)["action"] == "GENERATE_IMAGE"
+
+
+@pytest.mark.parametrize("phrase", ["draw a conclusion", "paint the fence and the gate",
+                                    "write a story where a dragon learns to draw and paint"])
+def test_picture_verbs_do_not_split_or_draw_what_is_not_a_picture(phrase):
+    assert _route(phrase)["action"] not in ("MULTI_COMMAND", "GENERATE_IMAGE")
