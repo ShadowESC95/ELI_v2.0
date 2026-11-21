@@ -11,11 +11,14 @@ additively, so every existing class/function and caller is unchanged.
 - **Parallel intra-layer execution** — independent nodes in a topological layer run
   concurrently (threads); `max_workers=1` ⇒ deterministic sequential.
 - **Dependency result-passing** — each node fn gets a `NodeContext` with `results`
-  (completed upstream outputs) + a shared mutable `shared` bag.
+  (the outputs of every node completed in earlier layers) + a shared mutable `shared` bag.
 - **Conditional nodes** — `when(ctx)->bool` skips a branch dynamically.
 - **Retries + backoff** — per-node `retries` with exponential `retry_backoff`.
 - **Fallback** — a `fallback` fn runs if all attempts fail.
-- **Per-node timeout** — total node budget (best-effort; enforced via a worker future).
+- **Per-node timeout** — a node with a `timeout` runs on a worker thread, but the timeout
+  does not cut the layer short: the layer's pool shuts down with wait, so a node past its
+  budget is still waited for, and its finished result is kept rather than recorded as a
+  timeout (dropping it threw away finished work).
 - **Memoisation** — pluggable `cache` keyed by `cache_key` (status `cached`).
 - **Priority scheduling** — higher-priority nodes first within a ready layer.
 - **Fail-fast + global time budget** — stop scheduling after a failure / budget.
@@ -27,12 +30,12 @@ additively, so every existing class/function and caller is unchanged.
 Pure stdlib; the orchestrator does no LLM/IO — the node callables do.
 
 ## Wired through the pipeline
-- **Agents (cognition):** the agent bus runs the 15 agents on the orchestrator
-  (`_run_agents_orchestrated`, default `ELI_AGENT_ORCHESTRATOR=1`, falls back to the
-  layered then flat paths). Dependency-ordered, intra-layer parallel, per-agent
-  timeouts (mode + model-tier scaled), upstream results passed downstream, and a
-  `RunReport` captured per dispatch. Behaviour-preserving: agent fns never raise out
-  (errors → `ok=False`), so edges only order + pass upstream, never gate.
+- **Agents (cognition):** the agent bus runs the agents it selected for the turn on the
+  orchestrator (`_run_agents_orchestrated`, default `ELI_AGENT_ORCHESTRATOR=1`, falls back to
+  the layered then flat paths). Dependency-ordered, intra-layer parallel, per-agent
+  timeouts set from the mode and model tier (waited past, as above), upstream results passed
+  downstream, and a `RunReport` captured per dispatch. Behaviour-preserving: agent fns never
+  raise out (errors → `ok=False`), so edges only order + pass upstream, never gate.
 - **Router → executor (observability):** `ORCHESTRATION_STATUS` action
   ("orchestration status" / "show your agent dag") returns the live engine, execution
   layers, dependencies, critical path, and last-run telemetry — so ELI can explain its
@@ -49,11 +52,15 @@ Pure stdlib; the orchestrator does no LLM/IO — the node callables do.
 - **GUI:** a read-only **Orchestration** sub-tab in Labs (and the
   `ORCHESTRATION_STATUS` chat action) surface the live layers/deps/critical-path +
   the last dispatch's per-node RunReport.
-- Also on the DAG: the coding planner (`coding/plan_graph.py`) and the LoRA pipeline.
+- Also on `eli/core/dag`: the coding planner (`coding/plan_graph.py`), MULTI_COMMAND's
+  dependency order (`command_dependency_graph.py`), `TEST_REVIEW`'s examination of failing
+  modules (`test_review.propose_fixes`, in parallel on `run_graph`) and `SELF_IMPROVE`'s
+  `propose_via_agent` (below). The LoRA pipeline (`learning/lora_pipeline.py`) calls itself a
+  DAG but runs its stages as a fixed sequence and does not use the engine.
 
 ## Tests
-`tests/test_dag_orchestrator.py` (14) cover every feature; existing dag/coding/agent
-tests + the full suite stay green. Flags: `ELI_AGENT_ORCHESTRATOR`, `ELI_AGENT_DAG`.
+`tests/test_dag_orchestrator.py` (14) cover every feature; `tests/test_dag.py` covers the
+engine and the layered dispatch. Flags: `ELI_AGENT_ORCHESTRATOR`, `ELI_AGENT_DAG`.
 
 ## Test/project run → review (GUI + chat)
 `eli/runtime/test_review.py::run_and_review()` runs the suite (or a subset), **backs
@@ -61,11 +68,14 @@ up the prior report**, **writes a timestamped errors file** capturing failing te
 (possible errors) under `artifacts/test_reports/`, and returns a **results-driven
 options menu** (each option carries a chat `command` routing to examine/propose/
 generate/eval). Surfaced two ways:
-- **GUI:** a "🧪 Test & Review" Labs sub-tab — run the full suite in the background,
+- **GUI:** a "🧪 Test & Review" Labs sub-tab — run the full suite (or a quick review of the
+  structural claims) in the background,
   see totals + failures + backup/error paths, get **ELI's natural-language summary**,
   and click result-driven option buttons that hand off to ELI in chat.
 - **Chat:** the `TEST_REVIEW` action ("test review" / "run the tests and tell me what
-  to fix") returns the grounded report (LLM-summarised) + the options menu.
+  to fix") runs `tests/claims/test_structural_claims.py` unless given another target and
+  returns the grounded report + the options menu: as it is in Quick mode, put into words by
+  the model in the other modes.
 - **Option buttons stream into the main chat** (`MainWindow.send_to_chat`) — clicking
   an option continues the conversation in the Chat tab, not the panel.
 
@@ -73,8 +83,11 @@ generate/eval). Surfaced two ways:
 - **GENERATE_PROJECT** → `CodeAgent.solve(use_dag=True)`: decompose into a subtask DAG
   (`plan_graph` over `eli/core/dag`), solve nodes in order, VERIFY the composed module;
   saves to `artifacts/projects/`. Single-pass `chat` fallback (`ELI_PROJECT_DAG=0`).
-- **GENERATE_SCRIPT / CREATE_SCRIPT / WRITE_SCRIPT** → already routed through the
-  verified coding agent (plan → DAG/tree-search → execute → repair → bug-memory).
+- **GENERATE_SCRIPT / CREATE_SCRIPT / WRITE_SCRIPT** → **not** on the coding agent. The
+  executor's portable script hook (`_eli_v3_generate_script`) answers them before
+  `_execute_impl` is reached: one model generation, refused when it is a stub, one retry when
+  Python does not compile. The coding-agent branch in `_execute_impl`'s GENERATE_SCRIPT
+  handler is never reached (see `coding_agent.md`). `CODE_SOLVE` is the verified path.
 
 ## SELF_IMPROVE routed through the coding agent
 `SelfImprovementEngine.propose_via_agent()` (mode `propose`, or auto-detected from
@@ -91,9 +104,11 @@ report hook both honour `ELI_ARTIFACTS_DIR` (no real-folder pollution in tests).
 ## Multi-command + timed commands (2026-06-08)
 - **Multi-command chaining** (`eli/runtime/command_splitter.py` + router
   `multi_command_prepass` → `MULTI_COMMAND`): one utterance chaining imperative commands
-  is split (the "plan"), then the executor routes & runs each segment in order and
-  combines results — the planning step that lets the agents/executor handle several
-  actions from one sentence. Sequential today; `run_graph` is ready for parallel fan-out
-  of independent ("and"-joined) commands.
-- **Timed commands** → background workers: any imperative + a future time defers to the
-  durable scheduler (see `runtime_planning_world.md`).
+  is split (the "plan"), then the executor routes & runs each segment and combines
+  results — the planning step that lets the agents/executor handle several actions from one
+  sentence. The segments run in the dependency order `command_dependency_graph` infers
+  (see `dag.md`), one at a time: actions have side effects, so independent ones are not run
+  in parallel.
+- **Timed commands** → background workers: any imperative + a future time routes to
+  `SCHEDULE_TASK` and defers to the durable scheduler (`eli/runtime/scheduled_tasks.py`,
+  `schedule_request`; restored at boot by `restore_scheduled_tasks`).

@@ -79,28 +79,41 @@ dramatic jump from 7B and the fastest way to see what your scaffolding does with
 
 Nothing here requires code changes; it's all configuration.
 
-- **Drop-in any model.** Put a `.gguf` in the models directory, or point ELI at a catalog:
+- **Drop-in any model.** Put a `.gguf` in `models/` (the models directory of a source checkout;
+  `scripts/eli_launch.sh` always uses the checkout's own), or point ELI at a catalog:
   `ELI_MODEL_CATALOG=/path/catalog.json` or `<models_dir>/catalog.json` (same schema as the built-in
   catalog). Download helpers: `python -m eli.core.model_download --auto` (pick by detected VRAM),
-  `--choose` (multi-select), `--model <key>`.
-- **Load knobs (env vars):**
+  `--choose` (multi-select), `<key>` (one catalog model, e.g. `qwen2.5-7b`), `--list`.
+- **Load knobs (env vars)**, read by the loader (`gguf_inference.load_request`: the environment
+  first, then the settings; in the desktop app the startup window's own boxes are the request):
   - `ELI_GGUF_N_CTX` / `ELI_N_CTX` — context window
-  - `ELI_GGUF_N_GPU_LAYERS` / `ELI_N_GPU_LAYERS` / `ELI_GPU_LAYERS` — a cap on the layers put on
-    the GPUs; leave unset and every layer that fits goes there (`-1` is every layer)
+  - `ELI_GGUF_N_GPU_LAYERS` — a cap on the layers put on the GPUs; leave unset and every layer that
+    fits goes there (`-1` is every layer). `ELI_N_GPU_LAYERS` / `ELI_GPU_LAYERS` only set the
+    `n_gpu_layers` setting, which counts as a cap only when the settings record it as the
+    operator's pin for this model at this context (`pinned_gpu_layers_for_model`); for a model with
+    no such pin they cap nothing
   - `ELI_GGUF_N_BATCH` / `ELI_BATCH_SIZE` — batch size
   - `ELI_CTX_FRACTION` — share of the model's trained context the automatic window aims for
+    (default 0.9)
   - `ELI_VRAM_RESERVE_MB` — memory to keep free on each card (default: what ELI measured llama.cpp
     taking after the load on that card)
+  - `ELI_MAX_INPUT_LEN` — how much of one message is read, in characters. Unset, it is the context
+    window less the reply's room, so a larger window also reads longer pasted messages (every
+    message was cut at 8,192 characters before 2.5.36)
 - **Load plan.** Before every load llama.cpp simulates it on each GPU and ELI keeps the largest
   settings that fit what every card has free (`eli/core/load_plan.py`): GPU layers, then batch,
-  then context, in the order the fit profile gives.
+  then context, in the order the fit profile gives. The simulation needs llama-cpp-python 0.3.35 or
+  later, which every install source asks for; an older build is estimated from the file.
 - **Multi-GPU (already wired, not a roadmap item):**
   - `ELI_TENSOR_SPLIT` (or `ELI_GGUF_TENSOR_SPLIT`) — comma weights across GPUs, e.g. `"0.5,0.5"` for
     two equal cards, `"1,1,1,1"` for four
-  - `ELI_MAIN_GPU` / `ELI_GGUF_MAIN_GPU` — which GPU holds the KV cache / does the gather
-  - `ELI_GGUF_SPLIT_MODE` — `none` | `layer` | `row`
-  - These pass straight to llama.cpp at load, with a graceful fallback if the installed build doesn't
-    support them. (Also settable in runtime settings / `gpu_profiles.json`.)
+  - `ELI_GPU_DEVICES` — the cards to use, e.g. `"0,1"`; unset, every GPU
+  - `ELI_MAIN_GPU` / `ELI_GGUF_MAIN_GPU` — the card used alone when the split mode is `none`
+  - `ELI_GGUF_SPLIT_MODE` (or `ELI_SPLIT_MODE`) — `layer` (the default) | `none`; a row split is not
+    planned, and `row` is read as `layer`
+  - The planner takes these as the operator's settings, also settable in runtime settings or as an
+    enabled profile in `config/gpu_profiles.json`; an argument the installed llama-cpp-python does
+    not take is dropped and logged (`model_load_diagnostics.llama_accepts`).
 
 ---
 
@@ -110,8 +123,9 @@ The least-friction way to feel the jump.
 
 1. **Rent the box.** On RunPod/Vast.ai, launch a **1x 80 GB H100 (or 48 GB A6000)** instance with a
    CUDA image and enough disk (~80 GB for a 70B Q4 file).
-2. **Install ELI.** Clone your repo, run `install.sh` (it builds the CUDA llama-cpp and verifies GPU
-   offload). Use the `.venv`.
+2. **Install ELI.** Clone your repo, run `install.sh` (on NVIDIA it installs a CUDA build of
+   llama-cpp-python 0.3.35 or later — a wheel where the CPU can trust one, else built from source —
+   and checks GPU offload). Use the `.venv`.
 3. **Get the model.** Download a 70B GGUF (e.g. Llama-3.3-70B-Instruct Q4_K_M) into the models dir, or
    add it to `catalog.json` and use `model_download`.
 4. **Point ELI at it and put it fully on the GPU:**
@@ -119,10 +133,11 @@ The least-friction way to feel the jump.
    export ELI_N_CTX=16384           # or leave unset for the largest window that fits
    ```
    Every layer that fits goes on the GPU without a setting (80 GB holds a 70B Q4).
-   ```
-   ```
-5. **Launch** (`scripts/eli_launch.sh`, or serve mode). Ask it something meaty and watch the quality.
-6. **Verify it's really on GPU:** check the load log for the GPU-offload line / `nvidia-smi`.
+5. **Launch** (`scripts/eli_launch.sh` for the desktop app, `scripts/eli_launch.sh serve` for the API
+   and web app). Ask it something meaty and watch the quality.
+6. **Verify it's really on GPU:** the `[LOAD_PLAN]` line in the log says how many layers went to
+   the GPU and how much each card uses (`80/80 layers on GPU + output (CUDA0 …: uses … of … MB
+   free)`); `nvidia-smi` shows the same memory.
 7. **Tear down** the instance when done — you only pay for the hours used.
 
 ---
@@ -132,23 +147,27 @@ The least-friction way to feel the jump.
 1. **Rent a multi-GPU node** (e.g. 4x or 8x 80 GB). Confirm total VRAM covers the model's footprint
    (see §4), or plan for CPU+RAM offload on an MoE.
 2. **Install ELI** as above (recent llama-cpp build — the model architecture must be supported by the
-   build; update llama-cpp if the arch is new).
+   build; update llama-cpp if the arch is new). A source install takes upstream's llama-cpp-python,
+   which can trail the newest architectures; a model it cannot read fails with an explanation that
+   names the architecture (`explain_load_failure`).
 3. **Place the GGUF** (often multi-part for huge models) in the models dir.
 4. **Spread it across the GPUs:**
    ```bash
-   export ELI_GGUF_SPLIT_MODE=layer    # layer split is the usual choice
+   export ELI_GGUF_SPLIT_MODE=layer    # the default; a row split is not planned
    export ELI_N_CTX=8192               # or leave unset for the largest window that fits
    # optional: ELI_TENSOR_SPLIT="1,1,1,1" fixes the shares; unset, each card gets layers in
    # proportion to the room it has
    ```
-   For an MoE that exceeds VRAM, lower `ELI_N_GPU_LAYERS` so the rest offloads to system RAM (needs a
-   high-RAM box, e.g. 384–512 GB for 671B-class).
+   An MoE that exceeds VRAM needs no layer setting: with `moe_expert_offload` on `auto` (the
+   default) the plan keeps the experts of as few leading layers as it must in system RAM and
+   everything else on the GPUs (needs a high-RAM box, e.g. 384–512 GB for 671B-class).
 5. **Load small first.** Start with a small context to confirm it loads, then raise `ELI_N_CTX`.
 6. **Run, marvel, tear down.**
 
-**Honest caveats:** the aux models (the embedder, and vision if enabled) still want a slice of
-VRAM/RAM — budget for them; very large contexts cost a lot of KV-cache memory (raise gradually); and
-the first load of a giant model is slow. None are blockers — just expectations.
+**Honest caveats:** the embedder (and a co-resident vision model, if enabled) loads before the
+language model is planned, so the plan leaves it its room; a vision model that hot-swaps unloads the
+language model while it runs. Very large contexts cost a lot of KV-cache memory (raise gradually),
+and the first load of a giant model is slow. None are blockers — just expectations.
 
 ---
 

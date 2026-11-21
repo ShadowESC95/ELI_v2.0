@@ -4,7 +4,12 @@ One consolidated, parameterised pipeline to fine-tune a base model into an **ELI
 substrate** — and drop the resulting GGUF straight into `models/`.
 
 **Default target: `Qwen/Qwen3-8B`** — the bake-off winner. Its 40,960 context holds ELI's
-full ~7–9k brief (unlike the 4k phi-3, which produced garbage), and at Q4 it fits an 8 GB card.
+full brief, which runs to thousands of tokens (the 4k phi-3 could not, and produced garbage), and
+at Q4 it fits an 8 GB card.
+
+This folder ships exactly four files in git (`git ls-files training`): this README,
+`extract_eli_dataset.py`, `train_lora.py` and `merge_and_convert.py`. `datasets/`, `runs/`,
+`base/` and anything else under `training/` are made locally and ignored by git.
 
 ## The one rule: persona stays dynamic
 ELI's persona is **dynamic, self-updating, and lives in the runtime** (`persona_updater` +
@@ -19,11 +24,14 @@ ELI's *voice / manner / behavioral contracts* as expressed in its actual replies
   fine-tuned voice. Evolving persona preserved.
 
 ## Prerequisites
-- `pip install unsloth trl transformers datasets` (LoRA training stack; already used by the
-  legacy scripts).
+- The LoRA training stack, from the project folder: `pip install -e ".[training]"` (torch,
+  transformers, peft, datasets, trl: the `training` extra in `pyproject.toml`) and
+  `pip install unsloth bitsandbytes` (Unsloth is in no requirements file; the 4-bit base and the
+  8-bit optimiser need bitsandbytes).
 - **Base weights = HF, not GGUF.** Training needs `Qwen/Qwen3-8B` HF weights (≈16 GB):
-  `huggingface-cli download Qwen/Qwen3-8B --local-dir training/base/Qwen3-8B`
+  `hf download Qwen/Qwen3-8B --local-dir training/base/Qwen3-8B`
   (then pass `--base-model training/base/Qwen3-8B`), or just use the HF id `Qwen/Qwen3-8B`.
+  `hf` comes with huggingface_hub; the old `huggingface-cli` no longer works on its 1.x releases.
 - A GPU. The defaults (`--gpu-mem 5.5GiB`, 4-bit, CPU-offload) are tuned for an 8 GB card.
 
 ## Run it (3 steps)
@@ -52,18 +60,23 @@ python training/merge_and_convert.py \
     --adapter training/runs/eli-qwen3-8b-lora \
     --out-name eli-qwen3-8b --quant q4_k_m
 ```
-Result: `models/eli-qwen3-8b-q4_k_m.gguf`. Load it in ELI (Model menu / Auto Detect) — the
-ctx tuner sizes it from its real `n_ctx_train` and keeps the layers on GPU; the dynamic
-persona/memory still come from the runtime.
+Result: `models/eli-qwen3-8b-q4_k_m.gguf` (under the folder you ran it from; `--models-dir`
+picks another). Load it in ELI (Model ▸ Load Model…, or the startup model picker; Auto Detect on
+the toolbar re-tunes the settings for it). ELI reads its real `n_ctx_train` from the file, never
+sizes a prompt past it, and the load plan fits GPU layers, batch and context to the memory each
+card has free; the dynamic persona/memory still come from the runtime.
 
 ## Manual GGUF conversion (fallback)
 If Unsloth's `save_pretrained_gguf` isn't available, merge in Python then convert with
-llama.cpp:
+llama.cpp, built with CMake (its Makefile only prints that it was replaced):
 ```bash
+# llama.cpp, once:
+#   git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
+#   cmake -B build && cmake --build build --config Release
 # merge adapter -> 16-bit HF dir (small python: FastLanguageModel.from_pretrained +
 #   model.load_adapter(...) ; model.save_pretrained_merged("merged", tok, save_method="merged_16bit"))
 python /path/to/llama.cpp/convert_hf_to_gguf.py merged --outfile eli-qwen3-8b-f16.gguf
-/path/to/llama.cpp/llama-quantize eli-qwen3-8b-f16.gguf models/eli-qwen3-8b-q4_k_m.gguf Q4_K_M
+/path/to/llama.cpp/build/bin/llama-quantize eli-qwen3-8b-f16.gguf models/eli-qwen3-8b-q4_k_m.gguf Q4_K_M
 ```
 
 ## Tuning knobs (`train_lora.py`)
@@ -78,5 +91,5 @@ frozen), (d) obeys No-Fake-Actions.
 
 ## Supersedes (legacy, kept for reference, not deleted)
 `models/extract_training_data*.py`, `models/train_lora_7b*.py`, `models/train_phi3.py` — the
-scattered phi-3/7B generations with hardcoded paths and `max_seq_length=1024`. Use this
-`training/` pipeline instead.
+scattered phi-3/7B generations with hardcoded paths and `max_seq_length` of 1024 or 2048. Use
+this `training/` pipeline instead.

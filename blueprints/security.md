@@ -1,55 +1,110 @@
 # ELI Security Posture
 
-> **Updated for v2.4.84.** Fail-closed shell gate, path allow-roots, custom-agent
-> SHA-256 trust registry, prompt-injection sanitisation at engine entry (S02).
+> **Updated for v2.5.36.** The live command gate (`execution/shell_gate.py`) reads every command
+> in a line; API members and viewers cannot have ELI run the owner's actions
+> (`runtime/authority_gate.py`, now a role gate), and the same-machine grants need a `Host`
+> header that names this machine; ELI's MCP server withholds the owner's actions; CREATE_FILE
+> never replaces an existing file unless told to; scripts are no longer pre-written.
 
 ELI runs locally with real OS reach (shell, file, app control) plus a
-user-extensible agent/plugin system — so the security model matters. It is
-**fail-closed** by design. Spans `eli/runtime/security.py`, the executor gate,
-the engine input sanitiser, the memory SQL validator, and the agent trust
-registry.
+user-extensible agent/plugin system — so the security model matters. It spans
+`eli/execution/shell_gate.py` (the command gate), `eli/runtime/authority_gate.py` (who may have
+ELI do what), the API server's authentication (`api/server.py`), the network guard
+(`eli/core/netguard.py`), the engine input sanitiser, the memory SQL validator, the agent trust
+registry and the plugin marketplace's checks. Where a check cannot decide, most of these deny:
+the API's authentication, the network guard, the engine's authority check on side-effecting
+actions and the plugin permission prompt all fail closed. The shell gate is the exception: it is
+a denylist, so a command it does not recognise as harmful runs.
 
-## 1. Shell command gate (`runtime/security.py` `SecurityManager`)
+## 1. Shell command gate (`execution/shell_gate.py` `check_command`)
 
-- `is_command_allowed(cmd)`:
-  - **ELI Full Control** on (`is_full_control()`) → allow all.
-  - `ELI_ALLOWED_CMDS` contains `*` → allow all.
-  - `ELI_ALLOWED_CMDS` unset **and** Full Control off → **blocked (fail-closed)**;
-    logs a warning explaining how to opt in. (Always allows the project's own
-    `.venv/bin/python`.)
-- `safe_subprocess(cmd, timeout)` — validates `cmd[0]` against the allowlist
-  before running; capture_output, timeout-bounded, never `shell=True`.
-- **Defence in depth:** `executor_enhanced._shell_command_allowed_fallback`
-  mirrors this exact logic, so if `SecurityManager` fails to import, the executor
-  still fails **closed** (never fail-open). Explicit comment to that effect.
+RUN_CMD and SHELL_EXEC (its alias, which runs the line through the OS shell) are refused when
+`check_command(cmd)` returns a block result. It reads **every command the line runs**, not only
+its first word:
+
+- The line is split into commands at `;`, `&&`, `||`, `|`, `&` and newlines, and what runs
+  inside `$( )`, `<( )`, `>( )` and backticks is read as commands of its own (`_commands_in`).
+- Wrappers are looked through to what they run (`_what_runs`): `sudo`, `doas`, `env`, `nice`,
+  `nohup`, `timeout`, `command`, `exec`, `builtin`, `xargs`, `busybox`, `stdbuf`, `setsid`,
+  `time`, `ionice`, `chrt`, `taskset`, `unbuffer`, `caffeinate`, `start`, with their options and
+  any `VAR=value` prefixes skipped. `env -S '...'` (`--split-string`) is read as the line its
+  string holds.
+- A command is refused when the program it runs is on `_DENIED_EXECUTABLES` — shells and script
+  interpreters, netcat, disk and firewall tools, `rm`/`shred`/`wipe`, and the Windows and macOS
+  equivalents (`cmd`, `powershell`, `cscript`, `mshta`, `diskpart`, `bcdedit`, `vssadmin`,
+  `osascript` …), matched on the base name with any directory and `.exe`/`.com`/`.bat`/`.cmd`
+  dropped — or when it is `find` with `-delete`, or with `-exec`/`-execdir`/`-ok`/`-okdir`
+  running a denied program.
+- The whole line is also matched against `_BLOCKED_PATTERNS`: destructive POSIX commands
+  (`rm -rf /`, `mkfs`, `dd of=/dev/`, `chmod 777 /`, a fork bomb, shutdown/reboot,
+  `curl … | sh`, `bash -c`, `python -c`, redirects into `/etc` or `/boot`, password, sudoers and
+  crontab changes), their Windows forms (recursive `del`/`rd`, `format X:`,
+  `Remove-Item -Recurse`, `reg delete`, deleting shadow copies or backups, `bcdedit`,
+  `cipher /w`, `iex`, `cmd /c`, `powershell -c`/`-enc`) and macOS ones (`diskutil erase`,
+  `csrutil disable`, `spctl --master-disable`).
+- An argv list is one command (no shell reads it), so only its own words are judged.
+
+It is a **denylist**: a command that matches none of this runs, with the user's rights. RUN_CMD
+runs an argv with `shell=False`; SHELL_EXEC hands the line to `/bin/sh -c` (`cmd.exe /d /s /c`
+on Windows) after the gate has read all of it. **ELI Full Control** on → no block at all.
+
+`shell_gate.py` is on self-improvement's protected list (`self_improvement._PROTECTED_PATCH_PATHS`),
+so a self-patch cannot strip it. The intent model is never offered RUN_CMD or SHELL_EXEC
+(`llm_intent._EXPLICIT_ONLY_ACTIONS`), and ELI does not carry out a promise in its own reply that
+names one (`engine._followthrough_may_run`).
+
+**Not on the runtime path:** `SecurityManager.is_command_allowed` and `safe_subprocess`
+(`runtime/security.py`, an allowlist read from `ELI_ALLOWED_CMDS` that refuses everything when it
+is unset) and the executor's `_run` helper with its fallback `_shell_command_allowed_fallback`.
+Only the tests call them, so `ELI_ALLOWED_CMDS` does not change what RUN_CMD or SHELL_EXEC run.
 
 > **ELI Full Control has no environment variable — deliberately.** The single
 > source of truth is the `full_control` setting flipped by the GUI toggle, read
 > live via `core/full_control.py` `is_full_control()`; nothing in the process
 > environment can turn it on, so no stray export can silently unlock the gates,
 > and flipping the toggle off restores every gate at once without a restart. It
-> lifts four barriers together: network gating, self-code patching, autonomy
-> approval, and this command gate.
+> lifts these barriers together: network gating (netguard), self-code patching, autonomy
+> approval (`approval_engine`), this command gate, CREATE_FILE's allow-roots (§2), and
+> in-process code-mode programs (`coding/restricted_exec.py` runs them only with it on). It does
+> not touch the API's authentication or roles (§7) or what ELI's MCP server withholds (§17).
 
-## 2. Filesystem & app gates (`SecurityManager`)
+## 2. Filesystem & app gates
 
-- `is_path_allowed(path)` — must resolve within allow-roots
-  (`project_root` + `$HOME` + `ELI_ALLOW_ROOTS`). Uses `Path.resolve()` +
-  `relative_to`, so `..` traversal can't escape.
-- `is_app_allowed(app)` — explicit `ELI_ALLOWED_APPS`, else a curated
-  default-safe set (settings, file manager, editor, calculator, terminal,
-  browser, mail). ELI Full Control bypasses.
+- **CREATE_FILE allow-roots** — `SecurityManager.is_path_allowed(path)`, the one part of
+  `runtime/security.py` on the runtime path. The target must resolve inside the project root
+  (`ELI_ROOT`, else the source tree), `$HOME`, an `ELI_ALLOW_ROOTS` entry (colon-separated) or
+  the system temp folder. Uses `Path.resolve()` + `relative_to`, so `..` traversal and symlinks
+  can't escape. A relative path is placed under `<data dir>/scratch/`. Anywhere else is refused
+  unless Full Control is on.
+- **CREATE_FILE never replaces a file.** If the target exists it is not written unless the call
+  carries `overwrite`, which the router sets only when the user says "overwrite" or "replace"
+  (`router_enhanced`, `fs.create_file`). A model or an MCP client choosing CREATE_FILE cannot
+  write over an existing file such as a shell profile.
+- Reading files and listing folders (`READ_FILE`, `LIST_DIR`) have no allow-roots. For an API
+  member or viewer and for MCP clients they are owner-only (§7, §17).
+- **Apps:** `SecurityManager.is_app_allowed` (an `ELI_ALLOWED_APPS` list, else the
+  cross-platform default-safe set in `_is_default_safe_app`) and the executor's
+  `_allowed_apps_set` are not called at runtime, so `ELI_ALLOWED_APPS` does not restrict
+  OPEN_APP. When an app will not open, ELI checks whether it is installed and offers to install
+  it (`runtime/grounded_remediation.py`): on Windows the name must be a plain program or package
+  name (`_PACKAGE_NAME`) before it reaches `where`, winget or Chocolatey, and `where` runs without
+  a shell; POSIX lookups quote it with `shlex.quote`.
 
 ## 3. Prompt-injection guard (`kernel/engine.py`)
 
 `_ELI_INJECTION_PATTERNS` (regex) + `_eli_sanitize_user_input`:
-- Matches classic jailbreak/role-override prefixes — `### system:`,
-  "ignore/disregard/forget (all) previous instructions", "you are now a
-  dan/jailbreak/unrestricted/free" — and replaces the matched span with
-  `[filtered]` (keeps the rest of the message).
-- Strips control characters.
-- Runs before the input reaches the LLM, so injected role-overrides are
-  neutralised but legitimate content survives.
+- Matches role tokens and role-override prefixes — `[INST]`, `<|im_start|>system`, `<<SYS>>`,
+  `### system:` / `### instruction:` / `### context:`, `SYSTEM:` before ignore/override/disregard,
+  "ignore/disregard/forget (all) previous/prior/above instructions", "you are now a
+  dan/jailbreak/unrestricted/free", `OVERRIDE:`, "act as (if you were) a human/person/
+  unrestricted" — and replaces the matched span with `[filtered]` (keeps the rest of the
+  message).
+- Strips control characters (keeps newlines and tabs).
+- Fits the message to what the loaded model can read (`_eli_max_input_chars`: the context window
+  less the reply's room; `ELI_MAX_INPUT_LEN` overrides). A longer message keeps its start and its
+  end, with the middle marked as left out (`_eli_fit_input`).
+- Runs at the top of `CognitiveEngine.process()`, before the router and the LLM see the input,
+  so injected role-overrides are neutralised but legitimate content survives.
 
 ## 4. SQL identifier validation (`memory/memory.py`)
 
@@ -91,78 +146,93 @@ code and never touches the trust gate. See `orchestration_and_agents.md`.
 
 ## 6. Code generation & self-modification — three paths
 
-ELI has **three** distinct codegen paths, with escalating capability and
-matching safeguards:
+ELI writes code for the user (GENERATE_SCRIPT) and for itself (self-patching), and a guard
+checks what generation leaves behind:
 
-1. **Pre-vetted canned library** (`runtime/generated_script_guard.py`, 1.1k LOC) —
-   ~5 hand-written, reviewed scripts (`_write_gpu_memory_watch_script`,
-   `_write_type_ia_redshift_script`, `_write_ton_618_mass_density_script`, …)
-   that ELI *writes to disk* on request. No LLM code is executed; safe but fixed
-   to the curated set (several physics-domain).
-2. **`GENERATE_SCRIPT`** (`execution/executor_enhanced.py`) — *real* LLM codegen.
-   Detects language/intent, prompts for frontier-quality code, then gates it:
+1. **`GENERATE_SCRIPT`** (`execution/executor_enhanced.py`) — *real* LLM codegen, written for
+   the request in front of it. Detects language/intent, prompts for frontier-quality code, then
+   gates it:
    - `_verify_python_module_apis` — imports the referenced libraries and confirms
      `module.attr` references actually exist (catches hallucinated APIs).
    - `_quality_reject_reason` — rejects refusals, stubs, too-short, no-real-compute,
      missing-plot, `required=True`-without-default, SyntaxError.
-   - **`_sandbox_run_python` (added)** — executes the candidate in a bounded,
-     isolated subprocess (temp cwd, scrubbed env, `MPLBACKEND=Agg` so `plt.show()`
-     can't block, wall-clock timeout `ELI_GENSCRIPT_RUN_TIMEOUT`=20s, generous
-     `RLIMIT_CPU`; **no `RLIMIT_AS`** — it breaks numpy/scipy). A genuine
-     unhandled traceback is fed back as repair feedback into a **3-attempt
-     regenerate loop**; timeouts / signal kills / missing-optional-deps are
-     tolerated (never reject legit heavy scientific scripts). Disable with
-     `ELI_GENSCRIPT_VERIFY_RUN=0`.
+   - **`_sandbox_run_python`** — runs the candidate through `coding/sandbox.run_code`: a
+     separate process with a temp working folder, an environment without variables whose names
+     hold KEY/TOKEN/SECRET/PASSWORD, `MPLBACKEND=Agg` so `plt.show()` can't block, a wall-clock
+     timeout (`ELI_GENSCRIPT_RUN_TIMEOUT`, 20 s) and on POSIX a generous `RLIMIT_CPU`; **no
+     `RLIMIT_AS`** — it breaks numpy/scipy. A genuine unhandled traceback is fed back as repair
+     feedback into a **3-attempt regenerate loop**; timeouts / signal kills /
+     missing-optional-deps are tolerated (never reject legit heavy scientific scripts). Disable
+     the run with `ELI_GENSCRIPT_VERIFY_RUN=0` (`ELI_CODING_SANDBOX=0` turns sandbox execution
+     off entirely). This is process isolation, not containment: the run has the user's files
+     and, since netguard lives only in ELI's own interpreter, the network.
+2. **What generation leaves behind is checked** (`runtime/generated_script_guard.py`). Its
+   `install()` wraps the executor's `execute`: a generated script that is a template or the
+   model's chatter (`TODO`, "Add code here", a prompt echo, a shell file holding Python function
+   definitions) is moved to an `invalid/` folder beside it with the reason, and reported as
+   failed; a generated document is filed under the documents folder and refused when it carries
+   stub markers or is under 240 characters. It no longer answers any request with a pre-written
+   script (until 2.5.36 it picked one of six canned scripts by keywords).
 3. **Self-patching** (`runtime/self_improvement.py` `SelfImprovementEngine`) —
    ELI modifies its *own* source for recurring failures. Gated behind
-   `auto_patch_enabled` (**default off**), ≤2 patches/cycle. Safeguards:
-   verbatim-`old`-match → `ast.parse` → timestamped backup (+ canonical
-   `.eli_bak`) → write → `py_compile` → **differential import smoke-test
-   (added)**: the patched module is imported in an isolated subprocess and
-   **auto-reverted** if it no longer loads, but only when the module imported
-   cleanly *before* the patch (so missing optional deps don't cause false
-   reverts). Project-root-confined, `.py`-only, logged to the `code_patches`
-   table.
+   `auto_patch_enabled` (**default off**) or Full Control, ≤2 patches/cycle, only for
+   high-recurrence failures with a file traceback. A candidate goes live only when a copy of the
+   tree shows it fixes something (`apply_autonomously`): it is applied to a working copy whose
+   files are hard-linked, and the same test command is run on the copy and on the untouched tree
+   (`verify_in_workspace` → `compare_runs`) — the failure capsule's reproducer when the action is
+   safe to replay, else the tests matching the module's name. Only `fixed` (something that failed
+   now passes and nothing new fails) is applied; every candidate stays in the `code_patches`
+   table with its verdict and cost. Applying runs verbatim-`old`-match → `ast.parse` →
+   timestamped backup (+ canonical `.eli_bak`) → write → `py_compile` → **differential import
+   smoke-test**: the patched module is imported in an isolated subprocess and **auto-reverted**
+   if it no longer loads, but only when it imported cleanly *before* the patch. A patch whose
+   actions are watched stays probationary and is adopted or rolled back on their record.
+   Project-root-confined and `.py`-only. Protected, never patched: `shell_gate.py`,
+   `authority_gate.py`, `security.py`, `netguard.py`, `full_control.py`, `approval_engine.py`,
+   `self_improvement.py`, `deterministic_grounding_gate.py`, `persistence_gate.py`,
+   `evidence_ledger.py`, `lessons.py`, `failure_taxonomy.py`, and `tests/`, `tools/eval/`,
+   `conftest.py`, `pytest.ini` (`ELI_PROTECTED_PATCH_PATHS` adds more).
+   `ELI_SELFPATCH_UNPROVEN=1` restores applying without proof.
 
-> **Code-health flag:** `generated_script_guard` uses the same stacked-override
-> pattern as the grounding gate — two `install()` definitions chained via
-> `_ELI_SQLITE_SCRIPT_PREVIOUS_INSTALL`. Works, but layered rather than edited.
+> **Code-health flag:** `generated_script_guard` is now a single `install()` wrapper (the chained
+> second definition is gone), but the executor's `execute` is still layered: several wrappers
+> (document defaults, the voice contract, the portable-action layer, this guard, the middleware
+> table) each wrap the one before. The owner-only check (§7) sits in the outermost `execute`,
+> the one the engine, the API and the MCP server import.
 
-> **Possible next step (not done):** the self-patch loop verifies the module
-> still *imports*; it does not yet re-run the original failing input to confirm
-> the patch actually *fixes* the failure. A behavioural/test re-run would close
-> that last gap.
+> **Limit:** without a replayable capsule a candidate is judged by `pytest tests/ -k <module>`;
+> a module with no matching tests gives an inconclusive verdict, and the candidate is kept in
+> the archive unapplied.
 
 ## Honest assessment
 
-- **Strong:** the gates are real and **fail-closed** — shell blocked by default,
-  fallback mirror prevents fail-open, path traversal contained, identifiers
-  validated, agents hash-trusted, injection prefixes stripped, and "generated"
-  code is actually pre-reviewed. This is well above the norm for local-AI
-  projects, which routinely ship wide-open shell access.
+- **Strong:** the shell gate reads every command a line runs, through wrappers and
+  substitutions; CREATE_FILE is root-confined and never overwrites unasked; identifiers are
+  validated; custom agent code is hash-trusted with provenance; injection prefixes are
+  neutralised; generated Python scripts are run before they are handed over and templates are
+  quarantined; self-patches must prove a fix on a copy of the tree first.
 - **Weak / watch:**
-  1. The injection guard is **pattern-based** — it catches known prefixes, not
+  1. The shell gate is a **denylist** — anything it does not name runs with the user's rights.
+     (`ELI_ALLOWED_CMDS` belongs to `SecurityManager.is_command_allowed`, which the live path does
+     not use.)
+  2. The injection guard is **pattern-based** — it catches known prefixes, not
      novel/obfuscated injections (no model-side defence). Reasonable for a
      single-user local tool, insufficient if ever multi-tenant.
-  2. **ELI Full Control** is a single toggle that disables *all* gates at once —
-     convenient, but a blunt instrument; there's no middle "allow file but not
-     shell" tier beyond the per-axis env vars.
-  3. ~~The default-safe app/command sets are Linux/GNOME-flavoured.~~ **RESOLVED** — the
-     default-safe **app** set in `_is_default_safe_app` is cross-platform (Linux + macOS
-     Finder/Safari/Terminal.app/System Settings + Windows Explorer/Notepad/cmd/PowerShell/
-     Control Panel). The **command** path is fail-closed (no OS-specific default set — blocked
-     unless `ELI_ALLOWED_CMDS`/Full-Control), so nothing OS-specific to add there.
-  4. Pre-vetted-scripts approach is safe but doesn't scale — genuinely dynamic
-     capability generation would need a real sandbox (resource limits, seccomp,
-     subprocess isolation), which doesn't exist yet.
+  3. **ELI Full Control** is a single toggle that lifts the shell gate, the network gate,
+     CREATE_FILE's roots, self-patching and approval at once — convenient, but a blunt
+     instrument; there is no middle "allow file but not shell" tier.
+  4. Child processes are not contained by netguard: shell commands, generated-code test runs,
+     `pip` and plugins granted `process_exec` have the user's network and files. Only MCP servers
+     are launched in a sandbox, and only on Linux (§17).
+  5. `READ_FILE` and `LIST_DIR` are not root-confined for the owner.
 
 ---
 
 ## RUN_CMD terminal is real; mock leak fenced
-- **RUN_CMD uses a real `subprocess.run`** (`executor_enhanced.py:5350` — no shell,
-  capture_output, timeout) behind the destructive-command security gate (`_BLOCKED_PATTERNS`:
-  `rm -rf /`, `mkfs`, `dd of=/dev/`, `chmod 777 /`, fork bomb, shutdown/reboot). The gate is
-  lifted only when **Full Control** is on. There is **no production mock path**.
+- **RUN_CMD uses a real `subprocess.run`** (the RUN_CMD handler in `executor_enhanced.py` — an
+  argv with `shell=False`, capture_output, timeout default 30 s; SHELL_EXEC runs the line through
+  the OS shell) behind `shell_gate.check_command` (§1). The gate is lifted only when
+  **Full Control** is on. There is **no production mock path**.
 - **The `<MagicMock …>` failure rows were test leakage, not runtime.** They came from
   `tests/test_shell_security_gate.py` patching `subprocess.run`; the executor's
   `(p.stdout or "") + (p.stderr or "")` concat then yields a MagicMock repr, which slipped into
@@ -174,20 +244,53 @@ matching safeguards:
 
 ## Web app & multi-user security
 
-ELI now ships a self-hosted FastAPI web app (`api/server.py`). It is local-first and
-inherits all of the gates above (the model is the same local GGUF behind netguard;
-commands/files/apps stay fail-closed). The web surface adds:
+ELI ships a self-hosted FastAPI web app (`api/server.py`). It is local-first and inherits the
+gates above: the model is the same local GGUF behind netguard, and what a web turn runs passes
+the same shell gate and CREATE_FILE rules. The web surface adds:
 
 ### 7. Authenticated identity + RBAC (`eli/runtime/api_users.py`, `api/server.py`)
-- **Three roles** — `admin` / `member` / `viewer` (read-only). Endpoints are dependency-gated
-  (`require_admin` / `require_member` / `require_viewer` / `_require_token`). RBAC enforces
-  once at least one user exists; before that, same-machine use is frictionless.
-- **Fail-closed auth gate** — unauthenticated/under-privileged calls are rejected, not
-  silently downgraded. The token store holds **hashes**, never raw tokens.
+- **Three roles** — `viewer` (read-only) < `member` (acts) < `admin` (console, user management).
+  Endpoints are dependency-gated (`require_viewer` / `require_member` / `require_admin`;
+  `_require_token` admits any authenticated caller). Chat, streaming, chat completions,
+  `/v1/execute`, research and device control need a member; user management, the Net switch,
+  settings, model switching, driver installs and the server port need an admin.
+- **Two modes.** With no users defined (single-operator mode) `ELI_API_TOKEN`, or a same-machine
+  grant below, authenticates the local operator as admin. Once one user exists in
+  `config/api_users.json`, RBAC is enforced: each bearer token resolves to a user and role, and
+  actions are attributed to the authenticated user, not to a `user_id` the client sends.
+- **Fail-closed auth gate** — an unauthenticated call is answered 401 and an under-privileged one
+  403, never silently downgraded. Tokenless serving needs `ELI_API_ALLOW_TOKENLESS`, which
+  `main()` sets only for a loopback bind, so a bare `uvicorn api.server:app` asks every caller for
+  a token. A request from this machine (loopback peer) with no token is the owner unless
+  `ELI_LOOPBACK_ADMIN=0`; `--lan` binds `0.0.0.0` and requires a token from every other device.
+- **The name the request uses (DNS-rebinding defence).** The tokenless and same-machine grants
+  hold only when the request's `Host` header names this machine (`_named_as_this_machine`): an IP
+  address, `localhost` or `*.localhost`, the machine's own host names, or a name listed in
+  `ELI_API_ALLOWED_HOSTS` (a reverse proxy's, say). A web page that points its own domain at
+  127.0.0.1 reaches the server from loopback but sends its own domain as `Host`, so it gets no
+  grant and must present a token like a LAN client. A valid token works by any name.
+- **Owner-only actions** (`runtime/authority_gate.py`, a role gate since 2.5.36). In RBAC mode a
+  member or viewer cannot have ELI run `authority_gate.owner_only()`: shell commands, code
+  generation and fixes, reading, writing, listing and converting files, PDFs and images,
+  screenshots and screen reading, the clipboard, keyboard and mouse, opening the IDE or the file
+  manager, and everything ELI's intent model is never offered (`llm_intent._EXPLICIT_ONLY_ACTIONS`:
+  persona and settings changes, forgetting memories, plugins, MCP, self-patching and upgrades,
+  training, wake word and gaze, proactive start/stop). `/v1/execute` checks the caller's role and
+  answers 403; `/v1/chat`, `/v1/chat/stream`, `/v1/chat/completions` and `/v1/research/query`
+  put the role on the turn (`request_context.caller_role_var`), and the executor's `execute`
+  checks it at entry, so no path a turn takes — a chain of commands, an agreed offer, a tool
+  loop — reaches one. The desktop app and ELI's own daemons carry no role and are the owner; in
+  single-operator mode every caller is the admin operator.
+- **Tokens at rest.** The RBAC store holds only SHA-256 hashes of tokens, compared in constant
+  time; a token is shown once, at creation. The single-operator LAN token is kept as written, in
+  a `0600` file (see "Stable phone token" below), because the server prints it for pairing.
 
 ### 8. Tamper-evident, HMAC-keyed audit trail (`eli/runtime/evidence_ledger.py`)
-- Every API action is recorded into a **hash-chained** ledger (who / what / outcome,
-  **metadata only — never message content**). Any edited/deleted/reordered row is detected
+- API chat and execute calls, Net switch flips, settings changes and model switches are recorded
+  into a **hash-chained** ledger (`runtime_events` in the user database) as who / what / outcome,
+  **without message content**. The same ledger also holds research-corpus activity and the
+  engine's own rows — each executed action and each final reply, with its text — and
+  `/v1/audit` returns only the metadata columns. Any edited/deleted/reordered row is detected
   by `verify_chain()` and surfaced in the Audit tab + admin console.
 - The chain is **HMAC-keyed** (`$ELI_AUDIT_HMAC_KEY`, else a `0600` key file beside the
   config), so the integrity check can't be forged by recomputing plain hashes.
@@ -199,14 +302,17 @@ commands/files/apps stay fail-closed). The web surface adds:
 - **`secure_io.secure_write_text/bytes`** is now the single owner of secret writes:
   `tempfile.mkstemp` (born `0600`) → write → fsync → `os.replace` (atomic). The destination
   **never exists world-readable for any instant**, and readers see old-or-new, never partial.
-- Routed through it: the **audit HMAC key**, the **API token store**, **settings** (may hold
-  broker passwords/tokens), and the **agent-trust registry** (`trusted_agents.json`, the
-  integrity anchor for §5 — hashes not secrets, but written `0600`/atomic so it can't be
-  tampered or half-written).
+- Routed through it: the **audit HMAC key**, the **API user store**, the **LAN API token**, the
+  LAN HTTPS **private key**, and **settings** (may hold broker passwords/tokens). The
+  **agent-trust registry** (`trusted_agents.json`, the integrity anchor for §5) is written
+  atomically (temp file, then rename) but with the default file mode, not through `secure_io`.
 
 ### 10. Sandboxed research ingest
-- Corpus ingest for the research workspace runs sandboxed (path-scoped), so a shared/
-  collaborative corpus can't reach outside its workspace.
+- Corpus ingest for the research workspace reads only inside one folder
+  (`research_corpus.research_source_root()`: `artifacts/research/_sources`, or
+  `ELI_RESEARCH_ROOT`). Absolute paths outside it, `..` and symlinks that lead out are refused
+  after `resolve()`, and the walk is capped (`ELI_RESEARCH_MAX_FILES`, `ELI_RESEARCH_MAX_BYTES`),
+  so a client cannot have the server read and echo back other files on the host.
 
 ### 11. Monitored Internet toggle + egress oversight (`eli/core/netguard.py` + `api/server.py`)
 - ELI is **offline-by-default** and hard-gated at the **socket boundary** — the process-wide
@@ -223,7 +329,10 @@ commands/files/apps stay fail-closed). The web surface adds:
 - The owner can deliberately **enable internet**: from the desktop GUI (`🌐 Net` toggle) or the
   web dashboard (`GET /v1/net` token-gated read + `POST /v1/net` **admin-only**), persisted via
   `network_enabled`. **Both flips are written to the audit ledger** (`net_toggle`,
-  warning-severity on enable) — the web *and* the desktop toggle.
+  warning-severity on enable) — the web *and* the desktop toggle. The `ELI_OFFLINE` environment
+  variable, when set, overrides the setting (`core/config.network_allowed`): `1`, `true` or `yes`
+  keeps ELI offline and any other value turns the network on. Full Control lifts the offline
+  barrier too.
 - **Egress is genuinely monitored, not a blind hole.** While network is on, the same socket
   chokepoint that enforces offline mode also **records every allowed non-loopback connection**
   (host:port + timestamp): into an **in-memory ring** (live tail; `GET /v1/net/egress` + the
@@ -244,12 +353,14 @@ commands/files/apps stay fail-closed). The web surface adds:
   monitored (per-connection) and under the user's control, not a permanent lockout.
 
 ### Honest assessment — web tier
-- **Strong:** fail-closed auth, role separation, a tamper-evident HMAC'd audit trail,
-  born-locked secret files, and a monitored (not absent) network path. For a self-hosted
-  local AI this is well above the norm.
-- **Watch:** RBAC is token-based and single-tenant-shaped; the injection guard (§3) is still
-  pattern-based; ELI Full Control remains a blunt all-gates-off switch. None new, but they
-  matter more once the web app is exposed beyond the owner's machine — keep it bound to
+- **Strong:** fail-closed auth, role separation that reaches every path a turn takes, a
+  same-machine grant a rebinding page cannot borrow, a tamper-evident HMAC'd audit trail,
+  born-locked secret files, and a monitored (not absent) network path.
+- **Watch:** RBAC is token-based and single-tenant-shaped: a member still drives everything
+  that is not owner-only (devices, media, web search while the network is on). The injection
+  guard (§3) is still pattern-based, and ELI Full Control remains one blunt switch for the
+  local gates.
+  These matter more once the web app is exposed beyond the owner's machine — keep it bound to
   trusted networks.
 
 ## Stable phone token, admin-gated model switch
@@ -258,9 +369,11 @@ Two web-tier changes this cycle, both verified against the code:
 
 - **Stable LAN token + rotate.** The phone's bearer token now **persists** across server
   restarts (`api/api_token.py`: env → a `0600` file under the config dir → generate-and-save),
-  so a paired phone is no longer stranded every time the server bounces. A **rotate** button
-  issues a fresh token and invalidates the old one in one tap — the manual override for a
-  lost/compromised phone. `/health` stays tokenless by design.
+  so a paired phone is no longer stranded every time the server bounces. The desktop **Web
+  Server panel's Rotate token** button issues a fresh token and saves it; a server running inside
+  the desktop app reads the token live, so old links stop working at once (a server the app
+  started as a separate process keeps the token it was started with until it restarts). It is
+  the manual override for a lost/compromised phone. `/health` stays tokenless by design.
 
 - **Model switching is admin-gated and allowlist-bound.** The dashboard's model dropdown posts
   to `POST /v1/model`, which requires an **admin** principal and only accepts a path already in
@@ -269,24 +382,28 @@ Two web-tier changes this cycle, both verified against the code:
   moved off `/v1/models` to `/v1/models/installed` so it no longer collides with the
   OpenAI-compatible route.)
 
-Neither weakens the existing posture — the socket failsafe, fail-closed command gate, and audit
+Neither weakens the existing posture — the socket failsafe, the shell gate, and the audit
 ledger all still apply.
 
 ## Token moved to the URL fragment; test reds cleared
 
-- **Token in the URL fragment, never the query string.** Every emitter of the phone link now
-  builds `…/#token=…` instead of `…/?token=…`: the server's printed URLs *and* the desktop **Web
-  Server panel** (`eli/gui/eli_pro_audio_gui_v2_0.py:8332/:8391`) *and* both launchers
-  (`scripts/eli_serve.sh`, `scripts/eli_serve.ps1`). A query string reaches the server — it lands
-  in **uvicorn's access log** before any client-side strip can run — whereas a **fragment is never
-  sent to the server**, so the token can't leak into the log. The page reads it from
+- **Token in the URL fragment, never the query string.** Every emitter of the phone link
+  builds `…/#token=…` instead of `…/?token=…`: the server's printed URLs and its Connect-tab
+  link (`_connect_url`) *and* the desktop **Web Server panel** (`_eli_server_start`,
+  `_eli_server_start_subprocess`, `_eli_server_rotate_token` in
+  `eli/gui/eli_pro_audio_gui_v2_0.py`). The launchers (`scripts/eli_serve.sh`,
+  `scripts/eli_serve.ps1`) print the address without the token and leave the token link to the
+  server. A query string reaches the server — it lands in **uvicorn's access log** before any
+  client-side strip can run — whereas a **fragment is never sent to the server**, so the token
+  can't leak into the log. The page reads it from
   `location.hash`, stores it, and clears the address bar; it still accepts `?token=` for old
   links, so the transition breaks nothing. (An earlier commit fixed only the web tab + printed
-  URL, leaving the GUI/launcher paths — most real usage — still leaking; this closes them.)
+  URL, leaving the GUI/launcher paths — most real usage — still leaking; this closed them.)
 
-- **All 5 standing test reds cleared.** Deprecated `smart_home` plugin removed; 113 silent
-  `except: pass` swallows made observable (987→874, ceiling 950→900); stale blueprint references
-  fixed. Not a security change per se, but the suite is now fully green.
+- **The five standing test reds of that cycle were cleared.** The deprecated `smart_home` plugin
+  was removed, 113 silent `except: pass` swallows were made observable, and stale blueprint
+  references were fixed. Not a security change per se. The ratchet that keeps silent swallows
+  from growing is `tests/claims/test_no_silent_swallow.py`.
 
 
 ## Community plugin marketplace: consent, verification, scanning
@@ -304,7 +421,7 @@ whatever the interpreter could do, the plugin could do — read every conversati
 reach the network, drive the mouse — with nothing declared and nobody asked.
 
 Plugins now **declare** capabilities in their manifest and the operator is asked, in
-plain language, before any of them is used. Thirteen capabilities
+plain language, before any of them is used. Fourteen capabilities
 (`network`, `filesystem_read/write`, `process_exec`, `os_control`, `screen_capture`,
 `camera`, `microphone`, `memory_read/write`, `model_access`, `clipboard`,
 `notifications`, `audio_playback`), each with a risk level and a sentence on why it
@@ -429,26 +546,53 @@ touches Python's socket module. Demonstrated directly: with `ELI_OFFLINE=1` and 
 guard installed, the parent process is correctly refused with `OfflineError` while a
 child process, inheriting the same environment, connects straight out.
 
-There is **no eBPF, seccomp, landlock, network-namespace or firewall integration**
-anywhere in ELI today. So:
+So an MCP server is launched through `eli/plugins/subprocess_sandbox.py` — at install
+(`mcp.probe()`) and in use (`eli/integrations/mcp/client.py`) alike — which applies the strongest
+containment this machine has, counted only once it has been probed to work here:
+
+- **Linux with bubblewrap (`bwrap`):** a server that did not declare the `network` permission
+  gets no network at all (`--unshare-net`). The root is mounted read-only, `$HOME` and `/tmp`
+  are replaced by empty tmpfs mounts, and only the program's own runtime, the paths named on
+  its command line and the paths it declared (`read_paths`, `write_paths`, its `cwd`) are bound
+  back; it also gets its own PID, UTS and IPC namespaces, `--die-with-parent` and
+  `--new-session`.
+- **Linux with only `unshare`:** the network is isolated; the filesystem is not.
+- **No usable sandbox** (macOS, Windows, or a host that forbids user namespaces): the server
+  runs with the account's full rights and network, ELI logs a warning, and the consent text says
+  so.
+- Every launch drops environment variables whose names contain TOKEN, SECRET, PASSWORD or
+  API_KEY; on POSIX the child gets CPU-time and open-file limits, and on Linux
+  `PR_SET_NO_NEW_PRIVS`.
+
+There is **no eBPF, seccomp, landlock or firewall integration**, and `pip`, shell commands,
+generated-code test runs and plugins granted `process_exec` are **not** launched in this
+sandbox: ELI's offline switch cannot stop them, and ELI cannot see what they send. Containing a
+child on Windows or macOS would need that platform's own egress control (WFP, a network
+extension); that work does not exist yet.
 
 - **In-process Python plugins** are covered by netguard at the socket boundary, plus
   the permission gate above. (A `ctypes` native call would bypass it, which is why
   `ctypes.CDLL` is refused outright by the manifest checker.)
-- **MCP servers, `pip`, and any subprocess are not covered.** ELI's offline switch
-  cannot stop them, and ELI cannot see what they send.
 
-`mcp.network_caveat()` returns the sentence every MCP consent screen must carry, so
-no UI can imply a containment that does not exist. Real enforcement would need
-kernel-level egress control per platform — cgroup/eBPF or a network namespace on
-Linux, WFP on Windows, a network extension on macOS — routing the child through an
-ELI-owned proxy that netguard *can* govern. That work does not exist yet.
+`mcp.network_caveat()` returns the sentence every MCP consent screen must carry, derived from
+what `subprocess_sandbox` will actually apply on this machine, so no UI can imply a containment
+that does not exist.
 
 What the MCP layer *does* guarantee is that a configured server actually works:
 there is **one** config file ELI owns, installing runs a runtime preflight then a
 real `initialize` + `tools/list` handshake, and an entry is written **only after a
 server has answered**. A missing runtime or a process that is not an MCP server is
 refused before the config is touched.
+
+**ELI as an MCP server** (`eli/integrations/mcp/server.py`, `eli-mcp` / `--mcp-server`) is the
+other direction: a client gets ELI's action surface (the executor's supported actions), never a
+free-text prompt into the engine. Unless `ELI_MCP_ALLOW_CONTROL=1`, it withholds every action
+that starts with a control prefix (`COMPUTER_USE`, `KEYBOARD`, `MOUSE`, `SHELL`, `RUN_`,
+`EXECUTE`, `SELF_`, `CODE_`, `GAZE`, `SET_CLIPBOARD`, `SCHEDULE_`, `DELETE_`, `INSTALL`,
+`UNINSTALL`, `UPGRADE`, `SMART_HOME`, `SEND_`) and every owner-only action
+(`authority_gate.owner_only()`, §7), so CREATE_FILE, READ_FILE, SCREENSHOT and MEMORY_FORGET are
+not exposed; if that list cannot be loaded it exposes nothing. A call to a withheld action is
+refused before the executor is reached.
 
 
 ### 18. Fetching from sources the operator does not own (`eli/core/netguard.py`)
@@ -509,7 +653,7 @@ Properties, stated precisely because "sandbox" oversells it:
 - **It enforces below the API.** Importing `socket` directly does not help.
 - **It is not a boundary against native code.** A plugin running arbitrary machine
   code through a compiled extension is outside anything in-process — which is why
-  `ctypes.dlopen` needs `process_exec` and the manifest checker refuses `ctypes`
+  `ctypes.dlopen` needs `process_exec` and the manifest checker refuses `ctypes.CDLL`
   outright.
 - **It does not contain subprocesses.** A plugin granted `process_exec` spawns a real
   child and nothing here follows it. Same limit as netguard, which is why that
@@ -532,7 +676,8 @@ nothing and the click is consent theatre.
 
 **Blocks** (each a judgement only the operator can make): a non-clean scan; no
 checksum in the listing, so the file cannot be matched to what was described;
-requested permissions; PyPI dependencies; a price; a plain-http download URL.
+requested permissions; PyPI dependencies; a price with no licence key entered; a plain-http
+download URL.
 
 **Does not block, reported instead**: ClamAV/YARA/blocklist not installed (partial
 coverage) and the plugin being unsigned — both the normal state of a community

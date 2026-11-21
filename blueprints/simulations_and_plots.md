@@ -2,34 +2,45 @@
 
 ELI can **build things that compute and draw** — from a quick bar chart to a
 time-evolving physics simulation. It does this the honest way: it **writes the
-maths/simulation code, runs it in a sandbox, and gives you back the figure or
-animation** (fixing the code itself if it errors). Nothing is faked — if ELI shows
-you a plot, real code produced it on your machine.
+maths/simulation code**, and the figure or animation comes from running that code on
+your machine. Nothing is faked — if ELI shows you a plot, real code produced it.
 
 ---
 
 ## How it works (so the claims are grounded, not magic)
 
-Three real pieces combine:
+Four real pieces combine:
 
-1. **The coding agent** (`eli/coding/agent.py`) — plans → writes → **runs** → tests →
-   repairs. It doesn't hand you untested code; it executes it and checks the result.
-2. **The sandbox** (`eli/coding/sandbox.py`) — runs that code in a clean temp
-   directory with a **non-interactive matplotlib backend** already configured, so
-   plots render headlessly and save to a file with no setup.
-3. **The scientific stack** (the `analysis` extra, bundled in the installer):
-   `numpy`, `scipy`, `matplotlib` (+ 3D via `mpl_toolkits.mplot3d`), `plotly`,
-   `pandas`, `meshio`. This is the ceiling of what ELI can build — and it's a high
-   one: the same tools professional scientists and engineers use.
+1. **Script requests** — *"write a Python script that plots …"* goes to `GENERATE_SCRIPT`:
+   one generation by the local model, refused when it is a template or a stub, checked that
+   Python compiles (one retry if not), saved under ELI's `scripts/` folder and opened in
+   **Labs ▸ 🔬 Sim / IDE**. It is not run for you.
+2. **Labs ▸ Sim / IDE** — **▶ Run** executes the editor's Python in a separate process (60 s
+   limit, your own permissions, not sandboxed) and the **Plot Output** panel shows the image
+   the code saves to the Labs plot file (`ELI_LABS_PLOT_DIR`, else the temp folder; the
+   *Starter* examples do this). See `ide_guide.md`.
+3. **The coding agent** (`eli/coding/agent.py`, the Coding tab or `CODE_SOLVE`) — plans →
+   writes → **runs** → tests → repairs, in the sandbox (`eli/coding/sandbox.py`): a clean temp
+   directory with a **non-interactive matplotlib backend** already configured, so plotting
+   code runs headlessly. The sandbox folder is deleted after each run, so a figure saved
+   there is not kept; what you get is the checked code, saved under `scripts/`.
+4. **The scientific stack** (the `analysis` extra, bundled in the installer):
+   `scipy`, `matplotlib` (+ 3D via `mpl_toolkits.mplot3d`), `plotly`,
+   `pandas`, `meshio`, on top of `numpy`. This is the ceiling of what ELI can build — and
+   it's a high one: the same tools professional scientists and engineers use.
+
+A bare *"plot …"* or *"simulate …"* has no rule of its own: the model's intent resolver may
+turn it into a script request, or it is answered in chat, where code in the reply is not
+run. Asking for a script makes it certain.
 
 So "the most advanced simulations ELI can make" = **anything expressible in Python's
-scientific ecosystem**, written and run for you.
+scientific ecosystem**, written for you and run on your machine.
 
 ---
 
 ## 2D — charts, graphs, plots
 
-Just describe it:
+Ask for a script that does it (*"write a Python script that …"*), then run it:
 
 - *"plot this data as a line chart"* · *"bar graph of these sales figures"*
 - *"histogram of these values"* · *"scatter plot of x vs y with a trend line"*
@@ -57,7 +68,8 @@ Backed by **mplot3d** (static 3D) and **plotly** (rotate/zoom in 3D).
 
 "4D" here means the **3 spatial dimensions plus time** — a simulation you can watch
 evolve. ELI writes the update loop, integrates the maths, and renders frames into an
-animation (GIF/MP4) or an interactive time-slider figure.
+animation (GIF/MP4) or an interactive time-slider figure when the script runs. GIF goes
+through Pillow; MP4 needs ffmpeg installed on the machine.
 
 - **Physics:** *"simulate a pendulum and animate it"* · *"model projectile motion
   with air resistance"* · *"animate a bouncing ball"* · *"double pendulum chaos"*
@@ -76,11 +88,12 @@ and **matplotlib.animation** / **plotly** (the moving picture).
 
 ## What you get back
 
-- A **saved figure** (PNG for static, GIF/MP4 for animation, HTML for interactive)
-  written to ELI's artifacts, which ELI can open/show you.
-- The **code** it wrote, if you want to keep, tweak, or learn from it (open it in
-  ELI's built-in editor — see `blueprints/ide_guide.md`).
-- A plain-English summary of what the simulation shows.
+- The **code** it wrote, saved under ELI's `scripts/` folder and opened in ELI's built-in
+  editor (Labs ▸ Sim / IDE — see `blueprints/ide_guide.md`), to keep, tweak, or learn from.
+- A **saved figure** when the code runs (PNG for static, GIF/MP4 for animation, HTML for
+  interactive), written wherever the code saves it. The Plot Output panel shows an image
+  saved to the Labs plot file.
+- An explanation on request: **ELI: Explain** in Sim / IDE walks through what the code does.
 
 ---
 
@@ -91,7 +104,9 @@ and **matplotlib.animation** / **plotly** (the moving picture).
   still use purpose-built software; ELI covers the enormous middle ground of
   scientific/engineering plotting, dynamics and modelling.
 - Very large simulations run as fast as **your** machine allows — they're computed
-  locally, offline.
+  locally, offline. A run from Sim / IDE stops after 60 seconds; run a longer one yourself.
+- Code run from Sim / IDE has your own permissions and no sandbox: read what ELI wrote
+  before you run it.
 - The scientific extras ship with the installer; from a source checkout, install
   them with `pip install -e ".[analysis]"`.
 
@@ -100,10 +115,10 @@ and **matplotlib.animation** / **plotly** (the moving picture).
 ## One-line examples to try
 
 ```
-plot y = sin(x)/x from -20 to 20
-make a 3D surface plot of a gaussian bump
-simulate and animate a simple pendulum
-solve the Lorenz system and show the butterfly attractor
-animate Conway's Game of Life on a 50x50 grid
-load model.stl, render it, and tell me its dimensions
+write a Python script that plots y = sin(x)/x from -20 to 20
+write a Python script that makes a 3D surface plot of a gaussian bump
+write a Python script that simulates and animates a simple pendulum
+write a Python script that solves the Lorenz system and shows the butterfly attractor
+write a Python script that animates Conway's Game of Life on a 50x50 grid
+write a Python script that loads model.stl, renders it and prints its dimensions
 ```

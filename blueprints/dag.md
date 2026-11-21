@@ -4,7 +4,9 @@ A single, generic directed-acyclic-graph engine (`eli/core/dag.py`) is now the
 shared scheduling primitive across ELI: the **agent bus** runs its agents on it,
 the **coding engine** runs its subtasks on it, and **MULTI_COMMAND** orders
 chained commands on it. One DAG algorithm, three consumers — no per-subsystem
-reinvention.
+reinvention. The executing `Orchestrator` in the same module also runs the evidence
+channels, `TEST_REVIEW`'s check of failing modules and `SELF_IMPROVE`'s fix proposals; see
+`dag_orchestrator.md`.
 
 ## The engine (`eli/core/dag.py`)
 
@@ -31,20 +33,22 @@ other's output). Now:
 - `_AGENT_DEPENDENCIES` declares edges among agents. Shipped edges:
   `knowledge_graph ← memory`, and `critic ← {memory, system, knowledge_graph,
   file_code}` — `CriticAgent` is the bus's second-tier verifier: it reasons over
-  what its upstream retrievers found (via `intent["_upstream"]`) rather than the
+  what the agents of the earlier layers found (via `intent["_upstream"]`) rather than the
   raw query, measuring pairwise term-overlap agreement between them and
   downgrading confidence on contradiction. It self-gates to nothing when fewer
   than 2 upstream sources are available, so it never fires on trivial turns.
 - `_agent_execution_layers(active_names)` builds a DAG from that map ∩ the
   selected agents and returns topological layers.
-- `AgentBus._run_agents_layered` runs **layer by layer**: each layer's agents run
-  in parallel (same per-agent hard timeout + failure handling as before), then
+- The bus runs the layers **layer by layer**: each layer's agents run in parallel, then
   every completed layer's results are passed to downstream agents via
   `intent["_upstream"]`. The `knowledge_graph` agent uses this to seed its lookup
-  with what `memory` surfaced this turn.
+  with what `memory` surfaced this turn. By default the layers run on the executing
+  `Orchestrator` (`_run_agents_orchestrated`, see `dag_orchestrator.md`);
+  `_run_agents_layered` is its fallback, with per-agent hard timeouts.
 - **Non-regressive:** when no edges apply to the selected set, the DAG collapses
   to a single layer = the legacy flat fan-out. Gated by `ELI_AGENT_DAG`
-  (default on); any error falls back to flat dispatch (`_run_agents_flat`).
+  (default on) and `ELI_AGENT_ORCHESTRATOR` (default on); an error in the orchestrated run
+  falls back to the layered run, and an error there to flat dispatch (`_run_agents_flat`).
 
 ```
 selected agents ─► _agent_execution_layers ─► [[memory, reflection, …], [knowledge_graph], …]
@@ -76,11 +80,13 @@ it"):
 - `infer_dependencies(commands)` mirrors `plan_graph.decompose_dag`'s shape: one optional LLM
   call asking only for dependency EDGES among the fixed, already-split command list (not a
   re-decomposition), validated through `build_dag(...).topological_layers()`. Falls back to
-  fully independent (empty dict — today's behavior) on no model, bad JSON, an out-of-range
-  index, or a cycle.
-- The executor runs `MULTI_COMMAND` in topological layers. A step whose dependency didn't
+  fully independent (an empty dict) on no model, bad JSON or a cycle; an edge with an
+  out-of-range index is dropped.
+- The executor runs `MULTI_COMMAND` in topological layers, one step at a time (actions have
+  side effects). A step whose dependency didn't
   succeed is skipped and reported as such (not silently run); independent branches still run
-  regardless of an unrelated failure. Gated by `ELI_MULTI_COMMAND_DAG` (default on).
+  regardless of an unrelated failure. Steps ELI listed and the user agreed to (`results_only`)
+  are taken as independent without a model call. Gated by `ELI_MULTI_COMMAND_DAG` (default on).
 - Deliberately narrower than consumers 1-2: it only asks for edges among an already-fixed list,
   never regenerates or reorders the commands themselves — the router's `command_splitter.py`
   owns splitting, this only owns ordering.
@@ -103,6 +109,7 @@ it"):
 | Knob | Default | Effect |
 |---|---|---|
 | `ELI_AGENT_DAG` | on | agent-bus topological layered dispatch (off ⇒ flat fan-out) |
+| `ELI_AGENT_ORCHESTRATOR` | on | run the bus layers on the executing `Orchestrator` (off ⇒ the layered path) |
 | `ELI_CODING_DAG` | on | coding subtask-DAG decomposition (off ⇒ single-shot only) |
 | `ELI_MULTI_COMMAND_DAG` | on | MULTI_COMMAND dependency inference (off ⇒ fully independent) |
 | `_AGENT_DEPENDENCIES` | `{knowledge_graph: {memory}, critic: {memory, system, knowledge_graph, file_code}}` | declare agent edges |

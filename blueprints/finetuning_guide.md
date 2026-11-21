@@ -35,10 +35,12 @@ train **any** model you pick into a GGUF.
    formatted with the *target model's* tokenizer template, or the model learns the wrong
    control tokens and produces garbage. (`extract_eli_dataset.py` does this via
    `tokenizer.apply_chat_template`.)
-5. **The base model must have enough context for ELI's brief.** ELI's runtime prompt is ~7–9k
-   tokens. A 4k-context base (phi-3-mini) **cannot** run ELI — it produced literal garbage
-   (`_....,chknce/you,//`). Qwen3-8B's 40,960 context is why it's the pick. (This is enforced
-   at load by the ctx tuner — see §7.)
+5. **The base model must have enough context for ELI's brief.** ELI's runtime prompt (persona,
+   the rules a turn needs, memory and the recent exchange) runs to thousands of tokens before the
+   reply. A 4k-context base (phi-3-mini) **cannot** run ELI — it produced literal garbage
+   (`_....,chknce/you,//`). Qwen3-8B's 40,960 context is why it's the pick. (At load ELI reads the
+   trained context from the GGUF, never sizes a prompt past it, and logs a warning when it is
+   smaller than ELI's own prompt — see §7.)
 
 ---
 
@@ -69,13 +71,18 @@ train **any** model you pick into a GGUF.
 ## 2. Environment setup (once)
 
 ```bash
-# Use the project venv (CUDA already verified there).
-cd ~/Desktop/ELI_MKXI-main_MAY_NEWEST
-.venv/bin/python -m pip install --upgrade unsloth trl transformers datasets accelerate bitsandbytes huggingface_hub
+# Use the project's own venv, from the project folder (a fresh clone is ELI_v2.0).
+cd ELI_v2.0
+.venv/bin/pip install -e ".[training]"     # torch, transformers, peft, datasets, trl (pyproject.toml)
+.venv/bin/pip install unsloth bitsandbytes # train_lora.py loads the base in 4-bit and uses an 8-bit optimiser;
+                                           # unsloth is in no requirements file, bitsandbytes only in requirements.txt
+# accelerate and huggingface_hub (the `hf` command) are already in ELI's own requirements.
 
-# llama.cpp — needed to convert HF -> GGUF and quantize (if not already present):
-#   git clone https://github.com/ggerganov/llama.cpp && cd llama.cpp && make
-#   (note its path; you'll point merge/convert at it)
+# llama.cpp — needed to convert HF -> GGUF and quantize (if not already present). It builds
+# with CMake; its Makefile only prints that it was replaced:
+#   git clone https://github.com/ggml-org/llama.cpp && cd llama.cpp
+#   cmake -B build && cmake --build build --config Release
+#   (convert_hf_to_gguf.py is at the top of the checkout, llama-quantize in build/bin/)
 ```
 Sanity checks:
 ```bash
@@ -93,7 +100,7 @@ Sanity checks:
 
 ### 0a. Choose the base (the decision that matters most)
 You train **HF weights**, not a GGUF (see §1). Pick a base whose context is **≥16k** (ELI's
-brief is ~7–9k tokens — a 4k base produces literal garbage). Set it **once** as a shell variable
+brief runs to thousands of tokens — a 4k base produced literal garbage). Set it **once** as a shell variable
 and every command below is identical regardless of which model you chose:
 
 ```bash
@@ -116,10 +123,12 @@ export NAME="eli-$(basename "$BASE" | tr '[:upper:]' '[:lower:]')"   # output gg
 
 ### 0b. Download the base HF weights (~16 GB for an 8B; the one online step)
 ```bash
-.venv/bin/huggingface-cli download "$BASE" --local-dir "training/base/$(basename "$BASE")"
+.venv/bin/hf download "$BASE" --local-dir "training/base/$(basename "$BASE")"
 export BASE_LOCAL="training/base/$(basename "$BASE")"   # use this in the commands below
 ```
-You can also pass the HF id directly (`--base-model "$BASE"`) to let HF cache it instead.
+`hf` is huggingface_hub's command; the old `huggingface-cli` only prints that it no longer works
+on the huggingface_hub 1.x ELI installs. You can also pass the HF id directly
+(`--base-model "$BASE"`) to let HF cache it instead.
 
 ---
 
@@ -134,11 +143,13 @@ You can also pass the HF id directly (`--base-model "$BASE"`) to let HF cache it
 What it does: reads your stored conversations (`artifacts/conversations/*.json`), keeps the
 USER↔ELI turns, formats each with **Qwen3's chat template**, and writes `{"text": ...}` JSONL.
 By default `--system-mode none` and **memory-state injection is excluded** (persona stays
-dynamic). 
+dynamic). Add `--from-db artifacts/db/user.sqlite3` to read the full turn log
+(`conversation_turns`, that table only) instead of the JSON snapshots; `--dry-run` prints the
+counts without loading a tokenizer or writing anything.
 
 **Curate before you train (this is where quality is won):**
 - Open the JSONL. Remove turns where ELI was *wrong, off-voice, or fabricating* (you don't want
-  to teach the failures we spent this week fixing).
+  to teach the failures ELI's runtime guards exist to stop).
 - Keep turns that exemplify the voice you want: dry, direct, honest, no fake actions, grounded.
 - Aim for **a few hundred good examples**, not thousands of mediocre ones.
 - Optional: hand-write a dozen "gold" exemplars of perfect ELI behavior (refusing to fake an
@@ -169,7 +180,10 @@ Then the real run (`--max-steps 200–400`). Hyperparameters, and how to set the
 - It should **decrease then flatten**. A gentle decline to a plateau ≈ healthy.
 - **Loss → near 0** = memorizing your data (overfit). Stop earlier / lower `r`/steps.
 - **Loss flat/noisy from the start** = LR too low, data too small, or template mismatch.
-- Save adapter checkpoints; if a later checkpoint sounds *more robotic*, use an earlier one.
+- `train_lora.py` keeps the Trainer's checkpoint default (one every 500 steps, under
+  `<out>/checkpoints/`), so a run of a few hundred steps leaves only the final adapter. To compare
+  an earlier point, train a shorter run into its own `--out`; if the longer one sounds *more
+  robotic*, use the shorter one.
 
 Output: a LoRA adapter at `training/runs/eli-qwen3-8b-lora/`.
 
@@ -180,13 +194,16 @@ Output: a LoRA adapter at `training/runs/eli-qwen3-8b-lora/`.
     --adapter training/runs/eli-qwen3-8b-lora \
     --out-name eli-qwen3-8b --quant q4_k_m
 ```
-Produces and installs `models/eli-qwen3-8b-q4_k_m.gguf`. (Manual llama.cpp fallback if Unsloth's
-GGUF export fails — see `training/README.md`.)
+Produces and installs `models/eli-qwen3-8b-q4_k_m.gguf` (`models/` under the folder you run it
+from; `--models-dir` picks another, such as an installed copy's data-folder `models/`). (Manual
+llama.cpp fallback if Unsloth's GGUF export fails — see `training/README.md`.)
 
 ### Step 4 — Load it in ELI
-Model menu / Auto Detect → pick the new GGUF. The **ctx tuner** reads its real `n_ctx_train`
-(40960), right-sizes ctx to ~16k, and keeps it on the GPU. The **dynamic persona + memory** are
-still supplied fresh by the runtime — your fine-tune just made the *substrate* speak ELI.
+**Model ▸ Load Model…** (or the startup model picker) → pick the new GGUF; **Auto Detect** on the
+toolbar re-tunes the settings for it. At load ELI reads the real `n_ctx_train` (40960) from the
+file and plans the context, GPU layers and batch to what this machine has free (§7). The
+**dynamic persona + memory** are still supplied fresh by the runtime — your fine-tune just made
+the *substrate* speak ELI.
 
 ---
 
@@ -213,7 +230,7 @@ Keep a tiny held-out set of prompts and run it after every training run — that
 | **Garbage output** (`_...,/you//`) | ctx > model's `n_ctx_train`, or wrong chat template | ensure base ≥16k ctx; confirm extract used the *target* tokenizer template |
 | **CUDA OOM during training** | base too big for VRAM | lower `--gpu-mem`; smaller base (Qwen3-4B); lower `--max-seq-len`; `--batch 1` |
 | **Loss won't drop** | LR too low / data too small / template mismatch | raise `--lr` to 2e-4; add data; re-check template |
-| **Model parrots you, ignores live persona** | overfit | fewer `--max-steps`, lower `--lora-r`, earlier checkpoint |
+| **Model parrots you, ignores live persona** | overfit | fewer `--max-steps`, lower `--lora-r`, a shorter run's adapter |
 | **Worse at reasoning than base** | overfit / too-high rank | lower `r`, fewer steps |
 | **GGUF convert fails** | Unsloth export quirk | use the manual llama.cpp `convert_hf_to_gguf.py` + `llama-quantize` path (README) |
 | **Fine-tune fabricates actions** | trained on ELI's *bad* turns | scrub the dataset of fabrication/off-voice turns; add gold no-fake exemplars |
@@ -221,13 +238,19 @@ Keep a tiny held-out set of prompts and run it after every training run — that
 ---
 
 ## 7. How this ties into ELI's runtime (so the loop is closed)
-- **Model-agnostic loader:** drop the produced GGUF in `models/`; ELI finds it, no config.
-- **Ctx tuner (shipped):** reads the model's real `n_ctx_train` from metadata, right-sizes ctx,
-  maximises GPU layers, and *warns* if a model's context is too small for ELI's brief — so a
-  bad-fit base can never silently degrade you again.
+- **Model-agnostic loader:** drop the produced GGUF in `models/`; ELI finds it, no config. Model
+  discovery (`hardware_profile.discover_models`) searches the program's own `models/` and
+  `paths.models_dir()` (`ELI_MODELS_DIR`, else the data folder's `models/`).
+- **Context, read and planned (shipped):** ELI reads the model's real `n_ctx_train` from the GGUF
+  metadata (`startup_hardware_optimizer.train_ctx_for_model`). With the context on auto it aims
+  for the smaller of 90% of that window and the context whose KV cache fits half the memory left
+  after the weights (`hardware_profile.auto_ctx_target`), and the load plan (`eli/core/load_plan.py`)
+  then fits GPU layers, batch and context to what each device has free. No prompt is sized past the
+  trained context, and a model trained on less context than ELI's own prompt is logged as a
+  warning at load — so a bad-fit base can never silently degrade you again.
 - **Contracts stay in code:** No-Fake-Actions, grounding, fenced-JSON tolerance, empty-`<think>`
-  recovery are **runtime guards** (this week's commits). The fine-tune *reinforces* the voice;
-  the guards *enforce* the behavior. Belt and braces.
+  recovery are **runtime guards** (see `grounding_and_evidence.md`). The fine-tune *reinforces*
+  the voice; the guards *enforce* the behavior. Belt and braces.
 
 ---
 
@@ -238,15 +261,15 @@ export BASE="Qwen/Qwen3-8B"                                  # ← change this t
 export NAME="eli-$(basename "$BASE" | tr '[:upper:]' '[:lower:]')"
 export BASE_LOCAL="training/base/$(basename "$BASE")"
 
-# one-time setup
-.venv/bin/python -m pip install --upgrade unsloth trl transformers datasets accelerate bitsandbytes huggingface_hub
-.venv/bin/huggingface-cli download "$BASE" --local-dir "$BASE_LOCAL"
+# one-time setup (from the project folder)
+.venv/bin/pip install -e ".[training]" && .venv/bin/pip install unsloth bitsandbytes
+.venv/bin/hf download "$BASE" --local-dir "$BASE_LOCAL"
 
 # pipeline (extract → train → merge/convert/install)
 .venv/bin/python training/extract_eli_dataset.py --base-model "$BASE_LOCAL" --out training/datasets/eli_voice.jsonl
 .venv/bin/python training/train_lora.py          --base-model "$BASE_LOCAL" --dataset training/datasets/eli_voice.jsonl --out "training/runs/$NAME-lora" --max-seq-len 4096 --max-steps 300
 .venv/bin/python training/merge_and_convert.py   --base-model "$BASE_LOCAL" --adapter "training/runs/$NAME-lora" --out-name "$NAME" --quant q4_k_m
-# then: load models/$NAME-q4_k_m.gguf in ELI (Model menu / Auto Detect)
+# then: load models/$NAME-q4_k_m.gguf in ELI (Model ▸ Load Model…, then Auto Detect)
 ```
 
 ## File map
@@ -255,6 +278,9 @@ export BASE_LOCAL="training/base/$(basename "$BASE")"
 - `training/merge_and_convert.py` — merge → GGUF → quantize → install
 - `training/README.md` — quick-start; this doc — the full rationale + correctness
 - `training/datasets/`, `training/runs/`, `training/base/` — data, adapters, base weights (created locally when you run the pipeline)
+
+A fresh clone's `training/` holds exactly those four files (`git ls-files training`); everything
+else under it, `training/evals/` included, is created locally and ignored by git.
 
 ## Golden rules, one more time
 1. Fine-tune **voice + contracts**, never the dynamic persona/memory.
@@ -276,9 +302,11 @@ machine because it *reports* rather than assumes.
 **Step 1 — Hardware.** Accelerator and vendor (NVIDIA / AMD ROCm / Apple MPS /
 Intel XPU), free VRAM, whether `bitsandbytes` is present for 4-bit, which of
 `torch / transformers / peft / accelerate / datasets` are missing, and every
-trainable Hugging Face base directory it can find with its family and size. If the
-machine cannot train, it says so in a sentence instead of starting a job that never
-finishes.
+trainable Hugging Face base directory it can find with its family and size. It looks
+in `models/hf/`, `models/`, the program folder, the data folder's `models/hf/` and
+`ELI_HF_BASE_DIR`, not in `training/base/`: a base downloaded there as in §3 is chosen
+with **Browse…** in Step 2. If the machine cannot train, it says so in a sentence
+instead of starting a job that never finishes.
 
 **Step 2 — Target.** Declare a target against any local HF base. The family is read
 from the model's own `config.json`; you do not have to know it. Built-in targets are
@@ -308,7 +336,7 @@ directory is left sane.
 
 Merge the adapter into the base and convert to GGUF. That is still
 `training/merge_and_convert.py`, and it still needs `unsloth`, which is in no
-requirements file. Until you run it, the new adapter is not the model ELI is serving
+requirements file (§2 installs it). Until you run it, the new adapter is not the model ELI is serving
 — and the wizard says exactly that when a run finishes rather than implying
 otherwise.
 
@@ -319,5 +347,6 @@ otherwise.
   Face model **directory**; see §3 above.
 - *"base_family mismatch"* — the target says one family, the checkpoint on disk says
   another. Re-declare the target against the right folder.
-- *"needs ~N GiB, you have M"* — free VRAM, shorten the sequence length, or install
-  `bitsandbytes` for 4-bit.
+- *"… has M GiB free but this run needs ~N GiB"* — it would run on the CPU, which takes
+  hours to days. Free VRAM, shorten the sequence length, or install `bitsandbytes` for
+  4-bit (NVIDIA cards).

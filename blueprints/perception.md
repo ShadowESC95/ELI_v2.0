@@ -1,6 +1,6 @@
 # ELI Perception — Vision, Voice, Wake Word, Tone, OS Control
 
-`eli/perception/` (~20 files). ELI's senses and hands: local vision, speech-to-text,
+`eli/perception/` (23 modules). ELI's senses and hands: local vision, speech-to-text,
 text-to-speech, a **self-trained wake-word detector**, a **voice-profile/tone**
 subsystem, and OS control. All local, no APIs, no third-party accounts.
 
@@ -8,41 +8,54 @@ subsystem, and OS control. All local, no APIs, no third-party accounts.
 
 | File | LOC | Role |
 |---|---|---|
-| `mic_resolver.py` | ~580 | **cross-platform mic auto-resolve** — ranked PortAudio candidates, isolated live probes, Linux `PULSE_SOURCE` pin |
-| `audio_stt.py` | ~1.6k | STT + mic capture + ducking + adaptive pause + wake/voice capture |
-| `wakeword.py` | ~450 | **self-trained, music-robust wake-word detector** (openWakeWord features + custom head) |
-| `voice_profile.py` | ~420 | **prosody + labelled-emotion** (tone/question detection) |
-| `tts_router.py` | 1219 | Piper/pyttsx3/espeak router + `char:`/`clone:`/`natural:` voice resolution; `neural_fallback_state()` makes a neural→Piper fallback observable |
+| `mic_resolver.py` | ~610 | **cross-platform mic auto-resolve** — ranked PortAudio candidates, isolated live probes, Linux `PULSE_SOURCE` pin |
+| `audio_stt.py` | ~2.5k | STT + mic capture + ducking + adaptive pause + wake/voice capture |
+| `audio_samples.py` | ~70 | a sound file as one channel at the rate its consumer needs: 16 kHz samples for whisper and the wake word (faster-whisper is handed samples rather than the file, so a PyAV change does not break transcription), playback at the output device's own rate |
+| `wakeword.py` | ~440 | **self-trained, music-robust wake-word detector** (openWakeWord features + custom head) |
+| `voice_profile.py` | ~410 | **prosody + labelled-emotion** (tone/question detection) |
+| `tts_router.py` | ~1.4k | Piper (a program, or its library in-process)/pyttsx3 router + `char:`/`clone:`/`natural:` voice resolution; `neural_fallback_state()` makes a neural→Piper fallback observable |
 | `voice_fx.py` | 252 | **voice styles** (calm / robotic / energetic / synthetic / refined) — base voice + ffmpeg effect chain; user preset store |
-| `tts_xtts.py` | 394 | **voice cloning** from a reference sample (Coqui XTTS-v2). Zero-shot: `add_clone()` only registers a reference clip, conditioning happens at synthesis. Bundled in the Linux AppImage from v2.1.65; when absent the voice still registers and synthesis falls back to Piper — **loudly**, not silently, which was a live fault |
-| `vision.py` | 698 |
-| `os_controller.py` | 572 |
+| `tts_xtts.py` | 394 | **voice cloning** from a reference sample (Coqui XTTS-v2). Zero-shot: `add_clone()` only registers a reference clip, conditioning happens at synthesis. Not in the packaged app, whose engine is Piper (see `voice_cloning_pipeline.md`); a source install adds it with the `natural`/`clone` extra. When absent the voice still registers and synthesis falls back to Piper — **loudly**, not silently, which was a live fault |
+| `vision.py` | ~710 | local vision-language models (any GGUF with its projector): hot-swap and co-resident glance |
+| `os_controller.py` | ~670 | screenshots, volume, keys, mouse, clipboard on each OS |
 | `screen_locator.py` | 497 | locate UI elements on screen (AT-SPI → local VL-ground → OCR) |
-| `screen_analysis.py` | ~180 | depth modes, prior-screen memory, research-context prompts |
+| `ui_tree.py` | ~380 | the AT-SPI accessibility tree (Linux): controls by role and name, their state and actions — `screen_locator`'s first strategy |
+| `screen_analysis.py` | ~190 | depth modes, prior-screen memory, research-context prompts |
 | `ui_ground.py` | ~320 | local GGUF precision click + computer-use agent (no HTTP) |
-| `desktop_capabilities.py` | ~170 | cross-OS input/screenshot/locate probe; feeds the awareness briefing and SELF_TEST |
-| `media_deps.py` | ~140 | bundled-python + PATH discovery for yt-dlp/mpv/desktop CLIs |
-| `gaze_engine.py` | 358 | webcam gaze/eye tracking daemon — see below |
+| `desktop_capabilities.py` | ~190 | cross-OS input/screenshot/locate probe; feeds the awareness briefing and SELF_TEST |
+| `gaze_engine.py` | 350 | webcam gaze/eye tracking daemon — see below |
 | `log_rotation.py` | 224 | log housekeeping |
-| `analyze_pdfs/image/mesh/csv.py` | ~600 | file-type analysers |
-| `ambient_vision.py` | 238 | periodic screen glances (off by default) |
-| `local_whisper_stt.py` | 335 |
+| `analyze_pdfs/image/csv.py` | ~390 | file-type analysers |
+| `ambient_vision.py` | 239 | periodic screen glances (off by default) |
+| `local_whisper_stt.py` | ~520 | faster-whisper transcription: device choice, decoder hints, doubt |
 | `voice_worker_streaming.py` | small | streaming voice worker |
+
+`media_deps.py` (bundled-python + PATH discovery for yt-dlp/mpv/desktop CLIs) lives in
+`eli/integrations/media/`.
 
 ## Vision (`vision.py` + `ambient_vision.py` + `analyze_image.py`)
 
-The working local-vision stack (see memory `eli-image-analysis`):
-- VL model (default Qwen2.5-VL, configurable) loaded via
-  `Qwen25VLChatHandler`; **CPU clip forced** by monkeypatching
-  `mtmd_cpp.mtmd_init_from_file(use_gpu=False)` — the GPU mtmd clip path
-  **segfaults** on compute-7.5 cards.
+The working local-vision stack:
+- Any VL model with its projector; no model name is built in. Resolution: `ELI_VISION_MODEL`/
+  `ELI_VISION_MMPROJ` env → `vision_model_path`/`vision_mmproj_path` settings → discovery: every
+  GGUF whose projector (architecture `clip`) sits in the same folder, paired by name, or the only
+  language model there. The largest pair is the primary model and, when there are two or more,
+  the smallest is the fast glance model (`ELI_VISION_FAST_MODEL`/`ELI_VISION_FAST_MMPROJ` pin that
+  one).
+- Chat handler: llama.cpp's generic `MTMDChatHandler` when the build has it, else by architecture,
+  then file name (Qwen2.5-VL, LLaVA 1.5/1.6, Moondream, MiniCPM-V, NanoLLaVA, Obsidian, Llama 3
+  Vision), else LLaVA 1.5; `vision_chat_handler` / `ELI_VISION_HANDLER` pins it. **CPU clip
+  forced** by monkeypatching `mtmd_cpp.mtmd_init_from_file(use_gpu=False)` — the GPU mtmd clip
+  path **segfaults** on compute-7.5 cards; the `vision_clip_on_gpu` setting turns it back on.
 - **Hot-swap**: unload text model → load VL → infer → restore in `finally`,
   holding `gguf_inference._LLM_CALL_LOCK`.
-- **Co-resident fast path**: a small model (Moondream2 Q4) loaded first, with the
-  text model's ctx capped (`vision_coresident_text_ctx`) so both fit 8GB;
-  `prefer_fast=True` uses it without a swap.
+- **Co-resident fast path**: with `vision_coresident` on (off by default) the fast glance model is
+  loaded before the text model, so the text model's load plan is made for the memory left;
+  `prefer_fast=True` then uses it without a swap (`vision_fast_no_swap` skips the swap for a fast
+  model that is not resident).
 - Images downscaled to `vision_max_image_px` (1280) to avoid context overflow;
-  `repeat_penalty`/`top_k`/`top_p` set to kill a repetition loop.
+  `repeat_penalty` (`vision_repeat_penalty`, 1.3), `top_k` 40 and `top_p` 0.9 break a repetition
+  loop.
 - `ambient_vision.py`: optional periodic screen glances (OFF by default). A
   guarded daemon re-reads the toggle/interval each cycle and **skips a glance
   whenever the shared LLM lock is busy** (so it never steals the model
@@ -64,14 +77,14 @@ your gaze on a target for ~1s to click it, no mouse or voice needed (`GAZE_ENABL
 
 Three-strategy chain for “find/click X on screen” — all local:
 
-1. **AT-SPI** (Linux) — real widget tree: role, bounds, invoke action. Best for
+1. **AT-SPI** (Linux, `ui_tree.py`) — real widget tree: role, bounds, invoke action. Best for
    labelled buttons and accessible apps.
-2. **Local VL-ground** (optional) — `ui_ground_backend=auto|local_gguf` runs a
+2. **Local VL-ground** (optional, default `none`) — `ui_ground_backend=auto|local_gguf` runs a
    local GGUF (Phi-Ground / OS-Atlas / UGround naming in `models/`) or the
    primary VL with a JSON box prompt. For icon-only or non-text UI.
 3. **OCR** — Tesseract word boxes + fuzzy match; click centre coordinate.
 
-**Computer-use agent** (`computer_use_backend=auto|local_gguf`) — optional
+**Computer-use agent** (`computer_use_backend=auto|local_gguf`, default `none`) — optional
 UI-TARS-style GGUF in `models/` for multi-step screenshot→action loops. Off by
 default.
 
@@ -100,6 +113,8 @@ No network. Missing OS tools (mpv, tesseract, ydotool) are offered via
 | macOS | PyAutoGUI (+ Accessibility permission) | screencapture |
 | Android/Termux | intents only | N/A |
 
+The table is what `desktop_capabilities` reports (SELF_TEST, the awareness briefing);
+`os_controller.take_screenshot` tries more ways in turn (see OS control, below).
 See `docs/CROSS_PLATFORM.md` for the full matrix and install commands per OS.
 
 ## Speech-to-text (`audio_stt.py`, `local_whisper_stt.py`, `mic_resolver.py`)
@@ -122,8 +137,13 @@ A large, feature-dense STT module:
   speaking lock for the whole reply, holding its process id; the mic treats it as stale only when
   that process has ended (`speaking_lock_held`). Taken as stale after 30 seconds, a minute-long
   reply was heard and transcribed half-way through.
-- **Voice commands while a reply is coming**: a short one said after the wake word waits for the
-  reply to finish (`_send_waiting_voice`) instead of being dropped; a long one still interrupts.
+- **Voice commands while a reply is coming**: a short one (six words or fewer) said after the wake
+  word waits for the reply to finish (the GUI's `_send_waiting_voice`) instead of being dropped; a
+  longer one still interrupts.
+- **Samples, not files** (`audio_samples.py`): a recording reaches faster-whisper as 16 kHz
+  samples, so faster-whisper does not open it through PyAV (PyAV 18 refused an argument
+  faster-whisper 1.2.1 passes, and every transcription in the packaged app failed); only a file
+  that cannot be read as samples is still handed over as a path.
 - **Decoder hints and doubt** (`local_whisper_stt`): the wake words and the apps on the machine the
   person has named in conversation go to faster-whisper as `hotwords` ("open spotify" in a noisy
   room was heard as "old thing spot employee"). A command whose every segment is below the
@@ -260,20 +280,28 @@ in `expression_state` (priority: thinking > speaking > tone):
 
 ## Text-to-speech (`tts_router.py`)
 
-Multi-backend router with graceful fallback: **XTTS-v2 natural neural** (opt-in) →
-**Piper** (packaged binary under `tts_piper/` or `models/tts/piper`) → **pyttsx3** →
-**espeak-ng / espeak**. Resolves voices from several candidate dirs so a packaged build
-or a source checkout both work.
+The active voice's prefix picks the engine: `natural:` and `clone:` go to **XTTS-v2**
+(opt-in, falling back to the Piper default voice, `en_US-amy-medium`), `char:` to a style
+preset over a Piper voice, `sys:` to the OS voice through **pyttsx3** (SAPI on Windows, NSS on
+macOS, espeak-ng / espeak on Linux), and any other voice to **Piper**. Piper runs as a program
+where one is found (`ELI_PIPER_BINARY`/`ELI_PIPER_BIN`, a packaged binary, ELI's own
+environment, then PATH; asked for `--cuda` first), otherwise from its Python library inside the
+process, which is how the packaged app runs it (it ships the library and voices, no program).
+Voices are looked for in `<models dir>/tts/piper`, the program's `models/tts/piper` and
+`voices/`, `~/.local/share/piper` and the packaged `tts_piper/piper`, so a packaged build or a
+source checkout both work. A failed Piper voice moves to an OS voice only with
+`ELI_TTS_FALLBACK=1` (or `system`/`pyttsx3`); otherwise that reply is not spoken.
 
 *Natural neural voice (`natural:<id>`, `tts_xtts.py`).* XTTS-v2 driven by its **built-in
 studio speakers — no clone/reference needed** — is the human-like, expressive,
 punctuation-aware path. `list_natural_voices()`/`synthesize_natural_wav()` are cheap to
 probe (never load the ~1.8GB model just to enumerate) and **fall back to Piper** when the
 neural extra isn't installed, so a `natural:` voice never goes silent. It is selectable at
-the **startup model picker / first-boot wizard** ("Voice engine: Piper vs Natural") — the
-choice is persisted *before* hardware tuning so its VRAM is a deliberate up-front decision
-(`ELI_XTTS_DEVICE` pins the device); low-VRAM boxes keep fast Piper. Enable with
-`pip install -e ".[natural]"` (from the ELI project root).
+the **startup model picker / first-boot wizard** ("Voice engine: Piper vs Natural"): the
+choice is saved *before* hardware tuning and sets `ELI_XTTS_DEVICE=cuda`, which is honoured only
+when the installed torch has CUDA (`tts_xtts._select_device`); the load planner sets no memory
+aside for it. Low-VRAM boxes keep fast Piper. The packaged app does not include the engine;
+enable it in a source install with `pip install -e ".[natural]"` (from the ELI project root).
 
 *Expressive Piper prosody.* Piper at bare defaults sounds flat and clips full stops. The
 router now passes tuned `--sentence_silence` / `--length_scale` / `--noise_scale` /
@@ -285,8 +313,9 @@ tiers by default (they sound synthetic), surfacing them only as a genuine last r
 the box has nothing better, or when `ELI_TTS_ALLOW_ROBOTIC=1`.
 
 **Voice library** (`runtime/voice_assets.py`) — the shipped pack is a starting point,
-not the limit. The module fetches the upstream Piper index (**166 voices across 45
-languages, 38 of them English** — US/GB, Scottish, Northern and Southern English) and
+not the limit. The module fetches the upstream Piper index (every voice upstream hosts, in
+dozens of languages; the English ones include US and GB voices with Scottish, Northern and
+Southern English accents) and
 exposes it through `list_available_voices()` with per-voice presence, download size and
 licence, cached on disk so the picker still works offline. `download_voice()` streams
 from the index's exact paths and **verifies the published md5** before the file is put
@@ -307,14 +336,18 @@ is invisible to `list_voices()` while still occupying ~60 MB. `incomplete_voices
 these and `repair_voice_configs()` fetches just the missing ~5 KB config.
 `tests/test_voice_library.py` guards against shipping the broken state again.
 
-**Style presets** (`voice_fx.py`, `char:calm`, `char:robotic`, …) are a redistributable Piper base voice plus an ffmpeg effect chain (pitch / speed / filters). They are **generic sound styles**, not bundled impersonations of copyrighted characters. Ideal Piper bases for some historical presets (lessac, joe, ryan) are excluded from the public bundle over dataset licensing; each preset carries an **ordered, gender-matched `fallback` chain** against installed voices only. **Voice cloning** (`tts_xtts.py`, `clone:<name>`) reproduces a voice from a short reference clip via Coqui XTTS-v2 — an opt-in extra (`eli-v2.0[clone]`) that falls back to a normal voice when the model isn't installed rather than going silent. Both `char:` and `clone:` resolve through `synthesize_wav` (browser voice) and `_run_tts` (host playback), and appear in the GUI voice picker.
+**Style presets** (`voice_fx.py`, `char:calm`, `char:robotic`, …) are a redistributable Piper base voice plus an ffmpeg effect chain (pitch / speed / filters). They are **generic sound styles**, not bundled impersonations of copyrighted characters. The closest-sounding voices for some styles are licence-restricted (`RESTRICTED_VOICE_NAMES`) and cannot be bundled, so each preset is based on a redistributable voice (`en_GB-alan-medium`, `en_GB-northern_english_male-medium`, `en_US-amy-medium`) and carries an **ordered, gender-matched `fallback` chain** against installed voices only. `DESIGN_VOICE` ("design a voice called …, deep and slow") saves a user's own preset the same way, in `<config dir>/voices/characters.json`. **Voice cloning** (`tts_xtts.py`, `clone:<name>`) reproduces a voice from a short reference clip via Coqui XTTS-v2 — an opt-in extra (`pip install -e ".[clone]"` from the project root; not in the packaged app) that falls back to a normal voice when the model isn't installed rather than going silent. Both `char:` and `clone:` resolve through `synthesize_wav` (browser voice) and `_run_tts` (host playback), and appear in the GUI voice picker.
 
 ## OS control (`os_controller.py`)
 
-**Platform-aware** (Linux/Windows/macOS) screenshot, volume, keyboard, clipboard.
-`take_screenshot(region)` picks the right tool per platform
-(`gnome-screenshot`, PIL `ImageGrab`, platform CLIs); fails gracefully where a
-capability isn't available (e.g. area screenshots on some Windows installs).
+**Platform-aware** (Linux/Windows/macOS) screenshot, volume, keyboard, mouse, clipboard.
+`take_screenshot(region)` ("full" or "area") tries an ordered list of ways for the OS and
+desktop, each counted only when it wrote the picture: Windows, Pillow (every monitor) and, for an
+area, Windows' own snip overlay; macOS, `screencapture` then Pillow, saying so when screen
+recording is not allowed; Wayland, the desktop's screenshot portal, then `grim` (+`slurp` for an
+area), `spectacle`, `gnome-screenshot`; X11, Pillow, then `scrot`, `maim`, ImageMagick's
+`import`, `spectacle`, `gnome-screenshot`, then the portal. A screenshot the user asked for goes
+to their Pictures folder, one ELI takes to read the screen to its own data folder.
 `screen_locator.py` finds UI targets for click/automation.
 
 ## File analysers
@@ -362,15 +395,19 @@ as a personal memory and summarise from the first 17 documents.
      even the co-resident path runs CPU clip (~3.5s). Acceptable, not fast.
   2. `audio_stt.py` is a **2.5k-line** module mixing capture, ducking, echo
      suppression, command aliasing, and cleanup — wants splitting.
-  3. **Residual "7B" comment** in `ambient_vision.py` ("the 7B vision model
-     hot-swaps…") — cosmetic, but inconsistent with the model-agnostic line;
+  3. **Residual "7B" comments** in `ambient_vision.py` ("the 7B vision model
+     hot-swaps…") and in `vision.py`'s module docstring ("default: Qwen2.5-VL-7B", though no
+     model is built in) — cosmetic, but inconsistent with the model-agnostic line;
      should read "the vision model". (Flagged for a future scrub.)
   4. `gaze_engine.py` is experimental and off by default — fine, but it's carried
      weight.
   5. Platform tools are detected at call time; a machine missing
-     `gnome-screenshot`/`wpctl`/`piper` degrades silently to fallbacks (good) but
-     there's no single "what perception capabilities do I actually have here?"
-     probe surfaced to the user.
+     `gnome-screenshot`/`wpctl`/`piper` degrades to fallbacks (good). SELF_TEST reports the
+     desktop tools (input, screenshots, find-on-screen: `desktop_capabilities.runtime_tools_report`)
+     and the media tools, but speech and vision report separately
+     (`tts_router.available_backends`, `local_whisper_stt.whisper_status`,
+     `vision.vision_available`): there's no single "what perception capabilities do I actually
+     have here?" probe surfaced to the user.
 
 ---
 

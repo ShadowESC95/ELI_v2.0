@@ -1,8 +1,8 @@
 # ELI Runtime Surfaces, Planning, World, Tools & Plugins
 
-> **Updated 2026-09-30.** Stage 12 learning via `learning_coordinator.py`; goal
-> autogenesis feeds the proactive stack. Task records gained an explicit resume path
-> and a World bridge; habit learning is now gated against ELI's own automated actions.
+> **Updated for v2.5.36.** Stage 12 learning via `learning_coordinator.py`; goal
+> autogenesis feeds the proactive stack. Task records have an explicit resume path
+> and a World bridge; habit learning is gated against ELI's own automated actions.
 
 The remaining subsystems: the `runtime/` response/introspection surfaces, the
 proactive planning layer, the "world"/autonomy model, and the tools + plugin
@@ -31,7 +31,7 @@ the live system:
   `operator_state.py`.
 
 > **Over-fragmentation flag (the headline weakness for this group):** there are
-> ~15 closely-related modules here doing "render a grounded user-visible
+> 16 closely-related modules here doing "render a grounded user-visible
 > answer / introspect runtime" with overlapping responsibilities (three
 > `personal_memory_*` renderers alongside the response-contract, response-policy and
 > user-visible-surface modules).
@@ -39,10 +39,10 @@ the live system:
 > the prime consolidation target — it should collapse to a handful of well-named
 > modules with clear ownership of "who produces the final string."
 
-## Planning / proactive (`eli/planning/`, 4.0k LOC)
+## Planning / proactive (`eli/planning/`, 4.4k LOC)
 
 Background cognition + goal/queue machinery:
-- `proactive_daemon.py` (1.0k) — the **self-improvement / proactive** loop. Uses
+- `proactive_daemon.py` (1.6k) — the **self-improvement / proactive** loop. Uses
   a two-DB split: reads user-facing memory/conversation from the **user DB**,
   writes proactive observations/improvements/errors to the **agent DB** (keeps
   ELI's own machinations out of user recall). Background thread.
@@ -116,10 +116,10 @@ Background cognition + goal/queue machinery:
   scope. His agenda now spans failure-repair, world-driven, AND self-improvement —
   i.e. he sets his own intentions, governed.
 
-## World / autonomy model (`eli/world/`, 1.8k LOC)
+## World / autonomy model (`eli/world/`, 1.9k LOC)
 
 The substrate behind ELI's emergent self-state (autonomy pressure, awareness,
-"anomaly room" — intended behaviour, see memory `eli-emergent-voice`):
+"anomaly room" — intended behaviour):
 - `agency/autonomy_engine.py` — `EliWorldAutonomyEngine`: ingests world events,
   maintains awareness/autonomy state. Every proposed `WorldAction` is
   `policy.classify()`'d, provenance-logged (`record_provenance`: actor, triggering
@@ -156,8 +156,10 @@ The substrate behind ELI's emergent self-state (autonomy pressure, awareness,
   abandoned goals pruned. Lightweight; the richer goal-generation logic lives in
   `planning/goal_autogenesis.py` above, not here.
 - `local_world_bridge.py` — `append_event`, `get_world_state`,
-  `get_awareness_driven_suggestions` (**throttled to once/hour to prevent
-  auto-trigger loops**). Its `priority >= 0.70` consumer in `proactive_daemon.py`
+  `get_awareness_driven_suggestions` (advisory: SELF_ANALYZE on high repair pressure,
+  MEMORY_STATUS on low memory confidence, SELF_IMPROVE on high autonomy pressure — the last
+  **throttled to once an hour to prevent auto-trigger loops**). Its `priority >= 0.70`
+  consumer in `proactive_daemon.py`
   (`_handle_high_priority_world_suggestion`, 2026-09-30) defers to an active user
   turn and reuses `attention_queue.append_attention`'s own suppression window (30
   min) as its cooldown, rather than acting with no interruption-cost check at all.
@@ -170,7 +172,8 @@ The substrate behind ELI's emergent self-state (autonomy pressure, awareness,
   World" panel.
 - `persistence/storage.py` — world-state persistence. Three properties were added
   after live faults (2026-08-09/10) and are load-bearing:
-  * **Absolute paths.** `world_dir()` resolves through `get_paths()`. The journal,
+  * **Absolute paths.** `world_dir()` resolves through `get_paths()` (`ELI_WORLD_DIR`
+    overrides). The journal,
     provenance ledger and snapshot modules previously kept relative
     `Path("artifacts/world/...")` constants and wrote wherever ELI was launched
     from — a different place from `~` than from the project directory, and in a
@@ -183,28 +186,30 @@ The substrate behind ELI's emergent self-state (autonomy pressure, awareness,
     Two of the five corrupt backups on the dev machine parse as valid JSON; they
     were condemned by exactly this and nothing else.
   * **Bounded logs.** `actions.jsonl` reached 41 MB / 80,576 lines because nothing
-    rotated it. `_trim_jsonl` keeps the newest 20,000 lines (counted, not
-    size-capped, so a trim never splits a JSON record) and checks on the first
+    rotated it. `_trim_jsonl` keeps the newest 20,000 lines (`ELI_WORLD_LOG_MAX_LINES`;
+    counted, not size-capped, so a trim never splits a JSON record) and checks on the first
     append of each process plus every 250 thereafter — the per-process counter
     alone meant a short session never trimmed at all.
 
-## Tools (`eli/tools/`, 7.6k LOC)
+## Tools (`eli/tools/`, 6.0k LOC)
 
 - `image_engine/` (the package under `eli/tools/image_engine/image_engine/`: `service.py`,
   `visual_core.py`, `plotting.py`, `prompt_compiler.py`, `quality.py`, `project_analyzer.py`,
   `memory.py`): Pillow/numpy base image generation with an optional diffusers path, the
   bundled fallback.
 - **Weak / watch:**
-  1. **`runtime/` over-fragmentation** — ~15 overlapping response/introspection
+  1. **`runtime/` over-fragmentation** — 16 overlapping response/introspection
      modules. Highest-value consolidation in the project after the god-files.
   2. **Image-engine duplication — RESOLVED** — the shadowed standalone module was
      deleted; only the `tools/image_engine/` package remains.
   3. The planning queues (`goal_store`/`proposal_queue`/`attention_queue`/
      `jobqueue`) overlap conceptually and could likely unify into one
      work-queue abstraction.
-  4. Plugin registry points at an `eli-plugins/registry` GitHub URL — fine as
-     opt-in, but ensure it degrades cleanly offline (the bundled fallback
-     exists; verify it's always used when the network is absent).
+  4. Plugin registry (`eli/plugins/manager.py`) points at an `eli-plugins/registry`
+     GitHub URL (`ELI_PLUGIN_REGISTRY_URL` overrides). It degrades cleanly offline:
+     the fetch goes through `netguard.http_get_json`, which refuses without a socket
+     attempt while the network is off, and the bundled
+     `eli/plugins/registry/index.json` is used instead.
   5. **Self-upgrade/LoRA were pull-only — RESOLVED 2026-09-18** —
      `autonomy_scheduler.py` now decides on its own, in `goal_driven` mode,
      when to schedule a `self_upgrade` check or a `lora` retrain, instead of

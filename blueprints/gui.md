@@ -1,44 +1,53 @@
 # ELI GUI
 
-> **Updated for v2.4.84.** Ollama model selector fixed on packaged builds
-> (`QDialogButtonBox` exported via `eli/gui/qt_compat.py`).
+> **Updated for v2.5.36.** The Ollama model selector works on packaged builds because
+> `eli/gui/qt_compat.py` exports `QDialogButtonBox`.
 
-`eli/gui/` — 27.4k LOC, 27 modules (8 top-level + panels/tabs/docks/widgets). A full native PySide6/PyQt desktop app (with a
-Qt-binding compat shim), plus a first-boot launcher and a large scientific
+`eli/gui/` — 26.7k LOC, 23 modules (8 top-level; 5 in `panels/`, 5 in `tabs/`, 2 in `docks/`,
+3 in `widgets/`) plus their package `__init__` files. A full native PySide6/PyQt desktop app
+(with a Qt-binding compat shim), plus a first-boot launcher and a large scientific
 "Labs" workspace.
 
-## Tab map (current — 13 main tabs)
+## Tab map (current — 14 main tabs)
+
+The window builds them in this order (`EliMainWindow.init_ui`); tabs can be dragged into
+another order.
 
 ```mermaid
 flowchart TD
-    W([ELI Pro window]) --> T{13 main tabs}
+    W([ELI Pro window]) --> T{14 main tabs}
     T --> Chat[Chat]
     T --> Pro[Proactive · 6 sub-tabs]
     T --> Img[Images]
     T --> QA[Quick Actions]
     T --> Scr[Screen]
     T --> Fil[Files]
+    T --> Labs[Labs · 11 sub-tabs]
     T --> Cod[Coding]
     T --> Tsk[Tasks · all background jobs]
     T --> Rep[Report Builder]
     T --> Exp[Experimental · read-only workbench]
     T --> Wld[Eli's World]
+    T --> Aud[Audit · HMAC-chained record of every turn]
     T --> Set[Settings · 10 pages: Model · Runtime · Generation ·<br/>Identity · Audio · Application ·<br/>Agents · Gaze · Web Server · Advanced]
-    T --> Labs[Labs · 11 sub-tabs]
-    Labs --> L1[Notebook · Memory · Jupyter · Calculator · Physics]
-    Labs --> L2[File Chat · Workspaces · Sim/IDE]
+    Labs --> L1[Notebook · Memory & Conversations · Jupyter · Calculator · Physics]
+    Labs --> L2[File Chat · Workspaces · Sim / IDE]
     Labs --> L3[Orchestration · Test & Review<br/>dev/diagnostic tools]
     Labs --> L4[Training · LoRA wizard]
-    Set --> S1[Plugins · installed plugin management]
-    Set --> S2[Marketplace · browse · scan · permissions · sources]
+    Set --> Adv[Advanced page ▸ Advanced Settings dialog]
+    Adv --> S0[Agents · Models · Cognition · Self-Upgrade]
+    Adv --> S1[Plugins · installed plugin management]
+    Adv --> S2[Marketplace · browse · installed · permissions · MCP servers · sources]
 ```
+
+Proactive's sub-tabs are Suggestions, Summaries, Insights, Habits, Self-Improve and Memory.
 
 ### Marketplace and training additions
 
 | Surface | Where | What it is |
 |---|---|---|
 | 🎓 **Training** | Labs sub-tab | four-step LoRA wizard: Hardware → Target → Data → Train |
-| 🛒 **Marketplace** | Settings sub-tab | community plugins: browse, verify, scan, install, permissions, sources |
+| 🛒 **Marketplace** | Advanced Settings dialog tab (Settings ▸ Advanced) | community plugins: browse, verify, scan, install, permissions, sources |
 | **Permission dialog** | anywhere | Android-style consent: Allow once · Always allow · Not now · Never allow |
 | 🎯 **Eval board** / ⚖️ **Eval + judge** | Labs ▸ Test & Review | behaviour regression board, run in-process |
 
@@ -46,35 +55,52 @@ flowchart TD
 
 | File | LOC | Role |
 |---|---|---|
-| `eli_pro_audio_gui_v2_0.py` | 13.1k | the main window + most app logic (god-file) |
+| `eli_pro_audio_gui_v2_0.py` | 12.5k | the main window + most app logic (god-file) |
 | `labs_tab.py` | 5.7k | scientific workspace tab |
-| `app.py` | 833 | launcher / first-boot auto-tune / entry `main()` |
-| `panels/startup.py` | 2014 | guided first-boot: hardware, model pick or download, tuning |
-| `panels/settings.py` | 825 | settings dialog incl. Plugins + Marketplace sub-tabs |
+| `panels/startup.py` | 2204 | guided first-boot: hardware, model pick or download, tuning |
+| `tabs/marketplace_tab.py` | 991 | Advanced Settings ▸ Marketplace — browse/installed/permissions/MCP servers/sources |
 | `tabs/training_tab.py` | 841 | Labs ▸ Training — the LoRA wizard |
-| `tabs/marketplace_tab.py` | 991 | Settings ▸ Marketplace — browse/installed/permissions/sources |
-| `panels/permission_dialog.py` | 232 | plugin consent dialog + thread-marshalling bridge |
+| `panels/settings.py` | 818 | the Advanced Settings dialog: Agents, Models, Cognition, Plugins, Marketplace, Self-Upgrade |
+| `widgets/ollama_model_selector.py` | 494 | optional Ollama model picker |
+| `panels/agent_wizard.py` | 415 | agent edit dialog + the `AgentSpec` authoring dialog |
+| `app.py` | 325 | launcher / entry `main()` / terminal model setup |
+| `tabs/tasks_tab.py` | 307 | Tasks — background jobs and scheduled or overnight tasks |
 | `docks/operator_console_dock.py` | 303 | operator console dock |
-| `widgets/ollama_model_selector.py` | 444 | optional Ollama model picker |
-| `tabs/experimental_tab.py`, `panels/agent_wizard.py`, `docks/proactive_dock.py`, `tabs/eli_world_tab.py`, `qt_compat.py`, `panels/_qt.py` | small | tabs/docks/widgets + Qt compat |
+| `widgets/voice_downloader.py` | 282 | Piper voice library browser |
+| `panels/permission_dialog.py` | 232 | plugin consent dialog + thread-marshalling bridge |
+| `widgets/eli_face.py` | 230 | ELI's animated 2D face, driven by the tone adaptor's emotion |
+| `code_editor.py` | 220 | native code editor (line numbers, current-line highlight, Python highlighting, auto-indent) |
+| `coding_tab.py` | 178 | Coding — a task for the coding agent, run as a background job |
+| `tabs/experimental_tab.py`, `qt_compat.py`, `branding.py`, `off_thread.py`, `panels/_qt.py`, `docks/proactive_dock.py`, `tabs/eli_world_tab.py` | small | tabs/docks + Qt compat, icons, off-thread helper |
 
 ## Launcher (`app.py`)
 
-The entry path: `_detect_hardware` (queries **free** VRAM — the display server
-consumes VRAM before ELI launches, so free ≠ total), `_auto_tune(model_path, hw)`
-(picks n_ctx/layers/batch), `_pick_model`, `_confirm_params`, config load/save.
-`main()` either shows the startup model picker (first boot) or delegates to
-`eli_pro_audio_gui_v2_0.main()`. `--setup` forces the wizard.
+The entry path for the `eli`/`eli-gui` console scripts. `main()` pins this install's root
+(`ELI_PROJECT_ROOT` and the data, config and models folders, from the venv running it) so
+it never writes into another checkout, runs the first-boot bootstrap
+(`init_data.bootstrap_once`), stops with a plain message when the data folder cannot be
+written (`init_data.store_blocker`), and activates the bundled GPU pack when there is one.
+With the startup model picker
+enabled (the default) it hands over to `eli_pro_audio_gui_v2_0.main()`, whose startup dialog
+owns model choice, tuning and loading. `--setup` takes the terminal path instead:
+`_pick_model` and `_confirm_params`, with the values from `_auto_tune(model_path)`, which is
+the plan `gguf_inference.load_model` would use on this machine now (`eli/core/load_plan.py`,
+sized to each card's **free** memory — the display server takes VRAM before ELI launches,
+so free ≠ total). A returning launch with the picker turned off loads the saved model with
+the saved values without asking. Either terminal path then loads the model, warms the
+embedder in the background and opens the window.
 
 ## Main window (`eli_pro_audio_gui_v2_0.py`)
 
-A 13.1k-line module holding the window **and** a stack of embedded classes that
-are really application logic, not just UI:
+A 12.5k-line module holding the window (`EliMainWindow`) **and** a stack of embedded classes
+that are really application logic, not just UI:
 - `CentralMemoryAdapter` — bridges the GUI to the memory subsystem.
-- `LocalModelManager` (line 749) — discover/load/swap local GGUF models.
-- `OllamaModelManager` (line 1684) — optional Ollama integration (legacy/optional;
+- `LocalModelManager` (line 738) — discover/load/swap local GGUF models. It builds the
+  vector store (and with it the embedder) before the model, so the load plan sees the
+  memory the embedder takes.
+- `OllamaModelManager` (line 914) — optional Ollama integration (legacy/optional;
   ELI's stance is 100% local GGUF, so this is a secondary path).
-- `ExecutorBridge` (line 1816) — routes GUI actions into the executor/engine.
+- `ExecutorBridge` (line 1043) — routes GUI actions into the executor/engine.
 - `_GUIEngineAdapter` — engine façade for the UI.
 - UI widgets: `_QABoard` (quick-action card board), `_MiniTelemetryGraph` (live
   telemetry), `_ZoomableSettingsView`, `_ZoomableImagePreview`, `_FlowLayout`,
@@ -121,6 +147,17 @@ to its own main tab; Orchestration + Test & Review were demoted back INTO Labs i
 2026-06-18 advisory as developer/diagnostic tools.) This is the research-bench surface (reflects whatever technical/research work
 the active user does, surfaced dynamically from their own data).
 
+### Labs ▸ 🔬 Sim / IDE
+
+ELI's built-in code editor: QScintilla when the running binding has it, else the native
+`code_editor.PyCodeEditor` (QScintilla has no PySide6 build). Starter snippets, New / Open /
+Save / Save As, **▶ Run** (the editor's Python in a separate process, 60 s limit, working
+folder the file's own or home; full process privileges, no sandbox), a console, and a
+**Plot Output** panel that shows the image the starters save (`ELI_LABS_PLOT_DIR`, else the
+temp folder). **ELI: Fix errors** and **ELI: Explain** send the code (and the last error) to
+ELI and show the answer beside the editor; nothing is written into the editor. A Python
+script from `GENERATE_SCRIPT` opens here.
+
 ### Labs ▸ 🎓 Training (`tabs/training_tab.py`)
 
 The GUI half of the LoRA pipeline, which `lora_pipeline.py` had always claimed was
@@ -147,7 +184,10 @@ Threading: training reaches the GUI through **signals only** — a queued signal
 the one marshalling primitive that works from a worker, since `QTimer.singleShot`
 called off the GUI thread never fires.
 
-### Settings ▸ 🛒 Marketplace (`tabs/marketplace_tab.py`)
+### Advanced Settings ▸ 🛒 Marketplace (`tabs/marketplace_tab.py`)
+
+The Advanced Settings dialog (`panels/settings.py`) opens from the cards on Settings ▸
+Advanced and has six tabs: Agents, Models, Cognition, Plugins, Marketplace, Self-Upgrade.
 
 Five panes: **Browse**, **Installed**, **Permissions**, **MCP servers**, **Sources**. See `security.md` for the verification and scanning
 model — the short version is that the install path is deliberately slow, nothing is
@@ -170,10 +210,17 @@ fail-closed rule true even when the UI is what failed.
 
 - `panels/startup.py` — guided first-boot: detect hardware → pick/download a GGUF
   (HuggingFace) → tune params.
-- `panels/agent_wizard.py` — edit an existing agent's metadata and persona.
-  Authoring a *new* agent now goes through the `AgentSpec` model (objective, system
-  prompt, triggers, success criteria) rather than a free-text persona — see
-  `orchestration_and_agents.md`.
+- `panels/agent_wizard.py` — `AgentEditDialog` edits an existing agent's metadata and
+  persona; `AgentCreateDialog` authors a *new* agent through the `AgentSpec` model
+  (objective, system prompt, triggers, success criteria) rather than a free-text persona —
+  see `orchestration_and_agents.md`.
+- **Audit** tab (built in the main window file) — the tamper-evident, metadata-only record
+  of every turn: one row per request, including commands, background tasks and follow-through
+  runs, no prompt or response text, HMAC-chained so **Verify Chain** reports an edited,
+  deleted or reordered row. It refreshes every 15 seconds.
+- **Coding** tab (`coding_tab.py`) — a task, a language and Quick or Thorough, run through
+  `CODE_SOLVE` as a background job; the result appears when the job finishes, and every job is
+  listed in the **Tasks** tab (`tabs/tasks_tab.py`).
 - `docks/operator_console_dock.py`, `docks/proactive_dock.py` — operator console
   + proactive-suggestion dock.
 - `widgets/ollama_model_selector.py`, `tabs/experimental_tab.py`,
@@ -187,17 +234,21 @@ fail-closed rule true even when the UI is what failed.
   full scientific workspace. Cross-binding (PyQt/PySide) compat is handled. Most
   local-LLM projects ship a chat box; this is an application.
 - **Weak / watch:**
-  1. **God-file #3** — `eli_pro_audio_gui_v2_0.py` (13.1k) mixes UI with core
+  1. **God-file #3** — `eli_pro_audio_gui_v2_0.py` (12.5k) mixes UI with core
      logic (`LocalModelManager`, `ExecutorBridge`, `CentralMemoryAdapter`,
      `_GUIEngineAdapter`). The model/executor/memory bridges should live outside
      the window module so the UI isn't coupled to core internals (and so they're
      testable headless). `labs_tab.py` (5.7k) is a second large file.
-  2. **Ollama manager** (about 130 lines, plus the 444-line model selector widget) sits oddly against the "100% local GGUF,
+  2. **Ollama manager** (about 130 lines, plus the 494-line model selector widget) sits oddly against the "100% local GGUF,
      don't-care-about-Ollama" stance — it's an optional/legacy path carrying
      real weight; candidate for removal or clear quarantine.
   3. UI logic instantiating engine/memory directly makes a clean headless mode
      harder (there *is* `eli --headless`, but the GUI module re-implements
      bridges rather than sharing one service layer).
+  4. The main window still carries `create_ide_tab`, but `init_ui` never calls it, so there
+     is no IDE main tab. A generated Python script opens in Labs ▸ Sim / IDE; any other
+     generated script is sent to the missing tab and the status bar reports that it could
+     not be opened.
 
 
 ### Marketplace panes and the one-click path

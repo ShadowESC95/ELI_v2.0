@@ -31,14 +31,18 @@ phi-hardcoded**:
   existing modules. **Dry-run by default** (runs every gate, touches no GPU, writes
   no adapter — safe from chat); real training only `execute=True`.
 - **Wired into ELI:**
-  - `LORA_STATUS` action (read-only): preflight readiness per target.
+  - `LORA_STATUS` action (read-only): preflight readiness for each built-in target
+    (`eli_phi`, `eli_phi_ultra`; `training_preflight.preflight_all`).
   - `LORA_TRAIN` action: runs the pipeline DAG — **dry-run from chat**; real training
     only via the scheduled task / explicit GUI (execute flag not exposed in chat).
   - Router: "lora status" / "is lora ready" → LORA_STATUS; "train a lora" /
     "fine-tune yourself" / "run lora training" → LORA_TRAIN.
   - Scheduled `lora` kind (`_worker_lora`): "train a lora overnight [N steps]" →
-    `SCHEDULE_TASK` runs `run_pipeline(execute=True)` unattended.
-  - Manifest: 230 capabilities (includes LORA_STATUS + LORA_TRAIN).
+    `SCHEDULE_TASK` runs `run_pipeline(execute=True)` unattended, on the built-in
+    `eli_phi` target, for N steps (50 when the request names none, at most 2000). In the
+    `goal_driven` operator mode the autonomy scheduler queues this job itself, at most
+    once a week, when a built-in target passes preflight.
+  - Manifest: `capability_manifest.json` lists both (231 capabilities in v2.5.36).
 - Tests: `tests/test_lora_pipeline.py` (target-module resolver, DAG order + dry-run
   no-train, both actions, routing, scheduled kind).
 
@@ -53,7 +57,8 @@ pipeline docstring always claimed existed.
 `ALLOWED_TARGETS = {"eli_phi", "eli_phi_ultra"}` plus `base_family must be phi3` was
 this machine's two targets frozen into a redistributed product. The allowlist is
 still an allowlist — nothing trains unless explicitly declared — but declaring is now
-a runtime act written to `<data dir>/training/targets.json`. Family is **read** from
+a runtime act written to `targets.json` in `paths.learning_dir()` (`training/` in a
+source checkout, `<data dir>/training` on a packaged install). Family is **read** from
 the base model's own `config.json` and checked against the declaration, so the check
 moved from *"is it Phi"* to *"is it what you said it was"*.
 
@@ -72,8 +77,8 @@ auto-rejected, 309 clean, 286 flagged; approving the clean set produced
 The flat `free_vram >= 10 GiB` floor refused a 1B on a 6 GB card and silently chose
 CPU, where a run takes days and looks like a hang. The floor is now the model's own
 estimated need; the accelerator is named by vendor (NVIDIA / AMD-ROCm / Apple MPS /
-Intel XPU); and a refusal says what would fix it. QLoRA (4-bit nf4 + paged optimiser)
-lets a small card train the adapter at all.
+Intel XPU); and a fall-back to the CPU says what would fix it. QLoRA (4-bit nf4 + paged
+optimiser, on NVIDIA with `bitsandbytes`) lets a small card train the adapter at all.
 
 ### 4. Prompt format follows the base
 
@@ -95,6 +100,7 @@ user data dir on a packaged install) instead of writing into a read-only mount.
 ### Still manual
 
 Merge → GGUF. `training/merge_and_convert.py` closes the loop but depends on
-`unsloth`, which is in no requirements file, so producing a usable model after a
+`unsloth`, which is in no requirements file and not in the `training` extra of
+`pyproject.toml`, so producing a usable model after a
 successful run remains a documented manual step. The Training tab says so plainly
 when a run finishes rather than implying the live model has changed.

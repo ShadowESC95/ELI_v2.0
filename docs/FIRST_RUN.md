@@ -17,11 +17,13 @@ cd ELI_v2.0
 **Developer / headless:**
 
 ```bash
-bash install.sh --yes --no-model    # venv + deps + DB schema; skip large model fetch
+bash install.sh --yes --no-model    # venv + deps + DB schema; no chat model or embedder (voice weights are still fetched)
 ./scripts/eli_launch.sh
 ```
 
-Flags: `--cpu-only` · `--install-cuda` · `--model=qwen2.5-7b` · `--no-model` (no embedder/voice download either).
+Flags: `--cpu-only` · `--install-cuda` · `--model=qwen2.5-7b` · `--no-model` (no chat model or embedder either; the voice weights are still fetched). Without `--no-model`, `--yes` also downloads a chat model sized to your VRAM.
+
+A clone has no `ELI_Setup.sh` or `RUN_ELI.sh` (those are written into the portable package): `./scripts/eli_setup.sh` and `./scripts/eli_startup.sh` are the same scripts.
 
 ## Portable (no build)
 
@@ -35,7 +37,7 @@ chmod +x ELI_Setup.sh install.sh && ./ELI_Setup.sh   # guided (recommended)
 
 **Full beginner guide:** [`first time Installation/INSTALLATION_GUIDE.md`](../first%20time%20Installation/INSTALLATION_GUIDE.md)
 
-**AppImage (easier on Linux):** no `.venv` build — GPU pack downloads on first launch; see Releases → `ELI_v2-*-x86_64.AppImage`.
+**AppImage (easier on Linux with glibc 2.39 or newer):** no `.venv` build — the GPU pack is offered on first launch; see Releases → `ELI_v2-*-x86_64.AppImage`.
 
 ## Regenerate capability docs (maintainers)
 
@@ -49,4 +51,6 @@ This refreshes `capability_manifest.json` and `blueprints/capabilities_and_actio
 
 ## Environment
 
-Copy `.env.example` only if you need overrides — most installs leave it unset.
+`.env.example` (and `.env.full.example`, which lists every variable) shows the environment
+variables ELI reads. Nothing loads a `.env` file by itself: export the ones you want in the
+shell or launcher that starts ELI. Most installs set none.

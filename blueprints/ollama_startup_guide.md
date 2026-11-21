@@ -1,25 +1,28 @@
 # Using Ollama with ELI — a start-to-finish guide (no tech knowledge needed)
 
-> **Updated for v2.4.84.** The Ollama model picker in Settings / startup works on
-> AppImage and portable builds (Qt compat shim exports `QDialogButtonBox`).
+> **Updated for v2.5.36.** The Ollama model picker in Settings / startup works on
+> AppImage and portable builds (Qt compat shim exports `QDialogButtonBox`). ELI uses
+> Ollama only when you choose it as the backend.
 
 This guide is for anyone who wants ELI to use an **Ollama** model. You don't need
 to understand any of the words below — just follow the steps for your computer.
 
-**The good news:** as of **v2.1.29**, if Ollama is installed on your machine, **ELI
-starts it for you automatically**. Most people don't have to do anything except
-install Ollama once and pick a model. The steps below cover installing it and what
-to do if anything doesn't work.
+**The good news:** as of **v2.1.29**, once you have chosen Ollama as ELI's backend,
+**ELI starts it for you** if it is installed on your machine but not running. Most
+people don't have to do anything except install Ollama once and pick a model. The
+steps below cover installing it and what to do if anything doesn't work.
 
 ---
 
 ## What is Ollama (in one sentence)?
 
 Ollama is a free program that runs AI "brains" (models) on your own computer. ELI
-can borrow those brains instead of using its own. Everything stays on your machine.
+can borrow those brains instead of running a model file itself. Everything stays on
+your machine.
 
-**You do NOT need Ollama to use ELI** — ELI comes with its own brain. Ollama is
-only if you *want* to use models you've set up in Ollama.
+**You do NOT need Ollama to use ELI** — ELI runs GGUF model files itself (the setup
+window it shows when it finds no model offers one to download). Ollama is only if you
+*want* to use models you've set up in Ollama.
 
 ---
 
@@ -73,15 +76,15 @@ at **https://ollama.com/library**.
 
 1. Start ELI. On the **first screen** ("Choose which model to load"), find the
    **Provider** dropdown near the top.
-2. Choose **Ollama**.
+2. Choose **Ollama**. If Ollama is installed but not running, ELI starts it now.
 3. In **Ollama model**, click **Refresh Ollama models** and pick the one you pulled
    in Step 2 (for example `llama3.2`).
 4. Click **OK**.
 
 That's it — ELI now thinks using your Ollama model.
 
-You can also just **ask ELI** later: say or type *"switch to Ollama"* or *"use the
-llama3.2 model"*.
+Switching is done in ELI's menus (below): there is no spoken or typed command that
+changes the model or the backend.
 
 ---
 
@@ -89,8 +92,9 @@ llama3.2 model"*.
 
 - **In the app:** **Settings → Model → Backend = Ollama**, then **Refresh Ollama
   Models** and pick one.
-- **By talking to ELI:** *"use the mistral model"*, *"what Ollama models do I have"*.
-- **Back to ELI's own brain:** set **Backend** to **Bundled** or **Custom GGUF**.
+- **From the toolbar:** the Ollama menu lists the models Ollama has; picking one
+  switches ELI to it.
+- **Back to a GGUF model:** set **Backend** to **Bundled GGUF** or **Custom GGUF**.
 
 ---
 
@@ -98,9 +102,11 @@ llama3.2 model"*.
 
 ELI starts Ollama only when you choose it: pick **Ollama** as the backend in the start-up
 dialog or in **Settings → Model**, or pick an Ollama model in the toolbar menu. Then, if the
-`ollama` program is installed but stopped, ELI starts it for you. With a GGUF model chosen ELI
-never starts or uses Ollama, and listing Ollama's models never starts it. If you chose Ollama
-and still see **"Ollama unreachable"**:
+`ollama` program is installed but stopped on this computer, ELI starts it for you (`ollama
+serve`, tried once each time ELI runs): straight away from the start-up dialog or the toolbar,
+and with the first reply after **Settings → Model**. With a GGUF model chosen ELI never starts or uses Ollama, listing Ollama's
+models never starts it, and an Ollama on another computer is never started by ELI. If you chose
+Ollama and still see **"Ollama unreachable"**:
 
 **1. Is Ollama installed?**
 Open a Terminal / Command Prompt and type `ollama list`. If it says *command not
@@ -111,16 +117,16 @@ If `ollama list` is empty, do **Step 2** (`ollama pull llama3.2`).
 
 **3. Start it by hand (rarely needed):**
 - **Windows / macOS:** just open the **Ollama** app (Start menu / Applications).
-- **Linux:** type `systemctl --user start ollama` — or `ollama serve` and leave
-  that window open.
+- **Linux:** type `sudo systemctl start ollama` (the service Ollama's installer sets
+  up) — or `ollama serve` and leave that window open.
 
 **4. Ollama on a *different* computer (advanced):**
 You can point ELI at Ollama running on another machine on your home network. In
 **Ollama host**, type that machine's address (e.g. `192.168.1.20` — you don't need
 `http://` or a port, ELI fills those in). On that other machine, start Ollama with
 `OLLAMA_HOST=0.0.0.0:11434 ollama serve` and allow port `11434` through its
-firewall. ELI treats a machine you set here as trusted, so the Net toggle can stay
-**off**.
+firewall (ELI does not start Ollama on another machine for you). ELI treats a
+machine you set here as trusted, so the Net toggle can stay **off**.
 
 **5. Turn off auto-start (if you prefer):**
 Even with Ollama chosen, ELI starting it for you can be disabled by setting the environment
@@ -133,4 +139,4 @@ variable `ELI_OLLAMA_AUTOSTART=0`; you then start Ollama yourself.
 1. Install Ollama from **https://ollama.com/download** (once).
 2. `ollama pull llama3.2` (once).
 3. In ELI's first screen: **Provider → Ollama → Refresh → pick your model → OK**.
-4. ELI starts Ollama for you from then on. Done.
+4. From then on ELI starts Ollama for you when it isn't running. Done.

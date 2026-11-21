@@ -31,17 +31,22 @@ brief, and at 4-bit it fits an 8 GB card.
 ## 2. Install the training stack (one-time, opt-in)
 ```bash
 .venv/bin/pip install -e ".[training]"     # torch, transformers, peft, datasets, trl
-.venv/bin/pip install unsloth              # fast QLoRA (pulls bitsandbytes/accelerate)
+.venv/bin/pip install unsloth bitsandbytes # fast QLoRA; the 4-bit base and 8-bit optimiser need bitsandbytes
 ```
-You also need a GGUF toolchain for the final convert/quantize: a local `llama.cpp` checkout
-(for `convert_hf_to_gguf.py` + `llama-quantize`) — or Unsloth's one-shot `save_pretrained_gguf`.
+Run both from the project folder. Unsloth is in no requirements file and not in the `training`
+extra; `bitsandbytes` is only in `requirements.txt` (not on macOS). You also need a GGUF toolchain
+for the final convert/quantize: a local `llama.cpp` checkout built with CMake
+(`convert_hf_to_gguf.py` at its top level, `llama-quantize` in `build/bin/`; its Makefile no longer
+builds) — or Unsloth's one-shot `save_pretrained_gguf`.
 
 ## 3. Get the BASE weights (HF format — not a GGUF)
 Training needs the unquantized Hugging Face weights, which are *separate* from the inference GGUF:
 ```bash
-.venv/bin/huggingface-cli download Qwen/Qwen3-8B --local-dir training/base/Qwen3-8B
+.venv/bin/hf download Qwen/Qwen3-8B --local-dir training/base/Qwen3-8B
 ```
-(~16 GB. Then pass `--base-model training/base/Qwen3-8B`, or just use the HF id `Qwen/Qwen3-8B`.)
+(~16 GB. Then pass `--base-model training/base/Qwen3-8B`, or just use the HF id `Qwen/Qwen3-8B`.
+`hf` is huggingface_hub's command; the old `huggingface-cli` only prints that it no longer works
+on the huggingface_hub 1.x ELI installs.)
 
 ## 4. Build the voice dataset (persona stays dynamic)
 The extractor pulls ELI's **actual replies** and formats them with the model's chat template —
@@ -53,7 +58,10 @@ The extractor pulls ELI's **actual replies** and formats them with the model's c
     --out training/datasets/eli_voice.jsonl
 ```
 - **`--from-db`** reads the `conversation_turns` table (thousands of turns) — *only* that table;
-  no `memories`, no KG, no profile, no system-prompt state injection.
+  no `memories`, no KG, no profile, no system-prompt state injection. `artifacts/db/user.sqlite3`
+  is the user database of a source checkout; the packaged app keeps it in its data folder
+  (`~/.local/share/ELI_v2/artifacts/db/user.sqlite3` on Linux), and `ELI_USER_DB` or
+  `ELI_DATA_DIR` move it.
 - A **bad-pattern filter** (on by default) drops replies that are bugs, not voice: surfaced
   runtime errors (`GGUF streaming failed`, `exceed context window`), tracebacks, shell bleed, and
   world-room confabulations. `--keep-bad` disables it.
@@ -99,18 +107,23 @@ you're **overfitting** (memorizing) — cut `--max-steps` or lower `r`.
 ## 7. Merge → GGUF → quantize → install
 ```bash
 .venv/bin/python training/merge_and_convert.py \
-    --base-model Qwen/Qwen3-8B \
+    --base-model training/base/Qwen3-8B \
     --adapter training/runs/eli-qwen3-8b-lora \
     --out-name eli-qwen3-8b --quant q4_k_m
 ```
-Produces `models/eli-qwen3-8b-q4_k_m.gguf`. If Unsloth's one-shot GGUF export isn't available,
+Produces `models/eli-qwen3-8b-q4_k_m.gguf` (`models/` under the folder you run it from;
+`--models-dir` picks another). If Unsloth's one-shot GGUF export isn't available,
 `training/README.md` has the manual `llama.cpp` `convert_hf_to_gguf.py` + `llama-quantize` path.
 
 ## 8. Load it in ELI
-Pick it in the startup model picker (or Model menu / Auto-Detect). ELI's context tuner sizes it
-from its real `n_ctx_train` (40,960 → requests ~16k, all layers on an 8 GB card, no brief
-truncation); the **dynamic persona + memory + User Model come from the runtime** on top of the
-fine-tuned voice.
+Pick it in the startup model picker (or **Model ▸ Load Model…**; **Auto Detect** on the toolbar
+then re-tunes the settings for it). ELI finds GGUFs in the program's own `models/` and in
+`paths.models_dir()` (`ELI_MODELS_DIR`, else the data folder's `models/`). At load it reads the real
+`n_ctx_train` (40,960) from the file: with the context on auto it aims for the smaller of 90% of
+that window and what half the memory left after the weights holds for the KV cache, and the load
+plan fits GPU layers, batch and context to what each card has free. No prompt is sized past the
+trained context. The **dynamic persona + memory + User Model come from the runtime** on top of
+the fine-tuned voice.
 
 ## 9. Verify — check behaviour, not the loss
 1. **Voice** — sounds like ELI (dry, direct, no corporate filler).
@@ -139,3 +152,7 @@ register and tighter contract-adherence), not a dependency.
 - `training/train_lora.py` — QLoRA trainer (Unsloth + TRL).
 - `training/merge_and_convert.py` — merge adapter → GGUF → quantize → install in `models/`.
 - `training/README.md` — quick command card.
+
+These four are all a fresh clone's `training/` holds (`git ls-files training`). `training/base/`,
+`training/datasets/`, `training/runs/` and everything else under `training/` is created locally and
+ignored by git.

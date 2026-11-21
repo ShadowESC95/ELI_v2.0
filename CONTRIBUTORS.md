@@ -4,7 +4,7 @@ The following individuals have contributed to ELI's development through code, te
 
 ## Code Contributors
 
-- **ShadowESC95** – primary author and maintainer. Recent releases include hardware-aware
+- **ShadowESC95** – primary author and maintainer. Work includes hardware-aware
   one-click setup, portable/AppImage reliability, Windows Setup singleton GUI, LAN web-server
   fixes, memory/RAG embedder and voice asset hard-fail in the wizard, YouTube/media playback
   honesty (claim play only after the player confirms), live-state action routing, microphone

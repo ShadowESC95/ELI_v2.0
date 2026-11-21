@@ -12,11 +12,12 @@ questions, remembers what matters to you, and learns your routines. Everything r
 machine**; nothing is sent to the cloud.
 
 > **The one rule worth knowing:** ELI is **offline by default**. It only touches the internet
-> when *you* ask for something that needs it (a web search, the news, downloading a model). Your
-> conversations, files, and memories never leave your computer.
+> when *you* switch on its **🌐 Net** button (under the chat box), or when you start a download
+> yourself (a model, a voice, "upgrade yourself"). Your conversations, files, and memories never
+> leave your computer.
 
 How to read this manual:
-- **Just want to use it?** Read §1–§5 and the cheat sheet (§18). That's enough to be productive.
+- **Just want to use it?** Read §1–§5 and the cheat sheet (§19). That's enough to be productive.
 - **Want the whole picture?** Read straight through — every feature is here, in plain terms.
 - **🟢 / 🟡 / 🔴 tags** at the start of some sections mean *anyone / a little technical / advanced*.
 
@@ -115,8 +116,8 @@ flowchart TD
     B -->|A command<br/>'open spotify'| C{Does it need<br/>the internet?}
     B -->|A conversation<br/>'how are you?'| H[ELI replies in its<br/>own voice]
     C -->|No| D[ELI does it<br/>on your computer]
-    C -->|Yes, e.g. news/search| E{You allowed<br/>online for this?}
-    E -->|Yes| F[ELI fetches it,<br/>tells you it went online]
+    C -->|Yes, e.g. news/search| E{Is the Net<br/>switch on?}
+    E -->|Yes| F[ELI fetches it,<br/>and the connection is logged]
     E -->|No| G[ELI stays offline<br/>and says so]
     D --> I{Did it actually<br/>work?}
     F --> I
@@ -141,14 +142,16 @@ model can promise perfection, so ELI is built to fail loudly rather than quietly
 Get the latest from **GitHub Releases**. Every release is built in CI and **launch-tested on
 Windows, macOS and Linux** before it can publish.
 
-- **Windows:** run `ELI-Setup-<version>.exe` — installs per-user, no admin password. If it sees
-  an NVIDIA card it offers GPU acceleration during setup; if it finds an older ELI it offers a
-  **fresh install** (resets settings & memory; keeps downloaded models). You get three
-  shortcuts: **ELI** (desktop + Start Menu), **ELI Server** (Start Menu only — not on the
-  desktop; that used to open two windows), **Uninstall ELI**. v2.4.23+ refuses a second GUI.
+- **Windows:** run `ELI-Setup-<version>.exe` — installs per-user, no admin password. If it finds
+  an older ELI it offers a **fresh install** (resets settings & memory; keeps downloaded models).
+  GPU acceleration is not part of Setup: ELI offers it on its first start, for whichever card it
+  finds (flowchart below). Shortcuts: **ELI v2.0** (Start Menu, and the desktop unless you untick
+  it), **ELI Server (phone and web)** (Start Menu only — not on the desktop; that used to open two
+  windows), and **Uninstall** (Start Menu and desktop). Only one ELI window runs at a time
+  (v2.4.23+).
 - **macOS (Apple Silicon):** open the `.dmg`, drag **ELI** into Applications. First launch is
-  right-click → **Open** (the app is unsigned). Apple-GPU acceleration is built in — nothing to
-  set up.
+  right-click → **Open** (the app is not signed with an Apple developer ID or notarised).
+  Apple-GPU acceleration is built in — nothing to set up.
 - **Linux:** `chmod +x ELI_v2-<version>-x86_64.AppImage` and run it. On first launch it offers
   **applications-menu entries** (ELI, ELI Server, and a working Uninstall).
 
@@ -177,17 +180,21 @@ flowchart TD
 | **Nomic embedder** (memory/recall) | fetched automatically | ~80 MiB |
 | **Whisper** (speech in) | fetched on first voice use | ~460 MiB |
 | **GPU engine** (optional) | if you accept the GPU offer; again by itself when an update moves llama.cpp on | depends on backend and OS, shown while it downloads |
-| **Chat model** | if you accept the model offer | sized to your hardware (e.g. ~4.7 GiB) |
+| **Chat model** | if you accept the model offer | sized to your hardware; the offer shows the size (about 4.4 GB for the default 7B) |
 
 Everything ELI knows and downloads lives in **one per-user folder** that **survives upgrades**
 — like a save-game: `%LOCALAPPDATA%\ELI_v2` (Windows), `~/Library/Application Support/ELI_v2`
-(macOS), `~/.local/share/ELI_v2` (Linux). Databases start as a **true blank slate** — no
-personal data ships in any installer.
+(macOS), `~/.local/share/ELI_v2` (Linux, or `$XDG_DATA_HOME/ELI_v2`). Inside it, `artifacts/`
+holds your data (databases, notebook, calendar), `config/` your settings, `models/` the
+downloaded models and `runtime/` the GPU pack. A source checkout keeps `artifacts/`, `config/`
+and `models/` inside the checkout instead. Databases start as a **true blank slate** — no personal
+data ships in any installer.
 
 ### Starting over, or uninstalling
-- **Clean slate:** tick *Fresh install* in the Windows setup, or run `ELI --fresh-start`
-  anywhere (keeps downloaded models unless you add `--purge-models`).
-- **Uninstall:** Windows → the **Uninstall ELI** shortcut. Linux → the **Uninstall ELI** menu
+- **Clean slate:** tick *Fresh install* in the Windows setup, or start the installed app with
+  `--fresh-start` on any platform (`ELI --fresh-start`). It asks before wiping, and keeps
+  downloaded models and the GPU pack unless you add `--purge-models`.
+- **Uninstall:** Windows → the **Uninstall** shortcut. Linux → the **Uninstall ELI v2.0** menu
   entry (removes the entries, offers to delete your data, then delete the AppImage file).
   macOS → drag the app to Trash; your data folder is listed above.
 - **GPU later / undo:** `ELI --install-gpu-pack` (add `--vulkan` for Intel Arc) ·
@@ -195,15 +202,19 @@ personal data ships in any installer.
 - **From source (developers):** `bash install.sh` from a clone works exactly as before.
 
 ### First launch — the quick interview
-The very first time you open ELI, it doesn't know you yet, so it asks **three short questions**
-(your name, what you do, how you like to be spoken to). Ten seconds, and you can **skip it**
-entirely. From there, ELI builds its understanding of you naturally as you talk.
+The very first time you open ELI, it doesn't know you yet, so it asks **four short questions**:
+your name, what you mostly work on, how you like to be answered, and what you most want ELI
+for. Pick an option or answer in your own words; say **"skip"** at any point to stop. If your
+first message is a real question or task, ELI simply gets on with it. From there, ELI builds its
+understanding of you naturally as you talk.
 
 ### Opening ELI
-- **Desktop app (full experience):** the **ELI** shortcut / menu entry (installer builds), the
-  AppImage itself (Linux), or `scripts/eli_launch.sh` from a source clone.
-- **From your phone:** the **ELI Server** shortcut (or `ELI --server`) starts the home server
-  with the connect QR — see §13.
+- **Desktop app (full experience):** the **ELI v2.0** shortcut / menu entry (installer builds),
+  the AppImage itself (Linux), or `scripts/eli_launch.sh` from a source clone.
+- **From your phone:** in the desktop app, **Settings → Web Server → 📱 Start (phone / Wi-Fi)**
+  shows the link and a QR code. Without the desktop app, run `ELI --server --lan` (installed
+  builds) or `scripts/eli_serve.sh --lan` (source). The **ELI Server** shortcut on its own serves
+  this computer only — see §13.
 
 ---
 
@@ -218,9 +229,11 @@ entirely. From there, ELI builds its understanding of you naturally as you talk.
 5. **Look at your screen.** `what's on my screen?`
 6. **Tell it a fact.** `remember that my dog's name is Rufus`. Later: `what's my dog's name?`
 7. **Set a reminder.** `set a timer for 5 minutes`.
-8. **Get a briefing.** `what's the news?` (this one goes online — ELI will say so).
-9. **Check on ELI itself.** `what are you running on?` shows its model and hardware.
-10. **Go hands-free.** Say the wake word **"computer"**, then a request.
+8. **Get a briefing.** `what's the news?` (this one goes online: turn the **🌐 Net** switch on
+   first, or ELI tells you it's offline).
+9. **Check on ELI itself.** `what are you running on?` shows its model, context size and how much
+   of it runs on the graphics card.
+10. **Go hands-free.** Turn on **🎤 Mic**, say the wake word **"computer"**, then a request.
 
 By the end you've touched conversation, control, vision, memory, reminders, the web, voice, and
 introspection — the whole surface.
@@ -232,8 +245,9 @@ introspection — the whole surface.
 There are two ways, freely mixed:
 
 - **Type** in the chat box and press Enter.
-- **Speak** — click the microphone, or say the **wake word** (default **"computer"**) then your
-  request. Change the wake word to anything (§11).
+- **Speak** — turn on **🎤 Mic** under the chat box, then say the **wake word** (default
+  **"computer"**; "eli" works too) and your request. With the **Wake** button beside it off, ELI
+  takes anything you say (two words or more) as a request. Change the wake word to anything (§11).
 
 You don't need special phrasing. Talk normally:
 
@@ -247,41 +261,45 @@ You don't need special phrasing. Talk normally:
 > "open spotify then play Juicy by Notorious B.I.G."
 
 **If ELI isn't sure** what you meant, it asks — it won't guess wildly or pretend. And if a request
-needs the internet, it tells you before going online.
+needs the internet while the Net switch is off, it says so instead of guessing.
 
-**If you're having a hard time:** ELI is tuned to notice genuine first-person distress (it's built
-to ignore ambient audio and dark jokes, not to over-react). When it does, it steps out of
-task-mode and gently checks in — pointing you toward real human support rather than ploughing on
-with commands or reciting a canned line. It's a steer, not a script.
+**Long messages are fine.** Paste a whole document if you like: the limit is what the loaded model
+can read at once, less room for its reply. Past that, ELI keeps the beginning and the end and marks
+the middle as left out. A short label inside a longer message ("Note: …", "Context: …") is read as
+material for your question, not as a command; "note: buy milk" on its own still writes a note.
+
+**If you're having a hard time:** ELI is tuned to notice genuine first-person distress ("I want to
+die"); it listens for statements about yourself, so a film or game playing near the microphone
+doesn't set it off. When it does notice, it steps out of task-mode and gently checks in — pointing
+you toward real human support rather than ploughing on with commands or reciting a canned line.
+It's a steer, not a script.
 
 ---
 
 ## 6. A tour of the window
 
-🟢 ELI Pro is organised into **tabs**. You'll mostly live in **Chat**; here's the rest in plain
-terms:
+🟢 The desktop app is organised into **tabs**. You'll mostly live in **Chat**; here's the rest in
+plain terms:
 
 | Tab | What it's for |
 |---|---|
-| **Chat** | Talk to ELI, by voice or text. Home base. |
-| **Quick Actions** | One-tap buttons for the things you do most. |
-| **Habits** | Routines ELI has learned; turn on/off, edit times, add your own. |
-| **Proactive** | Controls for ELI's "act on its own" behaviour (suggestions, summaries, insights) — includes a nested **Memory** sub-tab to browse/add/remove what ELI remembers about you. |
+| **Chat** | Talk to ELI, by voice or text. Home base. The row under the chat box holds the reasoning-mode picker, the **🌐 Net** switch, the microphone, wake-word and voice controls. |
+| **Proactive** | ELI's "act on its own" side, in six sub-tabs: Suggestions, Summaries, Insights, **Habits** (routines ELI has learned; turn on/off, edit times, add your own), **Self-Improve** (what ELI proposes to change in *itself* — approval-gated) and **Memory** (browse/add/remove what ELI remembers about you). |
+| **Images** | Generate images — procedural (fast, always there) or diffusion (photoreal, once its weights are downloaded). |
+| **Quick Actions** | A drag-and-drop board of one-tap buttons for the things you do most. |
+| **Screen** | Capture your screen, run OCR, ask ELI about what's on it, or run a deep audit. |
+| **Files** | Browse your local files and convert documents to another format. |
+| **Labs** | Power-user workshop, in 11 sub-tabs: Notebook, Memory & Conversations, Jupyter, Calculator, Physics, File Chat, **Workspaces**, Sim / IDE (the built-in code editor), Orchestration, Test & Review, **Training** (§14). |
+| **Coding** | Write, examine, and fix code via the verified coding agent. |
 | **Tasks** | Scheduled & overnight jobs and their status. |
-| **Images** | Generate images — procedural (fast) or diffusion (photoreal). |
-| **Screen** | Watch/read your screen, take screenshots, OCR. |
-| **IDE** | A built-in code editor. |
-| **Coding** | Write, examine, and fix code via the coding agent. |
-| **Files** | Browse and act on your local files. |
-| **Self-Improve** | What ELI is proposing to improve in *itself* — approval-gated. |
 | **Report Builder** | Generate longer documents/reports with sources (evidence → outline → draft → revise). |
-| **Elis World** | ELI's own world-model view. |
-| **Labs** | Power-user workshop — notebook, Jupyter, calculator, physics, file-chat, **projects/workspaces**, sim-IDE, orchestration, test review, **training** (§14). |
-| **Experimental** | In-development features not yet promoted to a stable tab. |
-| **Settings** | Model (incl. the model-switch dropdown), hardware, voice, privacy options (§16), plugins and the **Marketplace** (§20). |
+| **Experimental** | A read-only view of the `experimental/` folder: it lists the prototype kits and opens their folders and READMEs, but never runs them. |
+| **Eli's World** | ELI's own world-model view. |
+| **Audit** | A tamper-evident, metadata-only record of every request's real outcome, with a **Verify Chain** button. |
+| **Settings** | Ten pages: Model (incl. the model-switch dropdown), Runtime (hardware use, ELI's voice), Generation, Identity, Audio (microphone, wake word), Application, Agents, Gaze, Web Server (§13), and Advanced (agents, cognition limits, plugins and the **Marketplace** — §20). |
 
 You rarely need the tabs directly — almost everything is reachable by **asking** in Chat:
-"show my habits", "what do you remember about me", "show background jobs", "make an image of …",
+"show habits", "what do you remember about me", "show background jobs", "make an image of …",
 and ELI opens or reports the right thing.
 
 ---
@@ -297,24 +315,30 @@ and ELI opens or reports the right thing.
 
 ### 🪟 Apps & windows
 - "open spotify" · "launch firefox" · "open the file manager" · "open github.com"
-- "close chrome" · "focus the browser" · "switch to workspace 2"
+- "close chrome" · "focus the browser" · "next workspace" / "workspace left"
 - "tile windows" · "maximise the window" · "show desktop" · "next window"
 
 ### 🔊 Volume, typing, mouse
 - "volume up" · "mute" · "set volume to 30"
-- "type hello world" · "press enter" · "left click" · "move the mouse up"
+- "type hello world" · "press enter" · "click here" (clicks at the mouse pointer) ·
+  "move the mouse up". "left click" and "right click" are eye-control clicks (see 👁️ below).
 
 ### 📄 Files & notes
-- "create a file notes.txt" · "make a folder called projects" · "read notes.txt"
-- "list the files in ~/Documents" · "write a note saying buy milk" · "search notes for budget"
-- "what's in my clipboard?" · "summarise report.docx" · "convert report.md to pdf"
+- "create a file notes.txt" (an existing file is never replaced unless you say so: "create a
+  file notes.txt and overwrite it") · "make a folder called projects" · "read notes.txt"
+- "list the files in ~/Documents" · "what's in my clipboard?" · "summarise report.docx" ·
+  "convert report.md to pdf"
+- **Notes.** "write a note saying buy milk" (or just "note: buy milk") adds a line to today's
+  page in ELI's notebook (the `notebook` folder in its data folder). "new note buy milk" saves a
+  separate note, which "list my notes" and "search notes for budget" can find; those two don't
+  look in the notebook pages.
 
 ### ✍️ Writing, documents & code
 - "write a report on renewable energy" · "generate a document about X"
-- "write a bash script to monitor the GPU" · "solve this: implement a function that …"
+- "write a bash script to monitor the GPU" · "implement a function that … and test it" (or
+  "use the coding agent to …") → the verified coding agent (below)
 - "fix the bugs in foo.py" · "examine eli/memory/memory.py for errors" → ELI scans, **offers**
   fixes, and applies them only if you say "yes, fix it". · "show the diff"
-- "fabricate a test dataset for X" → ELI generates synthetic/test data on a topic.
 - The **Report Builder** tab turns "generate a document on X" into a real report: it gathers
   evidence, plans an outline, drafts each section, then **reviews and revises** it — with
   document-type quality profiles. It's generation-first, not a one-shot dump.
@@ -322,15 +346,17 @@ and ELI opens or reports the right thing.
 ### 📊 Screen, images, PDFs, spreadsheets
 - "what's on my screen?" · "find the submit button on screen" · "find the word compose" ·
   "click compose" (finds the text and clicks it) · "take a screenshot"
-- "describe cat.jpg" · "read the text in image.jpg" (OCR)
+- "look at cat.jpg" (describes it) · "ocr image.jpg" (reads the text in it)
 - "summarise report.pdf" · "analyse data.csv" · "watch my screen" / "stop watching"
 
 ### 🌐 Information
 - "what time is it?" · "what's the date?" · "weather in Paris"
 - "what's the weather in Dublin tomorrow?" → that day's forecast. With no place ELI asks "Where?"
   once and remembers it for the session.
-- "what's the news?" / "catch me up" → a **synthesised** briefing, not a raw dump
-- "search the web for X" (goes online — ELI tells you) · "gpu status" · "system stats"
+- "what's the news?" / "catch me up on the news" → a **synthesised** briefing, not a raw dump
+- "search the web for X" · "gpu status" · "system stats"
+- Weather, news and web search go online, so they need the **🌐 Net** switch on; with it off,
+  ELI says it can't fetch them rather than guessing.
 
 ### ✅ Saying yes, picking, answering
 Whatever ELI offers or asks, your next message is read against it. This is the same for every
@@ -364,8 +390,8 @@ topic, not only reminders.
 - **When ELI has to ask, answer in a word.** "add dentist appointment to my calendar" gets
   "When is it?"; "friday at 3pm" finishes the job. "cancel the dentist" with two entries gets a
   numbered choice; "the second one" or "the check-up" picks.
-- ELI knows what is coming up: "how long until the presentation?" is answered from the calendar
-  and the clock, not from the web.
+- ELI knows what is coming up: for anything in the next day and a half, "how long until the
+  presentation?" is answered from the calendar and the clock, not from the web.
 - The calendar is also written to `calendar.ics` in ELI's data folder, which any calendar app can
   import. Repeating events are not supported.
 - "start a pomodoro"
@@ -374,31 +400,44 @@ topic, not only reminders.
 
 ### 🔧 Asking ELI about itself (honest introspection)
 - "what are you running on?" (model, context, GPU) · "how does your memory work?"
-- "what do you know about me?" · "what updates have you made recently?" · "status"
+- "what do you know about me?" · "what updates have you made recently?" · "status" (the live
+  runtime report: model, context, GPU layers, batch)
 
 ### 👁️ Eye control (gaze)
-- "calibrate gaze", then "enable gaze". With it on, ELI clicks **where you're looking** when you
-  say "open" / "left click" / "right click" / "hit enter" — hands-free pointing.
-- **Fully hands-free *and* voice-free — dwell-click.** Say **"enable gaze clicking"** (or turn on
-  **Dwell-click** in Settings) and ELI clicks wherever you **rest your gaze for about a second** —
-  no mouse, no voice needed. This is built for people who can't use their hands *or* speak
-  reliably. Tune the hold time, wander radius, and sensitivity in Settings (`gaze_dwell_seconds`,
-  `gaze_dwell_radius`). Turn it off any time; it's opt-in.
+- **Calibrate once.** "calibrate gaze" tells you how: a two-minute script in a source checkout
+  (`python experimental/eli_ar_avatar_kit/scripts/eli_gaze_calibrate_plus.py --points 25`) that
+  shows dot targets to follow. Then "enable gaze" (or **🎯 Gaze** under the chat box, or
+  **Settings → Gaze → Start**).
+- With it on, ELI clicks **where you're looking** when you say "click that" / "left click" /
+  "right click" / "double click", and "open that" double-clicks there — hands-free pointing.
+- **Fully hands-free *and* voice-free — dwell-click.** Say **"enable gaze clicking"** and ELI
+  clicks wherever you **rest your gaze for about a second** — no mouse, no voice needed. This is
+  built for people who can't use their hands *or* speak reliably. The hold time, wander radius
+  and confidence floor are the `gaze_dwell_seconds` (default 1.0), `gaze_dwell_radius` (60 px)
+  and `gaze_dwell_min_confidence` settings in `settings.json` in ELI's `config` folder; there is
+  no on-screen control for them yet. "disable gaze" stops the tracker, and with it the clicking;
+  dwell-click stays switched on for the next time gaze starts until you set `gaze_dwell_click`
+  to false.
 - "gaze status" · "disable gaze"
 
 ### 🎨 Making images
-- "make an image of a red bike by the sea" · "generate a picture of …"
+- "make an image of a red bike by the sea" · "draw an image of …" · "generate an image of …" —
+  typed or spoken in the desktop app, these go straight to the **Images** tab. (Say "image":
+  "a picture of …" isn't recognised as an image request.)
 - Two engines: a fast **procedural** one (always available) and **diffusion** (SSD-1B) for
-  photoreal results — ELI briefly frees the model's VRAM to run it. The **Images** tab has the
-  controls; results save locally.
+  photoreal results — ELI briefly frees the model's VRAM to run it. Diffusion needs its weights
+  downloaded once (`python -m eli.tools.image_engine.fetch_model segmind/SSD-1B <folder>`; ELI
+  tells you the exact command if they're missing). The **Images** tab has the controls; results
+  save locally, under `image_engine/outputs` in ELI's data folder.
 
 ### 🧩 Coding & building things
-- "solve this: implement a function that …" → ELI plans it, writes it, then **verifies and
-  repairs** it.
+- "implement a function that … and test it" (or "use the coding agent to …") → ELI plans it,
+  writes it, then **verifies and repairs** it.
 - "generate a project that does X" (a full multi-file scaffold) · "write a bash script to …"
 - "examine eli/memory/memory.py for errors" → a tiered scan; it **offers** fixes and applies them
   only if you say "yes". · "show the diff" · "generate tests for your code" (it writes *and*
-  sandbox-verifies them). The **Coding** tab and the built-in **IDE** are home for this.
+  sandbox-verifies them). The **Coding** tab and the built-in code editor (**Labs ▸ Sim / IDE**)
+  are home for this.
 
 ### 🔧 ELI improving itself
 - "improve yourself" → a self-improvement patch cycle — proposed, and **gated by your approval**.
@@ -406,12 +445,14 @@ topic, not only reminders.
   fixes for recent failures as a **background job**
   (it can take many model calls); "check job N" for the result. Say "in the foreground" to wait for it.
 - "show your self-improvement log" · "patch yourself" · "upgrade yourself" (git pull → deps →
-  rebuild indexes) · "run your self-tests". The **Self-Improve** tab shows what it's proposing.
+  rebuild indexes) · "run a self test". The **Self-Improve** sub-tab (under **Proactive**) shows
+  what it's proposing.
 
 ### 🔌 Plugins & your own agents
 - "list plugins" · "enable the X plugin" · "install the X plugin" · "plugin status"
-- You can **build your own agent** just by describing it — ELI runs a short dialog, validates it,
-  and registers it live (the create-agent flow).
+- You can **build your own agent** in **Settings → Agents → Launch Agent Creator Wizard**: a
+  short form (what it's for, when it runs, how you'd know it worked) that ELI validates and
+  registers live — see §21.
 
 ### 🌙 Overnight & scheduled work
 - "research the best solar inverters overnight" · "build me a script at 2am" · "every night,
@@ -422,21 +463,24 @@ topic, not only reminders.
 ELI's personality is **emergent** — it forms from your profile, your history, and the way you talk
 to it, not from a hand-written script. Most of the time you leave it alone and it just *becomes*
 itself with you. When you want to steer it, you can, without erasing that:
-- "lock your persona to a terse senior engineer" · "what persona are you locked to?" · "clear
-  persona lock". A lock **layers on top** of the emergent voice for the session; clearing it hands
-  the wheel back to the natural persona.
+- **Set how it talks to you** *(new, 2.1.23)* — say *"speak to me more bluntly"*, *"be
+  funnier"*, *"respond as Rick"* or *"respond as a terse senior engineer"* and it **sticks**. You
+  can also set it in **Settings → Identity → Tone / how ELI speaks**. This explicit preference
+  takes priority over the tone ELI infers; to drop it, empty that field and save, or say *"set
+  your style to none"* ("reset your tone" only drops a tone set with "be comedic" and the like,
+  below). Leaving it blank keeps ELI's natural emergent voice in charge.
 - "refresh your persona" reloads it from your latest profile (after ELI's learned something new
   about you).
-- **Set how it talks to you** *(new, 2.1.23)* — say *"speak to me more bluntly"*, *"be funnier"*,
-  or *"respond as Rick"* and it **sticks** (say *"reset your tone"* to clear it). You can also set
-  it in **Settings → Identity → Tone / how ELI speaks**. This explicit preference takes priority
-  over the tone ELI infers, but leaving it blank keeps ELI's natural emergent voice in charge.
+- **The persona lock is about the model, not the manner**, and it is for Ollama users: "lock
+  persona" records the Ollama model ELI is set to (and that model's exact build), so a swapped
+  model is caught instead of silently changing ELI; "persona lock status" checks it and "clear
+  persona lock" removes it. It does not change how ELI talks.
 - ELI also keeps a small set of **core values** (memory policy, verbosity, safety) that are part
   of its persona and evolve alongside it.
 
 The rule of thumb: **the emergent voice is the default and the truth of who ELI is with you; a
-lock is a temporary hat it wears on request.** ELI won't drift into a scripted character on its
-own, and a lock never overwrites the underlying personality — it sits on top until you clear it.
+style you set is a hat it wears on request.** ELI won't drift into a scripted character on its
+own, and a style never overwrites the underlying personality — it sits on top until you clear it.
 
 ### 🎚️ Tone & emotion — reading the room
 ELI now **reads the emotional situation from two independent signals** — the *sound* of your voice
@@ -450,7 +494,8 @@ You can also set the register yourself: *"be comedic"*, *"talk street"*, *"sound
 professional"*, *"use a deadpan tone"* — and *"go back to normal"* (or *"be yourself"*) to hand it
 back to ELI's own read of the room. There's a growing palette of tones (comedic, professional,
 curious, deadpan, tender, street-smart, gremlin, and more), and you can add your own in
-`config/voices/tones.json`. Turn the whole thing off with `ELI_TONE_ADAPT=0`.
+`voices/tones.json` inside ELI's `config` folder (create the file; yours are merged over the
+built-in ones). Turn the whole thing off with `ELI_TONE_ADAPT=0`.
 
 ---
 
@@ -470,9 +515,15 @@ flowchart TD
     G[/Old, abandoned topics<br/>fade over time/] --> E
 ```
 
-**Tell it something to keep:** "remember that my sister's name is Anna" · "my name is Alex"
+**Tell it something to keep:** "remember that my sister's name is Anna" · "my name is Alex" ·
+or say the fact and add "please remember that" ("My locker code is 4482. Please remember it.").
 **Ask what it knows:** "what do you remember about my car?" · "what do you know about me?" ·
-"explain everything you know about me and where it's stored" (a sourced, detailed answer).
+"where is my personal memory stored and what is in it" (a sourced, detailed answer).
+**Make it forget:** "forget that my locker code is 4482" — ELI lists the stored memories that
+match and asks first. Say "yes" and they are deleted together with everything derived from them:
+facts that rested only on them, session summaries and profile items that held them, the
+conversation lines where you said it, and their entries in the search index (taken out of the
+index files straight away). A fact that another memory still supports keeps that support.
 
 **It remembers the thread, not just facts:** when a conversation ends, ELI quietly summarises it
 and carries a digest of your recent sessions forward — so it recalls what you've been *working
@@ -499,11 +550,12 @@ flowchart TD
     D -->|Yes| F{Has today's time<br/>already passed?}
     F -->|Yes| G[Runs it now once,<br/>then daily from tomorrow]
     F -->|No| H[Runs at the time, daily]
-    G --> I([Active habit — edit in Habits tab])
+    G --> I([Active habit — edit under Proactive ▸ Habits])
     H --> I
 ```
 
-Manage everything in the **Habits** tab (add, edit times, turn off), or say "show my habits".
+Manage everything in the **Habits** sub-tab under **Proactive** (add, edit times, turn off), or
+say "show habits".
 The key safeguards: it only proposes routines you've **genuinely repeated across days**, and it
 **always asks first**.
 
@@ -511,12 +563,14 @@ The key safeguards: it only proposes routines you've **genuinely repeated across
 
 ## 10. ELI helps before you ask (proactive)
 
-🟢 With **proactive mode** on, ELI can do helpful things on its own — a **morning briefing**, a
-gentle suggestion, or a goal it thinks would help. It's conservative and easy to control:
+🟢 With **proactive mode** on (it starts with the desktop app), ELI can do helpful things on its
+own — a **morning briefing**, a gentle suggestion, or a goal it thinks would help. It's
+conservative and easy to control:
 
 - "start proactive mode" / "stop proactive mode" · "proactive status"
-- "morning report" / "give me my briefing" (news, weather, your agenda)
-- "do you have any proposals for me?" / "what's on your agenda?"
+- "morning report" / "give me the morning report" (what happened over the last day, plus news
+  matched to your interests when the Net switch is on). Your calendar is "what's on today?" (§7).
+- "do you have any proposals for me?"
 
 Schedule real unattended work too:
 > "research X overnight" · "generate tests for your code tonight"
@@ -524,11 +578,11 @@ Schedule real unattended work too:
 These appear in the **Tasks** tab and survive restarts.
 
 ### The autonomy tick — what "on its own" actually means
-When you allow it, ELI runs a quiet **autonomy tick** inside the proactive daemon — roughly every
-half hour, and only if it's switched on (kill switch: `ELI_AUTONOMY_TICK=0`). One tick does three
-things, all **read-only or proposal-only**:
+While proactive mode runs, ELI runs a quiet **autonomy tick** inside it — roughly every half
+hour, and never while it's answering you (turn it off with `ELI_AUTONOMY_TICK=0`). One tick does
+three things, all **read-only or proposal-only**:
 
-1. **Code monitor** — it glances over its own code health and flags anything that's drifted.
+1. **Code monitor** — it notes which of its own source files have changed since the last check.
 2. **Self-model refresh** — it updates its understanding of itself (what it's running, what it can
    do) so its introspection stays honest.
 3. **Goal autogenesis** — it may propose a goal, or a scheduled task, it reckons would help you.
@@ -557,29 +611,36 @@ flowchart LR
   ELI trains its listener on the new word automatically — works even over background music.
 - **Personalise to your voice:** "enroll my wake word" (records you saying it and adapts).
 - **Dictation:** "start dictation" / "stop dictating" — speak and ELI types into the active field.
-- **Transcribe a recording:** "transcribe audio.wav"
+- **Transcribe a recording:** "transcribe audio.wav" or "make a transcript of meeting.mp3" (a
+  sentence that merely mentions a transcript is not taken as a request for one)
 - **ELI speaking back:** "say good morning"
 - **A human-like voice:** at the **startup model picker** (before ELI loads its model) pick
   **Voice engine → "Natural neural (XTTS-v2)"** for an expressive, human-sounding voice — or say
-  *"use the natural voice"* any time. It needs a one-time `pip install "eli-v2.0[natural]"`
-  (downloads ~1.8 GB on first use) and a reasonable GPU; on a lighter machine leave it on **Piper**,
-  which is fast and now noticeably more natural (it pauses on full stops and lifts on questions).
-- **Change ELI's voice:** the voice dropdown next to the chat box, **Settings ▸ Runtime ▸ "VOICE / TTS"**, or
+  *"use the natural voice"* any time. It needs the neural voice extra, which a source install
+  adds once with `pip install -e ".[natural]"` in the ELI folder (it downloads ~1.8 GB on first
+  use), and a reasonable GPU. The packaged builds don't include it, and ELI falls back to Piper if
+  it can't load. On a lighter machine leave it on **Piper**, which is fast and now noticeably
+  more natural (it pauses on full stops and lifts on questions).
+- **Change ELI's voice:** the voice dropdown under the chat box, **Settings ▸ Runtime ▸ "VOICE / TTS"**, or
   just ask — *"use the alan voice"*, *"switch your voice to amy"*, *"use a natural male voice"*.
 - **Get more voices and accents:** ask ELI directly — *"what voices do you have"*, *"download a
   British voice"*, *"get me a Scottish accent"* — or use **Settings ▸ Runtime ▸ "VOICE / TTS" > "Get more
-  voices / accents..."**. Either way, ELI can download from a library of **166 voices across 45
-  languages** — 38 of them English (US, British, Scottish, Northern and Southern English). Each is
-  verified, installed, and selectable immediately. A few voices are marked *personal use only*:
-  their licences don't allow ELI to bundle them, but you can still download them yourself.
+  voices / accents..."**. Either way, ELI can download any voice in the upstream Piper library:
+  well over a hundred voices in dozens of languages, including several dozen English ones (US,
+  British, Scottish, Northern and Southern English). The list is read from upstream, so the exact
+  count changes. Each download is verified, installed, and selectable immediately. A few voices
+  are marked *personal use only*: their licences don't allow ELI to bundle them, but you can still
+  download them yourself.
 - **Character voices:** choose `char:calm`, `char:robotic`, `char:energetic`, `char:synthetic`, or `char:refined`
-  from the same dropdown — each is a real voice plus a live effect chain. You can make your own,
-  and downloading a character's "ideal base" voice (flagged in the voice library) sharpens it.
+  (shown as "Style: …") from the same dropdown — each is a real voice plus a live effect chain.
+  You can make your own ("design a voice called Nova, deep and slow"), and downloading a
+  character's "ideal base" voice (flagged in the voice library) sharpens it.
 - **Make your own voice:** **Settings ▸ Runtime ▸ "VOICE / TTS"** — either **drop in a clip** (a short, clean
   ~6–20s .wav/.mp3/.mp4 of the voice you want) or click **"Record a voice now"** to capture 12
-  seconds from your mic on the spot. You can also say *"create a voice called Nova from clip.mp4"*.
-  It sounds like your sample once the neural voice extra is installed
-  (`pip install "eli-v2.0[natural]"`); until then it's saved and ELI uses a normal voice.
+  seconds from your mic on the spot. You can also say *"create a voice called Nova: ~/clip.mp4"*
+  (name, a colon, then the file). It sounds like your sample once the neural voice extra is
+  installed (`pip install -e ".[natural]"` in a source install); until then it's saved and ELI
+  uses a normal voice.
 - **ELI's face reacts:** the little animated face shows how ELI feels, **moves its mouth while it
   speaks**, and shows a focused look while it's thinking.
 - **Teach ELI your voice & tone:** "train my voice" — it learns your pitch/energy and even emotion
@@ -592,14 +653,18 @@ flowchart LR
 
 🟢 ELI can actually **look**:
 
-- **Your screen:** "what's on my screen?" · "what does this error say?" · "find the submit button"
-- **Image files:** "describe cat.jpg" · "read the text in this image" (OCR)
-- **Documents:** "summarise report.pdf" · "analyse data.csv" · "analyse the pdfs in that folder"
+- **Your screen:** "what's on my screen?" · "what does the error on my screen say?" · "find the
+  submit button on screen"
+- **Image files:** "look at cat.jpg" · "ocr image.jpg" (reads the text in it)
+- **Documents:** "summarise report.pdf" · "analyse data.csv" · "analyse the pdfs in
+  ~/Documents/papers" (a whole folder)
 - **Continuous watching:** "watch my screen" (and "stop watching")
 
-The first time you use vision, ELI may fetch a small vision model (you can pre-download it — §14).
-With a webcam set up, ELI even supports **eye-tracking control**: "enable gaze control",
-"calibrate gaze", then click where your eyes rest.
+Understanding pictures needs a local vision model, which ELI doesn't download on its own.
+`python -m eli.core.model_download --aux-all` fetches the suggested one with its projector (about
+5.7 GB), or put any vision GGUF and its projector in the models folder and ELI finds them.
+With a webcam set up, ELI even supports **eye-tracking control**: "calibrate gaze", "enable gaze
+control", then click where your eyes rest (§7).
 
 ---
 
@@ -616,16 +681,19 @@ flowchart TD
     A([Start the ELI Server<br/>on your computer]) --> B{Who should reach it?}
     B -->|Just this computer<br/>default| C[Private to localhost]
     B -->|My phone/tablet<br/>on home Wi-Fi| D[Start in LAN mode]
-    D --> E[It prints an address<br/>+ a security token]
-    E --> F[Open that address in<br/>your phone's browser]
-    F --> G[Enter the token once]
+    D --> E[It prints a link<br/>with a security token in it]
+    E --> F[Open that link or scan the QR<br/>in your phone's browser]
+    F --> G[The token signs you in<br/>and the page remembers it]
     G --> H([Chat with ELI from your phone<br/>thinking stays on the PC])
     C --> H
 ```
 
-- Start it from the desktop app — **Settings → Web Server** (a "this computer" button and a
-  "phone / Wi-Fi" button that shows the exact link to open). Or run `scripts/eli_serve.sh` (Mac/Linux) /
-  `scripts/eli_serve.ps1` (Windows). Full details: `docs/SERVER_AND_WEB_APP.md`.
+- Start it from the desktop app — **Settings → Web Server** (a **▶ Start (this computer)** button
+  and a **📱 Start (phone / Wi-Fi)** button that shows the exact link to open and a QR code). Or,
+  from a terminal: `ELI --server --lan` with an installed build, `scripts/eli_serve.sh --lan`
+  (Mac/Linux) or `scripts/eli_serve.ps1 -Lan` (Windows) from a source install. Without `--lan` /
+  `-Lan` — and that includes the **ELI Server** shortcut on its own — the server answers this
+  computer only. Full details: `docs/SERVER_AND_WEB_APP.md`.
 - The web app is **installable** — your phone's "Add to Home Screen" makes it open like an app, and the
   shell works offline. Light/dark themes; you can recolour the chat.
 
@@ -635,16 +703,19 @@ Start the server and it does two friendly things so you never have to hunt for t
 local browser** to the dashboard. (Set `ELI_API_NO_BROWSER=1` if you'd rather it didn't.)
 
 - **This computer only (default):** the dashboard opens at `http://127.0.0.1:8081/`. No token —
-  you're on the machine, so you're trusted automatically.
+  you're on the machine, so you're trusted automatically (as long as the browser calls the server
+  by an IP address, `localhost` or this machine's own name; see Appendix C.4).
 - **Phone / Wi-Fi (LAN mode):** it prints your computer's LAN address (e.g.
-  `http://192.168.1.20:8081/`) with a **one-time token** baked into the link, plus a **QR code**
-  in the Connect tab. Scan it or open the link and you're in.
+  `http://192.168.1.20:8081/`) with its **access token** baked into the link, plus a **QR code**
+  in the web app's Connect tab and on the desktop's Web Server page. Scan it or open the link and
+  you're in.
 
 ### The token, and the rotate button
-The phone's token is **stable** — it's saved (permissions `0600`, under your config dir) and
-survives server restarts, so a paired phone stays paired; no re-scanning every reboot. Lost the
-phone, or just want a clean slate? Hit **rotate**: it mints a fresh token and instantly cuts off
-anything still using the old one.
+The phone's token is **stable** — it's saved (permissions `0600`, as `api_token` in ELI's config
+folder) and survives server restarts, so a paired phone stays paired; no re-scanning every
+reboot. Lost the phone, or just want a clean slate? Hit **🔄 Rotate token** on the desktop's
+Settings → Web Server page: it mints a fresh token and instantly cuts off anything still using
+the old one.
 
 ### How the link keeps your token safe
 The token rides in the link's **fragment** — the part after the `#` (`…:8081/#token=…`). Browsers
@@ -656,10 +727,10 @@ displays now uses the safe fragment form, on the desktop panel and both launcher
 
 ### Voice from the phone needs HTTPS
 Browsers block the microphone on a plain `http://` LAN address, so the phone **mic** needs a
-secure page. Start with `--https` (or the HTTPS toggle) and ELI runs a *second* server alongside
-on port **8443** with a self-signed certificate — accept the one-time "not private" warning and
-the mic works. Plain HTTP stays the primary path (it's what QR scanners open reliably); HTTPS
-runs *in addition*, purely for voice.
+secure page. Start with `--https` (the desktop's 📱 Start (phone / Wi-Fi) button does this for
+you) and ELI runs a *second* server alongside on port **8443** with a self-signed certificate —
+accept the one-time "not private" warning and the mic works. Plain HTTP stays the primary path
+(it's what QR scanners open reliably); HTTPS runs *in addition*, purely for voice.
 
 ### Switching the model from the dashboard
 **Settings → Model** lists every model installed on your computer, with sizes. Pick one and ELI
@@ -678,17 +749,22 @@ The web/API server is a **FastAPI** app served by **uvicorn** (`api/server.py`).
 it directly — the desktop app and the launcher scripts wire everything up — but if you script it,
 a handful of environment variables control it:
 - `ELI_API_HOST` — `127.0.0.1` (default, this-computer-only) or `0.0.0.0` (LAN mode).
-- `ELI_API_PORT` — the HTTP port (default `8081`); the HTTPS voice server uses `8443`. ELI v3
-  uses the same default: `/api` says which ELI answered (`"product": "eli_v2"`), and when another
-  program (ELI v3 among them) holds the port, ELI v2 serves on the next free one instead of
+- `ELI_API_PORT` — the HTTP port (default `8081`, or the port saved on the Web Server page); the
+  HTTPS voice server uses `8443` (`ELI_API_HTTPS_PORT`). ELI v3 uses the same default: `/api`
+  says which ELI answered (`"product": "eli_v2"`), and when another program (ELI v3 among them)
+  holds the port, the desktop's Start buttons serve ELI v2 on the next free one instead of
   reporting "already running".
 - `ELI_API_TOKEN` — set your own token; if unset, ELI uses the saved stable one
   (`config/api_token`, permissions `0600`) so a paired phone survives restarts.
 - `ELI_API_ALLOW_TOKENLESS` — honoured only on loopback; LAN mode always requires the token.
+- `ELI_API_ALLOWED_HOSTS` — extra host names (a reverse proxy's, say) that count as this machine
+  for the tokenless same-machine welcome; any other name has to bring the token.
+- `ELI_LOOPBACK_ADMIN=0` — make same-machine connections present a token too (a shared computer).
 - `ELI_API_NO_BROWSER=1` — start without auto-opening the local browser.
 
 The launchers wrap all of this: `scripts/eli_serve.sh` (Mac/Linux) and `scripts/eli_serve.ps1`
-(Windows) start LAN mode, then print the phone link (with the safe `#token=` fragment) and the
+(Windows) serve this computer only by default; add `--lan` / `-Lan` (and `--https` / `-Https` for
+the phone mic) and the server prints the phone link (with the safe `#token=` fragment) and the
 **exact** firewall command for your OS — the quickest way in from a terminal. The API itself is a
 small REST surface (chat, status/telemetry, model list/switch, voice, memory, research, audit);
 full endpoint detail lives in `docs/SERVER_AND_WEB_APP.md`.
@@ -708,20 +784,26 @@ It has a sidebar with several sections:
 - **Research** — shared document corpora you can build and query **together**, with citations.
 - **Audit** — a tamper-evident log of every action.
 - **Admin** — (admin only) per-user activity, the risk-gate policy, and user management.
+- **Settings** — the safe-to-change settings, including the model switch.
+- **Connect** — the link and QR code for pairing a phone.
 
 ### Roles (optional)
 By default the person on the computer is the operator (full admin). If others share it, you can create
-accounts with roles — **viewer** (read-only dashboards), **member** (use everything), **admin** (also the
-Admin console) — in the Admin tab. Each gets a one-time link; the audit trail then attributes actions to
-the right person.
+accounts with roles — **viewer** (read-only dashboards), **member** (chat and use the app), **admin** (also
+the Admin console) — in the Admin tab. Each gets a token, shown once, to sign in with; the audit trail
+then attributes actions to the right person. A member or viewer can't have ELI do the owner's things —
+run shell commands or code, read or write files, see the screen or clipboard, drive the keyboard and
+mouse, or change ELI's own settings, plugins and MCP servers — whichever way they ask (chat, streaming,
+commands or research).
 
 ### The Home tab — ELI as your home assistant
 ELI controls smart devices **directly over MQTT** (ESPHome / Tasmota / Zigbee2MQTT) — no Home Assistant,
 no cloud:
 - **Find devices** on your network with one click (mDNS), or add one by its topics.
-- **Control** lights/switches, group them into **rooms**, and run room-wide on/off — from the app or by
-  voice ("turn on the desk lamp", "turn off the kitchen").
-- **Scenes** — save a set of device states as "Movie mode" and activate it (by voice too).
+- **Control** lights/switches, group them into **rooms**, and run room-wide on/off — from the Home tab.
+  Asking in chat ("turn on the desk lamp") reaches ELI's device server, but in this release it arrives
+  without the device's name and ELI only asks "Which device or room?", so use the Home tab for now.
+- **Scenes** — save a set of device states as "Movie mode" and activate it from the Home tab.
 - **Automations** — *when* something happens (a time, **sunrise/sunset**, or a device turning on/off),
   *do* something (control a device or run a scene), optionally *only if* a condition holds.
 - ELI **learns** how you use your home and **suggests** automations you can accept with one tap.
@@ -750,7 +832,7 @@ flowchart TD
 
 ### Downloading
 - **Pick from a menu (choose any number of models):** `python -m eli.core.model_download --choose`
-  — this is what the installer uses; you tick the ones you want (or `all` / `auto` / `none`).
+  — this is what `install.sh` offers; you tick the ones you want (or `all` / `auto` / `none`).
 - Let ELI choose one best-fit for your hardware: `python -m eli.core.model_download --auto`
 - See the menu without downloading: `python -m eli.core.model_download --list`
 - Grab a specific one: `python -m eli.core.model_download qwen2.5-7b`
@@ -767,11 +849,13 @@ You're not limited to one — download several and switch between them anytime (
 | `qwen3.6-35b-a3b` | very capable (mixture-of-experts) | 24 GB / or slow on CPU |
 | `falcon-h1-34b` | largest option | 24 GB / or slow on CPU |
 
-You can also just **drop any `.gguf` file** into the `models/` folder and ELI finds it.
+You can also just **drop any `.gguf` file** into the `models` folder (in ELI's per-user folder,
+or `models/` in a source checkout; `ELI_MODELS_DIR` points it elsewhere) and ELI finds it.
 
 ### Switching models
-In **Settings → Model** (or "Model menu / Auto Detect"), pick the file. ELI sizes it to your
-hardware automatically — you don't tune anything.
+In **Settings → Model**, or from the **Model** menu (**Load Model…**, **Startup Model Picker…**),
+pick the file. ELI sizes it to your hardware automatically — you don't tune anything (**Auto
+Detect** on the toolbar re-runs that sizing).
 
 ### Using Ollama instead (Windows, macOS, Linux)
 🟡 If you already run **Ollama**, ELI can use your Ollama models instead of a GGUF file —
@@ -856,14 +940,16 @@ of ELI's internal helpers for hard problems.
 
 | Mode | Feel | Use it for |
 |---|---|---|
-| **quick** | snappy | greetings, simple commands, quick facts |
-| **normal** | balanced (default) | everyday questions and tasks |
+| **quick** | snappy (default) | greetings, simple commands, quick facts |
+| **normal** | balanced | everyday questions and tasks |
 | **advanced** | more thorough | tricky, multi-step asks |
 | **research** | digs deep | gathering and synthesising a lot |
 | **expert** | maximum effort | the hardest problems |
 
-Ask "what reasoning mode are you in?" or "explain all your reasoning modes". For most people the
-default is right — ELI also deepens on its own when a problem clearly needs it.
+Pick one in the mode list under the chat box. Ask "what reasoning mode are you in?" or "explain
+all your reasoning modes". For most people the default is right: with **🤖 Auto-Mode** on (it is
+by default), words like "step by step", "prove" or "explore branches" pick a deeper method for
+that message, and ELI also deepens on its own when the evidence for an answer comes back thin.
 
 ---
 
@@ -872,12 +958,18 @@ default is right — ELI also deepens on its own when a problem clearly needs it
 🟡 Most people never need these. The few that matter:
 
 - **Model** — which brain ELI uses (§14).
-- **Voice** — wake word, text-to-speech on/off, microphone.
-- **Hardware / startup** — ELI auto-tunes; advanced users can nudge how much graphics memory to
-  hold back, or how much context to use. Leave alone unless you know why.
-- **Privacy** — ELI is offline by default; this is where anything network-related lives.
+- **Voice** — **Settings → Audio** has the microphone, wake word and voice profile; ELI's own
+  voice is under **Settings → Runtime ▸ VOICE / TTS**. Speaking every reply aloud is the
+  **Auto-Speak** button (🔇/🔊) under the chat box.
+- **Hardware / startup** — ELI auto-tunes; advanced users can nudge, in the startup model picker,
+  how much graphics memory to keep free, the context window, the RAM budget and the fit profile
+  (Settings → Runtime has context size, GPU layers and batch too). Leave alone unless you know why.
+- **Network** — there is no settings page for it: ELI is offline by default, and the **🌐 Net**
+  button under the chat box is the one switch. (Settings → Application has the filter for adult
+  content in web results.)
 
-Two graphics cards? ELI can use both — set in the GPU profile settings; single-card just works.
+Two graphics cards? ELI can use both and shares the model across them by itself; the startup
+model picker lists each card, so you can untick one or set the split. A single card just works.
 
 ---
 
@@ -885,10 +977,11 @@ Two graphics cards? ELI can use both — set in the GPU profile settings; single
 
 🟢
 
-- **Nothing leaves your computer** unless you ask for something online (web search, news, weather,
-  downloading a model). ELI tells you when it goes online.
+- **Nothing leaves your computer** unless you turn the **🌐 Net** switch on (web search, news,
+  weather) or start a download yourself (a model, a voice). Turning it on or off is recorded, and
+  while it's on each place ELI connects to is written to the audit trail.
 - **Your data is yours** — conversations, memories, files, profile live in local databases. Delete
-  anytime.
+  anytime ("forget that …", §8).
 - **No accounts, no telemetry, no subscription.**
 - A fresh install is a **blank slate** — ELI starts knowing nothing about you.
 
@@ -905,7 +998,7 @@ Two graphics cards? ELI can use both — set in the GPU profile settings; single
 flowchart TD
     A([Replies feel slow]) --> B[Ask: 'what are you running on?']
     B --> C{Running on GPU<br/>or CPU?}
-    C -->|CPU| D[Reinstall with graphics support,<br/>or pick a smaller model]
+    C -->|CPU| D[Add the GPU pack - see section 3,<br/>or pick a smaller model]
     C -->|GPU but big model| E[Switch to a smaller model<br/>see section 14]
     C -->|GPU, right-sized| F[That's normal speed for<br/>your hardware]
     D --> G([Faster])
@@ -919,9 +1012,9 @@ flowchart TD
 | **Replies look like gibberish** | A model whose context is too small. Pick a recommended one (§14); ELI sizes context automatically. |
 | **"I couldn't find a model"** | `python -m eli.core.model_download --auto` |
 | **Memory/recall seems empty** | Normal on a fresh install. Ensure the embedder downloaded: `python -m eli.core.model_download --aux` |
-| **Voice/wake word not responding** | "run voice diagnostics"; check the microphone in Settings → Voice. |
-| **Won't go online for news/search** | By design (offline-first). The network is allowed per-request; check Settings → Privacy. |
-| **A habit didn't run** | Open **Habits** — confirm it's enabled and the time is right; or "show my habits". |
+| **Voice/wake word not responding** | "run voice diagnostics"; check the microphone in Settings → Audio, and that **🎤 Mic** is on. |
+| **Won't go online for news/search** | By design (offline-first). Turn on the **🌐 Net** switch under the chat box and ask again. |
+| **A habit didn't run** | Open **Proactive ▸ Habits** — confirm it's enabled and the time is right; or "show habits". |
 | **Something seems broken** | "run a full runtime audit" or "status". |
 
 ---
@@ -935,10 +1028,10 @@ flowchart TD
 - "what's the news?" · "weather in Dublin" · "what time is it?"
 
 **Memory & you**
-- "remember that …" · "what do you know about me?" · "my name is Alex"
+- "remember that …" · "what do you know about me?" · "my name is Alex" · "forget that …"
 
 **Habits & proactive**
-- "show my habits" · "yes" / "no" (to an offer) · "morning report" · "start proactive mode"
+- "show habits" · "yes" / "no" (to an offer) · "morning report" · "start proactive mode"
 
 **Writing & code**
 - "write a report on X" · "write a script to …" · "fix the bugs in foo.py"
@@ -957,8 +1050,9 @@ flowchart TD
 
 ## 20. Add-ons: plugins & the community marketplace
 
-🟡 **Settings ▸ 🛒 Marketplace.** Plugins add abilities to ELI. Some ship with it;
-others are written by **other people in the community**.
+🟡 **Settings ▸ Advanced ▸ Manage Plugins**, then the **🛒 Marketplace** tab of the window that
+opens. Plugins add abilities to ELI. Some ship with it; others are written by **other people in
+the community**.
 
 ### The honest bit, first
 
@@ -1029,8 +1123,9 @@ answer, it isn't added.
 🔴 An **agent** is a small specialist that runs alongside ELI's main reply — one that
 watches for a certain kind of request and contributes something extra.
 
-You can write your own. A custom agent needs four things, and ELI won't accept it
-without them:
+You can write your own in **Settings → Agents → Launch Agent Creator Wizard**, and list, edit,
+enable or disable every agent under **Settings → Advanced → Manage Agents**. A custom agent needs
+four things, and ELI won't accept it without them:
 
 | | |
 |---|---|
@@ -1066,7 +1161,7 @@ Agents are created switched off. You can edit one and reload without restarting 
 | **Proactive mode** | ELI doing helpful things on its own (briefings, suggestions). |
 | **Habit** | A routine ELI learned and you approved, run on a schedule. |
 | **Fine-tuning** | Optional advanced step to teach a model ELI's voice (§14). |
-| **Offline-by-default** | ELI never uses the internet unless you ask for something that needs it. |
+| **Offline-by-default** | ELI never uses the internet unless you turn its Net switch on or start a download yourself. |
 
 ---
 
@@ -1076,9 +1171,10 @@ Agents are created switched off. You can edit one and reload without restarting 
 verified path from your words to ELI's reply.*
 
 Every request runs through one funnel — `CognitiveEngine.process()` — which takes one of three
-paths depending on what you asked and the reasoning mode. The diagram is the **real** pipeline
-(verified against the running code): a deterministic fast-path for plain commands, a **quick**
-path via the Agent Bus (the default), and a **deep** 12-stage Orchestrator for hard work.
+paths depending on what you asked. The diagram is the **real** pipeline (verified against the
+running code): a deterministic fast-path for plain commands, the 12-stage **gradient
+orchestrator** for every conversation (the reasoning mode sets how deep it goes), and the Agent
+Bus on its own as the fallback if orchestration fails.
 
 ```mermaid
 flowchart TD
@@ -1120,8 +1216,9 @@ of fast, exact checks (web realtime lookups, media controls, file/PDF, memory, O
 each carefully shaped so it only fires on a real command — e.g. media controls need a whole word
 in command shape, so "metabolise" never triggers a media "tab". If nothing matches, an **LLM
 intent classifier** is the fallback. The router emits `{action, args, confidence}` and hands off
-to `CognitiveEngine.process()`. The router also remembers the *last used path* so follow-ups
-("do it again", "the second one") resolve correctly.
+to `CognitiveEngine.process()`. The router remembers the last file or folder you named, so "the
+pdfs in that folder" finds it; the engine remembers the last real action, so "do it again" runs it
+again; and a short reply to an offer ("the second one", "do 2") is read against that offer (§7).
 
 ### A.2 — The paths, and when each is taken (v2.3.37+)
 - **Fast-path (PHASE45) — no AI involved.** Plain, deterministic actions (open an app, pause
@@ -1149,6 +1246,7 @@ them concurrently over a dependency DAG, and aggregates into context. Key agents
 | **Capability** | what ELI can do (the capability manifest) |
 | **Habit / Proactive / Reflection / Self-Improve** | routines, signals, insights, fixes |
 | **Plugin / Voice / Frontier / Orchestrator** | plugin dispatch, speech state, deeper reasoning hooks, planning |
+| **Critic** | runs after the retrievers and checks whether what they found agrees or contradicts (no model call) |
 
 After the bus returns, a **grounding-escalation hook** checks: *is this a factual question that
 came back weakly supported?* If so, ELI escalates — a web tier (if you allow online), a local
@@ -1161,7 +1259,8 @@ short grounded synthesis, and a conversation goes to generation with the full pe
 context.
 
 ### A.4 — The 12 stages, one by one (canonical S01–S12)
-Logged via `pipeline_trace.py`; enable with `ELI_PIPELINE_TRACE=1`.
+Each stage is logged (at debug level) as `[PIPELINE] S06 AGENT_BUS …` by
+`eli/kernel/pipeline_trace.py`; `ELI_PIPELINE_TRACE=1` adds the engine's own per-request trace.
 
 1. **S01 PERCEIVE_INGEST** — normalise voice/text input.
 2. **S02 INPUT_GUARDS** — safety and policy gates.
@@ -1219,12 +1318,12 @@ flowchart TD
     Q([Recall request<br/>from pipeline stages 5-7]) --> RC[recall_memory<br/>hybrid retriever]
     V --> RC
     F --> RC
-    RC --> S1[1 · FAISS vector search — primary]
-    S1 --> S2{Cold index or<br/>fewer than limit/2 hits?}
-    S2 -->|Yes| S3[2 · FTS5 / LIKE keyword supplement]
-    S2 -->|No| S4
-    S3 --> S4[3 · Noise filter<br/>drop ELI's own insights / reflections /<br/>session summaries / rows over 1500 chars]
-    S4 --> S5[4 · Importance-weighted ordering<br/>COALESCE importance 0.5]
+    RC --> S1[1 · FAISS vector search]
+    RC --> S2[2 · FTS5 keyword search<br/>LIKE scan if it finds nothing]
+    S1 --> S3[3 · Noise filter, in both searches<br/>drop ELI's own insights / reflections /<br/>session summaries / rows over 1500 chars]
+    S2 --> S3
+    S3 --> S4[4 · Rank fusion<br/>found by both channels ranks first]
+    S4 --> S5[5 · Ordering<br/>importance · decay weight · recency]
     S5 --> CTX([Grounded context handed to the prompt])
     KG -.->|context_for_prompt| CTX
     I7 -.->|read fresh every turn| CTX
@@ -1280,9 +1379,10 @@ On top of the relational data sit three search indexes:
 
 ### B.3 — How recall works (step by step)
 When the cognition pipeline (stages 5–7) needs memory, it calls **`recall_memory`**, a genuine
-hybrid retriever that runs in this order:
-1. **Vector search first (FAISS).** The semantic index is the primary path — it finds things that
-   *mean* the same even if worded differently.
+hybrid retriever:
+1. **Vector search (FAISS).** The semantic index finds things that *mean* the same even if worded
+   differently. Every hit is checked against the database, so a memory that was deleted or
+   forgotten never comes back from the index.
 2. **Keyword search (FTS5) alongside it.** Both run every time and their rankings are combined,
    so a memory found by meaning and by the exact word comes first. The keyword search reads what
    was said, never the labels ELI files it under. A plain LIKE scan covers the case where it finds
@@ -1290,8 +1390,9 @@ hybrid retriever that runs in this order:
 3. **Noise filter.** Results are scrubbed of ELI's *own* output — assistant insights, reflections,
    session summaries, the "orchestrator" source, and any over-long blobs (>1500 chars). This is
    the safeguard that stops ELI's past musings from masquerading as *your* facts.
-4. **Importance-weighted ordering.** What survives is ranked by an importance score so the most
-   significant memories surface first.
+4. **Ordering.** What survives is ranked by a blend of its importance, its decay weight and how
+   recent it is, with a lift for preferences, identity and projects, so the most significant
+   memories surface first.
 
 When you ask what ELI remembers, every memory it shows has its date in front of it. Asking how
 its memory is doing ("how's your memory holding up?") gets a short health check instead: how
@@ -1311,9 +1412,10 @@ who you are without you repeating yourself.
 
 ### B.5 — Privacy, restated
 Every database and index in this appendix is a local file under your user profile. There is no
-sync, no upload, no account. Delete the files (or use the **Memory** tab) and that knowledge is
-gone. A fresh install starts with the full structure but **zero** personal rows — a true blank
-slate.
+sync, no upload, no account. Delete the files (or use the **Memory** sub-tab, or ask ELI to
+"forget that …", §8) and that knowledge is gone; a forgotten memory is also taken out of the
+vector index files at once, not just hidden. A fresh install starts with the full structure but
+**zero** personal rows — a true blank slate.
 
 ---
 
@@ -1325,23 +1427,37 @@ flip. All of this is verified against the running codebase.*
 
 ### C.1 — Offline by default (the socket failsafe)
 ELI doesn't just *prefer* to stay offline — it's physically stopped from reaching the internet
-unless you asked for something that needs it. At startup, `netguard` installs a **process-wide
-socket guard**: it patches the low-level `connect()` call so that *any* outbound connection to a
-non-loopback address raises an `OfflineError` while ELI is offline. Loopback and local sockets
-(the phone web server, the local model) always work. So even if some stray bit of code *tried*
-to phone home, the operating-system call itself is blocked — belt and braces. When you do turn
-networking on for a task, that flip is written to the audit ledger; "internet on" is never
-silent.
+unless you've switched networking on (the **🌐 Net** button, or the dashboard's Internet switch),
+or a download you started opens a short window of its own. At startup, `netguard` installs a
+**process-wide socket guard**: it patches the low-level `connect()` call so that *any* outbound
+connection to a non-loopback address raises an `OfflineError` while ELI is offline. Loopback and
+local sockets (the phone web server, the local model) always work. So even if some stray bit of
+code *tried* to phone home, the operating-system call itself is blocked — belt and braces. Hosts
+that exist only to collect telemetry are refused by name even with networking on. When you do
+turn networking on, that flip is written to the audit ledger, and so is each place ELI connects
+to while it's on; "internet on" is never silent.
 
 Ask for something online while offline and you don't get a crash or an invented answer — you get
-an honest refusal: *"I can't fetch that right now, I'm offline."*
+an honest refusal along the lines of *"I can't search the web right now — network access is off.
+Turn on the Net toggle … and ask again."*
 
-### C.2 — The fail-closed command gate
-ELI can run shell commands and open apps, so that path is gated hard. Before any command runs
-it's checked against an **allowlist** by the SecurityManager. The part that matters: if the
-security layer can't load for any reason, the check **fails closed** — it returns *denied*, not
-*allowed*. A broken guard blocks the action; it never quietly waves one through. Sandboxed runs
-are limited to a fixed set of allowed executables.
+### C.2 — The shell gate
+ELI can run shell commands and open apps, so that path is gated hard. From chat, ELI runs a
+command only when you asked for it in your own words ("run the command: ls -la") — never because
+the model guessed it, and never on a "yes" to an offer of its own. Before it runs, the **shell gate**
+(`eli/execution/shell_gate.py`) reads *every* command in the line, not just the first word: the
+parts joined by `;`, `&&`, `||`, `|`, `&` or new lines, what runs inside `$( )`, `<( )` and
+backticks, and what wrapper commands start (`sudo`, `env`, including `env -S`, `nice`, `timeout`,
+`xargs`, `busybox` and others). The line is refused if any part matches a destructive pattern
+(`rm -rf /`, formatting a disk, `dd` onto a device, a fork bomb, `curl … | sh`, shutting the
+machine down, editing sudoers, and their Windows and macOS equivalents) or runs a program on the
+deny list (shells, script interpreters, `nc`, `dd`, `rm`, `shred`, firewall tools, …), including
+`find -delete` and `find -exec rm`. The gate lives in a protected file that ELI's self-improvement
+can't edit, and if it can't be loaded the command doesn't run. **Full Control** (below) is the
+only thing that lifts it. Two other things can run a command, each only after your "yes": a
+habit you approved (§9; `habit_shell_enabled: false` in settings stops habits running commands)
+and an install ELI offered to fix a missing app. Those run as they are and are not read by the
+shell gate.
 
 ### C.3 — The approval gate (nothing risky happens behind your back)
 Anything ELI proposes on its own — an autonomous action, a self-improvement patch, a scheduled
@@ -1354,19 +1470,29 @@ by default.
 
 ### C.4 — The phone: who's allowed in
 The web server (§13) is locked down. On the same machine (loopback) you're trusted
-automatically. From the network, every request must carry a **bearer token** — and that token is
-never stored in plain text, only its SHA-256 hash. The token travels in the link's URL
-**fragment** (after the `#`), which browsers never transmit to the server, so it can't appear in
-the access log; the page reads it locally and immediately clears it from the address bar. Define one or more users and **RBAC** switches
-on: each token maps to a role (admin / member), and admin-only actions — changing settings,
-switching the model — reject anyone who isn't admin. With no users defined it's single-operator
-mode: just you. The **rotate** button issues a fresh token and kills the old one, so a paired
-phone can be cut off in one tap.
+automatically — but only when the browser calls the server by an IP address, `localhost`, this
+machine's own name or a name listed in `ELI_API_ALLOWED_HOSTS`. A web page that points its own
+domain at 127.0.0.1 (DNS rebinding) gets no free pass: it must show a token like any other
+device. From the network, every request must carry a **bearer token**. The single-operator token
+is kept in a file only you can read (`config/api_token`, `0600`); per-user tokens are never
+stored in plain text, only as SHA-256 hashes. The token travels in the link's URL **fragment**
+(after the `#`), which browsers never transmit to the server, so it can't appear in the access
+log; the page reads it locally and immediately clears it from the address bar. Define one or more
+users and **RBAC** switches on: each token maps to a role (admin / member / viewer). Admin-only
+actions — changing settings, switching the model, the internet switch, user management — reject
+anyone who isn't admin, a viewer can only read, and a member or viewer can't have ELI carry out
+the owner's actions (shell commands, code, reading or writing files, the screen, clipboard,
+keyboard and mouse, ELI's own settings, plugins, MCP) through chat, streaming, completions,
+commands or research: that is checked where ELI executes every action. With no users defined it's
+single-operator mode: just you. The **rotate** button issues a fresh token and kills the old one,
+so a paired phone can be cut off in one tap.
 
 ### C.5 — The audit ledger
 Security-relevant events — settings changes, the network being turned on or off, research
 collaborations — are written to a **tamper-evident audit ledger**: a local, append-only trail so
-there's always an honest record of what changed and when.
+there's always an honest record of what changed and when. Each row is chained to the one before
+with a keyed hash, so an edited, deleted or reordered row breaks the chain; the desktop app's
+**Audit** tab shows one row per request and has a **Verify Chain** button.
 
 ### C.6 — Privacy, restated
 Every guard, token, ledger, and database above is a local file under your own user profile. No

@@ -1,12 +1,13 @@
 # ELI Memory Subsystem
 
-> **Updated for v2.4.84.** Memory is governed by a storage policy
+> **Updated for v2.5.36.** Memory is governed by a storage policy
 > (`eli/memory/policy.py`): every row has an origin, repeats are merged, weight follows a
 > forgetting curve reinforced by use, and faded derived rows are archived. Recall applies a
 > time window before ranking, and reports what it did. Turn retrieval is shared in
-> `eli/memory/retrieval.py`; FAISS deletes use tombstones.
+> `eli/memory/retrieval.py`; FAISS deletes use tombstones, and deleted rows leave the vector
+> files after every forget and in the daily upkeep.
 
-`eli/memory/` holds 8,996 lines in 11 files: relational, full-text, vector and graph
+`eli/memory/` holds 10,584 lines in 12 files: relational, full-text, vector and graph
 storage, all local SQLite and FAISS. Companion to `project_overview.md`.
 
 ## The two layers
@@ -29,15 +30,15 @@ internals), with live counts for each layer.
 
 | File | Lines | Role |
 |---|---:|---|
-| `memory.py` | 6,034 | the `Memory` class (85 public methods), schema, `DBPaths`, upkeep, module facade |
+| `memory.py` | 6,008 | the `Memory` class (87 public methods), schema, `DBPaths`, upkeep, module facade |
 | `policy.py` | 128 | pure storage-policy functions (origin, dedupe key, strength, archive, merge) |
-| `retrieval.py` | 310 | shared turn retrieval (`retrieve_for_turn`), turn cache, time window (turns and executed actions) |
-| `claims.py` | 266 | dated claims about the user: valid-from and valid-to, learned-at, supersession |
-| `unified_retrieval.py` | 371 | the orchestrator stages consume `retrieve_for_turn` through it; formats the verified-memory block and the period log |
-| `document_index.py` | 706 | every document ELI has read, stored whole and searched by passage |
-| `vector_store.py` | 677 | FAISS index, embedder, tombstones |
-| `knowledge_graph.py` | 703 | entity and relation graph |
-| `system_index.py` | 278 | indexed apps, executables, files |
+| `retrieval.py` | 327 | shared turn retrieval (`retrieve_for_turn`), turn cache, time window (turns and executed actions) |
+| `claims.py` | 406 | dated claims about the user: valid-from and valid-to, learned-at, supersession |
+| `unified_retrieval.py` | 373 | the orchestrator stages consume `retrieve_for_turn` through it; formats the verified-memory block and the period log |
+| `document_index.py` | 916 | every document ELI has read, stored whole and searched by passage |
+| `vector_store.py` | 788 | FAISS index, embedder, tombstones and their compaction |
+| `knowledge_graph.py` | 758 | entity and relation graph |
+| `system_index.py` | 283 | indexed apps, executables, files |
 | `memory_truth.py` | 188 | read-only inspection used by status surfaces |
 | `memory_adapter.py` | 131 | compatibility adapter |
 | `__init__.py` | 278 | facade (`get_memory`, `get_agent_memory`, path helpers) |
@@ -71,8 +72,9 @@ Rules, all in `policy.py` and pinned by `tests/test_memory_policy.py`:
 - **Evidence about the user.** Only `user_said` counts (`counts_as_evidence_about_user`).
 
 Columns added to `memories`: `event_ts`, `seen_count`, `last_seen`, `last_recalled`,
-`recall_count`, `origin`, `text_key`. Tables added: `memories_archive`, `memory_meta`. The
-`semantic` table gained `evidence_count`, `last_seen`, `evidence`.
+`recall_count`, `exposure_count`, `corrected_count`, `origin`, `text_key`. Tables added:
+`memories_archive`, `memory_meta`, `memory_lineage`. The `semantic` table gained
+`evidence_count`, `last_seen`, `evidence`.
 
 ### What counts as the same fact, and what strengthens a memory
 
@@ -82,13 +84,15 @@ Columns added to `memories`: `event_ts`, `seen_count`, `last_seen`, `last_recall
   A key-version marker makes upkeep recompute old keys once (`rekey_text_keys`); it never merges.
 - **Retrieval is exposure, not use.** Recalling a memory only increments `exposure_count`. Its strength
   is reinforced by `record_recall_outcome(ids, helped=True)`, which the engine calls when the next
-  user message does not correct the answer those memories went into; a correction lowers the weight
-  and increments `corrected_count`. A wrong memory that keeps being retrieved cannot make itself
-  stronger. `recall_count` now means answers a memory helped with, and only that protects a row
-  from archiving.
+  user message does not correct the answer those memories went into; a correction halves the weight
+  (never below `MIN_WEIGHT`) and increments `corrected_count`. A wrong memory that keeps being
+  retrieved cannot make itself stronger. `recall_count` now means answers a memory helped with, and
+  only that protects a row from archiving.
 - **What enters durable memory.** `persistence_gate.should_store_memory_text` rejects filler and
   reactions ("haha", "lol that is funny", "hello there"), text under four words, questions, and ELI's
   own internal output. Conversation turns are still logged in full; only durable memory is filtered.
+  A statement followed by "Please remember it." (or "that", "this") stores the statement: the store
+  used to be handed the word "it", which the gate turned down, and nothing was kept.
 
 ### Dated claims (`claims.py`)
 
@@ -100,8 +104,8 @@ claim when it is stored. A single-valued relation supersedes the old value and k
 claim, and the same value again confirms instead of duplicating. `Memory.claims_current()`,
 `claims_during(start, end)`, `claims_known_at(when)` and `claim_history(relation)` answer "what is true
 now", "what held in spring" and "what did you believe on 1 March". Retrieval adds the relevant claims
-to the evidence (a period question gets what held then), and deleting the source memory withdraws its
-claims. Extraction is a small exact set of patterns, not a model call.
+to the evidence (a period question gets what held then), and forgetting a memory deletes the claims
+that rest only on it (below). Extraction is a small exact set of patterns, not a model call.
 
 What the user is doing now is a claim too: `watching`, `playing`, `reading` and `listening_to`, from
 "I'm watching X", "still watching X", "I've been playing X" or "X is on in the background". They are
@@ -118,9 +122,19 @@ ignoring filler words, newest first.
 - **Forget.** "forget that my locker is 212" lists the matching memories and asks; on yes (or
   `confirm forget memories 12 15`) `Memory.forget(ids)` deletes them and everything derived from
   them: derived rows through `memory_lineage`, index entries and vector tombstones, claims, recall
-  log rows, semantic-fact quotes, session summaries that carry the same content, profile items and
-  briefs, stances and belief revisions, graph entities created with the memory, and the conversation
-  turns. It returns a report of what was removed.
+  log rows, semantic-fact quotes, session summaries, profile items and briefs, profile patterns,
+  stances and belief revisions, graph entities created with the memory, and the conversation turns.
+  It returns a report of what was removed.
+  - A claim that rests only on forgotten memories is deleted, value and quoted words with it; a
+    claim another kept memory also supports stays, without the forgotten roots and without words
+    quoted from them (`claims.purge_from_memories`). Claims used to be retracted, which kept both
+    in the table.
+  - A session summary goes when it holds the forgotten words or one of their identifiers (a code,
+    a name with a number in it), or shares their names and summarises the conversation they were
+    said in. Names alone are not enough: another conversation about the same people stays.
+  - The vector index files are compacted straight away (`vector_store.compact_tombstones`): a
+    tombstone only hid the row from search, and the forgotten text stayed on disk in the index's
+    metadata. The keyword fallback skips tombstoned rows too.
 - **Lineage.** `link_derivation(child, parents)` records that a summary or reflection was made from
   other memories; `lineage_root` and `independent_sources` mean a fact and its summaries count as
   one source. A claim's confirmations count distinct roots only.
@@ -131,7 +145,10 @@ ignoring filler words, newest first.
 - **Retrieval scope.** `retrieve_for_turn` returns `searched`: live memory, exact codes and quoted
   phrases (looked up as written, so an embedding cannot blur "ORCHID-7319"), dated claims, and the
   archive, which is searched only when live evidence is thin and its hits are labelled. The
-  diagnostics block states that scope, so "nothing stored" is only claimed for what was searched.
+  diagnostics block (`memory_diag.block`) states that scope and what each part gave, as facts; only
+  when the search found nothing does it add that this is no evidence about anything outside the
+  scope. It used to end with "Only say nothing is stored for this scope." whether or not anything was
+  found, and the model said exactly that beside a verified memory that held the answer.
 
 ### Daily upkeep
 
@@ -149,6 +166,9 @@ engine start and after responses (`upkeep_async()`), and skipped under `ELI_TEST
    importance and use, so a missed run cannot leave a row over-weighted);
 4. **archive**: move faded derived rows to `memories_archive` (`search_archive`,
    `restore_from_archive` bring them back);
+4a. **vectors**: take merged, archived and forgotten rows out of the vector index files
+   (`compact_tombstones`). The kept vectors are copied out of the index as they are, with no
+   re-embedding; a dry run skips it;
 5. **identity**: merge legacy user ids into one stable owner id (`owner_id`, kept in
    `memory_meta`); only UUID-shaped legacy ids are merged;
 6. **learning**: remove repeated identical belief revisions, cap corroboration at the number of
@@ -164,7 +184,8 @@ engine start and after responses (`upkeep_async()`), and skipped under `ELI_TEST
 A run only marks the day done when every step succeeded; otherwise `run_upkeep` reports
 `status: partial` with the failed steps, and upkeep retries after an hour.
 `integrity_report()` reports the state of all of this for the health checks: `ok` is false when
-vectors are missing, and `status` is `healthy` or `degraded`.
+the full-text or vector index disagrees with the rows (entries missing or orphaned) or duplicate
+groups or unlabelled rows remain, and `status` is `healthy` or `degraded`.
 
 ## The `Memory` class (`memory.py`)
 
@@ -196,14 +217,15 @@ A single class that owns most persistent concerns:
 
 ## Schema
 
-The blank `user.sqlite3` template holds 27 tables and three FTS5 indexes. `memories`
-(+ `memories_fts`), `memories_archive`, `memory_meta`, `semantic`, `conversation_turns`,
-`conversations`, `session_summaries`, `kg_entities` (+ FTS), `kg_relations`, `recall_log`,
-`runtime_events`, `learning_replay`, `observations`, `habits`, `habit_events`, `habit_rules`,
-`user_patterns`, `user_model`, `eli_stances`, `belief_revisions`, `corrections`, `failures`,
-`error_tracking`, `improvements`, `capability_proposals`, `news_articles` (+ FTS),
-`news_reflections`. `agent.sqlite3` holds `agent_dispatches`, `agent_metrics` and the
-self-improvement tables.
+The blank `user.sqlite3` template (`config/templates/db/user.sqlite3`) holds 28 tables and three
+FTS5 indexes. `memories` (+ `memories_fts`), `memories_archive`, `memory_meta`, `memory_lineage`,
+`semantic`, `conversation_turns`, `conversations`, `session_summaries`, `kg_entities` (+ FTS),
+`kg_relations`, `recall_log`, `runtime_events`, `learning_replay`, `observations`, `habits`,
+`habit_events`, `habit_rules`, `user_patterns`, `user_model`, `eli_stances`, `belief_revisions`,
+`corrections`, `failures`, `error_tracking`, `improvements`, `capability_proposals`,
+`news_articles` (+ FTS), `news_reflections`. `memory_claims` is created on first use
+(`claims.ensure_schema`). `agent.sqlite3` holds `agent_dispatches` and `agent_metrics` (all its
+blank template has) and the self-improvement tables.
 
 `emotion_events` is owned by `cognition/emotion_timeline.py`, not the `Memory` class: it opens
 `user.sqlite3` directly and creates its table on first use. Columns: `ts`, `user_id`,
@@ -233,8 +255,10 @@ budgets.
   hits outside the window are dropped, and the user's turns inside the window are read from
   `conversation_turns`, and what ELI did in the window is read from the evidence ledger
   (`evidence_ledger.actions_between`: every executed action with the executor's own result
-  text, scoped to the asking user). The result carries `window_stats` (candidates, added by
-  date, in window, turns, actions) and the orchestrator logs and reports it (`memory_diag`).
+  text, scoped to the asking user). When nothing falls inside the window, the closest matches
+  are kept with their own dates and marked as outside it, so the answer can say which day it
+  actually was. The result carries `window_stats` (candidates, added by date, in window, outside
+  window, turns, actions) and the orchestrator logs and reports it (`memory_diag`).
 - **The period log.** `unified_retrieval.format_period_log` renders the window's turns and
   actions as one dated block ("What happened in that period"), in every mode including Quick.
   The actions the question is about (media, apps, web, timers, files) are listed first with a
@@ -245,7 +269,10 @@ budgets.
   passes the same origin and verification filters as the SQL channels; telemetry rows are not
   embedded, and tombstones apply to either id field an entry carries.
 - **Only questions get a window.** `plan_window` applies a period only to a question or recall request, so a
-  statement that says "last night" or "today" cannot narrow retrieval to that period.
+  statement that says "last night" or "today" cannot narrow retrieval to that period. A message
+  that supplies the facts its question is about gets none either (`parse_window` asks
+  `supplied_in_message.holds_its_own_answer`): "Information supplied: Project K-04 launched in
+  March. What is its password?" was answered with what was on record for the user in March.
 - **Explicit dates.** `parse_window` reads ISO dates ("2026-03-03"), "3 March", "March 3rd 2025",
   ranges ("between 1 May and 10 May"), "in June 2025" and "during 2024" as well as relative periods.
   A date with no year is its latest past occurrence.
@@ -267,8 +294,9 @@ The primitive `retrieve_for_turn()` builds on:
 2. **Noise filtering** (`memory_exclusion_sql` in `core/self_provenance.py`): ELI's own
    bookkeeping kinds and sources never resurface as recalled user memories.
 3. **Importance-weighted ordering** via `COALESCE(importance, 0.5)`.
-4. **Reinforcement.** A recalled row gets `last_recalled` and `recall_count` updated and its
-   weight reset to 1.0; the recall is written to `recall_log` with its `memory_id`.
+4. **Exposure, not reinforcement.** The top five recalled rows get `exposure_count` raised and
+   are written to `recall_log` with their `memory_id`. `last_recalled`, `recall_count` and the
+   weight reset to 1.0 come only from `record_recall_outcome(ids, helped=True)` (above).
 
 Column detection (`_memory_table_columns`) guards against schema drift between versions.
 
@@ -317,7 +345,7 @@ to be answered from.
 
 ## Vector store (`vector_store.py`)
 
-FAISS `IndexFlat`, embeddings from a local nomic embedder (llama.cpp).
+FAISS `IndexFlatL2` over normalised vectors, embeddings from a local nomic embedder (llama.cpp).
 Where the embedder runs (`embedder_placement`): on the GPU with the most room, discrete or sharing the
 machine's memory, when it takes its place before the language model is planned; the model loader asks
 the store to be `ready()` first, so the plan (`core/load_plan.py`) sees what it holds. Measured on one
@@ -336,16 +364,24 @@ aborted.
   the rest (`flush(pending_only=True)`). `store_memory` used to save after every row: a 349-PDF
   folder wrote 24 GB in 50 minutes and stalled the whole machine on disk. At start the index adds
   whatever memories it is missing (an unclean exit), or rebuilds when it is empty or its entries
-  carry no memory ids.
+  carry no memory ids. The background save takes only `FAISS_IO_LOCK`: it also took the store's
+  own lock inside it, the reverse of the order `add()` and `flush()` take them in, so each side
+  could hold one and wait for the other, and every recall then stopped.
 - Singleton via `get_vector_store()`; shutdown-aware; `reset_vector_store()` for rebuilds.
-- **Tombstones:** `mark_memory_deleted(id)` writes to `meta.tombstones.json` next to the
-  metadata; search skips tombstoned rows without a rebuild; `compact_tombstones(live_ids)`
-  reclaims space.
+- **Tombstones:** `mark_memory_deleted(id)` (and `mark_memories_deleted(ids)`) writes to
+  `meta.tombstones.json` next to the metadata; search and the keyword fallback skip tombstoned
+  rows without a rebuild. `compact_tombstones()` then takes those rows out of `index.faiss` and
+  `meta.json` for good: the kept vectors are copied out of the index as they are (no
+  re-embedding, so it is cheap enough to run after every forget), and a tombstone is cleared only
+  once its rows are gone from disk. With `live_memory_ids` it also drops rows whose memory no
+  longer exists. When the index and the metadata differ in length it leaves the job to a rebuild.
+  It runs after every `forget()` and in the daily upkeep.
 - `store_memory()` returns `vector_indexed: bool`, a failed index write logs at warning level,
   and `fire_memory_uncertainty_event()` drives the World tab's `memory_uncertainty` bar.
-- Tombstoning is a per-call-site discipline: there is no shared `delete_memory_row()` helper,
-  so any direct `DELETE FROM memories` must tombstone the vector itself
-  (`consolidate_memories` and `profile_extractor._scrub_onboarding_snapshot` do).
+- Inside the `Memory` class every delete goes through `_remove_rows` (FTS entry, row, vector
+  tombstone): consolidation, archiving, document refiling and forgetting. Code outside it that
+  deletes memory rows directly has to tombstone the vector itself
+  (`profile_extractor._scrub_onboarding_snapshot` does).
 
 ## Knowledge graph (`knowledge_graph.py`)
 
@@ -362,10 +398,16 @@ activity, a has_name that is not a name; `_junk_name_relation`) are left out fro
 and an entity that had nothing else is left out with them. A stop-word list stops common words becoming entities. A relation's `ts` is when it was
 first learned: adding it again raises its weight and leaves the date alone.
 
+A preference (`prefers`) is stored only when the user is the one who likes it: "I prefer X",
+"I really like X", "I also love X", "the user prefers X", with nothing but an adverb between the
+subject and the verb. With no subject and no word boundary, "I dislike mushrooms", "I don't like
+my job", "it looks like rain" and "I would like to cancel that" were all stored as things the user
+prefers. A sentence's own full stop is not part of the stored value.
+
 ## Truth layer (`memory_truth.py`)
 
 `inspect_sqlite` and `inspect_vector_store`: read-only inspection used by status surfaces;
-reads `vectors/meta.json` and falls back to the legacy pickle. Backs `truth_report` and the
+reads `vectors/meta.json` and falls back to the legacy pickle. Backs `memory_truth_report` and the
 memory-status surfaces; `format_memory_truth` is the short answer to "how is your memory doing?"
 (`MEMORY_STATUS` with `memory_scope=health`).
 
@@ -390,11 +432,12 @@ thin aliases and are not the promotion path.
 
 ## Measuring it
 
-`tools/eval/memory_bench.py` runs 11 deterministic scenarios against a temporary database, with no
+`tools/eval/memory_bench.py` runs 15 deterministic scenarios against a temporary database, with no
 model: extraction, multi-session recall, a relative and an explicit time window, knowledge update,
-abstention, provenance, deletion, no destructive merge, no self-reinforcement, and chatter not
-becoming durable knowledge. They follow the LongMemEval ability categories but are written for ELI;
-they are not the official dataset. `tests/test_memory_bench.py` runs them, so a memory change that
+abstention, provenance, deletion, no destructive merge, no self-reinforcement, chatter not
+becoming durable knowledge, a forget that reaches what was derived, a conflict that is surfaced, an
+exact code recalled as written, and an archived memory found when live evidence is thin. They
+follow the LongMemEval ability categories but are written for ELI; they are not the official dataset. `tests/test_memory_bench.py` runs them, so a memory change that
 regresses one fails the suite.
 
 ## Honest assessment
@@ -406,16 +449,16 @@ regresses one fails the suite.
 - **Weak:**
   1. `memory.py` is a 6k-line class spanning unrelated concerns (semantic, conversation,
      habits, learning, failures, capabilities, upkeep). It wants splitting along those seams.
-  2. **Schema sprawl.** `memories` and a legacy `memory`, `conversations` and
-     `conversation_turns`, plus a standalone `semantic` table; inline column detection
-     compensates for schema churn.
+  2. **Schema sprawl.** `conversations` and `conversation_turns`, plus a standalone `semantic`
+     table beside `memories`; inline column detection compensates for schema churn.
   3. **Narrow intake.** Promotion works, but it is fed by regex extraction plus one LLM pass
      per session, so `user_patterns`, the semantic tier and the knowledge graph stay small
      relative to the conversation history. Widening the extractor is the work.
   4. **Retrieval cannot detect nonsense.** Similarity bands for genuine and gibberish queries
      overlap, so no absolute similarity floor separates them; the relative cutoff in
      `vector_store` tightens the candidate pool but is not a relevance oracle.
-  5. **No shared delete-and-tombstone helper** (above).
+  5. **The delete-and-tombstone helper is private to `Memory`** (`_remove_rows`, above): code
+     outside the class that deletes memory rows has to tombstone them by hand.
 
 `eli/cognition/reranker.py`'s heuristic reranker weighs overlap 0.45, importance 0.20, weight
 0.15, recency 0.10. Importance and recency alone (0.45 combined) could match the overlap term's
@@ -436,8 +479,10 @@ own relevance signal, gated to full credit like a real overlap match.
 
 ## Recent-history window
 
-The user-facing tunable `cog.mem_recent_turns` (Settings ▸ Cognition; default 24, maximum 80)
-controls how many recent turns enter the prompt. `RECENT_HISTORY_CAP` no longer exists (the old
+The user-facing tunable `cog.mem_recent_turns` (Settings ▸ Cognition; default 30, maximum 160)
+controls how many recent turns enter the prompt. A larger model scales it up (`cog.gather_auto_scale`,
+clamped to the maximum), and Quick mode puts at most 8 of them in its prompt
+(`cognition_tunables.prompt_count`). `RECENT_HISTORY_CAP` no longer exists (the old
 memory-evidence module was removed); the prompt assembler and `context_budget` do the
 budgeting, and a recall question keeps a floor of a third of the window for memory context.
 

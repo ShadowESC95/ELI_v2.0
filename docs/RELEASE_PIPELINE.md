@@ -2,12 +2,13 @@
 
 Tag-triggered release automation built on PyInstaller. Pushing a version tag
 builds frozen bundles (Windows/macOS/Linux) and source packages (wheel, sdist,
-deb, Windows portables, wheelhouse) in parallel on GitHub Actions and attaches
-everything to the GitHub Release for that tag.
+deb, Windows portables, wheelhouses) in parallel on GitHub Actions, runs the whole
+test suite against the real libraries, and attaches everything to the GitHub
+Release for that tag once all of it has passed.
 
 ```
-git tag v2.1.0
-git push origin v2.1.0
+git tag v2.5.36
+git push origin v2.5.36
 ```
 
 produces on the Release page:
@@ -18,14 +19,16 @@ produces on the Release page:
 | `ELI_v2-<v>-windows-x64.zip` | Windows portable — unzip, run `ELI\ELI.exe` |
 | `ELI_v2-<v>-macos-arm64.dmg` | macOS Apple Silicon — drag ELI.app to Applications |
 | `ELI_v2-<v>-x86_64.AppImage` | Linux — `chmod +x` and run (needs glibc 2.39 or newer; needs libfuse2, or `--appimage-extract-and-run`) |
-| `ELI_v2-<v>-linux-portable.tar.gz` | classic source tarball incl. voices (previous-release format) |
+| `ELI_v2-<v>-linux-portable.tar.gz` | classic source tarball (`./ELI_Setup.sh`) with the Piper voices, the text embedder, the GPU packs and offline GUI wheels |
 | `eli_v2_0-<v>-py3-none-any.whl` | pip-installable wheel (`pip install eli_v2_0-*.whl[full]`) |
 | `eli_v2_0-<v>.tar.gz` | Python sdist for source installs |
 | `ELI_v2-<v>-amd64.deb` | Debian package (`eli-v2` launcher) |
 | `ELI_v2-<v>-windows-portable.zip` | Windows lean portable (source + wheel + install scripts) |
 | `ELI_v2-<v>-windows-portable-full.zip` | Windows full offline portable (source + wheel + wheelhouse) |
+| `ELI_v2-<v>-windows-arm64-portable.zip` | Windows on ARM lean portable (experimental, cross-built on Linux) |
 | `ELI_v2-<v>-wheelhouse.tar.gz` | Offline Windows dependency wheels (cp311/cp312) |
-| `WHEELHOUSE.txt` | Manifest of wheels inside the wheelhouse archive |
+| `ELI_v2-<v>-wheelhouse-arm64.tar.gz` | The same for Windows on ARM (gaps expected) |
+| `WHEELHOUSE.txt` | Manifest of wheels inside the x64 wheelhouse archive |
 | `RELEASE_NOTES.md` | Release summary stub |
 | `SHA256SUMS.txt` | checksums for all of the above |
 
@@ -40,13 +43,16 @@ The bundles and the packs are built from one llama-cpp-python source,
 version in `packaging/llama_cpp_constraints.txt`. To change it, change those two
 files, run the `gpu-packs` workflow, and tag once the packs are published. An app
 only takes a pack of its own version, so apps already installed keep the packs
-they have and the old assets stay on the release. Installs from source
-(`install.sh`, `install.ps1`) still take upstream's release from PyPI.
+they have and the old assets stay on the release. At v2.5.36 that version is
+0.3.36.1. Installs from source (`install.sh`, `install.ps1`) still take upstream's
+release from PyPI, 0.3.35 or newer.
 
-All frozen bundles include the full Piper voice set (pulled at build time from
-the project's `local-assets-v2.1` release) and a second `ELI-Server`
-executable (console) for the phone/web server. GGUF chat/vision/image model
-weights remain first-run downloads into the per-user `ELI_v2` root.
+All frozen bundles include the Piper voices of the project's `local-assets-v2.1`
+release (the voices cleared for redistribution, pulled at build time by
+`packaging/ci_fetch_assets.sh`), the text embedder (nomic-embed-text, for memory
+recall), and a second `ELI-Server` executable (console) for the phone/web server.
+GGUF chat/vision/image model weights remain first-run downloads into the per-user
+`ELI_v2` root.
 
 ## GPU acceleration in frozen builds
 
@@ -58,32 +64,38 @@ work out of the box. NVIDIA machines add CUDA via the **GPU pack**:
 ELI --install-gpu-pack        # AppImage: ./ELI_v2-*.AppImage --install-gpu-pack
 ```
 
-(the Windows installer offers this as a checkbox when an NVIDIA driver is
-detected; `ELI-Server.exe --install-gpu-pack` shows console progress). The
+(the Windows Setup does not download it: on first start the app offers the pack
+for whichever GPU it finds, NVIDIA, AMD or Intel, with a progress window;
+`ELI-Server.exe --install-gpu-pack` shows console progress). The
 pack downloads the matching CUDA build (from the `gpu-packs` pre-release, or
 the official llama-cpp-python wheel index when it has that version) into `<ELI root>/runtime/gpu`, which shadows the bundled CPU
 copy on the next launch (`llama_cpp` is collected as on-disk files via
 `module_collection_mode` precisely so sys.path priority can do this).
-AMD / Intel Arc GPUs use CI-built **Vulkan** wheels (no official prebuilt
+`ELI --remove-gpu-pack` takes it out again.
+AMD, Intel (Arc or integrated) and Qualcomm Adreno GPUs use CI-built **Vulkan** wheels (no official prebuilt
 ones exist): the `gpu-packs` workflow in ELI_v2.0 compiles llama-cpp-python
 with `-DGGML_VULKAN=on` and publishes to the `gpu-packs` pre-release;
-`--install-gpu-pack` picks them automatically on AMD (`--vulkan` forces it,
-e.g. for Intel Arc). Drivers already ship the Vulkan loader the wheel needs.
+`--install-gpu-pack` picks them automatically on those GPUs (`--vulkan` forces
+Vulkan). Drivers already ship the Vulkan loader the wheel needs.
 
 ## Moving parts
 
 | File | Role |
 |---|---|
-| `ELI.spec` | PyInstaller spec — one-dir build, all platforms. Data files come from `git ls-files` only (personal files/models can never leak). Version read from `pyproject.toml`. |
-| `packaging/pyinstaller/eli_entry.py` | Frozen entry script → `eli.gui.app:main`. Also dispatches `ELI-Server`/`--server` → `api.server:main`, and `--selftest` (real import-stack boot check CI runs on every built bundle). |
+| `ELI.spec` | PyInstaller spec — one-dir build, all platforms. Data files come from `git ls-files` only (personal files/models can never leak), plus the Piper voices and the text embedder CI fetches before the build (`ELI_REQUIRE_VOICES=1` / `ELI_REQUIRE_EMBEDDER=1` fail a build without them). Version read from `pyproject.toml`. |
+| `packaging/pyinstaller/eli_entry.py` | Frozen entry script → `eli.gui.app:main`. Also dispatches `ELI-Server`/`--server` → `api.server:main`, `--selftest` (real import-stack boot check CI runs on every built bundle), `--license` (the Apache-2.0 terms), `--mcp-server` / `--mcp-config` (ELI as an MCP server, through `eli/__main__.py`), `--install-gpu-pack` / `--remove-gpu-pack`, `--fresh-start`, and on Linux `--integrate` / `--uninstall`. |
 | `packaging/pyinstaller/rthook_eli_frozen_paths.py` | Runtime hook: pins `ELI_PROJECT_ROOT`/data/config/models to the per-user root — `%LOCALAPPDATA%\ELI_v2`, `~/Library/Application Support/ELI_v2`, `~/.local/share/ELI_v2` — the same place previous ELI releases used, so models/settings carry over on upgrade. `ELI_PROJECT_ROOT` env overrides. |
 | `packaging/pyinstaller/gen_version_info.py` + `packaging/windows/version.rc.in` | Generates `build/version.rc` (Windows version resource) from `pyproject.toml`. |
 | `packaging/windows/installer.iss` | Inno Setup installer for the frozen bundle (the older `ELI_Setup.iss` still serves the source-portable flow). |
 | `packaging/macos/build-dmg.sh` | Ad-hoc signs `dist/ELI.app`, builds the `.dmg`. |
-| `packaging/linux/build-appimage-pyinstaller.sh` | Wraps `dist/ELI` into an AppImage (pinned appimagetool 13). Writes the glibc floor into it and the launcher that checks it. |
+| `packaging/linux/build-appimage-pyinstaller.sh` | Wraps `dist/ELI` into an AppImage (`appimagetool` from PATH, else the current download, else the AppImageKit 13 release). Writes the glibc floor into it and the launcher that checks it. |
 | `packaging/linux/glibc_floor.py` | Reads the oldest glibc a built bundle starts on out of its binaries. |
+| `packaging/linux/trim_bundle.py` | Takes Qt's GTK theme and GLib network plug-ins, and every library only they need, out of the Linux bundle (see the end of this page). |
+| `packaging/llama_source.py` + `packaging/llama_cpp_constraints.txt` | The llama-cpp-python every bundle and GPU pack is built from, and its version. |
+| `packaging/lock_constraints.py` | Turns `requirements.lock.txt` into the constraints every build job installs under (`PIP_CONSTRAINT`). |
+| `packaging/ci_linux_deps.sh` / `packaging/ci_fetch_assets.sh` | The Linux build's system libraries and Python stack (CPU torch first); the voices and the embedder every build bundles. |
 | `requirements-build.txt` | Pinned build tooling (PyInstaller etc.) for reproducible builds. |
-| `.github/workflows/release.yml` | The pipeline: version guard → 3 parallel builds → Release upload. |
+| `.github/workflows/release.yml` | The pipeline: version guard → Windows, macOS and Linux builds, the source packages and the whole test suite (real libraries) in parallel → Release upload once every job has passed. |
 
 ## The Linux build image decides who can run the download
 
@@ -112,10 +124,13 @@ system.
 
 ## What is (deliberately) not bundled
 
-* **GGUF models, embeddings, diffusion weights** — up to 100 GB; the app
-  downloads what the user picks on first run.
-* **Piper voices** — flagged `license_review_required` in
-  `packaging/runtime_asset_manifest.json`; downloaded at runtime.
+* **GGUF chat / vision models and diffusion weights** — up to 100 GB; the app
+  downloads what the user picks on first run. (The one exception is the small text
+  embedder, which every bundle carries.)
+* **Piper voices not cleared for redistribution** — ryan, lessac and cori (see
+  `packaging/runtime_asset_manifest.json` and `models/MODEL_LICENSES.md`) are not in
+  the `local-assets-v2.1` release, so no bundle carries them; a user can still
+  download them for personal use.
 * **PyQt** — GPL; the frozen bundle is PySide6-only (excluded in `ELI.spec`).
 * **Optional extras without wheels for a platform** — each `OPTIONAL_EXTRAS`
   group in `release.yml` installs independently; a group with no wheels for
@@ -127,7 +142,11 @@ system.
 ```
 python3.12 -m venv .venv-build && source .venv-build/bin/activate   # the release builds on 3.12 (release.yml PYTHON_VERSION)
 pip install -r requirements-build.txt
-pip install ".[gui,llm,server,docs,analysis,extras]"            # + optional extras you want bundled
+llama_src="$(python packaging/llama_source.py)"                  # the llama-cpp-python the release bundles
+pip install "$llama_src"
+pip install ".[gui,llm,server,docs,analysis,extras,media]"      # release.yml REQUIRED_EXTRAS; + optional extras you want bundled
+python -m eli.core.init_data && python tools/bootstrap_claims_artifacts.py
+GITHUB_REPOSITORY=ShadowESC95/ELI_v2.0 bash packaging/ci_fetch_assets.sh   # voices + embedder (needs a logged-in gh)
 pyinstaller --noconfirm --clean ELI.spec
 
 # then, per platform:
@@ -138,9 +157,9 @@ bash packaging/linux/build-appimage-pyinstaller.sh              # Linux AppImage
 
 ## Cutting a release
 
-1. Bump `[project].version` in `pyproject.toml` (also
-   `_DEFAULT_RELEASE_TAG` in `eli/kernel/self_upgrade.py` and the pin in
-   `tests/test_pyproject_packaging.py`).
+1. Bump `[project].version` in `pyproject.toml` and `_DEFAULT_RELEASE_TAG` in
+   `eli/kernel/self_upgrade.py` (`tests/test_pyproject_packaging.py` fails when the
+   two disagree; it pins no version of its own).
 2. Commit, push, tag `v<version>`, push the tag. The `guard` job fails fast
    if the tag and `pyproject.toml` disagree.
 3. Watch: `gh run watch` / Actions tab. The Release is created automatically
@@ -168,7 +187,7 @@ Unsigned builds work but trip OS trust prompts:
 
 `installer-smoke.yml` runs `install.sh --cpu-only --yes --no-model` on Ubuntu 22.04, Ubuntu 24.04
 and macOS, and `install.ps1 -CpuOnly -Yes -NoModel` on Windows, on a clean runner, whenever an
-installer, a requirement file or the environment script changes, and once a week (a new Python or
+installer, a requirement file, `pyproject.toml` or the environment script changes, and once a week (a new Python or
 a new wheel upstream can break an installer with no commit here). It then checks the environment
 holds ELI and what it cannot run without (`scripts/eli_env.py verify --strict`: also no package
 left behind that was built for another version of one installed), starts the window toolkit and

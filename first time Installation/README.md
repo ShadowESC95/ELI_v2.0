@@ -1,6 +1,6 @@
 # ELI v2 — First-Time Installation
 
-**Current release: 2.4.37** — https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.4.37
+**Current release: 2.5.36** — https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.5.36
 
 | Document | Who it's for |
 |----------|----------------|
@@ -11,7 +11,7 @@
 
 | You have… | Run this first |
 |-----------|----------------|
-| Linux, zero build | **AppImage** |
+| Linux, zero build (glibc 2.39 or newer) | **AppImage** |
 | Linux portable | **`./ELI_Setup.sh`** |
 | Git clone | **`./scripts/eli_setup.sh`** |
 | Windows | **`ELI-Setup-*.exe`** |
@@ -19,4 +19,4 @@
 | macOS | **`.dmg`** |
 | Android Termux | **`bash scripts/install_android.sh`** |
 
-**Wizard core:** env + llama + DB + nomic + Piper/Whisper + chat GGUF (hard-fail until present). OS extras (mpv, tesseract, …) are best-effort. Windows desktop = one ELI icon; GUI singleton.
+**Wizard core:** env + llama + DB + nomic + Piper/Whisper + chat GGUF (hard-fail until present). OS extras (mpv, tesseract, …) are best-effort. Windows desktop = the ELI icon (plus Uninstall ELI); GUI singleton.

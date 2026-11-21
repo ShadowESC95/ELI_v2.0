@@ -1,6 +1,6 @@
 # Adaptive Inference Governor — Status and Remaining Plan
 
-> **Updated for v2.4.84.** Most of the gaps this plan identified in June are closed; the two
+> **Updated for v2.5.36.** Most of the gaps this plan identified in June are closed; the two
 > that need a governor (throughput-aware think decision and per-call wall-time projection)
 > are still open. Status per gap below; no governor code exists yet.
 
@@ -32,14 +32,16 @@ on the development box can produce multi-minute turns.
 | Chat family and template | `cognition/chat_template.py`, `model_identity.py`, `model_output_tokens.py` | the model's own Jinja template (format, reasoning and end-of-turn markers), not the file name |
 | Thinking-channel detection | `gguf_inference._is_thinking_model` → `model_identity.is_thinking_model` | the embedded chat template, then architecture; no name list |
 | Trained context length | `core/startup_hardware_optimizer.train_ctx_for_model` | `ELI_MODEL_TRAIN_CTX`, then real GGUF `context_length`, else 8192; no filename table |
-| Load plan, measured before the load | `core/load_plan.py` | llama.cpp's load simulation on every GPU, each card's free memory and measured headroom, fit priority; the RAM budget on the processor |
+| Load plan, measured before the load | `core/load_plan.py` | llama.cpp's load simulation on every GPU (llama-cpp-python 0.3.35 and later), each card's free memory and measured headroom, fit priority; the RAM budget on the processor |
 | Estimate where llama.cpp cannot simulate | `hardware_profile.py` (`smart_fit_config`, `_kv_cache_mb`, `_compute_graph_reserve_mb`) | context, layers, batch |
-| Load retry | `gguf_inference._build_with_plan` | a failed load is planned again for the memory free then, then on the processor |
+| Load retry | `gguf_inference._build_with_plan` | a failed load is planned again for the memory free then, then on the processor; a file, runtime or device that cannot work (a GPU the machine does not have: "invalid value for main_gpu") is explained, not retried |
+| Message length | `kernel/engine._eli_max_input_chars`, `_eli_fit_input` | the context window less the reply's room (an eighth, at least 256 tokens), in the model's measured characters per token; a longer message keeps its start and end (`ELI_MAX_INPUT_LEN` overrides; a fixed 8,192 characters before 2.5.36) |
 | Per-mode token budget | `cognition/reasoning_modes.py` | `n_ctx` (20 % of the window for quick, 30 % otherwise), prompt pressure, complexity, mode |
+| Per-mode presets (passes, samples, branches, stage budgets, temperature) | `hardware_profile._derive_mode_presets` → `settings.mode_presets`, re-derived from the context that loaded (`startup_hardware_optimizer.resize_budgets_to_effective_ctx`); read by `engine._mode_profile` | the tuned context and max tokens, `tier_scale`. The mode name is canonicalised first (`reasoning_modes.canonical_mode`), so Normal reads the `chain_of_thought` preset; before 2.5.36 "normal" found no preset and ran on the generic default |
 | Size tier → budget scale | `core/model_tier.py` `detect_tier`, `tier_scale` | model size |
 | Live decode-speed EMA | `model_tier.record_speed`, `measured_tok_s` (fed from the non-stream generation path in `gguf_inference`) | measured tokens per second |
 | Speed-capped pass count | `model_tier.speed_passes` | measured tokens per second (thresholds `ELI_SLOW_TPS`=5, `ELI_FAST_TPS`=15) |
-| No-think on utility calls | `gguf_inference._no_think_prefill`, `force_no_think()` | structured output, small budgets (< 1024), quick mode |
+| No-think on utility calls | `gguf_inference._thinking_wanted` (through the template's `enable_thinking`, or `_no_think_prefill` for a model with no template), `force_no_think()` | structured output, small budgets (< 1024), quick mode |
 | Redistribution-aware settings | `core/runtime_settings.py` | machine moves |
 
 The speed EMA is consumed in exactly one place, `speed_passes()`. Nothing in the think
@@ -53,11 +55,11 @@ generations a mode runs and never caps output length.
 | Gap | Was | Status |
 |---|---|---|
 | **A** thinking detection was a filename allowlist | `_is_thinking_model` matched `qwen3`, `deepseek-r1`, ... | **Closed.** Detection reads the chat template, then the architecture. |
-| **B** the think decision and token budget ignored throughput | no tok/s term in `_no_think_prefill` or the budget | **Open.** The inputs are `structured`, `max_tokens < 1024`, the quick mode, the `force_no_think()` scope and `ELI_MODEL_THINK`. |
+| **B** the think decision and token budget ignored throughput | no tok/s term in the think decision (`_thinking_wanted`) or the budget | **Open.** The inputs are `structured`, `max_tokens < 1024`, the quick mode, the `force_no_think()` scope and `ELI_MODEL_THINK`. |
 | **C** no wall-time projection | nothing computes "at the live EMA this call takes about N seconds" | **Open.** |
-| **D** empty output was not self-correcting | an unterminated `<think>` returned empty, then a full-price retry | **Partly closed.** An empty non-stream response is retried once with `force_no_think` in the engine (`_get_chat_response`), and an empty stream is retried once with no-think in `gguf_inference`. There is still no reserved answer budget. |
+| **D** empty output was not self-correcting | an unterminated `<think>` returned empty, then a full-price retry | **Partly closed.** An empty or think-only response is retried once with `force_no_think` by the broker (`InferenceBroker.infer`) and, still empty, once more in the engine (`_get_chat_response`); an empty stream is retried once with no-think in `gguf_inference` and in the engine's `_stream_model_response`. There is still no reserved answer budget. |
 | **E** context sizing undershot the trained context | a filename table returned 32768 for `qwen3` | **Closed.** GGUF metadata is authoritative. |
-| **F** `force_no_think` was a point patch | one call site | **Partly closed.** It now wraps compact grounded synthesis, the chain-of-thought stage prose, the correction repair, and the empty-response and stream retries in `_get_chat_response`. The standard synthesis fallback (`_synthesize_answer`) and coding-agent fix generation for `SELF_IMPROVE` are not wrapped. |
+| **F** `force_no_think` was a point patch | one call site | **Partly closed.** It now wraps compact grounded synthesis (`_compact_grounded_synthesis`), the chain-of-thought stage prose (`_run_chain_of_thought`), the correction repair (`_correction_repair`), the empty-response retries (`_get_chat_response`, the broker) and stream retries (`_stream_model_response`, `gguf_inference`), `SELF_ANALYZE`'s one-sentence root cause per failure, and generated-test drafting (`runtime/test_generator.py`). The standard synthesis fallback (`_synthesize_answer`) and coding-agent fix generation for `SELF_IMPROVE` are not wrapped. |
 | **G** redundant proactive churn | `persona_updater` rebuilt the same overlay every tick | **Closed.** Persona and user-profile overlays are debounced (120 s) with a content dirty-check. |
 
 Note on gap G: `persona_updater` is deterministic (database reads and regexes); the cost was
@@ -103,9 +105,10 @@ policy(task_class, model_caps, tok_s, n_ctx, prompt_tokens) -> {
 - Always reserve `answer_budget`, so a thinking call cannot exhaust its budget before it answers.
 
 ### 3.4 Integration points
-- `gguf_inference._no_think_prefill`: consult the governor instead of only `structured`,
-  `< 1024` and the environment; keep `force_no_think()` as the primitive and `ELI_MODEL_THINK`
-  as the hard user override.
+- `gguf_inference._thinking_wanted` (which both the template's `enable_thinking` and the
+  `_no_think_prefill` of a template-less model follow): consult the governor instead of only
+  `structured`, `< 1024`, the mode and the environment; keep `force_no_think()` as the primitive
+  and `ELI_MODEL_THINK` as the hard user override.
 - `reasoning_modes`: split the target tokens into `think_budget` and `answer_budget`.
 - Engine synthesis sites: tag `_compact_grounded_synthesis` and `_synthesize_answer` as
   GROUNDED_SYNTHESIS and the reasoning-mode runners as OPEN_REASONING.
@@ -128,10 +131,13 @@ override. Nothing machine-specific is persisted.
 | any machine with a non-thinking model | n/a | normal answer | normal answer |
 | any machine with an unfamiliar reasoning model | any | detected through the template | handled |
 
+The tok/s column gives illustrative tiers, not measurements (the origin session ran at about 2
+tok/s, before the expert offload of section 8); the governor would read the live EMA.
+
 ## 5. Phases
 
 1. **Governor core** for grounded synthesis: the policy function, no-think wired through
-   `_no_think_prefill`, coding-agent fix rendering tagged.
+   `_thinking_wanted`, coding-agent fix rendering tagged.
 2. **Throughput-bounded open reasoning** with an answer reserve: split budgets in
    `reasoning_modes`.
 3. **EMA from streaming** so quick mode updates the measured speed.
@@ -166,18 +172,29 @@ because llama-cpp-python does not expose it).
 - Measured on an RTX 2060 SUPER (8 GB), Qwen3.6-35B-A3B Q4_K_M, 1,500-token prompt: 8 GPU layers gave
   71 tok/s prompt and 8.3 tok/s generation; all layers with experts in RAM gave 125 tok/s and 21.8 tok/s.
   Load time fell from 63 s to 5 s. Through `load_model` the same model went from 10.7 to 20.8 tok/s.
-- When: the model is MoE (`GGUFModelProfile.is_moe`), it would not fit in free VRAM, and available RAM
-  covers about three quarters of the expert weights. Otherwise the ordinary layer split is used.
+- When (the loader's plan, `core/load_plan.py`): in `auto`, a file whose tensor table holds expert
+  tensors and whose layers do not all fit as asked keeps the experts of as few leading layers in RAM
+  as the GPUs need, with every layer's attention and shared weights on the GPUs; when even that does
+  not fit, layers are shed with every layer's experts in RAM. `on` keeps every layer's experts in
+  RAM; `off` is the ordinary layer split. The estimate used where llama.cpp cannot simulate
+  (`moe_offload.plan`, called by `hardware_profile.recommend()`) keeps the older rule: the model is
+  MoE (`GGUFModelProfile.is_moe`), it would not fit in free VRAM, and available RAM covers about three
+  quarters of the expert weights.
 - Switch: the "Expert offload (MoE)" choice in the startup dialog, the setting `moe_expert_offload` or env `ELI_MOE_EXPERT_OFFLOAD` = `auto` (default), `on`, `off`.
-  `ELI_MOE_EXPERT_FRACTION` adjusts the assumed expert share of the file (default 0.90).
+  `ELI_MOE_EXPERT_FRACTION` sets the assumed expert share of the file (default 0.90) for that
+  estimate, and only when the file's tensor table cannot be read; otherwise the file's own expert
+  tensor sizes are used.
 - The live runtime snapshot carries `moe_expert_offload`.
 
 ## 9. The startup dialog's own model loader
 
-`eli/gui/eli_pro_audio_gui_v2_0.py` builds `Llama(...)` itself for the "Load selected model now"
-path — it does not go through `gguf_inference.load_model()`. The MoE expert-offload hook (section 8)
-is wired into that loader too now; before this it was saved by the toggle but never reached the
-actual load, so the setting did nothing when a model was loaded from the startup dialog.
+Before 2.5.18 `eli/gui/eli_pro_audio_gui_v2_0.py` built `Llama(...)` itself for the "Load selected
+model now" path instead of going through `gguf_inference.load_model()`, and the MoE expert-offload
+hook (section 8) had to be wired into that loader separately (before that, the toggle was saved but
+never reached the load from the startup dialog). The window's loader now hands its boxes to
+`gguf_inference.load_request()` and loads through `gguf_inference.load_model()`, so a load from the
+startup dialog is planned like every other (`core/load_plan.py`). The console lines described
+below were the older loader's; the rest still applies.
 
 Measured against a live session (Qwen3.6-35B-A3B, ctx=13000, batch=512, RTX 2060 SUPER): 7 GPU
 layers without offload gave 6.5 tok/s; the offload's 41 layers (one past the model's 40 blocks —
@@ -204,4 +221,7 @@ explaining why, not a separate figure with no visible link to it. This exposed a
 VRAM-headroom check that sizes batch was reading "all layers on GPU" as "the full model is in
 VRAM," which is false under MoE (most of it is in RAM) — it would have computed a large phantom
 deficit and needlessly crushed the batch size. It now sizes off the plan's actual resident-on-GPU
-figure when MoE applies.
+figure when MoE applies. Where llama.cpp can simulate the load (a GPU it can use and
+llama-cpp-python 0.3.35 or later), `recommend()` now takes its figures from the load planner
+(`_recommend_from_plan`), so the panel shows the plan itself; the MoE-first fit above is the
+estimate used where it cannot.

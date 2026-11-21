@@ -1,6 +1,6 @@
 # ELI — Common Errors & Fixes
 
-> **Updated for v2.4.84 (September 2026).** Primary path: GitHub Releases
+> **Updated for v2.5.36 (November 2026).** Primary path: GitHub Releases
 > (`ELI-Setup-*.exe`, macOS dmg, Linux AppImage, portable `./ELI_Setup.sh`).
 > Wizard core stages hard-fail until nomic + voice + chat model are present.
 > Windows: one desktop ELI + GUI singleton. **Home** tab ≠ Home Assistant.
@@ -1061,3 +1061,177 @@ version's included.
 `eli-v2*.desktop`, and setup and uninstall touch only v2's own entries. Older generic folders
 are left as they are.
 
+---
+
+## A question that mentioned a note wrote one: "Wrote note to eli_notebook/…" in the answer
+
+**Symptom:** a message such as "Context: … Note: Fern is not Moss. Which bin belongs to Moss?"
+was answered with "Wrote note to eli_notebook/<date>.md" before the answer, and the line was
+added to a notebook file.
+**Cause:** the sentence reader (`eli/runtime/command_splitter.py`) treated every sentence that was
+not about something as an instruction, and the router's "note: X" rule wrote it down. Notes went to
+`./eli_notebook`, relative to wherever ELI had been started.
+**Fix (v2.5.36):** inside a longer message a sentence that opens on a short label and a colon
+("Note:", "Context:", "Information supplied:") is material for the question, not an instruction
+(`labels_material`). "note: buy milk" on its own still writes a note. Notes go to the data folder's
+`notebook/` (`paths.notebook_dir()`, `ELI_NOTEBOOK_DIR` overrides), appended under a lock.
+
+---
+
+## A long pasted text lost its question
+
+**Symptom:** after a long paste (a list, a log) with the question at the end, ELI answered about the
+start of the paste or said it did not know.
+**Cause:** every message was cut to its first 8,192 characters, whatever the model could hold.
+**Fix (v2.5.36):** the limit is the loaded context window less the reply's room (in the model's own
+characters per token); `ELI_MAX_INPUT_LEN` still overrides it. A message past it keeps its start and
+its end and says how much of the middle was left out.
+
+---
+
+## "Nothing is stored for this scope." beside a memory that holds the answer
+
+**Symptom:** asked for something it had been told to remember, ELI said nothing was stored, though
+the memory was in the evidence it was given.
+**Cause:** the retrieval diagnostics told the model "Only say nothing is stored for this scope."
+whenever a scope had been searched, found or not, and the model said exactly that.
+**Fix (v2.5.36):** the diagnostics state what was searched and found, as facts; an absence is stated
+only when the scope gave nothing (`eli/cognition/memory_diag.py`).
+
+---
+
+## "Please remember it" answered "Not stored: the memory filter rejected it"
+
+**Symptom:** "My locker code is TULIP-4482. Please remember it." was not kept.
+**Cause:** the instruction "remember it" was stored on its own, as the word "it", and the memory
+filter turns down text that short.
+**Fix (v2.5.36):** a remember/store instruction whose object is "it", "that" or "this" stores the rest
+of the message.
+
+---
+
+## "File not found: …/gives no information about …"
+
+**Symptom:** a sentence that mentioned a transcript ("The transcript gives no information about …")
+came back as a failed file read.
+**Cause:** the transcription rule took any "transcript …" in a message as "transcribe <file>".
+**Fix (v2.5.36):** TRANSCRIBE needs a request for one: "transcribe <file>" or "make a transcript of
+<file>".
+
+---
+
+## A question about facts in the message was answered with "No activity is recorded for the period …"
+
+**Symptom:** "Information supplied: Project Q-7 started in May. What is its passphrase? If it is not
+provided, say UNKNOWN." was answered with what was on record for the user in May.
+**Cause:** the month in the supplied facts was read as a window on the user's history.
+**Fix (v2.5.36):** a message that supplies the facts its question is about opens no history window
+(`query_planner.parse_window`).
+
+---
+
+## A recalled code was answered with a JSON dump of the memory database
+
+**Symptom:** with Ollama as the backend, "Recall the exact code for my Delta project" printed
+`{"ok": true, "db_path": …, "tables": […]}`.
+**Cause:** the executor's `chat()` answered any message containing "persistent memory" with a live
+memory audit, and the engine sends whole prompts there, whose rules mention persistent memory.
+**Fix (v2.5.36):** those shortcuts apply only to the user's own words, never to an assembled prompt.
+
+---
+
+## A token like "USER-M000" came back as "M000"
+
+**Cause:** the output governor took "USER-" at the start of a reply for a speaker label; "AI-…",
+"ELI-…" went the same way. The reply cleaner also turned "OpenAI:" into "OpenELI:" and removed a
+"(Note: …)" from the middle of instructions, or everything after an unclosed one.
+**Fix (v2.5.36):** a speaker label needs a colon or a dash with a space after it, role labels are
+rewritten only at the start of a line, and only a closing note is stripped.
+
+---
+
+## "start dictation" offered to install an app called "dictation"; "status" was "I only caught 'status'"
+
+**Cause:** "open/start <name>" was taken as an app to open before the rules for ELI's own features
+("start dictation", "system settings") were reached, and one-word messages without a rule were
+dropped as fragments. The capability list advertised phrases that reached other actions or none.
+**Fix (v2.5.36):** a name that is one of ELI's own features (taken from the capability list) is left
+to its own rule, "status" and "/status" go to GET_STATUS, "start a pomodoro" works with the article,
+and every phrase in `capabilities_and_actions.md` is checked by a test to reach the action it is
+listed for (`tests/claims/test_activation_phrases.py`).
+
+---
+
+## Source install: the process aborts at "Loading ELI engine…" with `GGML_ASSERT(!ml.no_alloc)`
+
+**Cause:** `requirements.txt` pinned llama-cpp-python 0.3.20. The load planner simulates a load
+first (`no_alloc`), and 0.3.20 has that field but aborts the process on it.
+**Fix (v2.5.36):** every install source asks for llama-cpp-python 0.3.35 or newer (release bundles
+carry 0.3.36.1), and the planner simulates only on a version that carries it out.
+
+---
+
+## A machine with no GPU: `invalid value for main_gpu: 0 (available devices: 0)`
+
+**Symptom:** the load failed three or four times and the message blamed the model's architecture.
+**Cause:** with `compute_mode=auto` on a machine with no GPU the processor plan still handed
+llama.cpp `main_gpu=0`; builds that check that refuse the load. The retry ladder re-issued the same
+load, and the explanation had no case for it.
+**Fix (v2.5.36):** with no GPU the plan sends processor settings (`main_gpu=-1`, no offload), the
+error is not retried, and it is explained as a GPU the machine does not have.
+
+---
+
+## Models in `ELI_MODELS_DIR` were "not found"
+
+**Cause:** model discovery searched only the program's own `models/` folder.
+**Fix (v2.5.36):** it also searches `paths.models_dir()`: `ELI_MODELS_DIR`, else the data folder's
+`models/` (the source tree's `models/` in a checkout).
+
+---
+
+## Security fixes in v2.5.36
+
+- **Chained shell commands:** the shell gate read only the first word of a line, so "ls; rm -rf ~",
+  "ls $(…)", "sudo rm …" and "… | nc host" got through. `shell_gate.check_command` now judges every
+  command in the line, through wrappers (sudo, env, nice, timeout, xargs …) and `find -delete`.
+- **The local API and other web pages:** a page that points its own domain at 127.0.0.1 reached the
+  server from loopback and was treated as the owner. Tokenless and loopback access now needs a Host
+  that names this machine (`ELI_API_ALLOWED_HOSTS` adds a reverse proxy's); a token works by any name.
+- **API members:** in multi-user mode a member could have ELI run shell commands and read or write
+  files. The owner's actions (`authority_gate.owner_only()`) are refused to members and viewers on
+  every endpoint, enforced where every action is executed.
+- **MCP clients:** without `ELI_MCP_ALLOW_CONTROL=1`, file reads and writes, the screen, the
+  clipboard and ELI's own settings are no longer exposed.
+- **Windows:** the app lookup ran `where <name>` through cmd with the name the user said; it runs
+  without a shell now and only for plain names.
+- **Files:** CREATE_FILE no longer replaces an existing file unless overwriting is asked for.
+
+---
+
+## Forgotten text stayed in summaries, claims or the vector files
+
+**Cause:** forgetting retracted claims but kept their words, deleted summaries by shared names
+(including other conversations') and left the memory's vector and text in the index files behind a
+tombstone, which the keyword fallback ignored.
+**Fix (v2.5.36):** claims resting only on what was forgotten are deleted, and a claim another memory
+supports keeps that support. A summary goes when it holds the forgotten words or one of their
+identifiers, or shares their names and sums up the conversation they were said in. The vector index
+is compacted after every forget and in the daily upkeep, and the keyword fallback skips deleted rows.
+
+---
+
+## "I dislike mushrooms" was remembered as a liking
+
+**Cause:** the knowledge graph's preference rule had no word boundary and no subject, so "dislike",
+"don't like", "looks like rain" and "would like to" all made preferences.
+**Fix (v2.5.36):** only "I/user (really, also …) like/love/prefer X" is stored as a preference.
+
+---
+
+## A script request got a ready-made script
+
+**Cause:** six kinds of request (GPU memory watch, relative times, Type Ia redshift, quantum circuit
+depth, TON 618, SQLite table counts) were answered with pre-written scripts chosen by keywords.
+**Fix (v2.5.36):** removed; every script is written for the request, and generated scripts are still
+checked and quarantined when they are templates.

@@ -15,9 +15,10 @@ Everything here is **100% local** — no cloud judge, no API. Results land under
 
 ## 1. Model benchmarks — `run_lm_eval.py` (lm-evaluation-harness)
 
-Spins up a llama.cpp OpenAI-compatible server for a GGUF, runs the official
-academic tasks over it, tears the server down, writes results +a one-line entry
-to the bake-off ledger (`artifacts/eval/benchmarks/lm_eval/bakeoff.jsonl`).
+Spins up a llama.cpp OpenAI-compatible server (`llama_cpp.server`) for a GGUF, runs
+the official academic tasks over it, tears the server down, and writes results
+(`artifacts/eval/benchmarks/lm_eval/<model>/`) + a one-line entry to the bake-off
+ledger (`artifacts/eval/benchmarks/lm_eval/bakeoff.jsonl`).
 
 ELI-aligned task suites (`--suite`):
 
@@ -39,9 +40,12 @@ ELI-aligned task suites (`--suite`):
 2. **`gen` under-measures reasoning/"think" models (Qwen3: A3B, 32B).** Their
    `<think>` output trips the few-shot stop-sequences before the answer is
    emitted (e.g. Qwen3-A3B "scored" 0/20 on GSM8K — an artifact, not capability).
-   Fair options: run them in **no-think mode** (`--model local-chat-completions
-   --apply_chat_template --system_instruction "/no_think"`), or benchmark them via
-   the promptfoo/ELI route (ELI strips `<think>` and grades with the local judge).
+   Fair options: run them through the chat endpoint with the runner's `--chat`
+   (chat template, turn-boundary stops, a 2048-token generation budget unless
+   `--max-gen-toks` says otherwise), adding `--no-think` (the `/no_think` system
+   instruction) to switch Qwen3's reasoning off; score GSM8K through ELI's own
+   inference with `run_eli_native.py` (§3); or benchmark them via the promptfoo/ELI
+   route (ELI strips `<think>` and grades with the local judge).
    The `gen` suite IS valid for non-thinking models (Qwen2.5, Mistral, …).
 
 ```bash
@@ -49,19 +53,25 @@ ELI-aligned task suites (`--suite`):
 python tools/eval/benchmarks/run_lm_eval.py \
     --model models/Qwen2.5-7B-Instruct-Q4_K_M.gguf --suite gen --limit 50
 
-# anti-confabulation + commonsense (loglikelihood → needs the HF tokenizer,
-# which the script maps automatically for known models)
-python tools/eval/benchmarks/run_lm_eval.py \
+# anti-confabulation + commonsense (loglikelihood: refused unless you override it,
+# and over llama_cpp.server the scores are not meaningful — limitation 1 above)
+ELI_BENCH_ALLOW_LOGLIKELIHOOD=1 python tools/eval/benchmarks/run_lm_eval.py \
     --model models/Qwen2.5-7B-Instruct-Q4_K_M.gguf --suite mc --limit 100
 ```
 
 Notes / gotchas (already handled by the script):
-- lm-eval's `local-completions` needs a **HF tokenizer**; `_TOKENIZER_MAP` resolves
-  it from the GGUF file name (override with `--tokenizer <hf-repo>`). Tiny download,
-  cached offline after first use.
+- lm-eval's `local-completions` needs a **HF tokenizer** for every suite;
+  `_TOKENIZER_MAP` resolves it from the GGUF file name (override with
+  `--tokenizer <hf-repo>`), and a model it does not know stops with an error until
+  you pass one. Tiny download, cached offline after first use.
 - `tokenized_requests=False` — send string prompts; `llama_cpp.server` returns 500
   on token-id arrays.
-- `--gpu-layers` defaults to 20 (fits an 8 GB card for a 7B). Bump for smaller models.
+- `--gpu-layers` defaults to 20 (or `ELI_BENCH_GPU_LAYERS`); set it to what your card
+  holds. `--ctx` defaults to 4096.
+- The server listens on `--port`, default 8081 — the port ELI's web server uses, so
+  pick another while that is running.
+- `--tasks` overrides the suite with an explicit lm-eval task list, `--limit` caps
+  examples per task, `--fewshot` overrides the task's shot count, `--name` labels the run.
 
 ### The model bake-off (pick a model for redistribution)
 Run the same suite across candidates and compare the ledger:
@@ -86,24 +96,42 @@ a **local** judge.
 
 ```bash
 cd tools/eval/promptfoo
-# start a local judge server (any GGUF), then:
+# start a local judge server (any GGUF):
 python -m llama_cpp.server --model ../../../models/Qwen2.5-7B-Instruct-Q4_K_M.gguf --port 8080 &
+# uncomment the judge `provider` block under `defaultTest` in promptfooconfig.yaml
+# (it points at http://localhost:8080/v1), then:
 npx promptfoo@latest eval && npx promptfoo@latest view
 ```
 - Load a **standard dataset** through ELI by pointing `tests:` at a HuggingFace
-  dataset or a CSV — see the commented `truthful_qa` example in
-  `promptfooconfig.yaml` and `datasets/truthfulqa_sample.csv`.
-- For fully-offline, model-free grading, prefer the in-house board
-  (`tools/eval/run_eval.py`) — its `rubric`/`semantic_min` assertions already grade
-  locally via ELI's own broker + nomic embedder, no server needed.
+  dataset or a CSV — `promptfooconfig.benchmark.yaml` runs
+  `datasets/truthfulqa_sample.csv` and carries the commented
+  `huggingface://datasets/truthful_qa` line for the full set
+  (`npx promptfoo@latest eval -c promptfooconfig.benchmark.yaml`).
+- For fully-offline grading without a judge server, prefer the in-house board
+  (`tools/eval/run_eval.py`) — its `rubric` (ELI's own loaded model, through the
+  broker) and `semantic_min` (the local nomic embedder) assertions grade locally.
 
 ---
 
-## 3. What you already have
+## 3. Head-to-head runs and dossiers
+
+- `run_eli_native.py` — scores GSM8K through ELI's **own** inference (`gguf_inference`,
+  with its chat-template detection and `<think>` handling) instead of lm-eval over
+  `llama_cpp.server`, which cannot drive the Qwen3 thinking GGUFs. Writes
+  `artifacts/eval/benchmarks/eli_native/<name>.result.json` (+ `.samples.jsonl`),
+  incrementally.
+- `run_3way.sh` / `run_eli_native_3way.sh` — fixed three-model runs of the two
+  harnesses, with one methodology for all three.
+- `build_dossier.py`, `build_dossier_native.py`, `build_head2head.py` — turn those
+  results into reports with charts, written into `blueprints/`
+  (`model_bakeoff_dossier.md`, `top2_head2head.md`).
+
+## 4. What you already have
 
 - **In-house regression board** — `tools/eval/run_eval.py` (router + executor + engine,
   93 cases) with trend tracking in `artifacts/eval/history/trend.jsonl`.
 - **Model-swap smoke** — `tools/eval/model_swap_smoke.py` ("did this model break anything?").
+- **Memory benchmark** — `tools/eval/memory_bench.py` (model-free, temporary database).
 - **Runtime profiler / coverage** — `tools/eval/profile_runtime.py` (which actions/agents fire).
 - **Test report** — `tools/run_test_report.py` → `artifacts/test_report.md`.
 

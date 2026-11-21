@@ -4,19 +4,21 @@ ELI is **model-, user-, and hardware-agnostic** and runs on **Linux, macOS, Wind
 Android/Termux**, plus **headless / via the web server (FastAPI)**. This document is the honest
 map of how each capability family behaves on each target.
 
-## Tested on — what's actually been run (2026-09-10)
+## Tested on — what's actually been run (as of v2.5.36, 2026-11-20)
 
 The matrix below is **code coverage** — how each capability is *implemented* per OS. This bit is
 separate and more honest: what I've genuinely **run**.
 
 - **Run-verified, end to end:** **Linux (x86_64) + NVIDIA.** Install, first-run, the full test
-  suite (**11,814 collected / 11,800+ passing**), voice (cross-platform mic auto-resolve),
-  vision, the server — all of it. This is the tested path.
+  suite (the release workflow also runs the whole suite against the real libraries the Linux
+  bundle is built from, and nothing is published unless it passes), voice (cross-platform mic
+  auto-resolve), vision, the server — all of it. This is the tested path.
 - **AppImage engine run-verified across the mainstream distros (2026-07-18, v2.1.18):** the shipped
   `.AppImage` was extracted and driven through a **real chat turn** (full router → agent bus →
   memory → persona → streaming pipeline, bundled embedder loaded) in fresh containers of
   **Arch, Ubuntu, Debian, Fedora, and openSUSE Tumbleweed** — all pass, all on the AppImage's own
-  bundled Python 3.11 (so Arch's system Python 3.14 is irrelevant), no generator-repr leak. The
+  bundled Python (3.11 then; releases bundle 3.12 now), so Arch's system Python 3.14 is
+  irrelevant, no generator-repr leak. The
   AppImage is self-contained; it does not use the host's Python or package manager. *Note: this was
   the **headless engine** path — it never loads the Qt GUI's xcb platform plugin, which is why the
   GUI-only `libxcb-cursor` gap below went unnoticed until v2.1.20.*
@@ -38,23 +40,32 @@ separate and more honest: what I've genuinely **run**.
   write-ahead-log locking — **NTFS/exFAT/FAT, and network mounts** (common for a `~/Downloads` on a
   dual-boot data drive) — this failed with *"attempt to write a readonly database"*. ELI now detects
   a WAL-hostile filesystem and falls back to a rollback journal, so it works wherever it is placed.
-- **Code-verified, not yet run on real hardware:** **AMD (ROCm), Windows, macOS, Android.** The
-  installers, per-OS requirements, paths, GPU detection (NVIDIA / AMD / Apple), and the abstraction
-  layer below are all present and read line-by-line — but "correct in the code" isn't the same as
-  "confirmed on the metal," and I won't pretend it is. Run ELI on one of these and send me the
-  result (working or broken) — that's the fastest way to close the gap for everyone.
+- **Run in CI, not yet on real hardware:** **Windows, macOS.** On clean GitHub runners the
+  installers themselves run (`install.ps1 -CpuOnly -Yes -NoModel`, `install.sh --cpu-only --yes
+  --no-model`; `installer-smoke.yml`), the packaged apps are built and started (`release.yml`;
+  on Windows the Setup.exe is installed silently first), and the cross-platform test gate runs
+  on Python 3.10, 3.12 and 3.13 (`cross-platform-smoke.yml`). None of that has a GPU or loads
+  a model.
+- **Code-verified only:** **AMD (ROCm), Android.** The installers, per-OS requirements, paths,
+  GPU detection (NVIDIA / AMD / Apple), and the abstraction layer below are all present and read
+  line-by-line — but "correct in the code" isn't the same as "confirmed on the metal," and I
+  won't pretend it is. Run ELI on one of these (or on a real Windows or Mac machine with a GPU)
+  and send me the result (working or broken) — that's the fastest way to close the gap for
+  everyone.
 
 A few edges worth knowing going in:
 - **What the Linux AppImage takes from the system.** Its graphics libraries (`libGL`,
   `libEGL`, the base `libxcb`), which belong to the GPU driver and the display server and are on
   every desktop; a server or container without them gets one sentence naming each missing
   library and the command that installs it, where it used to say "Please install PySide6".
-  Everything else it carries, GLib and GTK included. That has one visible cost on a distribution
-  newer than the build image: GLib loads the system's GIO modules, which are built for the
-  system's newer GLib, and prints `undefined symbol: g_variant_builder_init_static` twice at
-  start. Harmless. Using the system's GLib instead was tried (2026-10-06) and withdrawn: the
-  system's `libgio` then needs a newer `libmount` than the one the AppImage carries, and GTK
-  stops loading.
+  Everything else it carries, except GTK and GLib's I/O library: since v2.5.10 the build takes
+  Qt's GTK theme plug-in and GLib network plug-in out of the bundle, with every library only they
+  needed (`packaging/linux/trim_bundle.py`; the release fails if either is still there). They
+  loaded the system's own GIO modules, built for the system's newer GLib, which failed on every
+  start (`undefined symbol: g_variant_builder_init_static`) and left file dialogs without network
+  places. File dialogs are now the desktop's own, asked for through its portal. Using the
+  system's GLib instead was tried (2026-10-06) and withdrawn: the system's `libgio` then needs a
+  newer `libmount` than the one the AppImage carries, and GTK stops loading.
 - **The Linux AppImage needs glibc 2.39 or newer.** A Linux program asks the system library
   (glibc) of the machine it runs on for the versions of the functions it was built against, and
   the release is built on Ubuntu 24.04. That is Ubuntu 24.04+, Debian 13+, Fedora 40+, Linux Mint 22+, Pop!_OS 24.04+, RHEL / AlmaLinux / Rocky 10+, openSUSE Leap 16+ and Tumbleweed, Arch. On an older system
@@ -76,17 +87,19 @@ A few edges worth knowing going in:
   release (glibc 2.39 or newer, see above), runs the AppImage directly — see the run-verified list
   above.
 - **Running from source (not the AppImage) needs the Qt xcb libs** — the self-contained AppImage
-  bundles the full xcb-util family as of v2.1.21, but a **source / portable** install uses your
-  system's Qt libraries. On a minimal desktop the GUI may need the xcb-util family installed:
+  bundles the full xcb-util family as of v2.1.21, but a **source / portable** install takes Qt
+  from the PySide6 wheel, which expects the xcb libraries from the system. `install.sh` checks
+  for them and adds them when that takes no password, else prints the command. By hand:
   Debian/Ubuntu `libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0
   libxcb-util1 libxcb-shape0`; Arch `xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil
   xcb-util`. The AppImage does not — it ships them itself.
 - **AMD voice is CPU-only** — the speech-to-text engine (CTranslate2) has no ROCm support, so on an
   AMD GPU it stays on the CPU (works, just not accelerated). The main model + vision use the AMD GPU
   via hipBLAS.
-- **Windows secret-file permissions are weaker** — `0600` is a Unix bit Windows ignores; the
-  token/key files lean on `%APPDATA%` being private (it is, by default). A proper Windows ACL is on
-  the list.
+- **Windows secret-file permissions are best-effort** — `0600` is a Unix bit Windows ignores, so
+  the files ELI writes through `eli/core/secure_io.py` (the API token, API users, settings) are
+  also given an owner-only ACL with `icacls`. If that call fails they lean on the user's own
+  folder (`%LOCALAPPDATA%\ELI_v2` for the packaged app) being private, as it is by default.
 - **Big models can be slow to load or run out of memory** — a large model takes a minute on first
   use, and if VRAM/RAM is tight the server can drop mid-reply. Run the server on its own (not
   alongside the desktop app) so the model loads once.
@@ -97,8 +110,11 @@ Linux call:
 - **`eli/utils/platform_compat.py`** — open URL/file/app, notifications, clipboard, volume/mute,
   play-sound, key/type, user dirs. Branches for Linux / macOS / Windows / Android(Termux) / BSD,
   each guarded with `shutil.which` and degrading gracefully.
-- **`eli/core/paths.py`** — all data/config/cache/log/models paths via `platformdirs`
-  (XDG on Linux, `~/Library` on macOS, `%APPDATA%`/`%LOCALAPPDATA%` on Windows, sdcard on Android).
+- **`eli/core/paths.py`** — all data/config/cache/log/models/notes paths: the project folder's
+  `artifacts/`, `config/`, `cache/` and `models/` for a source or portable install; the per-user
+  `ELI_v2` folder for the packaged or pip-installed app (`$XDG_DATA_HOME` or `~/.local/share` on
+  Linux and Termux, `~/Library/Application Support` on macOS, `%LOCALAPPDATA%` on Windows). The
+  `ELI_*_DIR` variables override each one.
 - **`eli/perception/os_controller.py`** / **`eli/system/portable_app_control.py`** — screenshots,
   app enumeration/control with per-OS implementations.
 
@@ -155,6 +171,10 @@ input device works** — chat, memory, search, code, file ops, scheduling, statu
 🖥️ rows (screenshot, type, gaze, window-mgmt, GUI) inherently need a desktop session and so are
 not available over a remote/headless API — by nature, not by bug. A phone talking to a
 desktop-hosted server gets the full *assistant*; the desktop-control actions run on the host.
+That is the owner's view: with API users defined (multi-user mode), a member or viewer cannot
+have ELI run the owner's actions — shell, code, file read/write, screen, clipboard, keyboard and
+mouse, ELI's own settings, plugins, MCP — through `/v1/execute`, `/v1/chat`, streaming,
+completions or research.
 
 ## System dependencies (the binaries pip can't install)
 **Core ELI — chat, memory, RAG, GGUF inference, the GUI, and the web server — needs only the
@@ -165,9 +185,9 @@ OS-level binaries; the installers handle these best-effort:
 |---|---|---|---|---|
 | Screen OCR | `tesseract` | apt/dnf/pacman | brew | winget (UB-Mannheim) |
 | Voice input (mic) | PortAudio + ranked auto-resolve (`mic_resolver.py`) | apt/dnf/pacman | brew | bundled in PyAudio wheel; ranks USB/headset/Bluetooth before built-in |
-| Media playback / Whisper | `ffmpeg`, `mpv` | apt/dnf/pacman | brew | winget (FFmpeg) |
+| Media playback / Whisper | `ffmpeg`, `mpv` | apt/dnf/pacman | brew | winget (FFmpeg, mpv) |
 | Desktop control | xdotool, wmctrl, scrot, xclip/wl-clipboard, libnotify | apt/dnf/pacman | native APIs | native APIs |
-| GPU offload | CUDA / **AMD ROCm** / Metal | CUDA `--install-cuda`; **AMD auto-detected → ROCm/hipBLAS build** | Metal (built in) | CUDA `/cuda` (winget) |
+| GPU offload | CUDA / **AMD ROCm** / Vulkan / Metal | CUDA `--install-cuda`; **AMD auto-detected → ROCm/hipBLAS build, then Vulkan**; Intel Arc / iGPU, Qualcomm → Vulkan | Metal (built in) | CUDA `/cuda` (winget); packaged app: CUDA or Vulkan GPU pack |
 | Web automation | playwright browsers | `playwright install` | `playwright install` | `playwright install` |
 | Volume / clipboard / notifications | — | system tools above | native (osascript/pbcopy) | native (pycaw/clip/plyer) |
 
@@ -203,7 +223,7 @@ End users should **never** create or manage a Python virtualenv manually:
 | **One-click archive** | `install.sh` / `install.ps1` creates an isolated Python env automatically |
 | **Developers** | Optional `.venv` in source tree only |
 
-Python packages (`yt-dlp`, `pyautogui`, etc.) install into **ELI's bundled interpreter** via pip during first-run setup. OS binaries (`mpv`, `tesseract`, `ydotool`, …) are installed by the system package manager when admin is available, or offered via grounded remediation after ELI tries and fails.
+Python packages (`yt-dlp`, `pyautogui`, etc.) install into **ELI's own environment** when the installer runs (the packaged apps carry them already). OS binaries (`mpv`, `tesseract`, `ydotool`, …) are installed by the system package manager when admin is available, or offered via grounded remediation after ELI tries and fails.
 
 The installer installs these **when a package manager + sudo/admin is available**; otherwise it
 **prints the exact command** so you can run it. None are required for ELI to start — missing ones

@@ -1,6 +1,6 @@
 # ELI — Full Project Breakdown & Assessment
 
-> **Updated for v2.4.84 (September 2026).** Every CHAT mode runs the gradient
+> **Updated for v2.5.36 (November 2026).** Every CHAT mode runs the gradient
 > orchestrator, retrieval is shared in `eli/memory/retrieval.py`, memory is governed by a
 > storage policy (`eli/memory/policy.py`), and the S01–S12 pipeline is traced canonically.
 > Installers are CI-launch-tested and published on
@@ -10,9 +10,9 @@ A grounded read of the whole project: what ELI is, its scale and shape, the arch
 layer by layer, where it is strong, where it is weak (with measured numbers), and what
 would help most. Companion to `orchestration_and_agents.md` (agent and bus detail).
 
-> Method note: the numbers below were computed from the tree on 2026-09-25 (AST parse of
-> every file under `eli/`, `pytest --collect-only`, the capability manifest). Prose claims
-> were checked against the code they describe.
+> Method note: the numbers below were computed from the tree on 2026-11-20 (`wc -l` over the
+> git-tracked files, an AST pass over every file under `eli/`, the capability manifest). Prose
+> claims were checked against the code they describe.
 
 ---
 
@@ -20,8 +20,9 @@ would help most. Companion to `orchestration_and_agents.md` (agent and bus detai
 
 A **local-first, model-agnostic personal AI**: no cloud, no telemetry, offline by default and
 hard-gated at the socket boundary. Internet access is an owner-controlled, monitored opt-in;
-one-time opt-in model downloads are the only network event unless the owner enables the
-Internet toggle. It bundles GGUF inference (llama.cpp), a PySide6 desktop GUI, persistent
+unless the owner enables the Internet toggle, the network opens only for a task the owner
+starts (a model or voice download, an update, a LAN device scan) and closes when it ends
+(`netguard.allow_network`). It bundles GGUF inference (llama.cpp), a PySide6 desktop GUI, persistent
 SQLite + FTS5 + FAISS memory, a knowledge graph, a 12-stage cognitive pipeline with a
 parallel 15-agent bus, a deterministic grounding and evidence layer that fights
 confabulation, local vision (Qwen2.5-VL hot-swap and Moondream), TTS and STT, OS control, a
@@ -35,31 +36,31 @@ in-process from the desktop GUI.
 
 ## 2. Scale and shape
 
-**194,736 lines across 429 Python files** in `eli/`, plus `api/server.py` (2,292 lines with
-an embedded dashboard) and **544 test files** under `tests/`.
+**207,284 lines across 451 Python files** in `eli/`, plus `api/server.py` (2,373 lines; the
+dashboard itself is in `api/static/`) and **593 test files** (`test_*.py`) under `tests/`.
 
 | Subsystem | Lines | Files | Role |
 |---|---:|---:|---|
-| `runtime/` | 35.4k | 95 | grounding, evidence, introspection, surfaces, daemons |
-| `gui/` | 27.4k | 27 | PySide6 desktop app |
-| `execution/` | 26.3k | 13 | router and executor (action dispatch) |
-| `cognition/` | 20.8k | 47 | agent bus, orchestrator, inference, persona, modes |
-| `kernel/` | 17.5k | 8 | the engine (pipeline driver) |
-| `core/` | 11.2k | 30 | paths, settings, hardware profile |
-| `perception/` | 10.2k | 23 | vision, STT, TTS, OS control |
-| `memory/` | 8.8k | 11 | SQLite, FTS5, FAISS, knowledge graph, storage policy |
-| `tools/` | 7.6k | 29 | image engine, news, registry |
-| `plugins/` | 5.9k | 34 | plugin manager, marketplace client |
+| `runtime/` | 40.0k | 101 | grounding, evidence, introspection, surfaces, daemons |
+| `execution/` | 27.6k | 14 | router and executor (action dispatch), shell gate |
+| `gui/` | 26.7k | 28 | PySide6 desktop app |
+| `cognition/` | 23.7k | 52 | agent bus, orchestrator, inference, persona, modes |
+| `kernel/` | 19.3k | 10 | the engine (pipeline driver) |
+| `core/` | 12.4k | 33 | paths, settings, hardware profile, load plan |
+| `perception/` | 10.8k | 24 | vision, STT, TTS, OS control |
+| `memory/` | 10.6k | 12 | SQLite, FTS5, FAISS, knowledge graph, claims, storage policy |
+| `plugins/` | 6.0k | 34 | plugin manager, marketplace client, sandboxes |
+| `tools/` | 6.0k | 25 | image engine, news, registry |
+| `planning/` | 4.4k | 20 | proactive daemon, habits, queues |
 | `learning/` | 4.3k | 14 | LoRA self-training |
-| `planning/` | 4.0k | 19 | proactive daemon, habits, queues |
-| `integrations/` | 3.3k | 18 | Ollama, MCP, cross-platform media |
+| `integrations/` | 3.9k | 19 | Ollama, MCP, cross-platform media |
 | `coding/` | 2.1k | 12 | the coding agent |
-| `setup/`, `utils/`, `world/`, `system/`, `contracts/`, `onboarding/`, `cli/` | 8.5k | 52 | installer, helpers, world model, portable control |
+| `setup/`, `utils/`, `world/`, `system/`, `contracts/`, `onboarding/`, `cli/`, `scripts/`, top level | 9.5k | 53 | installer, helpers, world model, portable control |
 
-**Five files carry about a third of the codebase:** `engine.py` (16.0k), `executor_enhanced.py`
-(15.8k), `gui/eli_pro_audio_gui_v2_0.py` (13.1k), `router_enhanced.py` (8.3k) and
-`gui/labs_tab.py` (5.7k). Next tier: `memory.py` (5.7k), `agent_bus.py` (3.5k),
-`deterministic_grounding_gate.py` (3.4k).
+**Five files carry about 29% of `eli/`:** `engine.py` (17.4k), `executor_enhanced.py`
+(15.6k), `gui/eli_pro_audio_gui_v2_0.py` (12.5k), `router_enhanced.py` (9.3k) and
+`memory/memory.py` (6.0k). Next tier: `gui/labs_tab.py` (5.7k), `agent_bus.py` (3.6k),
+`deterministic_grounding_gate.py` (3.3k), `core/hardware_profile.py` (3.3k).
 
 ## 3. Architecture, layer by layer
 
@@ -68,8 +69,8 @@ an embedded dashboard) and **544 test files** under `tests/`.
   calculation is shared by the loader and the startup dialog; the fit priority
   (balanced, max GPU, max context) is a setting.
 - **Routing**: `execution/router_enhanced.py` is regex-first with an LLM-intent fallback
-  and an explicit priority pipeline, resolving to one of **230 manifest capabilities**
-  (189 routable, 207 in the executor's supported list, 213 in either). The full reference
+  and an explicit priority pipeline, resolving to one of **231 manifest capabilities**
+  (190 routable, 207 in the executor's supported list, 214 in either). The full reference
   with activation phrases is `capabilities_and_actions.md`.
 - **Orchestration**: `kernel/engine.py` runs the gradient orchestrator for all CHAT modes
   (Quick is light, Expert is deep); `dispatch_specialists()` composes the 15-agent
@@ -87,11 +88,15 @@ an embedded dashboard) and **544 test files** under `tests/`.
   `evidence_ledger.py`, `evidence_arbitration.py`, `control_contracts.py`,
   `grounded_remediation.py` and `cognition/output_governor.py`: a layered, deterministic
   anti-confabulation system around the probabilistic model.
-- **Security**: `runtime/security.py` `SecurityManager` with a fail-closed shell gate
-  (`ELI_ALLOWED_CMDS` or the Full Control toggle; unset means blocked), path allow-roots
-  (`ELI_ALLOW_ROOTS`), an app allowlist, a SHA-256 custom-agent trust registry
-  (`cognition/agent_trust.py`, stored in `config/trusted_agents.json`), SQL identifier
-  validation in `memory/memory.py`, and prompt-injection screening in the engine.
+- **Security**: `execution/shell_gate.py` reads every command in a shell line, through wrappers
+  and substitutions (a denylist; the Full Control toggle lifts it); CREATE_FILE stays inside its
+  allow-roots (`SecurityManager.is_path_allowed`, `ELI_ALLOW_ROOTS`) and never replaces a file
+  unasked; `runtime/authority_gate.py` keeps the owner's actions (shell, code, files, screen,
+  clipboard, input, ELI's own settings, plugins, MCP) from API members and viewers; the API's
+  same-machine grants need a `Host` header that names this machine; a SHA-256 custom-agent
+  trust registry (`cognition/agent_trust.py`, stored in `config/trusted_agents.json`); SQL
+  identifier validation in `memory/memory.py`; and prompt-injection screening in the engine.
+  Detail in `security.md`.
 - **Self-model**: `cognition/reasoning_modes.py`: `quick`, `fast` and `balanced` all fast-path
   to quick, plus four private modes (`chain_of_thought`, `self_consistency`,
   `tree_of_thoughts`, `constitutional_ai`). Persona overlay, `runtime/self_improvement.py`
@@ -102,28 +107,31 @@ an embedded dashboard) and **544 test files** under `tests/`.
 1. **The grounding and evidence layer.** Deterministic evidence gating around a
    probabilistic model, developed to a high degree.
 2. **Local and model-agnostic.** No call-home, hardware-adaptive, swappable models.
-3. **Fail-closed security.** Shell blocked by default, hash-gated custom agents, path and
-   app allowlists.
+3. **Layered gates.** A shell gate that reads every command in a line, an API that fails
+   closed and keeps the owner's actions from other accounts, hash-gated custom agents,
+   root-confined file creation that never overwrites unasked.
 4. **Breadth, integrated.** Vision, voice, OS control, memory, knowledge graph, plugins and
    self-training in one pipeline.
-5. **A large safety net.** 12,496 tests are collected; the structural tests catch broken
-   imports, stale action lists and unpinned routes.
+5. **A large safety net.** 593 test files; the structural tests catch broken imports, stale
+   action lists and unpinned routes.
 
 ## 5. Where it is weak (measured)
 
-1. **Swallowed errors.** 4,392 handlers catch `Exception` (most log at debug level), 5 are
-   bare `except:`, and 162 are a lone `pass`. A ratchet test
+1. **Swallowed errors.** 4,498 handlers catch `Exception` (most log at debug level), 3 are
+   bare `except:`, and 164 are a lone `pass`. A ratchet test
    (`tests/claims/test_no_silent_swallow.py`) stops the silent count rising.
 2. **Large files.** The executor is an action ladder and the engine a long orchestration
    method; the regression surface is high and unit-testing is hard.
 3. **Overlap in `runtime/`.** Many `personal_memory_*`, `*_surface` and `*_response` modules
    do neighbouring grounding work.
-4. **Single-file GUI.** `eli_pro_audio_gui_v2_0.py` (13.1k lines) and `labs_tab.py` (5.7k).
+4. **Single-file GUI.** `eli_pro_audio_gui_v2_0.py` (12.5k lines) and `labs_tab.py` (5.7k).
 5. **Test-suite state.** See `operations.md` for the current pass count; tests that touch
    settings and path caches are isolated from one another by fixtures in `tests/conftest.py`.
-6. **Network containment is Python-level.** There is no eBPF, seccomp, landlock, namespace or
-   firewall integration. The socket guard covers in-process code only; anything that spawns
-   a subprocess (MCP servers, `pip`, generated scripts) is outside it.
+6. **Network containment is mostly Python-level.** The socket guard covers in-process code
+   only. MCP servers are launched in a sandbox on Linux when one works there
+   (`plugins/subprocess_sandbox.py`: bubblewrap, else `unshare`; no network unless the server
+   declared it); elsewhere they, and `pip`, shell commands and generated-script test runs, are
+   outside it. There is no eBPF, seccomp, landlock or firewall integration.
 
 ## 6. Verdict
 
@@ -148,8 +156,8 @@ observability, not more features.
 - Refusing to claim more than was checked: a scanner engine that could not run never counts
   as a pass and the verdict says coverage was partial; an unsigned plugin is reported as
   unverified; ELI never says a community plugin is safe; the training tab says the live model
-  has not changed until the adapter is merged; the MCP screens state that the network guard
-  cannot contain a child process.
+  has not changed until the adapter is merged; the MCP consent text states the containment this
+  machine will actually apply to a server, including none (`mcp.network_caveat`).
 - Plugins are declared, verified, scanned and permission-gated; custom agents carry a
   specification and a provenance-carrying trust chain; the LoRA trainer has a human review
   gate.

@@ -1,13 +1,14 @@
-# Installation — one-click setup, cross-platform (2026-09-11)
+# Installation — one-click setup, cross-platform (2026-11-20)
 
-> **Updated for v2.4.84 (September 2026).** One hardware-aware GUI wizard for every supported OS.
+> **Updated for v2.5.36 (November 2026).** One hardware-aware GUI wizard for every supported OS.
 > Primary install: GitHub Releases (`ELI-Setup-*.exe`, Linux AppImage, macOS dmg, portable → `./ELI_Setup.sh`).
-> Core wizard stages hard-fail until nomic + voice + chat model are present. Windows desktop = ELI only
-> (GUI singleton). **Home** tab ≠ Home Assistant. See `first time Installation/INSTALLATION_GUIDE.md`.
+> Core wizard stages hard-fail until nomic + voice + chat model are present. Windows desktop = ELI
+> (plus an Uninstall shortcut; ELI Server is in the Start Menu only; GUI singleton). The web page's
+> **Home** tab is ELI's own MQTT devices, not Home Assistant. See `first time Installation/INSTALLATION_GUIDE.md`.
 
 ## Runtime OS tools (installed best-effort by `install.sh` / `install.ps1`)
 
-These are **not** Python packages — ELI installs them when a package manager is available, or offers the exact command after a failed action:
+These are **not** Python packages — ELI installs them when a package manager is available and needs no password (apt, dnf, pacman, zypper, apk, xbps on Linux), otherwise prints the exact command, and offers it again after a failed action:
 
 | Tool | Purpose | Linux | macOS | Windows |
 |---|---|---|---|---|
@@ -28,32 +29,35 @@ slate — schema only, no personal data), the **nomic embedder**, and the defaul
 
 | Platform | Command | GPU |
 |---|---|---|
-| Linux | `bash install.sh --yes` (`--cpu-only` on Iris Xe / ≤8 GB) | CUDA / CPU |
+| Linux | `bash install.sh --yes` (`--cpu-only` on Iris Xe / ≤8 GB; `--yes` also fetches a model) | CUDA / ROCm / Vulkan / CPU |
 | macOS | `bash install.sh --yes` | Metal (no CUDA) |
-| Windows | `ELI-Setup-*.exe` (frozen) or `install.bat` (source) | CUDA pack optional |
+| Windows | `ELI-Setup-*.exe` (frozen) or `install.bat` (source) | GPU pack optional (CUDA on NVIDIA, Vulkan on AMD / Intel) |
 | Android | `bash scripts/install_android.sh` | CPU only (headless) |
 | Portable tarball | `./ELI_Setup.sh` then `./RUN_ELI.sh` | **hardware_policy** (CPU on Iris Xe / ≤8 GB; GPU on NVIDIA/AMD/Arc) |
 
 ## Which download should I get? (GitHub Releases)
 
-Every release ships the platform assets below plus `SHA256SUMS.txt`.
+Every release ships the platform assets below plus `SHA256SUMS.txt` (sizes are v2.5.35's). It
+also carries developer packages — the wheel, the sdist, a `.deb`, Windows source portables (x64 and
+Windows on ARM) and offline Windows wheelhouses — listed in `docs/RELEASE_PIPELINE.md`.
 
 | Download | Size | Platform | What's inside | First run needs internet for | Best for |
 |---|---|---|---|---|---|
 | `ELI-Setup-<v>.exe` | ~1.2 GB | Windows | Frozen Inno Setup → `%LOCALAPPDATA%\Programs\ELI` | chat model | Most Windows users |
-| `ELI_v2-<v>-windows-x64.zip` | ~1.3 GB | Windows | `ELI\ELI.exe` (no Setup.bat / install.ps1) | chat model | Unzip-and-run |
+| `ELI_v2-<v>-windows-x64.zip` | ~1.4 GB | Windows | `ELI\ELI.exe` (no Setup.bat / install.ps1) | chat model | Unzip-and-run |
 | `ELI_v2-<v>-macos-arm64.dmg` | ~1.4 GB | macOS (Apple Silicon) | App bundle | chat model | Mac users |
-| `ELI_v2-<v>-x86_64.AppImage` | ~1.2 GB | Linux, glibc 2.39 or newer | Double-click app | chat model | Most Linux users |
-| `ELI_v2-<v>-linux-portable.tar.gz` | ~1.2 GB | Linux, any glibc | Source + `ELI_Setup.sh` (venv) | Python deps + chat model | Older systems / editable / CPU laptops |
+| `ELI_v2-<v>-x86_64.AppImage` | ~1.4 GB | Linux, glibc 2.39 or newer | Double-click app | chat model | Most Linux users |
+| `ELI_v2-<v>-linux-portable.tar.gz` | ~2.0 GB | Linux, older than the AppImage needs too | Source + `ELI_Setup.sh` (venv), voices, embedder, GPU packs, offline GUI wheels | Python deps + chat model | Older systems / editable / CPU laptops |
 | `SHA256SUMS.txt` | tiny | — | Checksums | — | verifying your download |
 
 **In plain terms:**
 - Just want it to work → **ELI-Setup-*.exe** (Windows), **.dmg** (macOS), **AppImage** (Linux).
-- Want the source tree → **linux-portable.tar.gz** → `./ELI_Setup.sh` only (never `scripts/install_eli.sh`).
+- Want the source tree → **linux-portable.tar.gz** → `./ELI_Setup.sh` (`INSTALL_ELI.sh` and
+  `scripts/install_eli.sh` lead to the same place).
 - **Linux: the AppImage needs glibc 2.39 or newer** (`ldd --version`). That is Ubuntu 24.04+, Debian 13+, Fedora 40+, Linux Mint 22+, Pop!_OS 24.04+, RHEL / AlmaLinux / Rocky 10+, openSUSE Leap 16+ and Tumbleweed, Arch. On Ubuntu 22.04, Debian 12, Mint 21 or RHEL 9 it does not start and says so; use **linux-portable.tar.gz** there, which installs from source against the system's own libraries.
-- Frozen builds bundle **nomic** + **Piper voice weights**; Windows TTS still needs a Piper **CLI** on PATH or under `tts_piper/` (weights alone are not enough).
+- Frozen builds bundle **nomic** + **Piper voice weights**. Piper speaks through a Piper program when one is found and otherwise through the Piper library ELI installs (`piper-tts`), so the weights are all a Windows install needs (since v2.5.30).
 - **No download bundles a chat model.** First launch / wizard fetches one.
-- Windows: desktop shortcut is **ELI only** (Server is Start Menu). If two windows open, close one — v2.4.72+ refuses a second GUI instance.
+- Windows: the desktop gets **ELI** (and an **Uninstall ELI** shortcut); ELI Server is in the Start Menu only. If two windows open, close one — v2.4.72+ refuses a second GUI instance.
 
 > **Model size vs. your GPU matters more than which download you pick.** Choose a model that
 > fits your VRAM — e.g. **Qwen3-8B / Qwen2.5-7B** on an 8 GB GPU. Very large models (30B+) run
@@ -62,16 +66,17 @@ Every release ships the platform assets below plus `SHA256SUMS.txt`.
 
 ## Linux — Arch and other lean distros
 
-The **AppImage** is the easiest path on any distro: it bundles its own **Python 3.12** (so
-whichever Python the distro ships is irrelevant) and, since
+The **AppImage** is the easiest path on any current distro (glibc 2.39 or newer): it bundles
+its own **Python 3.12** (so whichever Python the distro ships is irrelevant) and, since
 **v2.1.21**, every Qt xcb library it needs — so it launches out of the box with no extra
-packages. Download and run it **directly**:
+packages on a desktop (it takes only the graphics libraries, `libGL`/`libEGL` and the base
+`libxcb`, from the system). Download and run it **directly**:
 
 ```bash
-U=https://github.com/ShadowESC95/ELI_v2.0/releases/download/v2.4.84
-wget "$U/ELI_v2-2.4.84-x86_64.AppImage"
-chmod +x ELI_v2-2.4.84-x86_64.AppImage
-./ELI_v2-2.4.84-x86_64.AppImage
+V=2.5.36
+wget "https://github.com/ShadowESC95/ELI_v2.0/releases/download/v$V/ELI_v2-$V-x86_64.AppImage"
+chmod +x "ELI_v2-$V-x86_64.AppImage"
+"./ELI_v2-$V-x86_64.AppImage"
 ```
 
 Two fixes worth knowing, both resolved in current builds and verified on a clean Arch VM:
@@ -86,7 +91,8 @@ Two fixes worth knowing, both resolved in current builds and verified on a clean
 - **GUI won't open — "libxcb-cursor0 … xcb platform plugin".** Qt 6.5+ needs the whole
   **xcb-util family**, which a minimal desktop doesn't ship (Qt's error is misleading — the
   real missing library is often `libxcb-icccm.so.4`, not the cursor lib). **v2.1.21+** bundles
-  all of them in the AppImage. On an older build or a **source** install, add them:
+  all of them in the AppImage. A **source** install's `install.sh` checks for them and adds
+  them itself when that takes no password, else prints the one command. To add them by hand:
   - Arch: `sudo pacman -S xcb-util-cursor xcb-util-wm xcb-util-image xcb-util-keysyms xcb-util-renderutil xcb-util`
   - Debian/Ubuntu: `sudo apt install libxcb-cursor0 libxcb-icccm4 libxcb-image0 libxcb-keysyms1 libxcb-render-util0 libxcb-util1 libxcb-shape0`
 
@@ -104,27 +110,33 @@ This works when you run the **`.AppImage` directly** *or* via `--appimage-extrac
 set the `APPIMAGE` path the launcher needs. Force it any time with:
 
 ```bash
-./ELI_v2-2.4.84-x86_64.AppImage --integrate      # add/refresh menu entries
-./ELI_v2-2.4.84-x86_64.AppImage --uninstall       # remove them
+./ELI_v2-*-x86_64.AppImage --integrate      # add/refresh menu entries and ~/.local/bin/eli-v2
+./ELI_v2-*-x86_64.AppImage --uninstall      # remove them (offers to delete the data too)
 ```
 
 Running the **manually extracted `./squashfs-root/AppRun`** does *not* create menu icons — there's
 no `.AppImage` file for the launcher to point at, so it's skipped (with a one-line note on stderr
 explaining why). Use the real `.AppImage` for menu integration. On Ubuntu 24.04 a normal
 double-click/FUSE run needs `libfuse2` (`sudo apt install libfuse2t64`). The **portable tarball**
-and **source** installs create the same menu entries via `scripts/install_desktop_apps.sh`; on
+and **source** installs create their own menu entries (ELI, ELI Server, ELI Setup, Uninstall) via
+`scripts/install_desktop_apps.sh`, which `install.sh` runs on Linux; they start
+`~/.local/bin/eli-v2-run`, which finds the install folder through a pointer file; on
 **Windows** the Setup.exe adds Start-menu shortcuts, and on **macOS** the app is the `.app` bundle
 you drag to Applications.
 
 ## CUDA toolkit option (`--install-cuda` / `/cuda`)
-For non-technical users with an NVIDIA GPU but no toolkit. Best-effort, never fatal:
+For non-technical users with an NVIDIA GPU but no toolkit. Best-effort, never fatal, and it acts
+only when the installed inference engine turned out to have no GPU offload:
 - **Linux:** tries no-sudo `pip nvidia-cuda-nvcc-cu12` (exposes nvcc via `CUDACXX`),
-  then the system package manager (`apt`/`dnf`/`pacman`, if sudo is available), then
+  then the system package manager (`apt`/`dnf`/`pacman`/`zypper`, if sudo needs no password), then
   prints the manual step — then source-rebuilds llama-cpp with `-DGGML_CUDA=on`.
 - **Windows:** `winget install Nvidia.CUDA`, then rebuilds llama-cpp.
 - **macOS/Android:** N/A (Metal / CPU).
-The default install already uses prebuilt CUDA wheels (no toolkit needed); the option
-only matters when those don't match the user's CUDA or a source build is required.
+A source install on NVIDIA usually needs the toolkit anyway: the prebuilt CUDA wheel index is
+used only when it has llama-cpp-python 0.3.35 or newer for this Python, and it has stopped at
+older versions, so `install.sh` builds the engine with CUDA from source when it finds `nvcc`
+and otherwise builds a CPU version and says so. The release packages need no toolkit: their
+GPU pack is prebuilt.
 
 ## What `bash install.sh` does
 1. Picks the Python: of those installed at or above the floor `pyproject.toml` declares, the one
@@ -140,56 +152,73 @@ only matters when those don't match the user's CUDA or a source build is require
    PyTorch's own list, `eli_env.py torch-index`), then checks it runs on the GPU and otherwise
    takes the oldest one on offer, which keeps older cards; CPU when none runs. macOS uses MPS.
    PyTorch's outcome never changes how the inference engine is built.
-3. Installs **llama-cpp-python** with GPU acceleration (CUDA wheel index / Metal /
-   CPU) — then **verifies `llama_supports_gpu_offload()`** and, if it landed CPU-only,
+3. Installs **llama-cpp-python** 0.3.35 or newer with GPU acceleration (NVIDIA: the CUDA
+   wheel index when it has a new enough build, else a CUDA source build; AMD: ROCm, then
+   Vulkan; Intel Arc / iGPU and Qualcomm Adreno: Vulkan; Metal; CPU), checks that it starts
+   on this CPU (rebuilding with portable CPU flags if it dies with an illegal instruction),
+   then **verifies `llama_supports_gpu_offload()`** and, if it landed CPU-only,
    prints the exact CUDA-rebuild command (closes the silent-CPU-wheel trap).
-4. Installs the ELI package (`[full]`) + all remaining dependencies from the
-   **frozen `requirements.lock.txt`** (exact known-good versions; reproducible).
+4. Installs the ELI package (`[full]`, editable) + all remaining dependencies from the
+   **frozen `requirements.lock.txt`** (exact known-good versions; reproducible;
+   `requirements-macos.txt` on macOS). Where the lock cannot be met it falls back to the
+   ranges in `requirements-full.txt` (Linux), then to one requirement at a time.
 5. Seeds `config/settings.json` from the template (offline-by-default, wizard on) —
-   never overwrites an existing config.
+   never overwrites an existing config — then installs the runtime OS tools above,
+   best-effort.
 6. Runs **`python -m eli.core.init_data`** — creates **every** SQLite store/table
    (`user.sqlite3`, `system_index.sqlite3`, `coding_memory.sqlite3`, `agent.sqlite3`)
    with **zero personal memories/profile/history** (blank slate). System inventory
    (installed apps, `$PATH` binaries) is scanned once so "open Firefox" works — that
-   is machine environment data, not user memories.
+   is machine environment data, not user memories. Then it refreshes the capability manifest.
 7. Verifies, from outside the source folder, that ELI and every package it cannot run
    without are installed, that the GUI toolkit really loads, and the `eli` console script.
    An install that ends with errors exits non-zero.
-8. Fetches **`nomic-embed-text-v1.5.Q4_K_M.gguf`** → `models/embeddings/` (~80 MiB,
-   required for memory/RAG) via `python -m eli.core.model_download --aux`.
-9. Fetches **voice weights**: Piper `en_US-amy-medium` + faster-whisper `small.en` via
-   `python -m eli.runtime.voice_assets` (idempotent; skipped if already present).
-10. Optionally downloads a **chat GGUF** (wizard / `--model=` / `--auto`).
-11. Prints how to launch + how to add more models.
+8. Optionally downloads a **chat GGUF** (`--model=` / `--auto-model` / the `--choose` menu;
+   `--yes` means `--auto-model`), unless `models/` already holds one or `--no-model` is given.
+9. Fetches **`nomic-embed-text-v1.5.Q4_K_M.gguf`** → `models/embeddings/` (~80 MiB,
+   required for memory/RAG) via `python -m eli.core.model_download --aux` — skipped only with
+   `--no-model`.
+10. Fetches **voice weights**: Piper `en_US-amy-medium` + faster-whisper `small.en` via
+   `python -m eli.runtime.voice_assets` (idempotent; skipped if already present; done with
+   `--no-model` too).
+11. Offers the `eli-v2` / `eli2` terminal commands (`scripts/fix_eli_shell_env.sh`, automatic
+    with `--yes`), installs the app-menu icons on Linux, and prints how to launch + how to add
+    more models.
 
 ## Three local asset layers (not in git)
 
 | Asset | Path | Size (typical) | When fetched |
 |---|---|---|---|
 | **Embedder** (required) | `models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf` | ~80 MiB | `install.sh` / wizard / `--aux` |
-| **Chat model** (pick one+) | `models/*.gguf` | 0.6–8+ GiB | Wizard / `model_download` / asset pack |
-| **Voice** (default amy) | `models/tts/piper/` + `tts_piper/piper/` | ~60 MiB Piper + ~464 MiB whisper | `voice_assets` / asset pack |
+| **Chat model** (pick one+) | `models/*.gguf` | 1.8–20.6 GB in the catalog | Wizard / `model_download` / asset pack |
+| **Voice** (default amy) | `models/tts/piper/` + `tts_piper/piper/`; whisper in `models/whisper/` | ~60 MiB Piper + ~464 MiB whisper | `voice_assets` / asset pack |
 
 GitHub Release tag **`local-assets-v2.1`** mirrors embedder + starter chat GGUFs +
-cleared Piper voices. Restore: `./RUN_ELI.sh --with-github-assets`. Voices excluded
-from auto-restore: ryan, lessac, cori — see `models/MODEL_LICENSES.md`.
+cleared Piper voices. Restore: `./RUN_ELI.sh --with-github-assets` (on a set-up portable
+install; `./scripts/eli_startup.sh --with-github-assets` in a clone). Voices that are not
+cleared for redistribution — ryan, lessac, cori — are not in that release and are skipped
+on restore; see `models/MODEL_LICENSES.md`.
 
 ## Flags
 - `--cpu-only` — no CUDA (CPU torch + CPU llama-cpp).
 - `--latest` — use `requirements.txt` version ranges instead of the frozen lock.
-- `--skip-torch` — leave an existing torch in place.
-- `--no-model` — skip chat-model offer; embedder still fetched unless you disable network.
+- `--skip-torch` — skip the PyTorch step (an existing torch is left in place).
+- `--no-model` — no chat model and no embedder; the voice weights are still fetched.
+- `--yes` — no prompts; also downloads a chat model sized to your VRAM unless `--no-model`.
 
 ## Files
 - `install.sh` (Linux/macOS), `install.bat` / `install.ps1` (Windows).
 - `requirements.lock.txt` — frozen exact versions, with markers for what only some
   Pythons or systems need (excludes torch and llama-cpp, which the installers fetch for
   the machine's GPU).
-- `pyproject.toml` — package metadata + `[project.scripts]` (`eli` → `eli.gui.app:main`).
+- `pyproject.toml` — package metadata + `[project.scripts]` (`eli`, `eli-v2.0`, `eli-cli` → `eli.__main__:main`, which reads the flags and otherwise opens the window; `eli-gui` → `eli.gui.app:main`).
 
 ## Launch
 `./eli.sh` or `source .venv/bin/activate && eli`. First run shows the **setup wizard**
 if no chat GGUF is present. Wizard also verifies embedder + voice and can fetch them.
+The venv's `eli` script reads the same flags as `python -m eli` (`--headless`, `--license`,
+`--mcp-server`, `--mcp-config`) and otherwise opens the window. The installer also adds `eli-v2` (and `eli2`) to
+`~/.local/bin`, which run `./eli.sh` from any folder.
 
 Chat model: `python -m eli.core.model_download --auto` (or `--list`, or a named model).
 ELI stays offline by default; downloads are deliberate one-time actions.

@@ -1,11 +1,11 @@
 # ELI Orchestration & Agents — Full Topology
 
-> **Updated 2026-09-30.** All CHAT modes run the orchestrator at scaled depth; retrieval is
-> unified in `eli/memory/retrieval.py`; stage 12 learning is centralised in
-> `learning_coordinator.py`; the direct-versus-synthesise gate
-> (`_deterministic_direct_payload_actions`) has been audited against what the executor
-> handlers actually return. Agent-bus confidence now has a relevance term; MULTI_COMMAND
-> gained real dependency awareness and crash-survival.
+> **Updated for v2.5.36.** CHAT turns in every mode run the orchestrator at a depth set by
+> the mode; other actions go to the agent bus directly. Retrieval is unified in
+> `eli/memory/retrieval.py`; stage 12 learning is centralised in `learning_coordinator.py`;
+> the direct-versus-synthesise gate (`_DIRECT_RESULT_ACTIONS`) has been audited against what
+> the executor handlers actually return. Agent-bus confidence has a relevance term;
+> MULTI_COMMAND has dependency awareness and crash-survival.
 
 Read-only reference; nothing here changes behaviour.
 
@@ -25,22 +25,37 @@ orchestrator composes (or that the engine falls back to).
 
 ### 1. `AgentOrchestrator` (`orchestrator.py`)
 
-The 12-stage cognitive pipeline. The engine calls it for every CHAT mode, Quick through Expert,
-at a depth chosen by `mode_orchestrator_depth()` and `orchestrator_planner_mode()`
-(`reasoning_modes.py`). Components:
+The 12-stage cognitive pipeline. The engine calls it for CHAT turns in every mode, Quick
+through Expert, except phatic turns, brief phatic prompts and turns about the conversation
+itself (`correction_patterns.is_meta_conversation`). Other actions reach it only when
+`ELI_FORCE_ORCHESTRATOR_ALL_ACTIONS=1` or `ELI_FORCE_ORCHESTRATOR_ALL_MODES=1` is set. The
+mode sets the depth (`reasoning_modes.py`): `orchestrator_planner_mode()` picks the retrieval
+plan (Quick → `fast`, Normal and Advanced → `balanced`, Research and Expert → `deep`),
+`mode_budget_multiplier()` scales its limits, and `mode_chat_agent_profile()` picks the
+specialists. `mode_orchestrator_depth()` is defined there too, but nothing calls it.
+Components:
 
 - **`PlannerAgent.plan_retrieval()`** produces a mode-aware retrieval plan:
-  - `fast`: keyword only, no FAISS, document passages only when the question is about a
-    document, knowledge graph only for identity, one ReAct iteration, no HyDE;
-  - `balanced` (default): keyword, semantic and knowledge graph, document passages (the best
+  - `fast`: keyword hits; the FAISS search inside `recall_memory` still runs, but its hits
+    are kept only when the turn would otherwise have fewer than `_THIN_EVIDENCE` (3) items, and
+    then only those that share a word with the message; document passages only when the
+    question is about a document, knowledge graph only for identity (both also join when the
+    evidence is thin); no HyDE;
+  - `balanced`: keyword, semantic and knowledge graph, document passages (the best
     ones when the question is about a document, otherwise only passages that clearly bear on
-    it), three ReAct iterations;
-  - `deep`: everything, large budgets, full HyDE, three ReAct iterations.
-  The orchestrator then attaches the time window found in the question
-  (`query_planner.parse_window`) to the plan.
-- **`OrchestratorMemoryAgent`** delegates to `retrieve_for_turn()` in `memory/retrieval.py`
-  (shared with the bus): HyDE expansion, keyword and FTS5, FAISS semantic and knowledge
-  graph, `hybrid_merge`, then a heuristic rerank (`rerank_candidates`). Document passages come
+    it);
+  - `deep`: the same channels with the larger budgets of Research and Expert, never less than
+    balanced.
+  Each plan also carries `max_react_iter` (1 for fast, 3 otherwise), which nothing reads.
+  The orchestrator then attaches the time window found in the question to the plan
+  (`query_planner.plan_window`, which gives one only when the message asks about the past).
+- **`OrchestratorMemoryAgent`** reaches `retrieve_for_turn()` in `memory/retrieval.py`
+  (shared with the bus) through `unified_retrieval.orchestrator_retrieve`: `recall_memory`
+  (FAISS and FTS5 keyword search fused by rank, a LIKE search when FTS5 finds nothing),
+  conversation search, a second recall hop on thin results, claim and exact-token hits. HyDE
+  expansion is used for queries of eight words or more outside fast mode. The orchestrator then
+  adds its own knowledge-graph lookup, `hybrid_merge` and a heuristic rerank
+  (`rerank_candidates`). Document passages come
   from `engine.document_rag` (`memory/document_index.py`) and are not merged into the evidence
   rows: they are shown whole, best first, in their own block. Sequential by design: the
   llama.cpp embedder is not thread-safe.
@@ -48,16 +63,18 @@ at a depth chosen by `mode_orchestrator_depth()` and `orchestrator_planner_mode(
 
 Flow inside `AgentOrchestrator.run()`:
 
-- **Non-CHAT actions**: dispatch the AgentBus for specialist evidence, then a **ReAct
+- **Non-CHAT actions** (only when the engine hands one over; see *When each runs*): dispatch the
+  AgentBus for specialist evidence, then a **ReAct
   observation loop**: run the executor, ask the loaded model for `ANSWER` or
-  `TOOL:<action> <args>`, chain to the next tool and accumulate observations. One iteration in
-  fast mode, up to three otherwise. The proposed tool is validated against the executor's
-  `SUPPORTED_ACTIONS` (207 actions) and the loop stops on an unknown action; `intent["args"]`
-  are merged rather than overwritten. For "grounded synthesis" actions the observations are
-  assembled into context and passed to the model; for direct actions the executor result is
-  returned as is.
-- **CHAT**: planner → shared retrieval → `dispatch_specialists()` (mode-aware fan-out; memory
-  skipped when already prefetched) → context assembly and a retrieval-diagnostics block →
+  `TOOL:<action> <args>`, chain to the next tool and accumulate observations. Up to three
+  iterations (`MAX_REACT_ITER`); its one-iteration case tests for the mode name `fast`, which
+  the engine never passes (Quick arrives as `quick`). The proposed tool is validated against the
+  executor's `SUPPORTED_ACTIONS` (207 actions) and the loop stops on an unknown action;
+  `intent["args"]` are merged rather than overwritten. For "grounded synthesis" actions the
+  observations are assembled into context and passed to the model; for direct actions the
+  executor result is returned as is.
+- **CHAT**: planner → shared retrieval → `dispatch_specialists()` (the mode's specialists plus
+  `critic`; memory skipped because it was prefetched) → context assembly and a retrieval-diagnostics block →
   persona handoff → generation. The assembled context is ordered by what must survive a trim
   (`context_budget._BLOCK_PRIORITY`): retrieval diagnostics, the turn record (only when the
   user asks about ELI's own behaviour), the period log, document passages, verified memories,
@@ -69,8 +86,11 @@ Flow inside `AgentOrchestrator.run()`:
 message is read against it, in code, whatever the conversation is about
 (`runtime/pending_proposal.py`).
 
-*What a reply leaves open.* `_store_assistant_turn` calls `read_reply` on every reply and stores the
-result, replacing the last one (it lapses after 30 minutes):
+*What a reply leaves open.* `_store_assistant_turn` calls `read_reply` on each reply and stores the
+result, replacing the last one (it lapses after 30 minutes). A report or recall list
+(`_REPORT_REPLY_ACTIONS`) quotes other text, so nothing is read from it; an action that stored
+its own question keeps that one; and when the turn ran actions, only offers are read
+(`offers_only`). What is kept:
 
 - **steps** ELI offered, each with the number it was listed under. A step is an *action* when
   the router has a rule for its words; a *task* when ELI would do it by writing (explain,
@@ -144,19 +164,31 @@ on a worker thread is recorded on the turn and carries the user id.
   action result is returned (the agent-bus path and the general executor path). They used to
   keep shorter lists of their own, so a calendar or timer result went through a full generation
   there and came back reworded. `_ALWAYS_AS_IS` (calendar, alarm, timer, `MULTI_COMMAND`,
-  `SEQUENCE`) is verbatim in every mode on those paths.
+  `SEQUENCE`) is verbatim in every mode on those paths, and so are results that ask the user
+  for a detail (`_asks_the_user`).
+- The control path runs first for actions in `_DIRECT_FINAL_ACTIONS` and the control
+  contracts, and it reads only `_verbatim_always_actions` and Quick mode. `SET_TIMER` and
+  `SET_ALARM` are in `_DIRECT_FINAL_ACTIONS`, so from Normal to Expert their confirmation is
+  re-worded there by `_compact_grounded_synthesis()` before `_ALWAYS_AS_IS` is reached.
+  `MULTI_COMMAND`, `SEQUENCE` and the calendar actions are not in it: their results are shown
+  as they are in every mode.
+- Deterministic controls never reach these blocks. The actions in
+  `_PHASE45_DIRECT_FAST_ACTIONS`, plus every app, window, input and media control in the
+  capability catalogue, go straight to the executor, and its result is the reply in every mode.
 - `eli/runtime/response_contracts.py::_QUICK_ACTIONS` (8 entries) only feeds the prompt header
   and never decides verbatim versus synthesis.
 
-The 187 routable actions were each checked against their executor handler's real return shape
+The routable actions (190 of the 231 in `capability_manifest.json`) were each checked against
+their executor handler's real return shape
 (not assumed from the name): raw file reads, shell output, MCP results, transcriptions and OCR
 text, confirmations and status reports are verbatim; `ANALYZE_IMAGE`, `ANALYZE_PDF[_FOLDER]`,
 `SCREEN_READ_ANALYZE`, `DATA_FABRICATOR`, `GENERATE_PROJECT`, `SEQUENCE` and `MULTI_COMMAND`
 already return finished text and are verbatim too. Excluded on purpose, each with a reason:
 `FIX_FILE` and `GENERATE_SCRIPT` (their `content` is a JSON event for the GUI), `RUN_TESTS`
 (meant to be summarised), `CHAT` (the model call itself), `SHOW_DIFF` (routes to `chat()`),
-`WEB_SEARCH` (results are evidence, not the answer), `CODE_SOLVE` (generative, goes to the
-coding agent), `EXECUTE_GOAL` and `NOOP` (no single handler to verify).
+`WEB_SEARCH` and `WEB_FETCH` (results and page text are evidence, not the answer), `CODE_SOLVE`
+(generative, goes to the coding agent), `EXECUTE_GOAL` (its handler only lists the typed plan's
+step names) and `NOOP` (no single handler to verify).
 `tests/test_deterministic_actions_cover_status_and_read_file.py` holds the audited lists and a
 completeness test that fails if a routable action lands in neither set nor the exclusion list.
 
@@ -188,12 +220,22 @@ Execution (`AgentBus.dispatch`):
 
 - **Selective fan-out**: tiny filler chat → `{memory, orchestrator}`; non-chat →
   `_select_agents_for_intent` (a minimal set from a keyword and action ladder); plain CHAT →
-  broad fan-out across all enabled agents.
+  the mode's profile (`reasoning_modes.mode_chat_agent_profile`): Quick runs `memory`, `system`
+  and `orchestrator` (plus `file_code` for a question about code), Normal adds `file_code`,
+  `capability` and `knowledge_graph`, and Advanced, Research and Expert fan out to every
+  enabled agent. Enabled custom agents always get a slot and gate themselves.
 - **Dependency DAG**: `_AGENT_DEPENDENCIES` orders agents in topological layers, running the
   agents of a layer in parallel; `knowledge_graph` waits for `memory`, and `critic` waits for
-  its four retrievers. If the DAG fails the bus falls back to a flat parallel run.
-- **Per-agent hard timeout**: a timeout or exception becomes a failed `AgentResult` and never
-  blocks the response.
+  its four retrievers. Each agent in a later layer receives the results of every agent that
+  finished before it (`intent["_upstream"]`). By default the layers run on the `eli/core/dag`
+  Orchestrator (`_run_agents_orchestrated`, `ELI_AGENT_ORCHESTRATOR`); if that fails the bus
+  runs them layer by layer (`_run_agents_layered`), and if the DAG fails it falls back to a
+  flat parallel run (`ELI_AGENT_DAG=0` goes straight to the flat run).
+- **Per-agent timeout**: an exception becomes a failed `AgentResult`. On the layered and flat
+  paths a timeout does too, and never blocks the response. On the default orchestrated path the
+  timeout does not end the wait: the layer's worker pool is shut down with wait, so a slow
+  agent holds its layer until it finishes, and its late result is kept instead of being
+  recorded as a timeout.
 - **Aggregation** (`_aggregate_confidence`): per-agent contribution = evidence quality ×
   evidence density × a calibration learned per (agent, action) × relevance (2026-09-29:
   `term_overlap(user_input, representative_text) → relevance_gate()`, gated on ≥40 chars of
@@ -208,9 +250,11 @@ Execution (`AgentBus.dispatch`):
 | Situation | Path |
 |---|---|
 | CHAT (Quick, Normal, Advanced, Research, Expert) | **AgentOrchestrator** at mode depth → shared retrieval → `dispatch_specialists()` |
-| Non-CHAT action (any mode) | **AgentOrchestrator** → bus and ReAct loop |
+| Deterministic control (`_PHASE45_DIRECT_FAST_ACTIONS` and the catalogue's app, window, input and media controls) | straight to the executor: no bus, no memory, no model |
+| Other non-CHAT action (any mode) | **AgentBus.dispatch()** from the engine, then the direct-result or synthesis paths above; the orchestrator's bus and ReAct loop only with `ELI_FORCE_ORCHESTRATOR_ALL_ACTIONS=1` |
 | Orchestrator returns None or raises | falls back to **AgentBus.dispatch()** directly |
-| Phatic or ultra-short filler (engine heuristic) | may use a lean bus profile inside the orchestrator |
+| Phatic CHAT (`_classify_query`) | orchestrator skipped; a light result from the working-memory dossier, no agents run |
+| Brief phatic prompt, or a turn about the conversation itself | orchestrator skipped; **AgentBus.dispatch()** (tiny filler gets `{memory, orchestrator}`) |
 
 Stage 12 side effects (store the turn, publish meta, `_learn_from_result`) run through
 `learning_coordinator.finalize_turn()`, one entry point for every CHAT exit.
@@ -222,13 +266,18 @@ store nothing; their parent stores the real message and the reply the user saw.
 
 ## Planning artifacts
 
-1. **ReAct loop**: the only planner that sequences execution (tool → observe → decide → next).
-2. **`PlannerAgent.plan_retrieval`**: plans retrieval budgets, not actions; used every CHAT turn.
+1. **ReAct loop**: the only planner whose next step the model chooses as it goes (tool → observe
+   → decide → next). It runs only for a non-CHAT action handed to the orchestrator, which the
+   engine does only when forced (see *When each runs*).
+2. **`PlannerAgent.plan_retrieval`**: plans retrieval budgets, not actions; used on every
+   orchestrated CHAT turn.
 3. **Bus `OrchestratorAgent` plan**: an `orchestrator_plan` dict stored in the trace for display,
-   persona handoff and status; never executed.
+   persona handoff and status. Only its `post_actions` run: the generate plans carry an
+   `OPEN_IN_IDE` step, which `engine._execute_post_actions` runs with the generated file's path
+   on the bus path's exits. The rest of the plan is never executed.
 4. **`execution_planner.build_execution_plan`** (`ExecutionPlan`, `PlanStep`): the canonical
-   typed plan. `AgentBus.dispatch` builds it each turn, injecting the result of
-   `_select_agents_for_intent` as `agent_profile`, and drives the active agents through it; it
+   typed plan. `AgentBus.dispatch` builds it each turn, injecting the agent set it selected
+   (see *Selective fan-out*) as `agent_profile`, and drives the active agents through it; it
    is exposed as `DispatchResult.execution_plan`. `EXECUTE_GOAL` also builds a plan through it.
    **`.steps` is never executed anywhere** — only `.agent_profile` (an agent-name filter) is
    read; `EXECUTE_GOAL` renders `.steps` as decorative numbered text, nothing more. Confirmed
@@ -237,8 +286,9 @@ store nothing; their parent stores the real message and the reply the user saw.
    codebase that actually, mechanically executes a multi-part request (as opposed to items 3-4
    above). One optional LLM call identifies real dependency edges among an already-split
    command list (validated through the shared `eli.core.dag` engine, falling back to fully
-   independent on any failure); the executor runs the commands in topological layers, and a
-   step whose dependency failed is skipped and reported as such rather than blindly run.
+   independent on any failure); the executor runs the commands in topological layers, one at a
+   time, and a step whose dependency failed is skipped and reported as such rather than blindly
+   run. Steps ELI listed and the user agreed to (`results_only`) make no dependency call.
    Crash-survival is separate (`command_sequence_log.py`): each step's outcome is durably
    recorded, and a resubmit of the same text within an hour skips steps already known to have
    succeeded.
@@ -246,12 +296,15 @@ store nothing; their parent stores the real message and the reply the user saw.
 ## Where it is still weak
 
 1. **Bus agents cannot consume each other's output** beyond the declared DAG edges; only
-   `knowledge_graph` and `critic` have dependencies.
+   `knowledge_graph` and `critic` have dependencies, so only they run in a later layer and see
+   what other agents found.
 2. **Planning is only partly consolidated.** The engine's `_build_runtime_orchestrator_plan`
    (a rich stage dict) and the bus `OrchestratorAgent` plan coexist with the typed
-   `ExecutionPlan`; only the ReAct loop executes a sequence.
-3. **Timeouts do not cancel work.** `future.result(timeout)` only stops waiting; a timed-out
-   write-capable agent (memory, habit) can still land a late database write.
+   `ExecutionPlan`; only the ReAct loop and `MULTI_COMMAND` execute a sequence.
+3. **Timeouts do not cancel work.** On the layered and flat paths `future.result(timeout)`
+   only stops waiting, so a timed-out write-capable agent (memory, habit) can still land a late
+   database write. On the default orchestrated path the timeout does not stop the wait either:
+   a hung agent holds its layer, and the turn with it.
 4. **Confidence is coupled to a fixed evidence-key schema.** `_evidence_density` counts known
    keys; a custom agent returning useful prose under an unknown key contributes zero.
 5. **No early exit for direct actions; failures are debug-only.** The bus waits for the
@@ -267,7 +320,8 @@ Highest leverage now: an agent-health surface built from `agent_metrics` and
 ## Habits reach the chat path
 
 The bus `HabitAgent` reads both `get_habit_rules()` and `get_detected_habits()` (the `habits`
-table the proactive daemon fills), emits a `summary` and `detected_habits`, and
+table the proactive daemon fills), counts the last 14 days of app launches
+(`get_habit_events`), emits a `summary` and `detected_habits`, and
 `DispatchResult.to_context_block` renders the summary into the chat context. Goal autogenesis
 (`planning/goal_autogenesis.py`) feeds the autonomy and goal-tick stack from ELI's own signals;
 see `runtime_planning_world.md`.
@@ -306,8 +360,9 @@ the hash, scan and provenance chain applies only to code agents.
 
 ### Loader
 
-- `_custom_agent_dirs()` puts the data directory first (`<data>/agents/custom`), so a created
-  agent has somewhere valid to live on any install.
+- `_custom_agent_dirs()` puts the data directory first (`<data>/agents/custom`, after
+  `ELI_CUSTOM_AGENTS_DIR` when that is set), so a created agent has somewhere valid to live on
+  any install.
 - Trust is checked through `agent_trust.inspect()` (see `security.md`), which reports why an
   agent was not loaded.
 - `agent_load_report()` records the per-agent outcome so the GUI can show the reason.

@@ -1,6 +1,6 @@
 # Blueprint — ELI ASCII Diagrams
 
-> **Updated for v2.4.84.** CHAT uses a gradient orchestrator for all modes; retrieval
+> **Updated for v2.5.36.** CHAT uses a gradient orchestrator for all modes; retrieval
 > is unified in `eli/memory/retrieval.py`; Stage 12 = learning/state commit.
 
 Visual companion to `architecture.md`. Three views: the full request pipeline,
@@ -17,14 +17,16 @@ the memory subsystem, and the gating stack. All grounded in the real modules
           └───────────────┬───────────────────────-─┘
                           ▼  raw text
             ┌─────────────────────────────────┐
+            │  CognitiveEngine.process()       │  kernel/engine.py
+            │  input guard                     │  injection filter · fit to window
+            └───────────────┬─────────────────┘
+                            ▼
+            ┌─────────────────────────────────┐
             │  ROUTER                          │  execution/router_enhanced.py
             │  priority pipeline (regex-first) │  → {action, args, conf, matched_by}
             │  LLM-intent fallback             │     cognition/llm_intent.py
             └───────────────┬─────────────────┘
-                            ▼
-            ┌─────────────────────────────────┐
-            │  CognitiveEngine.process()       │  kernel/engine.py
-            └───────────────┬─────────────────┘
+                            ▼  authority check (runtime/authority_gate.py)
         ┌───────────────────┼────────────────────────────────┐
         ▼                   ▼                                 ▼
  ╔══════════════╗  ╔══════════════════════════════════════════════╗
@@ -49,7 +51,7 @@ the memory subsystem, and the gating stack. All grounded in the real modules
 ### 1b. Orchestrator — canonical S01–S12  (`pipeline_trace.py`)
 
 ```
- S01 PERCEIVE ─► S02 INPUT_GUARDS ─► S03 ROUTER ─► S04 GROUNDING_GATE
+ S01 PERCEIVE_INGEST ─► S02 INPUT_GUARDS ─► S03 ROUTER ─► S04 GROUNDING_GATE
         ─► S05 PLANNER (mode-aware budgets)
         ─► S06 AGENT_BUS: retrieve_for_turn() + dispatch_specialists()
         ─► S07 CONTEXT_ASSEMBLY (merge + heuristic rerank)
@@ -73,8 +75,8 @@ the memory subsystem, and the gating stack. All grounded in the real modules
    └────┬────┘└────┬────┘└────┬─────┘└────┬────┘└──────┬───────┘
         │          │          │           │           │
         ▼          ▼          ▼           ▼           ▼
- conversation  memories_fts  index.faiss            kg_entities(+_fts)
- _turns        memories      (vectors/)              kg_relations
+ conversation  memories_fts  index.faiss documents   kg_entities(+_fts)
+ _turns        memories      (vectors/)  .sqlite3    kg_relations
  (user.sqlite3)              embedder:
                              nomic-embed-…Q4_K_M.gguf
         └──────────┴────┬─────┴───────────┴───────────┘
@@ -82,13 +84,14 @@ the memory subsystem, and the gating stack. All grounded in the real modules
               HYBRID MERGE ─► HEURISTIC RERANK ─► assembled context
                         │
               retrieve_for_turn() — shared bus + orchestrator owner
-              FAISS tombstones skip deleted vectors without full rebuild
+              FAISS tombstones hide deleted vectors at once; compact_tombstones()
+              takes them out of the files after a forget and in the daily upkeep
                         ▼
                  situation brief ─► generation (persona handoff)
 
  ┌──────────────────────── STORES (artifacts/) ───────────────────────────┐
  │ db/user.sqlite3   memories, memories_archive, memory_meta, memory_lineage,│
- │                   semantic,                                              │
+ │                   semantic, memory_claims,                               │
  │                   conversation_turns, conversations, session_summaries,   │
  │                   kg_entities(+_fts), kg_relations, recall_log,           │
  │                   runtime_events, learning_replay, observations,          │
@@ -97,16 +100,23 @@ the memory subsystem, and the gating stack. All grounded in the real modules
  │                   news_articles(+_fts), news_reflections                  │
  │ db/agent.sqlite3  agent_dispatches, agent_metrics, improvements,          │
  │                   failures, corrections, capability_proposals,            │
- │                   error_tracking (self-improvement lives here only)       │
+ │                   error_tracking, code_patches, lessons                   │
+ │                   (self-improvement lives here only)                      │
  │ db/system_index.sqlite3 · db/coding_memory.sqlite3                        │
+ │ db/documents.sqlite3 (document index) · db/agenda.sqlite3                 │
+ │ db/orchestrator_audit.sqlite3 · db/capability_state.sqlite3               │
  │ vectors/index.faiss   semantic index                                      │
  └──────────────────────────────────────────────────────────────────────────┘
 
  A question that names a period ("last week") is filtered by date FIRST
  (Memory.memories_between + dated conversation turns), then ranked by topic.
+ A message that supplies its own facts opens no window on the user's history
+ (supplied_in_message.holds_its_own_answer).
 
  WRITE PATH:  turn ─► PERSISTENCE GATE (drop junk/report-dumps) ─► STORAGE POLICY
                (origin · dedupe · importance) ─► store;  daily upkeep decays and archives
+ FORGET:      memory ─► claims resting only on it, summaries holding its words,
+               its vectors (Memory.forget)
 ```
 
 ---
@@ -117,21 +127,31 @@ the memory subsystem, and the gating stack. All grounded in the real modules
   ┌──────────────────────────────────────────────────────────────────────────┐
   │ 1 ░ NETGUARD  (process-wide, always-on)        core/netguard.py            │
   │      any outbound socket ──► offline? ──► OfflineError (FAIL-CLOSED)        │
-  │      allow_network(): scoped opt-in window (model download, web tier)       │
+  │      allow_network(): scoped window (downloads, self-upgrade, LAN scan)     │
   ├──────────────────────────────────────────────────────────────────────────┤
-  │ 2 ░ PHASE45 FAST-PATH GATE                     kernel/engine.py             │
+  │ 2 ░ INPUT GUARDS  (S02)                        kernel/engine.py             │
+  │      role-override prefixes ──► [filtered]; message fitted to the window    │
+  │      API member/viewer asks for an owner-only action ──► REFUSED            │
+  │        (runtime/authority_gate.py; ELI's own turns carry no role)           │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │ 3 ░ PHASE45 FAST-PATH GATE                     kernel/engine.py             │
   │      deterministic action (volume/media/date/job/status)?                   │
   │        ──► execute_action() VERBATIM, no LLM  (cannot confabulate)          │
   ├──────────────────────────────────────────────────────────────────────────┤
-  │ 3 ░ PERSISTENCE GATE                           runtime/persistence_gate.py  │
+  │ 4 ░ SHELL GATE                                 execution/shell_gate.py      │
+  │      RUN_CMD / SHELL_EXEC: every command in the line, through wrappers      │
+  │        denied program or destructive pattern ──► REFUSED                    │
+  │        (a denylist: anything else runs; Full Control lifts it)              │
+  ├──────────────────────────────────────────────────────────────────────────┤
+  │ 5 ░ PERSISTENCE GATE                           runtime/persistence_gate.py  │
   │      about to write to memory? junk / internal report-dump?                 │
   │        ──► DROP (so it can't be stored and replayed as fact later)          │
   ├──────────────────────────────────────────────────────────────────────────┤
-  │ 4 ░ GROUNDING GATE                             runtime/deterministic_…gate  │
+  │ 6 ░ GROUNDING GATE                             runtime/deterministic_…gate  │
   │      answer requires evidence? unbacked or raw packet?                       │
   │        ──► BLOCK raw evidence/telemetry leak; require grounded synthesis     │
   ├──────────────────────────────────────────────────────────────────────────┤
-  │ 5 ░ GROUNDING ESCALATION                       runtime/grounding_escalation │
+  │ 7 ░ GROUNDING ESCALATION                       runtime/grounding_escalation │
   │      checkable fact  AND  grounding < threshold ?                            │
   │        external fact ─► WEB tier ────┐                                       │
   │        self/project  ─► LOCAL tier ──┼─► first tier that grounds ─► answer   │
@@ -140,10 +160,10 @@ the memory subsystem, and the gating stack. All grounded in the real modules
   │        offline, what does not change ─► the model answers from what it knows │
   │      (trigger = GROUNDING, not the response score — which lies when wrong)   │
   ├──────────────────────────────────────────────────────────────────────────┤
-  │ 6 ░ LEARNING / STATE COMMIT  (S12)             learning_coordinator.py      │
+  │ 8 ░ LEARNING / STATE COMMIT  (S12)             learning_coordinator.py      │
   │      finalize_turn(): store assistant turn · publish meta · learn from result │
   ├──────────────────────────────────────────────────────────────────────────┤
-  │ 7 ░ OUTPUT GOVERNOR / SANITISER                cognition/output_governor.py │
+  │ 9 ░ OUTPUT GOVERNOR / SANITISER                cognition/output_governor.py │
   │      final text ──► strip leaks, persona hygiene, no raw JSON ──► user       │
   └──────────────────────────────────────────────────────────────────────────┘
 
@@ -156,18 +176,18 @@ the memory subsystem, and the gating stack. All grounded in the real modules
 ## 4. One-screen overview (how it all connects)
 
 ```
-  INPUT ─► ROUTER ─► ENGINE ─┬─ FAST-PATH ─────────────► (verbatim) ─► OUTPUT
+  INPUT ─► ENGINE ─► ROUTER ─┬─ FAST-PATH ─────────────► (verbatim) ─► OUTPUT
                              └─ ORCHESTRATOR (all CHAT modes, gradient depth)
                                     │
                                     ├─ retrieve_for_turn() ──► memory/FAISS/KG
                                     ├─ dispatch_specialists() ──► 15-agent bus
                                     └─ broker.infer() ──► finalize_turn() (S12)
                                                           ▼
-                          GATES: netguard · persistence · grounding · governor
+                          GATES: netguard · input · shell · persistence ·
+                                 grounding · governor
                                                           ▼
                                                     OUTPUT
                                                           ▼
                           background: proactive · self-improve · habits ·
                                       learning(LoRA) · world · scheduler
-```
 ```

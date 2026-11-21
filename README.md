@@ -5,7 +5,7 @@ Website: https://geteli.tech
 
 **A strictly local, private AI assistant and cognitive runtime.**
 
-![License](https://img.shields.io/badge/license-PolyForm%20Noncommercial-blue)
+![License](https://img.shields.io/badge/license-Apache%202.0-blue)
 [![Release](https://img.shields.io/github/v/release/ShadowESC95/ELI_v2.0?label=release&color=success)](https://github.com/ShadowESC95/ELI_v2.0/releases/latest)
 ![Platform](https://img.shields.io/badge/platform-Linux%20·%20macOS%20·%20Windows-lightgrey)
 ![GPU](https://img.shields.io/badge/GPU-CUDA%20·%20Vulkan%20·%20Metal-76B900)
@@ -154,7 +154,8 @@ What sets ELI apart isn't cosmetic — it's baked into the architecture. Each of
 mechanism in the code, not a line I liked the sound of:
 
 1. **Local and offline-first.** A process-wide network guard fail-closes at the socket layer: with
-   networking disabled, no outbound connection can be made, even by a component that tries.
+   networking disabled, no outbound connection can be made from inside ELI's process, even by a
+   component that tries.
 2. **Model-agnostic.** No model name or size is hardcoded on the inference path. ELI loads any
    local GGUF, detects its chat template, and sizes context to the model's real `n_ctx_train`.
 3. **Grounded introspection.** Asked about its own state, ELI reports from live runtime evidence —
@@ -198,7 +199,7 @@ Your data lives in one per-user folder (`%LOCALAPPDATA%\ELI_v2`,
 `~/Library/Application Support/ELI_v2`, `~/.local/share/ELI_v2`) and **survives upgrades** —
 settings, memory and models carry over like a save-game. Want a clean slate? Tick
 *Fresh install* in the Windows setup, or run `ELI --fresh-start`. GPU later?
-`ELI --install-gpu-pack` (add `--vulkan` for Intel Arc). Verify any download against
+`ELI --install-gpu-pack` (add `--vulkan` to force the Vulkan build). Verify any download against
 `SHA256SUMS.txt` on the release.
 
 <details>
@@ -209,15 +210,15 @@ release — unpack, `./ELI_Setup.sh`, and it builds a local venv with system dep
 CUDA + llama-cpp build and the databases, then launches.
 
 
-**Model pack (`local-assets-v2.1`):** nomic embedder + starter chat GGUFs + cleared Piper voices.
-Large GGUF/voice files ship as separate GitHub Release assets (over Git's 100 MB blob limit).
-Release title on GitHub may still show legacy naming — assets are ELI v2.0. Licenses:
-**[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)**.
+**Model pack (`local-assets-v2.1`):** nomic embedder + five starter chat GGUFs + twelve Piper
+voices. Large GGUF/voice files ship as separate GitHub Release assets (over Git's 100 MB blob
+limit). Every file keeps its own licence, and some are non-commercial (the `ru_RU-ruslan-medium`
+voice, for one): **[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)**.
 
 **Requires for asset restore:** `gh` CLI (`gh auth login`) **or** manual download from the
 [model pack release](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/local-assets-v2.1).
-`en_US-ryan-*`, `en_US-lessac-*`, and `en_GB-cori-high` are **skipped automatically** during
-restore — default voice is **`en_US-amy-medium`**.
+Every `ryan`, `lessac` and `cori` voice is **skipped automatically** during restore — default
+voice is **`en_US-amy-medium`**.
 
 ```bash
 # Without gh: download assets manually, then:
@@ -255,17 +256,19 @@ See **[docs/FIRST_RUN.md](docs/FIRST_RUN.md)** for clone vs portable paths.
 ## Choose your model
 
 ELI is **not locked to Qwen, Mistral, or Phi.** The installer catalog is a convenience menu only —
-inference loads **any GGUF** you place under `models/` (recursive scan via `discover_models()`).
-That includes Kimi, Nemotron, Europa, Llama, Gemma, DeepSeek, MoE quant builds, and future
-families, as long as:
+inference loads **any GGUF** in ELI's models folders: `models/` beside the program and the data
+folder's `models/` (`ELI_MODELS_DIR` overrides it), both scanned recursively by
+`discover_models()`. That includes Kimi, Nemotron, Europa, Llama, Gemma, DeepSeek, MoE quant
+builds, and future families, as long as:
 
-- The file is a **chat/instruct** GGUF (not an embedder-only weight — those live under
-  `models/embeddings/` and are auto-excluded from the chat picker).
-- **llama-cpp-python** on your hardware can load it — ELI's smart-fit scales layers, context, and
-  batch to the VRAM/RAM you have.
+- The file is a **chat/instruct** GGUF. Embedder-only weights (kept under `models/embeddings/`),
+  vision projectors and draft heads are recognised and left out of the chat picker.
+- **llama-cpp-python** (0.3.35 or newer) on your hardware can load it — ELI's smart-fit scales
+  layers, context, and batch to the VRAM/RAM you have.
 - For best reply quality, the GGUF should carry an embedded **`tokenizer.chat_template`** (most
-  modern instruct quants do). ELI reads that metadata first, then falls back to filename heuristics
-  (Qwen/ChatML, Llama-3, Mistral `[INST]`, Phi, Gemma), then a generic prompt format.
+  modern instruct quants do). ELI uses that template first; for a file without one it picks a
+  family format (GLM, Qwen/ChatML, Llama-3, Gemma, Phi, Mistral `[INST]`) from the file's
+  architecture metadata, then its filename, then falls back to a generic prompt format.
 
 **Vision models** need the matching **mmproj** GGUF alongside the main weights. **Ollama** is also
 supported as an alternate backend if you point ELI at a local Ollama instance.
@@ -288,6 +291,10 @@ python -m eli.core.model_download --auto     # one best-fit for your VRAM
 | `phi-4` | Phi-4 (14B dense, MIT) | ~8.4 GB | 12 GB GPU |
 | `qwen3.6-35b-a3b` | Qwen3.6-35B-A3B (MoE, Apache-2.0) | ~20.6 GB | 24 GB GPU / CPU |
 | `falcon-h1-34b` | Falcon-H1-34B-Instruct | ~18.9 GB | 24 GB GPU / CPU |
+
+Each model keeps its own licence, and they differ: Qwen2.5-3B is under the Qwen Research License
+(non-commercial), the two Falcons under the TII Falcon License, the rest Apache-2.0 or MIT — see
+**[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)** before using one commercially.
 
 The "needs" figures are for running each model at its most efficient. For what it's worth, I run
 Qwen3.6-35B-A3B (Q4_K_M) on an RTX 2060 SUPER 8 GB myself — nowhere near lightning fast, but I
@@ -318,7 +325,8 @@ sessions.
 **Operates your computer.** Open, close, focus, tile, minimise, or maximise apps and windows;
 switch workspaces; open URLs and your IDE; control volume; type text; move and click the mouse.
 App launch is backed by a live index of your machine's own executables — and if an app isn't
-installed, ELI offers to install it (real `apt` / `snap` / `flatpak`, on your confirmation).
+installed, ELI offers to install it with the system's own package manager (`apt`, `dnf`, `zypper`,
+`pacman`, `snap`, `flatpak`, `brew`, `winget` or `choco`), on your confirmation.
 
 **Voice, hands-free.** Always-listening with a wake word **you can train** — one that hears you
 over background music, ducks your media to listen, waits for an unfinished command, and ignores its
@@ -327,9 +335,10 @@ Bluetooth/AirPods, and headset Chat endpoints before built-in/webcam/virtual rou
 subprocess probes at native sample rates so silent false positives are rejected; Linux additionally
 pins live PipeWire/Pulse sources when needed. Run `python -m eli.tools.mic_diag` if you need to
 see what ELI picked. Dictation, transcription, and a Piper TTS voice included; a "train my voice"
-session learns your pitch, energy, and tone so delivery adapts to how you sound. Built-in character
-voices and a 166-voice/45-language downloadable library, all free
-and offline. An optional neural voice engine (Coqui XTTS-v2, `pip install -e ".[natural]"`) adds
+session learns your pitch, energy, and tone so delivery adapts to how you sound. Five built-in
+voice styles and the downloadable Piper library (166 voices in 45 languages at last count), all
+free and offline once downloaded, each voice under its own licence. An optional neural voice
+engine (Coqui XTTS-v2, source installs only: `pip install -e ".[natural]"`) adds
 human-like speech and **lets you clone any voice from a short recording** — drag an audio/video
 clip onto the drop zone in Settings ▸ Voice, or say "create a voice called X from clip.mp4"; ~1.8GB
 one-time model download, non-commercial use (Coqui CPML licence).
@@ -339,8 +348,8 @@ OCR extracts text; "find the button that says X" locates UI elements. Optional w
 (MediaPipe, with calibration and smoothing) means "open / click that" moves the cursor to where
 you're looking — a genuine hands-free and accessibility capability. All local, no cloud vision APIs.
 
-**Image generation.** A from-scratch procedural renderer with 10+ scene types (landscape, space,
-city, poster, emblem, abstract, product, …) — no model required. Plus optional SSD-1B diffusion
+**Image generation.** A from-scratch procedural renderer with seven scene types (landscape, space,
+cityscape, poster, emblem, abstract, product) — no model required. Plus optional SSD-1B diffusion
 with VRAM hot-swap, and matplotlib plotting from your data.
 
 **Documents and files.** Create, read, summarise, and analyse files (CSVs, PDFs, images — single
@@ -381,8 +390,10 @@ FastAPI) so you can pull it up in any phone/tablet browser **on your own home ne
 screen. **The AI still runs entirely on your computer** — the browser is just a window onto it;
 nothing runs on the device and nothing reaches the internet.
 
-Installer builds ship it ready to go: the **ELI Server** shortcut (Windows / Linux menu entry)
-opens it with a visible console showing the phone-connect URL and QR — or run `ELI --server`.
+Installer builds ship it ready to go: the **ELI Server** shortcut (Windows Start Menu / Linux menu
+entry) or `ELI --server` starts it in a visible console, for this computer only. For a phone, add
+`--lan` (`ELI --server --lan`) or use **Settings ▸ Web Server ▸ Start (phone / Wi-Fi)** in the app:
+the console then prints the phone URL with its token, and the Connect tab shows the QR code.
 From source:
 
 ```bash
@@ -399,21 +410,29 @@ console with roles (admin / member / viewer), live settings, and QR-code pairing
 
 Server security in brief — full detail in **[docs/SERVER_AND_WEB_APP.md](docs/SERVER_AND_WEB_APP.md)**:
 
-- **The auth gate fails closed.** No `ELI_API_TOKEN` and no explicit opt-out means every action
-  endpoint returns `401` — even under a raw `uvicorn` / Docker / systemd launch that never runs
-  `main()`.
+- **The auth gate fails closed.** No `ELI_API_TOKEN`, no users and no tokenless opt-out means
+  every action endpoint returns `401` to everything but this machine itself — even under a raw
+  `uvicorn` / Docker / systemd launch that never runs `main()`.
 - **Any non-loopback bind requires a token.** Expose beyond loopback with no token and ELI
   **auto-generates one and prints it** rather than ever serving unauthenticated. Loopback stays
-  zero-friction (tokenless *only* for a genuine loopback bind; `ELI_API_ALLOW_TOKENLESS=0` to
-  require one anyway).
+  zero-friction: `main()` serves tokenless only on a genuine loopback bind.
 - **Roles are opt-in and attribution is authenticated.** Viewers are read-only, members are
   `403`'d from the admin console, and a member can't claim to be someone else in the audit trail.
+  A member or viewer also cannot have ELI run the owner's actions — the shell, code, reading or
+  writing files, the screen, clipboard, keyboard and mouse, ELI's own settings, plugins, MCP —
+  through `/v1/execute`, chat, streaming, completions or research: the caller's role goes with the
+  turn and is checked where every action enters the executor (`eli/runtime/authority_gate.py`).
   RBAC user tokens are stored as SHA-256 hashes; the single-operator LAN pairing token is a
   plaintext local file (`config/api_token`, `0600` on Unix) compared with a constant-time check.
-- **Loopback is trusted by default.** A process on the same machine reaching `127.0.0.1` is
-  treated as the local operator (tokenless admin) even when the server is bound for LAN access —
-  deliberate for single-user desktops, a footgun behind a same-host reverse proxy or on shared
-  hosts. Opt out with `ELI_LOOPBACK_ADMIN=0`. Details in [SECURITY.md](SECURITY.md).
+- **Loopback is trusted by default — when the request names this machine.** A process on the same
+  machine reaching `127.0.0.1` is treated as the local operator (tokenless admin) even when the
+  server is bound for LAN access, as long as its `Host` header is an IP address, `localhost`, one
+  of this machine's own names, or a name listed in `ELI_API_ALLOWED_HOSTS`. Any other name — a web
+  page that points its own domain at `127.0.0.1` (DNS rebinding) — gets no tokenless or loopback
+  grant and must present a token, which works under any name. Deliberate for single-user
+  desktops, a footgun behind a same-host reverse proxy or on shared hosts. To require a token from
+  this machine too, set `ELI_LOOPBACK_ADMIN=0` and `ELI_API_ALLOW_TOKENLESS=0` with an
+  `ELI_API_TOKEN` or RBAC users. Details in [SECURITY.md](SECURITY.md).
 - **Research ingest is sandboxed** to a configured root with file-count / byte caps — a client can
   never make the server read arbitrary host files.
 - Keep it on your **own LAN**. Don't port-forward it to the public internet.
@@ -432,25 +451,28 @@ attached, not like a sandboxed chat app. Defence-in-depth, all local:
 
 | Layer | What it does | Honest limits |
 |---|---|---|
-| Prompt-injection guard | Regex scrub of `[INST]`, `<\|im_start\|>system`, common jailbreak phrases on **direct user chat input** | Not applied to file contents, tool output, or every API field |
+| Prompt-injection guard | Regex scrub of `[INST]`, `<\|im_start\|>system`, common jailbreak phrases on **the message ELI is given** (typed, spoken, or an API chat turn) | Not applied to file contents, tool output, or every API field (`/v1/execute` arguments go straight to the action) |
 | SQL identifier validation | Allowlist regex on f-string SQL identifiers | — |
-| Shell gate (`RUN_CMD`) | **Denylist** of destructive patterns and dangerous executables (`bash`, `python -c`, `dd`, `rm`, …) | Many ordinary commands (`ls`, `git`, `curl`, …) are **allowed** without `ELI_ALLOWED_CMDS`. Separate `_run()` paths use allowlist or fail-open for desktop automation |
-| `READ_FILE` / `LIST_DIR` | Reads/lists paths the OS permits | **No ELI path sandbox yet** — can read any OS-readable file (e.g. `~/.ssh`, `/etc/passwd`) |
+| Shell gate (`RUN_CMD` / `SHELL_EXEC`) | **Denylist** of destructive patterns and dangerous executables (`bash`, `python -c`, `dd`, `rm`, …), applied to **every command in the line**: after `;` `&&` `\|\|` `\|` `&` and newlines, inside `$( )`, `<( )` and backticks, and behind wrappers such as `sudo`, `env` (and `env -S`), `nice`, `timeout`, `xargs`, `busybox`; `find -delete` and `find -exec rm` too (`eli/execution/shell_gate.py`) | Still a denylist: ordinary commands (`ls`, `git`, `curl`, …) run without any `ELI_ALLOWED_CMDS`. Habit rules run their stored command through the shell without it (`ELI_NO_HABIT_SHELL=1` turns them off) |
+| `READ_FILE` / `LIST_DIR` | Reads/lists paths the OS permits | **No ELI path sandbox for the owner** — can read any OS-readable file (e.g. `~/.ssh`, `/etc/passwd`). API members/viewers and MCP clients (without `ELI_MCP_ALLOW_CONTROL=1`) cannot use them |
+| `CREATE_FILE` | Writes only under your home, the project, `ELI_ALLOW_ROOTS` or the temp folder, and never replaces an existing file unless you ask to overwrite or replace it | Full Control lifts the folder limit |
+| Role gate (multi-user API) | Members and viewers cannot have ELI run the owner's actions (`authority_gate.owner_only()`) by any API route | Single-operator mode (one shared token) treats every caller as the owner |
+| MCP server | Withholds actions that drive the machine, run code or change ELI, and the owner-only list, unless `ELI_MCP_ALLOW_CONTROL=1` | With that set, an MCP client can run anything the executor can |
 | Full Control (off by default) | Normal guarded mode | When **on**, bypasses shell denylist, network guard, path gates, and approval — use only if you intend full machine access |
-| Custom-agent trust | SHA-256 registry — tampered agent files skipped at load | — |
-| Offline-by-default | Socket-level guard; fails closed when network disabled | Scoped `allow_network()`, broker allowlist, and Full Control can open egress |
+| Custom-agent trust | SHA-256 registry — tampered agent files skipped at load | `ELI_TRUST_ALL_AGENTS=1` turns the check off |
+| Offline-by-default | Socket-level guard; fails closed when network disabled | Guards ELI's own process, not programs it starts. Scoped `allow_network()`, broker allowlist, and Full Control can open egress |
 
 Full detail: **[SECURITY.md](SECURITY.md)**. Found a security issue? Report it privately per
 SECURITY.md, not in a public issue.
 
 ## Tested on & known limitations
 
-*Last updated 2026-09-10 (v2.4.6).*
+*Last updated 2026-11-20 (v2.5.36).*
 
 I'd rather tell you exactly what I've run than pretend it's flawless everywhere.
 
 **What I've actually run, end to end:** Linux (x86_64) with an NVIDIA GPU — install, first-run,
-the full test suite (**13,000+ tests**, passing locally save a few machine-specific skips), voice (USB/Bluetooth headset
+the full test suite (passing locally save a few machine-specific skips), voice (USB/Bluetooth headset
 auto-resolve verified on Linux), vision, the server, the AppImage with the CUDA GPU
 pack, all of it. **The Windows installer has also been field-run on real hardware** — install,
 first-boot GPU + model flow, voice and chat. On top of that, **every release is launch-tested in
@@ -460,7 +482,8 @@ stack, bundled voices and data paths before it may publish.
 **What the code handles but hasn't had a human run on real hardware yet:** macOS (CI-tested every
 release, not yet human-confirmed) and AMD GPUs (the Vulkan pack is CI-built and load-verified at
 install; real-card reports welcome).
-The installers, per-OS requirements, cross-platform paths, GPU detection (NVIDIA / AMD / Apple),
+The installers, per-OS requirements, cross-platform paths, GPU detection (NVIDIA / AMD / Intel /
+Qualcomm / Apple),
 and the OS-abstraction layer are all there and I've read every line — but "correct in the code"
 isn't the same as "confirmed on the metal," and I won't claim it is. If you run ELI on one of
 these, I'd genuinely love the output (working or broken) so I can close the gap for everyone.
@@ -472,11 +495,14 @@ these, I'd genuinely love the output (working or broken) so I can close the gap 
   on Windows/macOS on first run.
 - **macOS needs permissions.** The first time ELI takes a screenshot or moves the mouse, macOS
   asks for Screen-Recording and Accessibility access (System Settings → Privacy). Grant and retry.
-- **AMD voice is CPU-only.** The speech-to-text engine (CTranslate2) has no ROCm support, so on an
-  AMD GPU it stays on the CPU — it works, just not accelerated. Everything else uses your AMD GPU.
-- **Windows secret-file permissions are weaker.** ELI locks its token/key files to `0600` on Unix;
-  Windows ignores that bit, so those files lean on your user profile being private (which it is by
-  default under `%APPDATA%`). A proper Windows ACL is on the list.
+- **Speech-to-text is accelerated on NVIDIA only.** The speech-to-text engine (CTranslate2)
+  offloads to CUDA alone, so on an AMD or Intel GPU it runs on the CPU — it works, just not
+  accelerated. The language model itself still uses the GPU.
+- **Windows secret-file permissions are best effort.** ELI writes its token/key/settings files
+  `0600` on Unix; on Windows, where that bit means nothing, it removes inherited permissions and
+  grants only your account (`icacls`, in `eli/core/secure_io.py`). If that call fails, the file
+  keeps the permissions of the folder it is in — for an installed ELI, your private profile
+  folder (`%LOCALAPPDATA%\ELI_v2`).
 - **Big models can be slow to load or run out of memory.** A large model takes a minute on first
   use, and if VRAM/RAM is tight the server can drop mid-reply. Running the server on its own (not
   alongside the desktop app) loads the model once and avoids most of that.
@@ -502,11 +528,11 @@ touches real hardware. I'd rather you know them going in.
 - `eli/gui` — PySide6 GUI launcher and `EliMainWindow`
 - `eli/cli` — headless REPL (`eli --headless`)
 - `config` — portable default settings · `models` — local GGUF payloads (gitignored)
-- `tests` — a large pytest suite (**13,000+ tests across 550+ files**, of which ~4,700 are
-  structural `claims/` checks that assert the code matches its own manifests, docs and marketing
-  copy rather than exercising runtime behaviour); the full suite runs locally and gates every
-  release in CI, while CI also runs a cross-platform portable subset (no GGUF/display/GPU) on
-  Linux, macOS, and Windows
+- `tests` — a large pytest suite (**590+ files**, including a `tests/claims/` layer of structural
+  checks that assert the code matches its own manifests, docs and marketing copy rather than
+  exercising runtime behaviour); the full suite runs locally and gates every release in CI (on
+  Linux, against the libraries the release is built from), while CI also runs a cross-platform
+  portable subset (no GGUF/display/GPU) on Linux, macOS, and Windows for every code change
 
 **Scaling:** the loader reads each model's real `n_ctx_train` from GGUF metadata and fits
 layers/batch/ctx to the hardware present; VRAM is summed across all GPUs. One path runs a 3B on a
@@ -558,8 +584,9 @@ Guards + aliases cover Windows, macOS, Linux, BSD, and Android/Termux, but no pa
 OS permission instant: Windows may need SmartScreen approval + audio/COM packages; macOS needs
 Screen-Recording/Accessibility permissions; Linux desktop control depends on Wayland/X11 +
 PulseAudio/PipeWire; Android/Termux is headless-only; GPU acceleration depends on local drivers
-(NVIDIA CUDA / AMD ROCm / Apple Metal — the installer auto-detects and builds for whichever you
-have, falling back to CPU otherwise). Full matrix: **[docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md)**.
+(NVIDIA CUDA / AMD ROCm / Vulkan for Intel and Qualcomm / Apple Metal — the installer
+auto-detects and builds for whichever you have, falling back to CPU otherwise). Full matrix:
+**[docs/CROSS_PLATFORM.md](docs/CROSS_PLATFORM.md)**.
 </details>
 
 ## Documentation
@@ -581,8 +608,8 @@ what works, what breaks, what's missing shapes future releases and tells me whet
 - **Found a bug or have an idea?** [Open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues) —
   bugs, ideas, or a plain "I tried it and…" are all invaluable.
 - **Want to contribute code?** Pull requests are welcome — please read
-  **[CONTRIBUTING.md](CONTRIBUTING.md)** first. Because ELI is source-available, contributions
-  include a short **inbound license grant** so the whole project stays under one consistent license.
+  **[CONTRIBUTING.md](CONTRIBUTING.md)** first. Contributions are accepted under the same
+  **Apache License 2.0** as the rest of the project (its section 5).
 - **Security issue?** See **[SECURITY.md](SECURITY.md)** — report it privately, not publicly.
 - **Want to support development?** ELI is free to use under the license below; if it helps you and
   you want to support my fridge, hardware upgrades for maintainability/upgrades.
@@ -590,25 +617,17 @@ what works, what breaks, what's missing shapes future releases and tells me whet
 
 ## License
 
-ELI v2.0 is **source-available, not open-source**, under the
-**[PolyForm Noncommercial License 1.0.0](LICENSE)** — © 2026 Jason Fitzgibbon Bridgeman.
+ELI v2.0 is **open source** under the **[Apache License 2.0](LICENSE)** — © 2026 Jason Fitzgibbon
+Bridgeman; the copyright notice is in **[NOTICE](NOTICE)**. You may use, modify and distribute it,
+commercially or not, under those terms: keep the licence and the NOTICE with any copy or derived
+work you distribute, and mark the files you changed. It is provided "as is", without warranty.
 
-| You **may** | You **may not** |
-|---|---|
-| Download, read, run, **modify**, and **share** it for any noncommercial purpose | Use it, or a modified version, for a **commercial purpose** |
-| Redistribute it for personal, research, educational, or nonprofit use | **Sell** it or run it as a **paid/revenue-generating** service |
-| Keep your own private modifications | Use it in the course of business without a separate license |
+Releases **v2.5.35 and earlier** were published under the **PolyForm Noncommercial License
+1.0.0**; **v2.5.36 onwards** is Apache-2.0.
 
-**Why PolyForm?** I want anyone to be able to read, run, modify, and share ELI freely for
-noncommercial purposes — and I want commercial rights to stay with me while v2 is out in the open
-and v3 is in development. PolyForm Noncommercial is the cleanest off-the-shelf license that does
-exactly that, without pretending to be open source when it isn't.
-
-**Seeing ELI sold, or used commercially, somewhere?** Please report it — with a link — to
-[jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com).
-
-**Custom work?** Personalised ELI builds, themes, training, and commercial licensing are available
-by email — separate from the free PolyForm grant above. Provided "as is", without warranty.
+The Apache licence covers ELI's own code. The third-party software, models and voices it uses
+keep their own licences — some copyleft, some non-commercial — and those still apply when you
+use or pass them on:
 
 **Third-party components:** see **[THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)**.
 **Model/voice assets:** see **[models/MODEL_LICENSES.md](models/MODEL_LICENSES.md)** (also bundled
@@ -628,8 +647,8 @@ Thank you for making ELI better for everyone.
 
 ## Contact
 
-Questions, feedback, or interested in a license/services beyond the terms above?
+Questions or feedback?
 
-- **Email:** [jaybridgeman0095@gmail.com](mailto:jaybridgeman0095@gmail.com)
 - **GitHub:** [@ShadowESC95](https://github.com/ShadowESC95) ·
   [open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues)
+- **Security issues:** privately, through the contact in [SECURITY.md](SECURITY.md)

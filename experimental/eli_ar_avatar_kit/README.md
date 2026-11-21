@@ -1,5 +1,18 @@
 # ELI AR Avatar Kit v5 — Gaze Calibration + Desktop Avatar
 
+**Status: experimental.** This kit is a set of standalone scripts with their own virtual
+environment. ELI does not install it or start its scripts, and by default reads none of the
+files they write. The one piece ELI uses is `eli_gaze_core/`: ELI's gaze engine
+(`eli/perception/gaze_engine.py`, behind the `GAZE_ENABLE` / `GAZE_DISABLE` /
+`GAZE_CALIBRATE` / `GAZE_CLICK` / `GAZE_STATUS` actions and the desktop app's gaze
+controls) imports it from this folder and runs it inside ELI's own process and
+environment. That environment installs OpenCV but not MediaPipe, so ELI's engine tracks
+with the OpenCV Haar fallback unless MediaPipe is installed there too. It reads its
+calibration from `eli_ar_avatar/gaze_calibration_v2.json` in **ELI's config folder**
+(`config/` in a source checkout) and writes `eli_ar_avatar/latest_gaze.json` in ELI's data
+folder — not the `~/.config` / `~/.local/state` files below. To calibrate for ELI, pass
+that path to the calibrator with `--out`; its default is the kit's own file.
+
 ## v5.2 critical dependency fix
 
 MediaPipe 0.10.30+ removed the legacy `mp.solutions` API used by FaceMesh/iris tracking. This kit pins `mediapipe==0.10.21`, `numpy==1.26.4`, and `opencv-contrib-python==4.10.0.84` so desktop gaze calibration can use real iris landmarks instead of the useless Haar fallback.
@@ -34,13 +47,16 @@ This version fixes the compressed-corner movement problem by replacing simple ey
 - JSON gaze/event bridge for later ELI integration
 - a cleaner modern ELI avatar asset
 
-No `/home/<user>` path is hard-coded. User files are written through XDG paths:
+No `/home/<user>` path is hard-coded. User files are written through XDG paths
+(`$XDG_CONFIG_HOME` / `$XDG_STATE_HOME`, defaulting to the ones shown):
 
 ```text
 ~/.config/eli_ar_avatar/gaze_calibration_v2.json
 ~/.local/state/eli_ar_avatar/latest_gaze.json
 ~/.local/state/eli_ar_avatar/gaze_events.jsonl
 ~/.local/state/eli_ar_avatar/latest_gaze_crop.png
+~/.local/state/eli_ar_avatar/tracker_verification_report.json
+~/.local/state/eli_ar_avatar/last_calibration_report.json
 ```
 
 ## Install
@@ -52,13 +68,23 @@ chmod +x install_eli_ar_avatar.sh scripts/*.py
 source .venv/bin/activate
 ```
 
+The installer builds `.venv` in the kit with `python3` and installs `requirements.txt`.
+`--with-mediapipe` (or `--gaze`) adds MediaPipe, `--recreate` rebuilds the venv, and
+`--system-deps` installs camera/X11/Python build packages with apt. The desktop overlay uses
+PyQt6 (GPLv3), which goes into this venv only; ELI itself uses PySide6 and does not depend
+on PyQt6.
+
 Optional but strongly recommended for real eye/iris tracking:
 
 ```bash
 python -m pip install -r requirements_optional_mediapipe.txt
 ```
 
-If MediaPipe fails on Python 3.12, use a Python 3.11 venv for this kit. The scripts still run with OpenCV fallback, but fallback tracking is much less accurate.
+If MediaPipe fails on Python 3.12, use a Python 3.11 venv for this kit. Without MediaPipe
+the verifier stops and calibration refuses to run (unless you pass
+`--allow-haar-fallback`), so the desktop avatar and the range test, which need a
+calibration, have none; the face-anchored webcam avatar still runs on the OpenCV Haar
+fallback, which is much less accurate.
 
 ## Generate modern avatar
 
@@ -73,6 +99,14 @@ Use 25 points. Do not use the old calibration file.
 ```bash
 rm -f ~/.config/eli_ar_avatar/gaze_calibration_v2.json
 python scripts/eli_gaze_calibrate_plus.py --camera auto --points 25 --samples-per-point 90 --gain 1.18
+```
+
+For ELI's own gaze engine, write the calibration where ELI reads it (the `GAZE_CALIBRATE`
+action prints that path), for example from a source checkout:
+
+```bash
+python scripts/eli_gaze_calibrate_plus.py --camera auto --points 25 \
+  --out /path/to/ELI/config/eli_ar_avatar/gaze_calibration_v2.json
 ```
 
 During calibration:
@@ -155,7 +189,19 @@ Example dwell event:
 }
 ```
 
-ELI can later consume this through a desktop perception plugin: read the dwell event, inspect the crop/window/icon under the coordinates, and route the result into the assistant chat or executor.
+ELI does not read these files today. A desktop perception plugin could: read the dwell event, inspect the crop/window/icon under the coordinates, and route the result into the assistant chat or executor.
+
+`--state <file>` lets the desktop avatar show a mode/text/confidence from a JSON file (`configs/runtime_state.example.json` shows the shape). ELI does not write one; the expression script below does.
+
+## Facial expression cues
+
+```bash
+python scripts/eli_facial_expression_proactive.py --camera auto --debug
+python scripts/eli_facial_expression_proactive.py --camera auto --debug --speak
+python scripts/eli_facial_expression_proactive.py --camera auto --no-window --publish-events
+```
+
+A local webcam cue detector: it emits cautious labels (`possible_smile`, `possible_frustration_or_tension`, `possible_fatigue`, `focused_attention`, `speaking_or_mouth_open`, `neutral_or_uncertain`), never a diagnosis of emotion, and writes `latest_expression_state.json`, `runtime_state.json`, `facial_expression_events.jsonl` and `avatar_events.sqlite3` to `~/.local/state/eli_ar_avatar/`. `--speak` voices its prompts with pyttsx3. ELI does not run it or read its output.
 
 ## Key fix vs v4
 
@@ -177,4 +223,4 @@ python scripts/eli_gaze_range_test.py --camera auto
 python scripts/eli_gaze_desktop_avatar_plus.py --camera auto --asset assets/eli_avatar_modern.png --debug --save-target-crop
 ```
 
-If `eli_gaze_verify_tracker.py` does not show `tracker=mediapipe_facemesh_iris`, calibration is not ready. Fix MediaPipe first rather than recalibrating.
+If `eli_gaze_verify_tracker.py` does not report `mediapipe_facemesh_iris` (its `Extractor:` line, and `tracker=` in its window), calibration is not ready. Fix MediaPipe first rather than recalibrating.

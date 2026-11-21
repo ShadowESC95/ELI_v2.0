@@ -1,11 +1,11 @@
 # ELI v2.0 — The Complete Setup Guide (Plain English)
 
-> **Updated for v2.4.84 (September 2026).** Release **v2.4.84** on GitHub; cognition
-> pipeline unified (gradient orchestrator, shared retrieval, S01–S12 tracing).
+> **Updated for v2.5.36 (November 2026).** Release **v2.5.36** on GitHub; open source
+> under the Apache License 2.0 from this release on.
 > Primary install: **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe`
-> (Windows), the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). The Linux
-> AppImage and Windows installer are CI-launch-tested. Data lives in a per-user
-> `ELI_v2` folder and survives upgrades; `--fresh-start` resets it.
+> (Windows), the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). Every packaged
+> app is started in CI before a release goes out, and the Windows installer is run first.
+> Data lives in a per-user `ELI_v2` folder and survives upgrades; `--fresh-start` resets it.
 
 *Everything you need to install, set up, and run ELI — written for a person, not a programmer.
 If you can copy and paste, you can do this.*
@@ -26,8 +26,8 @@ completely offline.
 | Requirement | Details |
 |---|---|
 | A computer | Linux is the best-tested. Windows and macOS installers exist too. |
-| Python 3.10 or newer | Only for the from-source install; the release packages bring their own. Most systems already have it (`python3 --version`). Any version from 3.10 up works, the newest included; with several installed, the installer measures which one the most packages come ready-made for. |
-| Disk space | ~2 GB for ELI itself, plus 2–5 GB for a model (more if you pick a big one) |
+| Python 3.10 or newer | Only for the from-source install; the release packages bring their own. Most systems already have it (`python3 --version`). With several installed, the installer measures which one the most packages come ready-made for. A brand-new Python can lack ready-made packages for a while; the installer then says which ones it could not get. |
+| Disk space | Several GB for ELI and its packages (on an NVIDIA machine PyTorch's GPU build alone is about 4 GB), plus 2–5 GB for a model (more if you pick a big one) |
 | A GPU (graphics card) | **Optional but recommended.** NVIDIA is best supported. Without one, ELI still works — just slower. |
 | Internet | Only for the install itself and the one-time model download. |
 
@@ -50,12 +50,13 @@ chmod +x ELI_Setup.sh
 ./ELI_Setup.sh
 ```
 
-`ELI_Setup.sh` is the guided, "just press Enter" path — it walks through every step below
-automatically and opens the setup wizard at the end. **If you used this, you can skip
-straight to Part 3.**
+`ELI_Setup.sh` is the guided, "just press Enter" path — it opens the setup wizard, which runs
+every step below for you (in the terminal instead when there is no display) and fetches a chat
+model sized to your hardware. **If you used this, you can skip straight to Part 3.**
 
 There's also an AppImage (`ELI_v2-*-x86_64.AppImage`) — make it executable
-(`chmod +x`), double-click it, done.
+(`chmod +x`), double-click it, done. It needs glibc 2.39 or newer (`ldd --version`): Ubuntu
+24.04, Debian 13, Fedora 40 or newer, for example. On an older system use the portable file.
 
 ### The developer way: from the source code
 
@@ -68,7 +69,7 @@ bash install.sh
 That one command does all of this for you:
 
 1. **Looks at your computer** — CPU, RAM, disk space, and what GPU you have (NVIDIA,
-   AMD, Apple, or none).
+   AMD, Intel, Apple, or none).
 2. **Shows you a plan** — what it's going to install and why — and asks permission
    before touching anything.
 3. **Creates a private workspace** (a "virtual environment" in a `.venv` folder) so it
@@ -76,7 +77,9 @@ That one command does all of this for you:
    the one the most of ELI's packages come ready-made for on your machine (it says which and
    why); `PYTHON=python3.13 bash install.sh` chooses for it.
 4. **Installs the AI engine** built for *your* hardware — CUDA build for NVIDIA, ROCm
-   for AMD, Metal for Mac, or a plain CPU build.
+   (or Vulkan) for AMD, Vulkan for Intel Arc, Metal for Mac, or a plain CPU build. On NVIDIA
+   this is usually compiled on your machine, which needs NVIDIA's CUDA toolkit; without it
+   you get the CPU build and the installer says so (`--install-cuda` below fixes that).
 5. **Verifies the GPU actually works** — and warns you loudly if you ended up with the
    slow CPU version by accident.
 6. **Installs the helper tools** ELI uses to control your desktop — media playback,
@@ -85,6 +88,8 @@ That one command does all of this for you:
 8. **Fetches the small required extras** — the memory "embedder" (~85 MB, needed for
    ELI's long-term memory) and the voice files (speech-to-text + a speaking voice).
 9. **Sets up fresh, empty databases** — ELI starts knowing nothing about you.
+10. **Adds the `eli-v2` terminal command** (it asks first; `--yes` says yes for you) and, on
+    Linux, the app-menu icons.
 
 ### Installer options (only if you want them)
 
@@ -92,14 +97,14 @@ You can add these to the end of `bash install.sh`:
 
 | Flag | What it means in plain English |
 |---|---|
-| `--yes` | "Don't ask me questions, just use the sensible defaults." |
+| `--yes` | "Don't ask me questions, just use the sensible defaults." (That includes downloading a model sized to your graphics card, unless you also say `--no-model`.) |
 | `--cpu-only` | "Ignore my GPU, run on the processor." (slower, but always works) |
 | `--install-cuda` | "I have an NVIDIA card but no CUDA toolkit — install that for me too." |
 | `--model=qwen2.5-7b` | "Download this specific model while you're at it." |
 | `--auto-model` | "Pick the best model for my hardware and download it." |
-| `--no-model` | "Don't download anything big — I'll add a model myself later." |
+| `--no-model` | "Don't download a model or the memory embedder — I'll add them myself later." (The voice files are still fetched.) |
 | `--latest` | "Use the newest versions of everything instead of the tested, frozen set." |
-| `--skip-torch` | "Skip PyTorch." (saves space; disables self-training features) |
+| `--skip-torch` | "Skip PyTorch." (saves space; self-training and the other PyTorch features stay off) |
 
 **Example — completely hands-off install with an automatic model:**
 
@@ -114,7 +119,7 @@ the same job as the Linux one (CUDA install, dependency lock, GPU verification,
 database setup). Options:
 
 ```bat
-install.bat            (normal — NVIDIA CUDA install)
+install.bat            (normal — NVIDIA CUDA build when it finds an NVIDIA card, CPU otherwise)
 install.bat /cpu       (no GPU / force CPU)
 install.bat /cuda      (also install the CUDA toolkit if missing)
 ```
@@ -160,12 +165,13 @@ install, you have three easy options:
 **Option C — bring your own.** Download any chat/instruct `.gguf` file from the internet
 (Hugging Face is the usual place) and drop it into the `models/` folder. ELI finds it
 automatically and adapts itself to fit it into whatever memory you have. It is not locked
-to any brand of model.
+to any brand of model. (The release packages keep their models in the `models` folder inside
+the per-user `ELI_v2` folder instead.)
 
 **The starter pack:** the release page also has a tag called `local-assets-v2.1`
-containing a small starter model, the memory embedder, and voice files. If you have the
-GitHub `gh` tool set up, `./RUN_ELI.sh --with-github-assets` (portable package) fetches
-it all in one go.
+containing a few small starter models, the memory embedder, and voice files. If you have the
+GitHub `gh` tool set up, `./RUN_ELI.sh --with-github-assets` (portable package, once it is set
+up) fetches it all in one go.
 
 ---
 
@@ -183,9 +189,12 @@ or simply:
 ./eli.sh
 ```
 
-The **first launch shows a setup wizard**: it asks what to call you, lets you pick your
-model and voice, and explains the network toggle. ELI starts as a blank slate — it knows
-nothing about you until you talk to it.
+The **first launch walks you through the rest**: with no model yet, a three-step welcome
+(pick or download a model — or point it at Ollama — and choose the voice engine, then
+confirm the hardware tuning); with a model already there, the model picker with its hardware
+tuning. Open the chat with a hello and ELI asks what to call you and a few quick questions
+about how you like your answers (say "skip" to pass; a real question goes straight through).
+ELI starts as a blank slate — it knows nothing about you until you talk to it.
 
 After install you'll also have **"ELI v2.0" in your app menu** (the installer adds
 desktop icons on Linux), so you can start it with a click like any other program.
@@ -194,7 +203,7 @@ desktop icons on Linux), so you can start it with a click like any other program
 
 Type in the chat box, or speak — say the wake word (you can set your own; train it in
 Settings) and just talk. Ask it *"what can you do?"* and it will list everything —
-all 230 of its capabilities, generated from what's genuinely wired in.
+all 231 of its capabilities, generated from what's genuinely wired in.
 
 ### The phone / tablet view (optional)
 
@@ -207,8 +216,9 @@ The AI still runs on your computer — your phone is just a window onto it.
 ```
 
 With `--lan` it automatically creates an access token and prints the exact address to
-type into your phone's browser. Never expose this to the open internet — it's for your
-home Wi-Fi only.
+type into your phone's browser (the same token next time, so a paired phone stays paired).
+Add `--https` too if you want to talk to it from the phone: browsers allow the microphone
+only over HTTPS. Never expose this to the open internet — it's for your home Wi-Fi only.
 
 You can also run both at once (server in the background, desktop app in front):
 
@@ -222,7 +232,7 @@ You can also run both at once (server in the background, desktop app in front):
 .venv/bin/python -m eli --headless
 ```
 
-Commands inside it: `/status`, `/mode`, `/reset`, `/help`, `/quit`.
+Commands inside it: `/status` (how ELI's runtime is doing), `/mode`, `/reset`, `/help`, `/quit`.
 
 ---
 
@@ -235,7 +245,7 @@ Everything in one place. Run these from the ELI folder.
 ```bash
 bash install.sh                      # full install (asks first)
 bash install.sh --yes --auto-model   # fully automatic install + model
-./scripts/eli_setup.sh               # guided 8-step first-time setup (the gentle path)
+./scripts/eli_setup.sh               # guided first-time setup (the gentle path)
 ```
 
 **Launch**
@@ -279,9 +289,10 @@ These are the promises the software makes, in plain terms:
 - **Offline by default.** ELI blocks its own network access at a deep level (the socket
   layer). When it's offline, its own code *cannot* dial out even if it tries. You flip
   network access on with one toggle — and ELI announces when it goes online.
-- **Your data stays put.** Conversations, your profile, memories — all in local database
-  files inside the ELI folder (`artifacts/`). Delete them any time; ELI simply starts
-  fresh.
+- **Your data stays put.** Conversations, your profile, memories, the notes ELI writes for
+  you — all in local files inside the ELI folder (`artifacts/`; notes in
+  `artifacts/notebook/`). The release packages keep the same things in the per-user `ELI_v2`
+  folder instead. Delete them any time; ELI simply starts fresh.
 - **No account, no telemetry.** Nothing phones home. There's nothing to phone home *to*.
 - **One honest caveat:** ELI can run commands and read files on your computer — that's
   its job as an assistant. Its safety rails are good but not a prison; treat it like a
@@ -303,7 +314,7 @@ These are the promises the software makes, in plain terms:
 | Out-of-memory / crashes mid-answer | Your model is too big for your GPU/RAM. Download a smaller one (`--auto` picks a safe size). |
 | Phone can't reach the web app | Use `--lan`, make sure both devices are on the same Wi-Fi, and check your firewall allows port 8081. |
 | macOS won't screenshot / move mouse | System Settings → Privacy & Security → grant Screen Recording + Accessibility, then retry. |
-| Wrong model loaded | Settings tab → pick a different model, or drop a new `.gguf` into `models/`. |
+| Wrong model loaded | Settings tab → pick a different model, or drop a new `.gguf` into `models/`. A model path set in the environment overrides the one picked in the app: an exported `ELI_GGUF_MODEL_PATH`, or the model the old `bin/elix` launcher saved in `.env.eli_v2_0` (it loads that file on every start). Remove it. |
 
 Still stuck? Open an issue with what you saw:
 **https://github.com/ShadowESC95/ELI_v2.0/issues** — a plain "I tried it and this
@@ -313,18 +324,25 @@ happened" is genuinely useful.
 
 ## Part 7 — Removing ELI
 
-ELI never spreads itself around your system. To remove it completely:
+Models, databases and settings all live inside the ELI folder. The installer only adds a
+few small things outside it (the app-menu icons, the `eli-v2` command). To remove it
+completely:
 
 ```bash
-rm -rf /path/to/ELI_v2.0        # the folder is the whole install
+./scripts/eli_uninstall.sh --purge    # removes the menu icons, then the whole folder
 ```
 
-That's it — models, databases, settings, everything lives inside that one folder.
-(If you added the app-menu icons, remove them with your desktop's app editor or delete
-the `.desktop` files from `~/.local/share/applications/`.)
+Without `--purge` it asks before deleting the folder. Two things it leaves: the
+`~/.local/bin/eli-v2` and `~/.local/bin/eli2` commands, and the "ELI v2 launcher" lines the
+installer added to `~/.bashrc` (and `~/.bash_aliases`, `~/.profile`) — delete those by hand.
+
+The AppImage removes its own menu entries with `./ELI_v2-*.AppImage --uninstall` and offers
+to delete its data (`~/.local/share/ELI_v2`); then delete the `.AppImage` file. On Windows,
+uninstall ELI from the Start Menu; its data stays in `%LOCALAPPDATA%\ELI_v2` until you delete
+that folder.
 
 ---
 
-*ELI v2.0 — © 2026 Jason Fitzgibbon Bridgeman. Source-available under the PolyForm
-Noncommercial License 1.0.0 (free to use, modify, and share for any noncommercial
-purpose; not for commercial use). Questions: jaybridgeman0095@gmail.com*
+*ELI v2.0 — © 2026 Jason Fitzgibbon Bridgeman. Open source under the Apache License 2.0
+(free to use, modify, and share, commercially or not; keep the NOTICE file with any copy you
+pass on). Questions: jaybridgeman0095@gmail.com*

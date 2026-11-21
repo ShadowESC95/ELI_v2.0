@@ -1,6 +1,6 @@
 # ELI Learning — LoRA Self-Training Pipeline
 
-> **Updated for v2.4.84.** Stage 12 learning hooks for chat turns are centralized in
+> **Updated for v2.5.36.** Stage 12 learning hooks for chat turns are centralized in
 > `eli/cognition/learning_coordinator.py` (`finalize_turn()`).
 
 `eli/learning/` — 4.3k LOC, 14 files. ELI's self-improvement-via-fine-tuning
@@ -25,10 +25,11 @@ The stages, roughly in order:
 | `merge_reviewed_datasets.py` | 129 | merge reviewed dataset shards |
 | `bootstrap_phi3_base.py` | 239 | one-time download of the trainable HF Phi-3 base |
 | `base_model_resolver.py` | 251 | locate/validate the trainable base (vs an adapter) |
-| `training_preflight.py` | 136 | check peft/transformers/datasets present + target ready |
+| `training_preflight.py` | 136 | check torch/transformers/peft/accelerate/datasets present + base resolves |
 | `lora_trainer_guard.py` | 630 | `TrainerTarget` plans (paths, base_family) + guard checks |
 | `lora_trainer.py` | 834 | device selection, QLoRA, chat-template prompts, PEFT loop |
-| `lora_eval.py` | 485 | eval harness (score vs expected/forbidden, inspect adapter) |
+| `lora_pipeline.py` | 149 | `run_pipeline`: preflight → build job → [train] → eval, dry-run by default |
+| `lora_eval.py` | 505 | eval harness (score vs expected/forbidden, inspect adapter) |
 | `target_registry.py` | 266 | operator-declared training targets, any model family |
 | `review_queue.py` | 270 | the human review gate: triage, approve/edit, write trainable rows |
 
@@ -54,11 +55,14 @@ The stages, roughly in order:
      Phi-3 turn markers teaches it tokens its chat template never uses, degrading
      the model instead of tuning it. The tokenizer's own `chat_template` is now the
      source of truth, with the literal kept as a fallback for bases without one.
-   - **QLoRA.** With `bitsandbytes` present the frozen base loads in 4-bit (nf4,
-     double quant, fp16 compute) with a paged optimiser, so a card too small to hold
-     the fp16 weights can still train the adapter.
+   - **QLoRA.** On an NVIDIA card with `bitsandbytes` present the frozen base loads in
+     4-bit (nf4, double quant, fp16 compute) with a paged optimiser, so a card too small
+     to hold the fp16 weights can still train the adapter.
 6. **Eval** (`lora_eval.py`): `score_response` against expected/forbidden, plus
-   `inspect_adapter` / `inspect_eval_suite`.
+   `inspect_adapter` / `inspect_eval_suite`. The suite it reads by default,
+   `training/evals/eli_self_model_eval.jsonl`, is not in the repository (a fresh clone's
+   `training/` holds only its README and three scripts), so there the eval stage reports the
+   suite as missing.
 
 ### Device selection (`lora_trainer._pick_device`)
 
@@ -74,17 +78,20 @@ CUDA on a Radeon.
   trainer rather than being silently ignored.
 - `estimate_vram_gb()` sizes the requirement from the checkpoint's real size on
   disk, so the floor holds for a 1B and for a 35B instead of a hardcoded figure.
-- A refusal states what would fix it. On a 2060 Super: *"6.37 GiB free but this run
-  needs ~9.04 GiB … free VRAM, shorten the sequence length, or install bitsandbytes
-  for 4-bit training."*
+- When the run does not fit the card, the plan falls back to the CPU and says what
+  would fix it. On a 2060 Super: *"6.37 GiB free but this run needs ~9.04 GiB … free
+  VRAM, shorten the sequence length, or install bitsandbytes for 4-bit training."*
+  The Training tab's Hardware step marks such a machine not ready.
 
 ### Paths
 
 `eli.core.paths.learning_dir()` follows the `models_dir()` pattern: the source tree
 in dev so the existing `training/` layout keeps working, the **user data dir** on a
-packaged install where `project_root()` is a read-only mount. Run logs, guard plans
-and the target registry all follow it, so a frozen build no longer writes into its
-own installation.
+packaged install (`ELI_LEARNING_DIR` overrides). Guard plans, the target registry,
+the review queue's candidates and an operator target's dataset follow it. The built-in
+targets' paths, the dataset builder's own output and the trainer CLI's run plans
+resolve against `project_root()`, which on a packaged install is the per-user root as
+well, so a frozen build does not write into its own installation.
 
 ### Targets (`target_registry.py` + `lora_trainer_guard.py`)
 
@@ -98,7 +105,8 @@ The allowlist is still an allowlist — nothing trains unless it was explicitly
 declared — but declaring is now a **runtime act**:
 
 - `target_registry.create_target(name, base_model_path, …)` writes an operator
-  target into `<data dir>/training/targets.json`. Built-ins remain, so existing
+  target into `targets.json` in `learning_dir()` (`training/` in a source checkout,
+  `<data dir>/training` on a packaged install). Built-ins remain, so existing
   installs are unaffected.
 - **Family is read, not asserted.** `detect_family()` reads `model_type` from the
   base model's own `config.json`. The guard then checks the declared family against
@@ -141,8 +149,12 @@ first time.
 - It **is**: a responsible, reproducible fine-tuning pipeline with PII redaction,
   human review gating, preflight, and an eval harness. The dataset comes from
   ELI's real interactions (corrections, failures, conversations).
-- It **isn't**: (a) automatic — it is driven by the operator, through the Training
-  tab, the chat actions, or a scheduled overnight job. (b) connected to the live
+- It **isn't**: (a) automatic by default — it is driven by the operator, through the
+  Training tab, the chat actions, or a scheduled overnight job. The one exception is the
+  `goal_driven` operator mode: there the autonomy scheduler checks at most once a week
+  and, when a built-in target passes preflight, queues the overnight `lora` job itself
+  (`autonomy_scheduler._maybe_check_lora_retrain`); that job still trains only on rows a
+  person approved. (b) connected to the live
   inference model by itself — it trains an adapter on a Hugging Face base, while
   inference runs a GGUF. A trained improvement reaches the running assistant only
   once the adapter is merged into the base and converted to GGUF
@@ -157,23 +169,31 @@ first time.
   base-vs-adapter validation prevents the classic "trained on an adapter"
   mistake.
 - **Weak / watch:**
-  1. **Base/inference disconnect** — training improves Phi-3, but the assistant
-     usually runs another GGUF, so the self-improvement doesn't reach the live
-     model. The loop is only closed if you actually serve the trained model.
-  2. **Manual** — "self-training" is operator-driven, not autonomous. That's
-     safe, but it means it improves only when you run it. (Arguably the right
-     trade-off, but worth stating plainly rather than implying autonomy.)
+  1. **Base/inference disconnect** — the built-in targets train Phi-3, but the
+     assistant usually runs another GGUF, so the self-improvement doesn't reach the
+     live model. The loop is only closed if you actually serve the trained model.
+  2. **Manual** — "self-training" is operator-driven, not autonomous, outside the
+     `goal_driven` mode above. That's safe, but it means it improves only when you run
+     it. (Arguably the right trade-off, but worth stating plainly rather than implying
+     autonomy.)
   3. **Heavy deps** — needs the full HF/peft/transformers stack. `peft` and
      `datasets` were previously only in `requirements.lock.txt`, so a plain
      `pip install -r requirements.txt` produced an install whose Training tab could
      never leave preflight; both are now in `requirements.txt`, with
      `bitsandbytes` added for 4-bit training (excluded on macOS, which has no wheel).
+     The lock, which the Linux and Windows installers use by default, has `peft` and
+     `datasets` but not `bitsandbytes`; `requirements-macos.txt` (the macOS install) and
+     the fall-back ranges `requirements-full.txt` and `requirements-windows.txt` have none
+     of the three. `requirements-learning.txt` is the trainer's stack on its own (torch,
+     transformers, peft, accelerate, datasets, safetensors), the file
+     `bootstrap_phi3_base.py` tells you to install.
   4. **Phi-3 remains the shipped default** — the built-in targets and
      `bootstrap_phi3_base.py` are still Phi-3 — but it is no longer a lock. Any
      local HF base can be declared as a target from the Training tab, and the
      prompt format follows the base model's own chat template rather than Phi-3's
      literal turn markers.
   5. **Merge-to-GGUF is still manual.** `training/merge_and_convert.py` closes the
-     loop but depends on `unsloth`, which is in no requirements file. Producing a
+     loop but depends on `unsloth`, which is in no requirements file and not in the
+     `training` extra of `pyproject.toml`. Producing a
      usable model after a successful run is therefore still a documented manual
      step, not a button.

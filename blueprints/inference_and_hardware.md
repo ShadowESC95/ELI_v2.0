@@ -1,29 +1,47 @@
 # ELI Inference & Hardware Boot
 
-> **Updated for v2.5.21.** GGUF path is canonical (optional Ollama backend still
-> exists as a secondary path). What a model loads with is planned by llama.cpp's own
-> load simulation on every GPU it sees (`core/load_plan.py`); the prompt format is
-> the model's own chat template. Token budgets scale by reasoning mode via
-> `reasoning_modes.py`.
+> **Updated for v2.5.36.** GGUF path is canonical (an Ollama backend exists as a
+> secondary path, used only when the user chooses it). What a model loads with is planned
+> by llama.cpp's own load simulation on every GPU it sees (`core/load_plan.py`), which
+> needs llama-cpp-python 0.3.35 or later; the prompt format is the model's own chat
+> template. Token budgets scale by reasoning mode via `reasoning_modes.py`.
 
 How ELI loads a model, talks to it, and adapts to whatever machine it's on. The
-inference path is model-agnostic (see memory `eli-model-agnostic`); the boot path
-is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
+inference path is model-agnostic (see `docs/model_runtime_policy.md`, "Any GGUF"); the boot
+path is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
 
-## Inference (`cognition/gguf_inference.py`, 3.2k LOC + `inference_broker.py`)
+## Inference (`cognition/gguf_inference.py`, about 2.8k lines, + `inference_broker.py`)
 
-- **Model resolution (`get_model_path`)**: `ELI_GGUF_MODEL_PATH` env →
-  `model_path`/`custom_model_path`/`bundled_model_path`/`gguf_model_path` settings
-  keys. No baked model; empty default.
+- **Model resolution (`get_model_path`)**: `ELI_GGUF_MODEL_PATH` env (a file that does not
+  exist there gives no model rather than a fallback) → the `model_path`/`custom_model_path`/
+  `bundled_model_path` settings keys (skipped when the provider is Ollama) → `ELI_GGUF_MODEL`
+  inside `ELI_MODELS_DIR` → `paths.get_gguf_model_path()` (`ELI_MODEL` or a path set this run,
+  else the first `.gguf` in `<models dir>/gguf/base`) → the `gguf_model_path` config key → the
+  model this process is
+  already running, or the one the last runtime snapshot names. No model name is baked in.
 - **`load_model(force_reload)`**: `load_request()` reads the settings (env first): context
-  (0 = auto), threads (0 = one per physical core), batch, cache type, GPUs to use and their
-  shares, and a GPU-layer count only when it was pinned for this model at this context
-  (`pinned_gpu_layers_for_model`; -1, llama.cpp's own value, is every layer). `load_plan.plan()`
-  turns that into the load (below) and `_build_with_plan` makes it. A load that still fails is
-  planned again for the memory free at that moment, then on the processor (three attempts); a
-  cache type llama.cpp refuses is planned again with the default cache; a GPU pack too old for
-  the model hands over to the bundled runtime. What was asked and what loaded are both written
-  to the runtime snapshot, read from the live model.
+  (0 = auto), threads (0 = the physical performance cores), batch, cache type, GPUs to use and
+  their shares, and a GPU-layer count only when `ELI_GGUF_N_GPU_LAYERS` sets one or it was
+  pinned for this model at this context (`pinned_gpu_layers_for_model`; -1, llama.cpp's own
+  value, is every layer). `load_plan.plan()` turns that into the load (below) and
+  `_build_with_plan` makes it. A load that still fails is planned again for the memory free at
+  that moment, then on the processor (three attempts); a cache type llama.cpp refuses is planned
+  again with the default cache; a GPU pack too old for the model hands over to the bundled
+  runtime. A failure no setting can change is explained and not retried
+  (`model_load_diagnostics.is_retryable_load_failure`, `explain_load_failure`): a file or
+  architecture this runtime cannot read, or a GPU the machine does not have ("invalid value for
+  main_gpu"), which is told as that and no longer blamed on the model's architecture; the ladder
+  changes context, layers and batch, never the device, so it used to repeat the same load. What
+  was asked and what loaded are both written to the runtime snapshot, read from the live model.
+- **How much of a message is read** (`kernel/engine._eli_max_input_chars`, `_eli_fit_input`):
+  the context window ELI sizes against (`gguf_inference.context_window`: the loaded model's,
+  else the setting or the auto context for the configured model) less the reply's room (an
+  eighth of the window, at least 256 tokens: `context_budget.output_reserve_tokens`), in the
+  model's own characters per token, measured with its tokenizer
+  (`context_budget.chars_per_token`). A longer message keeps its start and its end, with the
+  middle marked as left out, since the question is usually at one end. `ELI_MAX_INPUT_LEN` sets
+  the limit in characters; with no model to size for, nothing is cut. Every message used to be
+  cut at a fixed 8,192 characters.
 - **Chat format from the model** (`cognition/chat_template.py`): every GGUF chat model carries
   the Jinja template it was trained with (`tokenizer.chat_template`); rendering it gives each
   model its own format, and rendering it around sentinel text gives its reasoning markers and
@@ -51,8 +69,9 @@ is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
   long prompt prefill stops immediately — `StoppingCriteria` alone only runs
   between output tokens. An aborted decode is `llama_decode returned 2`: with Stop, shutdown or a
   turn taking the model from a background call behind it, it is raised at once (the background
-  caller tries again after the turn) and the cache is left alone. Only `returned 1`, a batch that
-  could not be seated, clears the cache and the saved states and decodes fresh with headroom.
+  caller tries again after the turn) and the cache is left alone; an abort nothing asked for is
+  tried again as it was. Any other code (1 is a batch that could not be seated) clears the cache
+  and the saved states and decodes fresh with headroom.
 - **Live control**: `get_live_runtime_override`, `unload_model`, `reload_model`
   let the GUI swap models / change settings without a full restart.
 - **`InferenceBroker`** (`inference_broker.py`): the higher-level `infer()` /
@@ -64,7 +83,7 @@ is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
   wheels assume AVX-VNNI and SIGILL on older chips; the loader now reports that plainly instead of
   crashing. Only a definitive illegal-instruction blocks a load. `ELI_CPU_PREFLIGHT=0` disables it.
 
-## Hardware profiling (`core/hardware_profile.py`, ~3200 LOC)
+## Hardware profiling (`core/hardware_profile.py`, about 3.3k lines)
 
 Every GPU, every vendor, every OS, read by one function per source and shared by detection
 (`detect_hardware`) and live telemetry (`get_live_gpu_telemetry`, printed by `describe_gpus`):
@@ -92,7 +111,8 @@ A model uses the discrete cards, or the integrated ones when there are none (lla
 - Subprocess calls to `nvidia-smi` / `rocm-smi` / `lspci` sanitize `LD_LIBRARY_PATH` first
   (`_external_tool_env()`): a frozen build points it at its own bundle.
 - **Threads**: `recommend_cpu_threads()` = the physical performance cores (measured on an
-  i7-8700: 4.37 tokens/s at 6 threads, 3.99 at 12). The setting's 0 means this rule. A count the
+  i7-8700: 4.37 tokens/s at 6 threads, 3.99 at 12); on a processor without hyper-threads one core
+  is left for the desktop. The setting's 0 means this rule. A count the
   old tuner saved (logical threads less one or two) goes back to 0 once (`runtime_settings`
   revision 1, recorded as `settings_revision`, so a count set afterwards stays); read once per
   process (`physical_performance_cores` is cached; it was logged on every hardware check).
@@ -109,12 +129,16 @@ A model uses the discrete cards, or the integrated ones when there are none (lla
 - **The recommendation is the plan.** `recommend()` for one model asks the load planner
   (`_recommend_from_plan`), so the startup window shows what the loader will do. The older
   estimate (`smart_fit_config`, `unified_fit_config`, `_compute_graph_reserve_mb`,
-  `_kv_cache_mb`) is used only where llama.cpp cannot simulate (no runtime, or several
-  candidate models).
+  `_kv_cache_mb`) is used only where the planner cannot measure: no GPU llama.cpp can use, a
+  llama-cpp-python older than 0.3.35 (`load_plan.simulation_supported`), or several candidate
+  models. On a machine with no GPU the startup window's figures are therefore this estimate
+  (`cpu_ram_fit_config`), while the loader still sizes its processor plan by simulation (below).
 - **Fit profiles** — startup exposes **Balanced / Max GPU / Max context**
-  (`fit_priority` in settings, `ELI_FIT_PRIORITY` env): Balanced sheds GPU layers → batch → ctx;
-  Max GPU shrinks ctx/batch before dropping layers; Max context moves layers to the processor
-  first. The planner searches in that order.
+  (`fit_priority` in settings, `ELI_FIT_PRIORITY` env): Balanced sheds GPU layers (down to a
+  quarter of them) → batch → a `q8_0` cache → the rest of the layers → ctx; Max GPU shrinks
+  batch, then the cache type, then ctx before dropping layers; Max context moves layers to the
+  processor first. The planner searches in that order (the `q8_0` step only when the cache
+  asked for is the fp16 default).
 
 ### Install-time detection is a SEPARATE stack from `hardware_profile`
 
@@ -123,7 +147,7 @@ deciding whether to build `llama-cpp-python` with CUDA/ROCm/Vulkan in the
 first place — happens before that, in two more independent detectors that do
 not share its code at all: `install.sh` (bash, the actual build) and
 `eli/setup/hardware_policy.py` (Python, decides `ELI_INSTALL_CPU_ONLY` for
-`eli_setup.sh`'s GUI-wizard-or-terminal install). A bug fixed in one of the
+`scripts/eli_setup.sh`'s GUI-wizard-or-terminal install). A bug fixed in one of the
 three does nothing for the other two — confirmed in the field, twice:
 
 - **Both install-time detectors misread nvidia-smi's specific NVML
@@ -153,7 +177,7 @@ three does nothing for the other two — confirmed in the field, twice:
 - **Known gap, not yet closed**: even after these fixes, a portable install
   that correctly lands on `--cpu-only` (driver unverifiable, or a genuinely
   weak/absent GPU) has no path back to GPU acceleration *during* that install
-  — `install.sh` and `eli_setup.sh` have no awareness of the CI-built
+  — `install.sh` and `scripts/eli_setup.sh` have no awareness of the CI-built
   `gpu-packs` release at all; only the runtime "Install CUDA/Vulkan GPU pack"
   button in the Startup Model Selection dialog does. `install.sh` now at
   least tells the user that button exists instead of going quiet about GPU
@@ -190,10 +214,14 @@ bundled copy via `sys.path`.
 - **One source for the runtime**: the bundled `llama-cpp-python` and every pack are built from
   `packaging/llama_source.py`: pinned llama-cpp-python and llama.cpp archives checked against their
   SHA-256, the binding changes a newer llama.cpp needs, and the version in
-  `packaging/llama_cpp_constraints.txt` (a label of its own, so installed packs are replaced when it
-  moves). A pack of a different build than the llama.cpp already running in the process is left for
-  the next start: the two share library names, and two builds in one process freed each other's
-  memory.
+  `packaging/llama_cpp_constraints.txt` (0.3.36.1: upstream's 0.3.36 with a newer llama.cpp, under
+  a label of its own so installed packs are replaced when it moves). A pack of a different build
+  than the llama.cpp already running in the process is left for the next start: the two share
+  library names, and two builds in one process freed each other's memory. An install from source
+  does not use this build: it takes upstream's llama-cpp-python (a wheel where one exists, else
+  built on the machine), 0.3.35 or later in every install source (`requirements*.txt`, the
+  `pyproject.toml` `llm` extra, `install.sh`, `install.ps1`), the first release whose llama.cpp
+  carries a simulated load through.
 - **One llama.cpp per build**: a pack is used only at the bundled runtime's exact version
   (`pack_matches_runtime`). When an update moves llama.cpp on, `outdated_pack()` names the old
   pack and the first-run chooser (`eli_entry._first_run_gpu_offer`) replaces it with the matching
@@ -204,8 +232,8 @@ bundled copy via `sys.path`.
   real size to the progress window (`install(argv, progress)`); the startup window and the
   first-run wizard share one status reader (`startup._gpu_pack_state`) and offer "Update"; server
   and helper starts print how to update.
-- **Backend** follows the detected vendor (`pack_backend_for`): CUDA on an NVIDIA card, Vulkan on
-  every other GPU.
+- **Backend** follows the detected vendor (`pack_backend_for`): CUDA on a discrete NVIDIA card,
+  Vulkan on every other GPU.
 - **Size on disk**: a wheel cannot hold links, so every soname chain arrives as full copies
   (`libggml-cuda.so`, `.so.0`, `.so.0.25.3`: three 498 MB files). `_dedupe_wheel_native_trees`
   links identical names to the versioned file right after unpacking, before the CUDA runtime is
@@ -217,7 +245,10 @@ bundled copy via `sys.path`.
 
 llama.cpp can simulate a load (`no_alloc`): it builds the model and a context the way a real
 load would and, allocating nothing, logs which device each layer and cache goes to and how large
-every compute buffer is. The planner asks it about the operator's settings and, when they do not
+every compute buffer is. ELI asks for a simulation only on llama-cpp-python 0.3.35 or later
+(`MIN_SIMULATION_VERSION`, `simulation_supported`): 0.3.20 already has the `no_alloc` field and
+its llama.cpp aborts the whole process on it, so the field alone is not taken as a yes. The
+planner asks llama.cpp about the operator's settings and, when they do not
 fit what each GPU has free now, about smaller ones in the fit profile's order, and keeps the
 largest that fits every device. It replaced a ladder of guessed configurations, a load probe
 whose checks timed out (30 of 32 since September) and a one-card fit.
@@ -239,10 +270,14 @@ whose checks timed out (30 of 32 since September) and a one-card fit.
 - **Mixture-of-experts**: a model that does not fit keeps the experts of its first layers in RAM,
   as few as the GPUs need (`tensor_buft_overrides`).
 - **Processor only**: the largest context up to the target whose weights, cache and buffers fit
-  the RAM budget, from two simulations (the cache grows with the context) and a third to confirm.
-- **No simulation** (an older llama.cpp): the same search on the file's own tensor sizes
-  (`core/gguf_sizes.py`) with the buffers estimated, and the plan says so. A file whose tensor
-  table cannot be read is loaded as asked (`as_asked`).
+  the RAM budget, from two simulations (at the target and at half of it: the cache grows with
+  the context) and up to three more to confirm. A machine with no GPU loads with the same
+  arguments as the CPU compute mode (`Plan.llama_kwargs`: no layers, `main_gpu=-1`, no cache or
+  operation offload); before 2.5.36 it was handed `main_gpu=0` with no device, which builds that
+  check refuse to load.
+- **No simulation** (llama-cpp-python older than 0.3.35, or a build without `no_alloc`): the same
+  search on the file's own tensor sizes (`core/gguf_sizes.py`) with the buffers estimated, and the
+  plan says so. A file whose tensor table cannot be read is loaded as asked (`as_asked`).
 
 `runtime_load_gap()` (`cognition/context_synthesiser.py`; -1 asked and none loaded is a reduction)
 only ever checked for `effective < requested` ("reduced," the classic VRAM-shortfall case) — a mixture-of-experts load *raises*
@@ -256,15 +291,16 @@ under MoE: nothing was left off the GPU) and not silence. `live_runtime_brief()`
 for a MoE load specifically is why a phatic reply once stated a stale, invented layer count: the
 grounding it would have drawn from was empty.
 
-## Settings (`core/runtime_settings.py`, ~1150 LOC)
+## Settings (`core/runtime_settings.py`, about 1.2k lines)
 
 - `DEFAULTS` (the full settings schema) + `ENV_TO_KEY` (env-var overrides).
 - `load_settings` / `save_settings` / `update_settings`.
 - **Redistribution-aware**: `_migrate_legacy_keys` (schema evolution),
   `_resolve_relative_model_paths` + `_heal_model_paths` (fix stale absolute paths
-  when the project moves machines), and `_portable_settings_for_storage` (strip
-  machine-specific values before storage) — though personal values like
-  `user_name` can still end up tracked. A model path outside this install is cleared only when it
+  when the project moves machines), and `_portable_settings_for_storage` (model paths
+  inside the project stored relative to it). It strips nothing else: personal values such as
+  `user_name` are kept in `settings.json`, which is git-ignored in a checkout. A model path
+  outside this install is cleared only when it
   no longer exists here: a model the user browsed to (a download, another drive) is kept. Two
   guards (`_eli_runtime_sanitize_path_string`, then `_eli_final_clean_path_value`) each cleared
   every outside model path, so a chosen model was gone from the settings at the next load (fixed
@@ -277,7 +313,7 @@ grounding it would have drawn from was empty.
   rendering settings to the user should check this rather than presenting
   defaults as if they were read from disk.
 
-## Paths (`core/paths.py`, 808 LOC)
+## Paths (`core/paths.py`, about 820 lines)
 
 Dev-vs-packaged path resolution: `is_frozen` / `_is_dev_mode`,
 `_find_project_root`, then `data_dir`/`config_dir`/`cache_dir`/`models_dir`/
@@ -286,14 +322,22 @@ checkout uses project-local `artifacts/` + `config/`. The packaged app and an
 installed one both use v2's own root: `~/.local/share/ELI_v2` (`artifacts/`,
 `config/`, `cache/`), `%LOCALAPPDATA%\ELI_v2` on Windows,
 `~/Library/Application Support/ELI_v2` on macOS. One import surface (`get_paths`) so
-nothing hardcodes locations.
+nothing hardcodes locations. `models_dir()` is `ELI_MODELS_DIR`, else `models/` in a checkout,
+else `<data dir>/models`; model discovery (`hardware_profile.discover_models`, which the
+recommendation and the first-run wizard use) searches it and the program's own `models/`
+(before 2.5.36 only the second, so `ELI_MODELS_DIR` was never read there and an install missed
+the models it had downloaded). The `scripts/eli_launch.sh` launcher sets `ELI_MODELS_DIR` to the
+checkout's own `models/` (`scripts/eli_isolate_env.sh`).
 
 Nothing of v2's goes in a generic place: `~/.local/share/eli`, `~/.config/eli`,
 `~/.cache/eli`, `~/.eli/` and `~/.eli_*` belong to no single ELI version, and v3, the
 first version (`eli-ai`), ELI Legal and ELI VR keep their own folders. Until 2.5.15 an
 installed v2 used the generic `eli` folders and the packaged app kept its cache in
 `~/.cache/eli`; some files had a generic or relative fallback (`artifacts/...` lands in
-whatever folder ELI was started from). Every writer now goes through `get_paths`. A file v2
+whatever folder ELI was started from). Every writer now goes through `get_paths`. Notes
+(`WRITE_NOTE`) go to `notebook_dir()`, `<data dir>/notebook/<date>.md` (`ELI_NOTEBOOK_DIR`
+overrides), appended under a lock; until 2.5.36 they went to `./eli_notebook` in the folder ELI
+was started from, whatever `ELI_DATA_DIR` said. A file v2
 once kept in a generic place (the labs notebook and workspaces in `~/.eli/`,
 `~/.eli_user_id`) is copied into its own folders once by `adopt_legacy_file` (copied, not
 moved: another version may still use the old place). `tests/test_frozen_install_redistributability.py`
@@ -307,16 +351,21 @@ touched.
 ## STT VRAM awareness
 
 `local_whisper_stt` puts faster-whisper on CUDA device 0 only when that card still holds it
-after the language model's plan: whisper's footprint on that card is measured on its first
-warm-up and kept (`data_dir/runtime/whisper_gpu.json`), its weights stand in until then. Any
-doubt keeps it on the processor. ctranslate2 is CUDA only, so other makers' cards keep whisper
-on the processor. `ELI_WHISPER_DEVICE` overrides. See `perception.md`.
+after the language model takes every layer it can (its load plan, or what it holds once
+loaded); a plan that already leaves layers or experts off the GPUs keeps whisper on the
+processor. Whisper's footprint on that card is measured on its first warm-up and kept
+(`data_dir/runtime/whisper_gpu.json`), its weights stand in until then. Any doubt keeps it on
+the processor. ctranslate2 is CUDA only, so other makers' cards keep whisper on the processor.
+`ELI_WHISPER_DEVICE` overrides. See `perception.md`.
 
 ## Piper and LoRA device selection
 
-Piper is a subprocess binary (`tts_piper/piper`), not onnxruntime-in-Python,
-and the shipped build is CPU-only for every vendor — no NVIDIA advantage to
-close there.
+Piper runs as a program where one is found (`ELI_PIPER_BINARY`/`ELI_PIPER_BIN`, a packaged
+binary, the `piper` in ELI's own environment, then PATH), asked for `--cuda` first and kept on
+the processor for the rest of the session once that fails (`ELI_PIPER_CUDA=0` skips it). The
+packaged app ships the voices and the Piper library but no program, so there it runs inside the
+process (`tts_router._piper_lib_render`). The `tts` extra installs the CPU `onnxruntime`, so
+in practice Piper runs on the processor on every vendor — no NVIDIA advantage to close there.
 
 `eli/learning/lora_trainer._accelerator()` is the model for cross-vendor
 device selection generally: torch routes ROCm through the `torch.cuda` API (a
@@ -330,7 +379,8 @@ detected and honestly marked as unable to run that trainer. See
 
 ## Honest assessment
 
-- **Strong:** loads are measured by llama.cpp on every device before they happen; every card
+- **Strong:** loads are measured by llama.cpp on every device before they happen (on
+  llama-cpp-python 0.3.35 and later); every card
   of every vendor is read by one shared reader per source; the model's own chat template;
   env/settings/relative-path healing for moving between machines; a single broker + lock so
   concurrency is correct; a GPU pack that trusts a verified install.
@@ -338,10 +388,11 @@ detected and honestly marked as unable to run that trainer. See
   1. The DXGI (Windows) and ioreg (macOS) readers are tested with fakes and on CI runners
      without GPUs, not yet on real Windows or Mac GPUs.
   2. **Settings sprawl** — `DEFAULTS` is large with several overlapping keys
-     (`n_gpu_layers`/`gpu_layers`, `n_ctx`/`context_size`) and migration logic.
+     (`n_gpu_layers` mirrored as `gpu_layers`, `n_threads`/`cpu_threads`, `context_size` still
+     read as `n_ctx`) and migration logic.
   3. Policy figures remain: the RAM budget (60%, 70% on processor-bound machines up to 16 GB,
      bounded 10-75%), the context target (0.9 of the trained context, half the memory left for
      the cache, a 2048 step) and the batch defaults.
-  4. `_portable_settings_for_storage` exists but isn't fully preventing personal values (e.g.
-     `user_name`) from being persisted.
+  4. `_portable_settings_for_storage` only makes model paths relative: personal values (e.g.
+     `user_name`) are persisted in `settings.json` as entered.
   5. Install-time detection (`install.sh`, `setup/hardware_policy.py`) is still its own stack.

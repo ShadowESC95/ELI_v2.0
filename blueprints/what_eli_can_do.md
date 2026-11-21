@@ -1,7 +1,7 @@
 # ELI — What It Can Actually Do
 
-> **Updated 2026-09-30.** All CHAT modes run the gradient orchestrator; 15 specialist
-> agents; 230 capabilities (213 routable or executor-backed). Regenerate the action list with
+> **Updated 2026-11-20 (v2.5.36).** All CHAT modes run the gradient orchestrator; 15 specialist
+> agents; 231 capabilities (214 routable or executor-backed). Regenerate the action list with
 > `python -m eli.tools.registry.capability_updater`.
 
 *A capability showcase for the layman and the tech-savvy alike. Each capability listed
@@ -19,11 +19,11 @@ builds documents, creates images, looks after itself, and learns you over time �
 and **nothing leaves your device unless you explicitly allow it.**
 
 Here's the part most "AI assistants" can't say: it's *yours*. A fully local,
-embodied desktop AI you actually own — **230 capabilities** (213 routable or executor-backed
+embodied desktop AI you actually own — **231 capabilities** (214 routable or executor-backed
 by voice or text), a 15-agent reasoning bus, persistent memory, and full
-voice/vision/gaze control, in ~196,249 lines of Python in `eli/`. One machine, your data, no landlord. (The
-capability count is read live from the manifest each boot, so it grows as ELI
-does. Auto-generated action reference: `capabilities_and_actions.md`.)
+voice/vision/gaze control, in about 207,000 lines of Python in `eli/`. One machine, your
+data, no landlord. (The capability count is read live from the manifest each boot, so it
+grows as ELI does. Auto-generated action reference: `capabilities_and_actions.md`.)
 
 And as of **2026-06-28** it has a **second face**: a self-hosted **web app + dashboard**
 you can open from any browser on your network — chat, a live system dashboard, **ELI's own
@@ -39,10 +39,10 @@ You talk to ELI — by typing or by voice — and it *does things*. It opens you
 apps, plays your music, reads your screen, answers your questions, remembers your
 projects, writes your reports from your own files, fixes your code, and even
 installs missing software for you. It learns your patterns and offers to automate
-them. It gets more thoughtful the deeper a conversation goes. And it does all of
+them. It thinks harder when a question calls for it. And it does all of
 this **offline by default** — there's a single switch for going online, and you
 hold it. No account, no subscription, no telemetry, no cloud reading over your
-shoulder.
+shoulder. And it's **open source** (Apache License 2.0): read it, change it, build on it.
 
 ---
 
@@ -62,8 +62,12 @@ device on your network:
   removed). Rooms, scenes, and real automations: triggers on time / sunrise-sunset /
   device-state, with conditions and multiple actions, plus a location picker for sun
   events. It finds devices on your network, learns your usage, and offers to automate it.
+  (Devices are controlled from the Home tab; asking in chat doesn't reach a named device in
+  this release.)
 - **Accounts & roles** — admin / member / read-only **viewer**, with an admin console
-  showing audit integrity, per-user activity, and the safety policy.
+  showing audit integrity, per-user activity, and the safety policy. Only the owner can have
+  ELI run commands or code, touch files, the screen, clipboard, keyboard or mouse, or change
+  ELI itself; a member or viewer is refused those whatever they ask.
 - **A trustworthy record** — every action is written to a **tamper-evident, hash-chained
   audit trail** (metadata only) that anyone can verify wasn't edited.
 - **Shared research libraries** — collaborate on document corpora with attribution and
@@ -89,16 +93,17 @@ local assistants:
   `retrieve_for_turn()` → specialist fan-out → heuristic rerank → synthesis.
 - **5 genuinely multi-pass reasoning modes** — chain-of-thought, self-consistency
   (N samples + consensus), tree-of-thoughts (branch/prune), constitutional
-  (draft→critique→revise), and quick — and it **auto-escalates** through them as a
-  conversation deepens, without you asking.
+  (draft→critique→revise), and quick — and it **picks a deeper one by itself** when a
+  question calls for it (from how you ask, and, for requests that name no mode, from how
+  hard the question is and how deep the conversation has gone), without you asking.
 - **Deterministic self-honesty** — when you ask ELI about itself, it answers from
   *live measurement of its own runtime*, not from the model's imagination.
 - **A self-verifying coding agent** — plan → DAG decompose → UCB tree-search →
   run → test → repair, with a long-term (bug→fix) memory.
 - **It improves itself** — safely patches its own source (verify + auto-revert)
   and can **fine-tune its own model on your conversations**, locally.
-- **It heals its environment** — detects a missing app and installs it for you
-  (apt/snap/flatpak) on confirmation.
+- **It heals its environment** — detects a missing app and installs it for you on
+  confirmation (apt/dnf/pacman/snap/flatpak on Linux, brew on macOS, winget/choco on Windows).
 - **Model-agnostic** — no model is hardcoded; swap in any local GGUF and ELI gets
   smarter for free, plus auto-tunes context/GPU-layers/batch to your hardware.
 
@@ -108,11 +113,11 @@ local assistants:
 
 - **Morning:** a brief — what happened, what it noticed, a consolidated news
   digest matched to your interests, and anything needing your attention.
-- **Working:** *"open my project and Spotify"* → done. *"what's on my screen?"* →
-  it looks and tells you. *"click that"* → it clicks where your eyes are resting.
-  *"summarise these three PDFs"* → done, locally.
-- **Deep work:** *"draft a technical report from these sources"* → it writes a
-  structured document grounded in your files. *"write me a script that does X"* →
+- **Working:** *"open firefox and open spotify"* → done. *"what's on my screen?"* →
+  it looks and tells you. *"click that"* → with gaze tracking on, it clicks where your eyes
+  are resting. *"analyse the pdfs in ~/papers"* → done, locally.
+- **Deep work:** drop your sources into the **Report Builder** and ask for a technical
+  report → it writes a structured document grounded in them. *"write me a script that does X"* →
   it plans, writes, runs, tests and repairs it. *"there's a bug in this file"* →
   it scans, shows you what it found, and fixes it after you confirm.
 - **Hands-free:** speak to it across the room — it ducks your music to hear you,
@@ -128,21 +133,23 @@ local assistants:
 Natural conversation with persistent memory of you. **Five reasoning modes —
 Quick · Normal · Advanced · Research · Expert** — with deeper modes genuinely multi-pass
 (self-consistency samples, tree-of-thoughts branches, draft→critique). **Quick still runs the
-gradient orchestrator and 15-agent bus at light depth** — it is not a bypass. The mode
-**auto-selected by how deep the conversation gets**. When evidence is weak, ELI **autonomously
+gradient orchestrator and 15-agent bus at light depth** — it is not a bypass. Quick is the
+default, and **Auto-Mode** picks a deeper method from how you ask ("step by step", "prove",
+"compare several options", "critique then revise"). When evidence is weak, ELI **autonomously
 deepens**: it re-gathers harder and escalates the mode one tier at a time to raise its confidence
 *before* answering — and for a Quick reply it can keep working in the **background** and surface a
 better, more-grounded answer afterwards in the Proactive panel. Plus an emergent, consistent persona;
 multi-part questions answered as multiple answers; tone that adapts over time.
 
 ### 🖥️ Run your computer
-Open / close / focus / hide / minimise / maximise apps and windows; tile windows;
-switch workspaces; next/previous window; open system / audio / power / file /
-communication / media / network settings hubs; open your IDE (optionally at a
-file); open URLs and the browser. App-launch is backed by a live index of **your
+Open / close / focus / minimise / maximise apps and windows; tile windows;
+switch workspaces (next / previous); next/previous window; open the system, audio
+and power settings, the file manager and the communications hub; open your IDE
+(optionally at a file); open URLs and the browser. App-launch is backed by a live index of **your
 machine's executables** (thousands — indexed from your own system, so the exact
 count varies per machine) — and if an app isn't installed, ELI **offers to
-install it for you** (real `apt`/`snap`/`flatpak` install on your confirmation).
+install it for you** (a real install through your system's package manager — `apt`, `snap`,
+`flatpak`, `brew` or `winget` — on your confirmation).
 
 ### 🎯 Gaze control (webcam)
 Eye-tracking via MediaPipe with calibration and smoothing — *"open/click that"*
@@ -156,24 +163,26 @@ and learns a **per-user voice profile**. Dictation, transcription, and a spoken
 voice (Piper TTS) that never voices garbled fragments.
 
 ### 🔊 Voices — accents, characters & your own *(new, 2.1.23)*
-ELI ships with a set of voices and can fetch more from the upstream Piper library (about 166 voices across some 45
-languages at the time of writing, including US, British, Scottish, Northern and Southern
+ELI ships with a set of voices and can fetch more from the upstream Piper library (well over a
+hundred voices in dozens of languages, including US, British, Scottish, Northern and Southern
 English). The list is read from upstream, so the exact number changes.
 Do it by voice or text — *"what voices do you have"*, *"download a British voice"*,
 *"use the alan voice"* — or open **Settings ▸ Runtime ▸ "VOICE / TTS" > "Get more voices /
 accents..."**; either way it downloads (checksum-verified) and becomes selectable
-straight away. A handful of voices carry non-commercial licences, so ELI doesn't
-bundle them — the list says so plainly and still lets you fetch them for personal use.
-**Character voices** — calm, robotic, energetic, synthetic, and refined — are **generic style presets** built as a redistributable Piper base voice plus a real-time ffmpeg effect chain (no extra model). They are **not** impersonations of movie or TV characters (HAL, JARVIS, Rick, TARS, etc.) — those cannot be bundled in a public release. Pick a style from the voice selector (`Style: Robotic assistant`, …), or **create your own** (`char:<name>`) by choosing a base voice and tuning pitch / speed / effects. For a close match to a specific timbre you already have rights to use, **voice cloning** (`clone:<name>`) reproduces from **your** short audio sample via Coqui XTTS-v2 — an opt-in extra (`pip install "eli-v2.0[clone]"`, ~1.8 GB model downloaded on first use); without it, a cloned voice falls back to a normal Piper voice rather than going silent. Persona tone (*"be funnier"*, *"respond as a terse engineer"*) changes **wording**, not the speaker timbre.
+straight away. A handful of voices carry licences that don't let ELI redistribute them (one
+is non-commercial), so ELI doesn't bundle them — the list says so plainly and still lets you
+fetch them for personal use.
+**Character voices** — calm, robotic, energetic, synthetic, and refined — are **generic style presets** built as a redistributable Piper base voice plus a real-time ffmpeg effect chain (no extra model). They are **not** impersonations of movie or TV characters (HAL, JARVIS, Rick, TARS, etc.) — those cannot be bundled in a public release. Pick a style from the voice selector (`Style: Robotic assistant`, …), or **create your own** (`char:<name>`) by choosing a base voice and tuning pitch / speed / effects. For a close match to a specific timbre you already have rights to use, **voice cloning** (`clone:<name>`) reproduces from **your** short audio sample via Coqui XTTS-v2 — an opt-in extra for a source install (`pip install -e ".[natural]"` in the ELI folder, ~1.8 GB model downloaded on first use; the packaged builds don't include it); without it, a cloned voice falls back to a normal Piper voice rather than going silent. Persona tone (*"be funnier"*, *"respond as a terse engineer"*) changes **wording**, not the speaker timbre.
 
 ### 👁️ See & understand
-Local vision-language models describe any image or your live screen; OCR pulls
-text out of pictures; *"find the button that says X"* locates UI elements on
-screen; optional ambient glances keep rolling awareness — all local, no APIs.
+Local vision-language models describe any image or your live screen (the vision model is a
+separate download); OCR pulls text out of pictures; *"find the submit button on screen"*
+locates UI elements on screen; optional ambient glances keep rolling awareness — all local,
+no APIs.
 
 ### 🎨 Create images
-A from-scratch **procedural renderer** with 10+ scene types (landscape, space,
-city, poster, emblem, abstract, product, …), composition planning, palettes,
+A from-scratch **procedural renderer** with seven scene types (landscape, space,
+cityscape, poster, emblem, abstract, product), composition planning, palettes,
 atmosphere and post-processing — no model needed. Plus optional SSD-1B diffusion
 with VRAM hot-swap, and matplotlib plotting from your data.
 
@@ -223,7 +232,10 @@ diffs, and a built-in Sim-IDE.
 ### 🧠 Remember you
 A four-store memory (vector + full-text + knowledge graph + working memory) that
 keeps a **living, versioned profile** of you — and is *dynamic*: active projects
-stay fresh, abandoned ones fade, so its picture of you reflects *now*.
+stay fresh, abandoned ones fade, so its picture of you reflects *now*. It forgets
+cleanly too: *"forget that …"* shows what matches, and on your yes deletes it with
+everything derived from it — facts resting only on it, summaries that held it, its
+entries in the search index.
 
 ### 🔧 Look after itself
 Logs its own failures and runs a self-repair cycle (generate → verify → apply →
@@ -255,14 +267,13 @@ silently), builds your morning report, and surfaces things worth your attention 
 through a governed, approval-gated mission layer. On a 30-minute beat it also runs
 a **self-awareness/autonomy tick**: it watches its own code for changes, refreshes
 its self-model, and advances goals into proposals for your approval (observe-only /
-memory-write — nothing destructive runs unattended). Ask it about itself — *"what
-are you aware of"*, *"audit your identity"*, *"how does your cognition work"* — and
-the agents run the real audits and ELI **summarises** the grounded results, rather
-than dumping a report or guessing.
+memory-write — nothing destructive runs unattended). Ask it about itself — *"awareness
+status"*, *"eli identity audit"*, *"cognition status"*, *"run a full runtime audit"* — and
+ELI answers from the real audits and live measurements rather than guessing.
 
 ---
 
-## The workspace — your 13 main tabs
+## The workspace — your 14 main tabs
 
 | Tab | What it's for |
 |---|---|
@@ -278,7 +289,8 @@ than dumping a report or guessing.
 | 📄 **Report Builder** | Evidence-grounded, multi-stage document generation (promoted from Labs). |
 | 🧪 **Experimental** | A read-only workbench over the `experimental/` folder — inventories prototype kits and opens their folders/READMEs. It never runs them. |
 | 🌍 **Eli's World** | The live embodied self-model — ELI's avatar moving through cognitive "rooms" as it reasons. |
-| ⚙️ **Settings** | 10 pages: Model, Runtime, Generation, Identity, Audio, Application, Agents, Gaze, Web Server, Advanced. |
+| 🔒 **Audit** | The tamper-evident, metadata-only record of every request's real outcome, with a Verify Chain button. |
+| ⚙️ **Settings** | 10 pages: Model, Runtime, Generation, Identity, Audio, Application, Agents, Gaze, Web Server, Advanced (which opens the agents, cognition, plugins, Marketplace and self-upgrade tools). |
 
 *(Orchestration, Test & Review and Training are Labs sub-tabs, not top-level tabs.)*
 
@@ -291,11 +303,11 @@ ELI is built to be shaped by *you*:
 - **Swap the brain.** Model-agnostic — drop in any local GGUF model; ELI detects
   how to talk to it and auto-tunes to your hardware. No vendor lock-in; it
   improves as local models do.
-- **Tune the mind.** A dedicated **🧠 Cognition** settings panel exposes every
-  knowledge-gathering limit (memories, KG facts, rerank depth, the synthesis
-  budget), the **per-mode time budgets** (how hard each of Quick→Expert works),
-  and the **background-deepening** toggle — all live sliders, deeper or leaner to
-  taste.
+- **Tune the mind.** A dedicated **🧠 Cognition** settings panel (Settings ▸ Advanced ▸
+  Tune Cognition) exposes every knowledge-gathering limit (memories, KG facts, rerank
+  depth, the synthesis budget), the **per-mode time budgets** (how hard each of
+  Quick→Expert works), and the **background-deepening** toggle — each a number that
+  takes effect on the next message, deeper or leaner to taste.
 - **Extend it.** A real plugin system (weather, web, calendar, notes, pomodoro,
   document-reader, web-automation, system-stats, media, TTS) with
   install/enable/disable — and you can **create your own custom agents** through a
@@ -303,7 +315,8 @@ ELI is built to be shaped by *you*:
 - **Teach it routines.** ELI proposes habits it notices; you approve, edit, or
   add your own — scheduled and run automatically.
 - **Control the boundary.** One Net toggle decides whether it can touch the
-  internet at all, enforced at the network socket itself.
+  internet at all, enforced at the network socket itself (a download you start
+  yourself, such as a model or a voice, opens its own short window).
 
 ---
 
@@ -341,8 +354,8 @@ technical map: `capability_catalogue.md`.*
 - **Native streaming apps:** Spotify/Netflix/etc. launch native apps, not browser tabs, unless you explicitly ask for the website.
 - **Bundled-python deps:** `yt-dlp` ships via pip into ELI's interpreter — users never manage a venv manually; AppImage/PyInstaller bundles Python outright.
 - **Grounded install offers:** missing mpv, tesseract, ydotool, etc. → ELI tries first, then offers apt/brew/winget/pip install via remediation (cross-OS).
-- **Local UI grounding:** optional Phi-Ground/OS-Atlas/UGround/UI-TARS via GGUF in `models/` — no HTTP URLs, no cloud.
-- **Deep screen audit:** “analyze my screen in depth”, research-linked and prior-session memory fusion on `SCREEN_READ_ANALYZE`.
+- **Local UI grounding:** optional Phi-Ground/OS-Atlas/UGround/UI-TARS via GGUF in `models/` — no HTTP URLs, no cloud, unless you turn on both the Net switch and `allow_remote_grounding`.
+- **Deep screen audit:** “tell me exactly what’s on my screen” (or the Screen tab’s 🔬 Deep audit), research-linked and prior-session memory fusion on `SCREEN_READ_ANALYZE`.
 - **Screen tab settings:** one-click depth, ambient watch, precision click, computer-use agent — all local.
 
 ## Conversation grounding
@@ -381,7 +394,7 @@ them.
 If your hardware cannot train, the preflight says so and says why, instead of silently
 falling back to a run that takes days.
 
-### Community plugins (Settings ▸ 🛒 Marketplace)
+### Community plugins (Settings ▸ Advanced ▸ Manage Plugins ▸ 🛒 Marketplace)
 
 ELI ships the client for a marketplace the **community** owns — anyone can host a
 registry and anyone can publish to it. ELI takes no cut, holds no keys, and vets
@@ -391,9 +404,9 @@ single file reaches your disk:
 - confirms the download matches the checksum in the listing;
 - checks the signature, if the publisher signed it and you trust their key;
 - reads the code and refuses anything using a capability it did not declare;
-- runs **eleven malware scanners** — reverse shells, credential theft, rootkit
-  persistence, obfuscated payloads, crypto miners, typosquatted dependencies, plus
-  ClamAV and YARA if you have them;
+- runs **nine malware checks** — reverse shells, credential theft, rootkit
+  persistence, obfuscated payloads, crypto miners, typosquatted dependencies, known-bad
+  files and more — plus ClamAV and YARA if you have them, **eleven** in all;
 - shows you the result and lets you decide.
 
 Anything that installs arrives **switched off, with no permissions**.

@@ -1,6 +1,6 @@
 # ELI Grounding & Evidence Layer
 
-> **Updated for v2.4.84.** Quick mode still returns verbatim for deterministic
+> **Updated for v2.5.36.** Quick mode still returns verbatim for deterministic
 > introspection; all CHAT modes now pass through the gradient orchestrator first.
 
 The anti-confabulation system — a deterministic evidence scaffold wrapped around
@@ -21,12 +21,17 @@ source.
 > entirely", "without the LLM at all") overstated it. The running reality, verified
 > against the engine: the deterministic verbatim return fires for a **subset** of
 > actions and is **mode-gated** —
-> - a small **`_verbatim_always_actions`** set (deep introspection like
->   `EXPLAIN_MEMORY_RUNTIME`) returns verbatim in **every** reasoning mode;
-> - **`_deterministic_direct_payload_actions`** (status/reports + router-fast/command
->   actions: DATE/TIME, VOLUME, WRITE_NOTE, window/media/file ops, NEWS/MORNING_REPORT,
->   self-report …) return **verbatim in *quick* mode** and **synthesise in non-quick**
->   modes (`engine._bypass_persona` + `_is_grounded_control_nonquick`);
+> - a small **`_verbatim_always_actions`** set (the news and daily reports,
+>   `RESOLVE_RUNTIME_PATHS`, the code examiner's report and fix outcomes, habit
+>   confirmations, and the `SELF_ANALYZE` / `SELF_IMPROVE` / `SELF_UPGRADE` family) returns
+>   verbatim in **every** reasoning mode;
+> - **`_deterministic_direct_payload_actions`** (the engine's `_DIRECT_RESULT_ACTIONS`:
+>   status and diagnostic reports such as `EXPLAIN_MEMORY_RUNTIME` and `RUNTIME_STATUS`, and
+>   router-fast/command actions: DATE/TIME, VOLUME, WRITE_NOTE, window/media/file ops …)
+>   return **verbatim in *quick* mode** and **synthesise in non-quick** modes
+>   (`engine._bypass_persona` + `_is_grounded_control_nonquick`). A diagnostic of ELI's own
+>   behaviour (`control_contracts.EXPLAINED_IN_WORDS`) is told in words in every mode unless
+>   the person asks for the raw output;
 > - everything else is the model's to phrase.
 >
 > So the model IS in the loop for most conversational turns; the "phraser, not a source"
@@ -37,7 +42,7 @@ source.
 
 ## Components
 
-### `runtime/deterministic_grounding_gate.py` (3.4k lines)
+### `runtime/deterministic_grounding_gate.py` (3.3k lines)
 The deterministic renderer. `render_action(action, args, user_input, mode_label)`
 produces a grounded answer for control/status actions directly from runtime data
 (settings, runtime snapshot, DB counts, GPU line) — bypassing the model.
@@ -58,7 +63,7 @@ assembles the live config block (model_path, n_ctx, gpu_layers, …).
 > already used correctly for "what was your last message," and says plainly
 > when no trace is available rather than fabricating an answer.
 
-### `runtime/control_contracts.py` (1,242 lines)
+### `runtime/control_contracts.py` (1,311 lines)
 The deterministic control path:
 - `is_control_action` / `route_control_text` — recognise control/status intents.
 - `build_control_evidence(engine, action, args, …)` — gather the evidence packet
@@ -83,7 +88,7 @@ The deterministic control path:
 non-Quick compact synthesis path uses it and falls back to the deterministic evidence text.
 `contracts/grounded_control.py` owns which actions never fall back to a clarifying question.
 
-### `runtime/evidence_ledger.py` (732 lines)
+### `runtime/evidence_ledger.py` (759 lines)
 A persistent SQLite ledger of evidence events: `record_event`, `recent_events`,
 `actions_between` (what ELI executed in a period, per user, for the period log),
 `repeated_event_signals` (detect recurring issues over N days), `status_evidence`,
@@ -100,16 +105,27 @@ confirmed failure) rather than defaulting a missing outcome to success.
 ### Retrieval provenance
 Memory hits reach the prompt through the shared turn retrieval in `memory/retrieval.py`. Each
 recalled line carries its event date and status (`memory_provenance.format_grounding_memory_line`)
-and the orchestrator adds a retrieval diagnostics block (what was searched, how many items,
-which time window) so ELI can say truthfully what its search did.
+and the orchestrator adds a retrieval diagnostics block (`memory_diag.block`: what was searched,
+how many items, which time window) so ELI can say truthfully what its search did. The block states
+facts only. It used to end with the instruction "Only say nothing is stored for this scope." whether
+or not anything was found, and the model said exactly that beside a verified memory that held the
+answer; now only a search that found nothing adds that this is no evidence about anything outside
+the scope it searched.
 
-### `cognition/output_governor.py` (1,694 lines)
+### `cognition/output_governor.py` (1,547 lines)
 Post-generation governor: `govern_output(text, is_grounded)`,
 `normalize_assistant_text`, `validate_against_evidence`, plus a family of
 drift-repair functions — `strip_generic_ai_identity_drift` (kills "As an AI
 language model…"), `repair_local_persona_drift`, `repair_self_user_confusion`
 (fixes the model conflating itself with the user), `clean_response_style`. The
-last line of defence before text reaches the user.
+last line of defence before text reaches the user. A speaker label it strips from
+the start of a line ("ELI:", "User — ") ends in a colon or in a dash with a space
+after it: "USER-M000" and "AI-generated" are words, and the label rule had cut
+"USER-" off a token the user asked ELI to remember. The reply cleaner before it
+(`gguf_inference._clean_eli_output`) likewise rewrites role labels only at the start
+of a line ("OpenAI:" had become "OpenELI:") and drops only a closing "(Note: …)":
+anywhere else it had taken a step's note out of the middle of instructions, and an
+unclosed one took every later step with it.
 
 ### `cognition/grounded_status.py` (648 lines)
 `direct_grounded_answer(user_text)` — fully deterministic answers for identity /
@@ -118,14 +134,17 @@ memory-inventory / status questions, assembled from the DBs
 
 ### `runtime/grounded_remediation.py` (1.7k lines)
 The failure→repair loop. When an action fails (app won't open, path missing,
-browser/IDE absent), it: `diagnose_app/path/browser/ide` → `build_repair_plan`
+browser/IDE absent), it: `diagnose_app/path/browser/ide_generic/media_tool` → `build_repair_plan`
 → `offer_for_result` ("want me to install X?") → `handle_confirmation` (consumes
 yes/no) → `execute_pending_plan`. Stateful pending-repair tracking +
 `explain_last_failure`. This is what makes failures conversational and
 recoverable instead of dead ends. An install is offered only when a package source on the
 machine has the thing (`build_install_candidates` asks each one). When none has it the reply
 says so and, for a short name, asks whether to open its website instead: "open nasa" used to
-end "Would you like me to download/install it?", and a yes ran the same lookups again.
+end "Would you like me to download/install it?", and a yes ran the same lookups again. On
+Windows the app lookup runs `where` without a shell, and the `where`, winget and Chocolatey
+lookups only take a plain program or package name (`_PACKAGE_NAME`): the name comes from what
+the user said, and through cmd "open x & del /s ..." ran the rest as a second command.
 
 ## Evidence-completeness gating (`contracts/grounded_control.py`)
 
@@ -133,14 +152,17 @@ A prior gap in this exact layer: `GROUNDED_CONTROL_ACTIONS` existed but was neve
 a direct/verbatim return or a no-clarify decision — only bare membership (`is_grounded_control_action`)
 gated anything, so a grounded action with genuinely incomplete evidence (a binary file decoded as
 text, an empty result) could still short-circuit straight to the user. `evidence_complete_for_action(action,
-local_vars)` closes that: it's checked at both live call sites —
-before the direct-payload verbatim return, and before the no-clarify-suppression decision — and on
+local_vars)` closes that: it's checked at all three live call sites —
+the engine's direct-payload verbatim return, the engine's no-clarify-suppression decision, and the
+orchestrator's direct return of an executor result — and on
 `False` the turn falls through to the next tier instead of returning early, rather than refusing outright.
 
-- `GROUNDED_CONTROL_ACTIONS` (51 actions) is the union of `control_contracts.CONTROL_ACTIONS` and a
-  new `FILE_EVIDENCE_ACTIONS` (10 actions: `SUMMARIZE_FILE`, `READ_FILE`, `ANALYZE_PDF[_FOLDER]`,
+- `GROUNDED_CONTROL_ACTIONS` (51 actions) is the union of `control_contracts.CONTROL_ACTIONS` (38),
+  `FILE_EVIDENCE_ACTIONS` (10 actions: `SUMMARIZE_FILE`, `READ_FILE`, `ANALYZE_PDF[_FOLDER]`,
   `ANALYZE_IMAGE`, `OCR_IMAGE`, `TRANSCRIBE`, `CONVERT_DOCUMENT`, `FILE_AUDIT`,
-  `SCREEN_READ_ANALYZE`) — the family implicated in a real bug this closes: a `.docx` read as raw
+  `SCREEN_READ_ANALYZE`) and a few memory and self-report status actions (`MEMORY_COUNT`,
+  `RECENT_MEMORY_PROCESSING`, `SELF_REPORT_RECENT_UPDATES` and others already in the control set).
+  The file family is the one implicated in a real bug this closes: a `.docx` read as raw
   binary and confabulated into a fake analysis, because nothing checked whether the "evidence" was
   actually decodable text before treating it as complete.
 - `_looks_like_file_evidence_complete` runs a printable-ratio + non-empty + no-error-marker check
@@ -149,7 +171,7 @@ before the direct-payload verbatim return, and before the no-clarify-suppression
   Mapping keys, not just values) as still-incomplete rather than a false "complete."
 - `evidence_gap_reason(action, local_vars)` returns `"complete"`, `"missing"` or `"corrupted"` — a
   typed reason, not just a bool, for callers that want to say *why* evidence fell short.
-- Kill switch: `ELI_EVIDENCE_GATE_DISABLE=1` bypasses the check at both call sites, since widening
+- Kill switch: `ELI_EVIDENCE_GATE_DISABLE=1` bypasses the check at all three call sites, since widening
   `GROUNDED_CONTROL_ACTIONS` from the old hand-maintained ~10-action list to the full ~51-action
   union means the no-clarify gate now applies far more broadly than before — this lets a
   false-refusal in the field be killed instantly without a revert.
@@ -179,7 +201,7 @@ bug (asserts `evidence_complete_for_action` now returns `False` on it).
   conversational remediation loop. This is the subsystem that most justifies the
   "frontier" label.
 - **Weak:**
-  1. The gate file is still 3.4k lines with many version-named helpers (`_eli_v9_*`, `_eli_v14_*`);
+  1. The gate file is still 3.3k lines with many version-named helpers (`_eli_v9_*`, `_eli_v14_*`);
      the layers are ordered explicitly now, but the helpers wait to be folded into fewer, named modules.
   2. **Overlapping surfaces** — `grounded_status`, `control_contracts`,
      `deterministic_grounding_gate`, and the `runtime/*_response` / `*_surface`
@@ -233,7 +255,11 @@ exist, and said "the audit trail is now active" for logging that was always on.
   still too long, the oldest lines go, never the message or the newest turns
   (`fit_exchange_prompt`). Before 2.5.15 every reply was cut to 280 characters and an oversized
   prompt was cut from the front: a follow-up on a story past the cut reached a model that had
-  never seen it, and it called a real Guardian story its own invention.
+  never seen it, and it called a real Guardian story its own invention. The message itself is
+  cut only when it is longer than the loaded model's context window less the reply's room
+  (`engine._eli_max_input_chars`; `ELI_MAX_INPUT_LEN` overrides), and then it keeps its start
+  and its end with the middle marked as left out (`_eli_fit_input`). A fixed 8,192-character cut
+  used to apply to every message, and it took the question off the end of a pasted list.
 - **A correction is answered, not re-run.** When a correction or complaint about the last reply
   routes to the very action that produced it, it goes to chat with the record and that reply
   whole ("I did not ask about RAM" ran the RAM report again, word for word).
@@ -244,10 +270,10 @@ exist, and said "the audit trail is now active" for logging that was always on.
   against the real actions, settings, tunables, tables, modules and the filesystem); proposes
   a fix ELI has no action for; or, on a fault question, explains a cause the record does not
   carry (most of the sentence's content has to be written in the audit rows or the period
-  log); or names a maker other than the one the shipped licence names (`license_info.made_by`,
-  also given to the model as WHO MADE YOU). A sentence whose specifics (a file, a figure) are all
-  in the live facts (the loaded model file, the load as the loader reported it) states what is true
-  and is kept: "I am running on <the loaded model>" is not a claim to have done something. A
+  log); or names a maker other than the copyright holder the shipped NOTICE names (the Apache
+  LICENSE itself names nobody; `license_info.made_by`, also given to the model as WHO MADE YOU).
+  A sentence whose specifics (a file, a figure) are all in the live facts (the loaded model
+  file, the load as the loader reported it) states what is true and is kept: "I am running on <the loaded model>" is not a claim to have done something. A
   sentence that rests on a dropped one ("That is why...", "Want me to run that now?")
   goes with it, and a heading left with nothing under it is removed. ELI's own earlier
   replies are never counted as evidence. Code blocks are never touched. On every turn, not only
@@ -266,6 +292,14 @@ exist, and said "the audit trail is now active" for logging that was always on.
 - **What a message brings** (`cognition/supplied_in_message.py`). A question that holds its own facts
   skips the web and the intent model; text quoted or called material is never read for orders; sums and
   date offsets are worked out and handed to the model (`live_reads.live_facts`), which is not a calculator.
+  A sentence that opens with a short label and a colon ("Note: …", "Context: …", "Information
+  supplied: …") inside a longer message is material for the question, not an instruction
+  (`command_splitter.labels_material`): "Context: … Note: Aspen has code X. What is Aspen's code?"
+  had written a note to disk. A label followed by an instruction ("Task: open steam") still tells,
+  and "note: buy milk" on its own still writes the note. A message that supplies its own facts also
+  opens no window on the user's history for a month or date it names (`query_planner.parse_window`):
+  "Information supplied: Project K-04 launched in March. What is its password?" had been answered
+  with what was on record for the user in March.
 - **What backs a claim** (`_Check._backed`). An action that ran backs a sentence only if it changes
   something, shares a word with the sentence, or the sentence is about reading. A memory lookup does
   not back "I am starting the job". Also dropped: saying it cannot read what it can (`_DENIES_A_READ`),
@@ -410,7 +444,7 @@ and runs `NEWS_FETCH` again instead of falling through to web-escalation hedge.
 ## Challenging a grounded answer must re-check it, not confabulate a new one
 
 After a grounded action (`RUNTIME_AUDIT`, `RUNTIME_STATUS`, `GPU_STATUS`, `MEMORY_STATUS`, and
-~20 other status/diagnostic actions), a detail or challenge follow-up must rebind to the *same*
+37 other status/diagnostic actions), a detail or challenge follow-up must rebind to the *same*
 action for a fresh evidence pull, not fall through to open `CHAT` — that lets the model
 free-associate over whatever it remembers saying, and a skeptical push ("you sure about that?")
 can make it retract a correct answer and invent a wrong one instead
@@ -444,9 +478,10 @@ asked"`, `"more of a X than..."`, `"you're lying"`, `"making stuff up"`).
 
 The old memory-evidence module capped recent-history pulls silently; it was removed and shared
 turn retrieval (`memory/retrieval.py`) replaced it. The user-facing setting
-`cog.mem_recent_turns` (default 24, maximum 80) and `cognition/context_budget.py` now decide
-how much history and memory enter the prompt, and a recall question keeps a floor of a third
-of the window for memory context.
+`cog.mem_recent_turns` (default 30, maximum 160, scaled up for a larger model; Quick mode puts
+at most 8 turns in its prompt) and `cognition/context_budget.py` now decide how much history and
+memory enter the prompt, and a recall question keeps a floor of a third of the window for memory
+context.
 
 ## Retrieved evidence can't be cut away by an oversized-prompt truncation
 
@@ -469,8 +504,9 @@ final answer truthfully — from what it was shown — denied any relevant memor
 `_truncate_system_prompt_preserving_evidence` (`engine.py`) fixes this by finding the SITUATION
 BRIEF / CONVERSATION HISTORY span first and keeping it whole; only the persona/rules head and the
 closing-rules tail around it get shrunk, and evidence itself is only trimmed (head+tail, within
-itself) as a last resort. It's wired into both truncation sites in `_get_chat_response` — the
-broker path and the no-broker direct-GGUF path — which is the only place any of the four
+itself) as a last resort. It's wired into every truncation site in `_get_chat_response` — the
+broker path (the overflow guard, and the room a mode of several passes keeps for each pass's
+message) and the no-broker direct-GGUF path — which is the only place any of the four
 algorithmic reasoning modes (chain_of_thought, tree_of_thoughts, constitutional_ai,
 self_consistency) generate text; `quick` mode's separate streaming path
 (`_trim_enhanced_system_for_stream`) already trimmed history in place rather than blindly, so it

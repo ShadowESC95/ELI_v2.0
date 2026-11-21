@@ -9,15 +9,20 @@ Do not treat PyQt5 or PyQt6 as required project dependencies unless a separate e
 
 ## Standard source-checkout install
 
-From the ELI project root:
+The maintained installer is `bash install.sh` (`install.bat` / `install.ps1` on Windows): it picks
+the Python (`scripts/eli_env.py pick`), builds the inference engine for the machine's GPU, installs
+from the frozen lock and checks the result. By hand, from the ELI project root:
 
 ```bash
 python3 -m venv .venv
 . .venv/bin/activate
-python -m pip install --upgrade pip setuptools wheel
+python -m pip install --upgrade pip wheel 'setuptools>=68,<82'   # the cap install.sh applies for PyTorch
 python -m pip install -r requirements-full.txt
 python -m pip install -e .[full]
 ```
+
+That gives the CPU build of llama-cpp-python (0.3.35 or newer, compiled from PyPI's source) and
+PyPI's default PyTorch; for a GPU build use `install.sh`.
 
 ## Maintained launch path
 
@@ -29,27 +34,38 @@ Use the project runner:
 
 The runner:
 - resolves the project root;
+- isolates the environment (`scripts/eli_isolate_env.sh`): drops inherited ELI folder variables
+  and other checkouts' `.venv` from `PATH`, and checks the `.venv` can still run ELI;
 - activates `<ELI_PROJECT_ROOT>/.venv`;
 - exports `ELI_PROJECT_ROOT`;
 - exports the repository root through `PYTHONPATH`;
+- sources an optional `.env.eli_v2_0`, then unsets the model variables (`ELI_GGUF_MODEL_PATH`,
+  `ELI_MODEL_PATH`, `ELI_MODEL`, `GGUF_MODEL_PATH`) so a model saved there — the legacy
+  `bin/elix` launcher writes it — cannot bypass the picker;
 - launches the maintained setup entry point:
 
 ```bash
 python3 -m eli.gui.app --setup
 ```
 
+The other launchers (`./scripts/eli_launch.sh [gui|serve|both]`, `./eli.sh`, the `eli-v2`
+command) start the same app the same way, without forcing the model picker.
+
 Avoid launching deeply nested GUI files directly except for targeted developer diagnostics. Direct file execution can bypass package-relative import assumptions and create misleading `No module named eli...` failures.
 
 ## Dependency surfaces
 
 The canonical top-level install surfaces are:
-- `requirements.txt` — Linux x86_64 baseline profile
-- `requirements-full.txt` — broad source-checkout profile
-- `requirements-windows.txt` — Windows profile
-- `requirements-macos.txt` — macOS profile
-- `requirements-android.txt` — Android / Termux headless profile
+- `requirements.lock.txt` — frozen exact versions; the default for `install.sh` and `install.ps1`
+- `requirements.txt` — Linux x86_64 baseline profile (`install.sh --latest`)
+- `requirements-full.txt` — broad source-checkout profile (the ranges `install.sh` falls back to)
+- `requirements-windows.txt` — Windows profile (`install.ps1 -Latest` and its fallback)
+- `requirements-macos.txt` — macOS profile (what `install.sh` installs on macOS)
+- `requirements-android.txt` — Android / Termux headless profile (`scripts/install_android.sh`)
+- `requirements-portable-bootstrap.txt` — the PySide6 wheels the portable packages carry offline
 
-Generated or audit-derived requirement inventories may exist under `requirements/generated/`, but they are not the first-class onboarding contract unless explicitly promoted into the maintained setup flow.
+`requirements-build.txt` (release tooling) and `requirements-test.txt` (test suite) are not
+runtime profiles. Generated or audit-derived requirement inventories may exist under `requirements/generated/`, but they are not the first-class onboarding contract unless explicitly promoted into the maintained setup flow.
 
 ## Runtime portability contract
 
@@ -66,6 +82,7 @@ Do not hard-code a developer home directory, desktop checkout path, or one-machi
 After environment setup:
 
 ```bash
+python3 scripts/eli_env.py verify .     # ELI and everything it cannot run without, asked of .venv from outside the tree
 python3 -m pip check
 python3 -m py_compile   eli/gui/app.py   eli/gui/labs_tab.py   eli/runtime/generated_script_guard.py
 ```

@@ -17,13 +17,14 @@ your own evidence, and — uniquely — **improves its own source code and can e
 re-train its own brain on your conversations.** Unlike Siri, Alexa, or
 ChatGPT, nothing you say to ELI has to leave your house: it is **offline by
 default, enforced at the network socket itself**, with a switch *you* control.
-It is not a chatbot bolted onto a cloud API. It is ~196,249 lines of Python in `eli/` that
+It is not a chatbot bolted onto a cloud API. It is about 207,000 lines of Python in `eli/` that
 form a complete **cognitive operating system for one person and one machine** — and, as of
 2026-06-28, a self-hosted **web app** that brings the same local brain (chat, a live
 dashboard, ELI's own smart-home, multi-user accounts, a tamper-evident audit trail, shared
-research, and browser voice) to any device on your network. It is **source-available**
-(PolyForm Noncommercial 1.0.0): read, run, modify, and share it for any noncommercial
-purpose — commercial use and resale are reserved to the author.
+research, and browser voice) to any device on your network. It is **open source** under the
+**Apache License 2.0** (from v2.5.36): anyone may use, study, change and share it, for any
+purpose, under that licence's terms. Releases up to and including v2.5.35 were published under
+the PolyForm Noncommercial License 1.0.0.
 
 ---
 
@@ -34,8 +35,10 @@ inverts every one of those assumptions, and that inversion is the whole point.
 
 1. **It is truly, provably yours.** 100% local. No account, no subscription, no
    telemetry, no call-home — the libraries' own usage reporting is switched off too, and
-   hosts that only collect telemetry are refused even with the Net switch on. Your conversations, your memories, your files, your
-   habits — all sit in SQLite databases on *your* drive. The "offline" claim
+   hosts that only collect telemetry are refused even with the Net switch on. Your
+   conversations, your memories, your files, your habits — all sit in SQLite databases
+   on *your* drive. And the code is yours to read and change: it's open source under the
+   Apache License 2.0. The "offline" claim
    isn't marketing: there is a process-wide network guard (`netguard`) that
    **fail-closes at the socket layer** — when the Net switch is off, outbound
    connections physically cannot happen, even if some component tried. You hold
@@ -92,23 +95,23 @@ background process quietly watches your patterns through the day and assembles
 this; it never acts on its own without asking.)
 
 **While you work.** You talk to it by typing or by voice:
-- *"Open Firefox and my notes."* — done, instantly.
+- *"Open Firefox and list my notes."* — done, instantly.
 - *"Play Vincent's Tale by Ren on Spotify."* — it plays it, on the platform you
   named, no drifting to the wrong app.
 - *"What's on my screen?"* — it looks and tells you, and can read text out of
   any image or screenshot (OCR).
-- *"Click that"* — with the webcam on, it moves the cursor to wherever your eyes
-  are resting and clicks. Genuinely useful when your hands are full, and a real
+- *"Click that"* — with webcam gaze tracking on, it moves the cursor to wherever your
+  eyes are resting and clicks. Genuinely useful when your hands are full, and a real
   accessibility win.
-- *"What's the latest in fusion research?"* — you flip the **Net** switch on, it
+- *"What's the news on fusion research?"* — you flip the **Net** switch on, it
   fetches and **synthesises** the news (it won't just dump raw headlines), then
   switch it back off and it's fully sealed again.
 
 **Real work, not just errands.** This is where ELI stops being a gadget:
-- *"Summarise these three PDFs and this spreadsheet."* — it ingests and analyses
-  them locally.
-- *"Draft a technical report from these sources."* — its **Report Builder** reads
-  your files as *evidence* and writes a structured document (report, paper,
+- *"Summarise ~/papers/a.pdf, ~/papers/b.pdf and ~/data/sales.csv"* — it ingests
+  and analyses each of them locally.
+- *A technical report from your own sources* — drop them into the **Report Builder**
+  and it reads your files as *evidence* and writes a structured document (report, paper,
   proposal, audit, simulation write-up) with strict discipline: **every claim is
   tied to your evidence or marked `[source needed]` — it will not fabricate
   citations or numbers.**
@@ -124,8 +127,9 @@ this; it never acts on its own without asking.)
 your preferences — and those memories are *alive*: an active project stays fresh,
 an abandoned one fades, so its picture of you reflects *now*, not everything you
 ever said. It also learns *how* you like to be talked to and adjusts its tone.
-Offer it a routine ("open my apps every morning") and it'll *propose* automating
-it — but it never switches a habit on without your yes.
+Do the same thing at about the same time on a few different days and it'll
+*propose* making it a habit — but it never switches a habit on without your yes.
+(Ask outright — "open my apps every morning" — and it simply schedules it.)
 
 The lived feeling is less "search engine" and more **a calm, private operator
 sitting beside you who knows your setup, does the legwork, tells you the truth,
@@ -135,10 +139,10 @@ and gets out of your way.**
 
 ## For the tech head: the architecture, accurately
 
-~196,249 lines of Python across 438 files (`eli/`). A real cognitive runtime — not an API
+About 207,000 lines of Python across 451 files (`eli/`). A real cognitive runtime — not an API
 wrapper:
 
-- **Request pipeline.** A deterministic **router** (207 executor dispatch actions, 230
+- **Request pipeline.** A deterministic **router** (207 executor dispatch actions, 231
   declared capabilities) backed by a **model-grounded intent resolver** that
   resolves anything the rules miss against that same catalogue (so near-miss
   phrasings reach real actions instead of a blind chat) → a **gradient orchestrator**
@@ -163,8 +167,9 @@ wrapper:
 - **Inference & hardware.** GGUF via llama.cpp, **fully model-agnostic** (each model's own chat
   template, read from its file). Before every load llama.cpp simulates it on every GPU, any vendor,
   and ELI keeps the largest context, GPU layers and batch that fit what each card has free, sharing
-  layers across several cards; on the processor alone, what fits the RAM budget. A user-tunable **synthesis prompt cap** keeps the small model
-  from degenerating on oversized prompts — exposed in a GUI "Cognition" tab.
+  layers across several cards; on the processor alone, what fits the RAM budget. A user-tunable
+  **synthesis prompt cap** keeps the small model from degenerating on oversized prompts — exposed
+  in the GUI's Cognition panel (Settings ▸ Advanced ▸ Tune Cognition).
 
 - **Self-improvement & learning.** A real failure→analysis→patch loop
   (generate → syntax-verify → isolated import-test → apply → **auto-revert on
@@ -186,15 +191,22 @@ wrapper:
   location; cross-platform OS control.
 
 - **Security.** Offline-by-default enforced at the **socket** (`netguard`,
-  fail-closed) plus a **fail-closed** command/path/app allowlist sandbox
-  (`SecurityManager`) — shell commands are *blocked by default* unless you
-  explicitly allow them. Custom agents are AST-validated and hash-trusted before
-  they can run. A crisis-guard steers the persona on self-harm signals.
+  fail-closed). From chat, a shell command runs only when you ask for one in your own
+  words, and the **shell gate** (`shell_gate.check_command`) reads every command in the
+  line — chained, piped, substituted or started through a wrapper such as `sudo`,
+  `env -S` or `xargs` — and refuses destructive patterns and denied programs unless
+  you have switched on Full Control. (Commands from a habit you approved, or from an
+  install ELI offered and you accepted, run without that gate.) The web server trusts a
+  same-machine request only when it names this machine (a DNS-rebinding defence), and
+  in multi-user mode a member or viewer cannot have ELI run the owner's actions (shell,
+  code, files, screen, keyboard and mouse, ELI's own settings, plugins, MCP). Custom
+  agents are AST-validated and hash-trusted before they can run. A crisis-guard steers
+  the persona on self-harm signals.
 
 - **Extensibility.** A real plugin system (10 built-ins: weather, web, calendar,
   notes, pomodoro, document-reader, web-automation, system-stats,
   media, TTS) with install/enable/disable, plus user-created custom agents that
-  register live. `capability_sync` keeps the 230-capability manifest *measured*
+  register live. `capability_sync` keeps the 231-capability manifest *measured*
   against the actual code, not asserted.
 
 ---
@@ -272,11 +284,12 @@ frontier coder), `memory.md`, `security.md`, `inference_and_hardware.md`,
 
 ## Plugins, agents and training in one paragraph
 
-This release is about **reach, not invention**: four subsystems that already existed
-in full became usable. The LoRA trainer gained the GUI its own code always said it
-had, plus the review interface its safety contract required — it had never been able
-to train, because 615 candidate rows sat at 0 approved with no way to approve one. The
-eval harness, previously terminal-only, appeared in the app. Plugins stopped being
+The release that brought the Training tab and the Marketplace was about **reach, not
+invention**: four subsystems that already existed in full became usable. The LoRA trainer
+gained the GUI its own code always said it had, plus the review interface its safety
+contract required — it had never been able to train, because 615 candidate rows sat at
+0 approved with no way to approve one. The eval harness, previously terminal-only,
+appeared in the app. Plugins stopped being
 arbitrary Python executed in ELI's process and became declared, verified, scanned and
 permission-gated, behind a marketplace the community owns rather than one ELI's author
 controls. And custom agents stopped being a name plus a free-text persona and became a

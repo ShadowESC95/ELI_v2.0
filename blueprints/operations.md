@@ -17,42 +17,52 @@ so the number below is reasoned from the boot sequence, not measured.
 **Cost breakdown (boot order):**
 | Component | Cost | Notes |
 |---|---|---|
-| **GGUF model load** | **dominant** | 4.36 GB (7B) / **15.6 GB (24B)** off disk + GPU offload |
-| **Vision (Moondream) RESIDENT** | medium | loaded at boot, co-resident; **caps ctx 28672→18432** and holds VRAM even if unused |
-| faster-whisper `small.en` | low–med | CPU int8 |
-| daemons + 230-cap manifest + persona_updater | low | DB/CPU |
-| **embedder (nomic) + FAISS** | **lazy** | load on **first message**, not boot → turn-1 latency bump |
+| **embedder (nomic) + FAISS** | low–med | loaded **before** the model: the window builds the vector store first, so the load plan sees the memory the embedder takes |
+| **GGUF model load** | **dominant** | the model file off disk (e.g. 4.36 GB for a 7B, **15.6 GB for a 24B**) + GPU offload |
+| Vision (Moondream) | none by default | loads with the text model only when `vision_coresident` is on (then first, so the text model's plan is sized to what is left); otherwise a vision request loads it when needed |
+| faster-whisper `small.en` | low–med | CPU int8, or GPU int8_float16 only when the card holds it beside the language model's planned layers |
+| daemons + 231-cap manifest + persona_updater | low | DB/CPU |
 
-**Estimate *(est.)*:** ~15–40 s warm-cache on the 7B (dominated by model +
-resident-vision load); materially worse cold and on the 24B (15.6 GB).
+**Estimate *(est.)*:** ~15–40 s warm-cache on the 7B (dominated by the model load);
+materially worse cold and on the 24B (15.6 GB).
 
-**Cheap wins:** (a) make vision **lazy** (load on first vision use, not boot) —
-cuts cold start *and* frees VRAM / restores ctx; (b) instrument `_debug_boot_ts`
+**Cheap wins:** (a) lazy vision — done: nothing loads a vision model at boot unless
+`vision_coresident` is set; (b) instrument `_debug_boot_ts`
 to print per-stage deltas so this stops being an estimate.
 
 ---
 
 ## 2. Resource contention (daemons vs interactive)
 
-**One shared model behind one `RLock` (`engine.py::_gguf_lock`)** — all inference
-serializes through it.
+**One shared model behind one lock** — every generation serialises on
+`gguf_inference._LLM_CALL_LOCK` (the native llama.cpp lock); the engine's own
+`engine.py::_gguf_lock` (an `RLock`) also guards its chat calls.
 
 **Verified mitigation:** model-using background work uses **non-blocking acquire
 + defer**. Reflection: `self._gguf_lock.acquire(blocking=False)`, 4 retries,
 then `"Reflection deferred (GGUF busy)"` and backs off → **yields to interactive
 turns**. Correct pattern, and real.
 
+**Central defer:** a generation marked as background (`set_background_inference`, or
+`broker.infer(background=True)`) gets an empty reply while a conversation is live or has just
+ended (`ELI_BG_DEFER_WINDOW`, 30 s by default); a background job waits instead of being
+blanked (`set_job_inference`). A foreground call raises a priority flag and background
+generation yields at its next token (`ELI_FG_PREEMPT=0` turns that off). Background broker
+calls are also capped at `ELI_BG_MAX_TOKENS` (256). The proactive daemon, scheduled tasks,
+self-improvement and the background job runner mark their calls.
+
 **Risks (honest):**
-- Reflection demonstrably defers; **news_synthesis / self_improvement /
-  proactive_daemon also call the model** and should all route through the same
-  defer guard — verify each does (a direct blocking `gguf_inference` call would
-  stall an interactive turn).
+- A model call made off the user's turn without either mark waits for the lock like a turn
+  and holds it until it finishes.
 - On the **24B-CPU a turn is minutes**, so a deferred daemon waits minutes for a
-  window, and any non-deferred model call would block your reply for minutes.
-- **Non-model contention** (cheap but ever-present): `persona_updater` writes the
-  DB **every turn**; the proactive daemon scans the DB; **ambient vision runs the
-  vision model on CPU**; the embedder is a *separate* CPU model — so vector search
-  + ambient vision can hit CPU simultaneously.
+  window, and any unmarked background call would block your reply for minutes.
+- **Non-model contention** (cheap but ever-present): the persona overlay is rebuilt at most
+  once every 120 s (`persona_updater`); the proactive daemon scans the DB; the embedder is a
+  *separate* model — so vector search and generation compete for the same cores or card.
+  Ambient vision is off by default; when on, each glance (every 300 s by default) skips while
+  the text model is generating, and swaps the text model out unless the vision model runs
+  beside it (`vision_fast_no_swap`), waiting for 15 quiet minutes first when that model is
+  over 8 GB.
 
 ---
 
@@ -60,7 +70,8 @@ turns**. Correct pattern, and real.
 
 **(a) Working-memory pins** — `cognition/working_memory.py`:
 - `MAX_PINS = 20` hard cap; importance-weighted.
-- `MAX_AGE_TURNS = 40` — `_evict_stale()` drops facts unreferenced for 40 turns.
+- `MAX_AGE_TURNS = 40` — `_evict_stale()` drops facts unreferenced for 40 turns, or for
+  three days of wall-clock time (`MAX_AGE_SECONDS`), whichever comes first.
 - `_evict_one()` drops lowest-importance-oldest at cap.
 - Persisted `ORDER BY importance DESC LIMIT 20`.
 → a principled **importance/age LRU**, bounded.
@@ -68,15 +79,21 @@ turns**. Correct pattern, and real.
 **(b) Context-window fill (`n_ctx`)** — a *different* mechanism, and the one that
 actually bites under pressure:
 - `engine.py::_build_enhanced_system` budget-trims the **persona**.
-- `_get_chat_response` **recency-truncates `memory_context`** (keeps the latest,
-  cuts the head) to fit `n_ctx`.
+- `_get_chat_response` fits `memory_context` to `n_ctx` with
+  `context_budget.trim_memory_context`, which drops **whole lines, block by block**: the
+  blocks lowest in `_BLOCK_PRIORITY` go first (retrieval diagnostics, the turn record and the
+  period log are kept longest), and inside a block the weakest ranked hits and the oldest turns
+  go first. On a recall question memory keeps at least a third of the window.
 - The 20 small pins almost always fit, so **retrieved memory is what gets
-  evicted under pressure, by recency** — not the pins.
+  evicted under pressure, by block priority and rank** — not the pins.
 
-**(c) Long-term store** — SQLite `memories` / `conversation_turns` are
-**unbounded on disk**; they never fill the window directly. Retrieval
-(FTS5/FAISS/rerank top-k) gates what enters context. The real "limit" is
-**retrieval selection + recency truncation**, not a store cap.
+**(c) Long-term store** — SQLite `memories` / `conversation_turns` grow on disk and
+never fill the window directly; nothing the user said is deleted by a cap. The daily
+upkeep (`Memory.run_upkeep`) moves derived rows that have faded unused to
+`memories_archive` and compacts deleted memories out of the vector files; ELI's own
+observations are pruned per category; the FAISS index keeps at most `MAX_ENTRIES` (50,000)
+vectors. Retrieval (FTS5/FAISS/rerank top-k) gates what enters context. The real "limit" is
+**retrieval selection + the context trim**, not a store cap.
 
 ---
 
@@ -84,7 +101,8 @@ actually bites under pressure:
 
 **Grounding escalation** (`runtime/grounding_escalation.py`): each tier is
 wrapped in `try/except`; a failing tier **falls through to the next**
-(web → local → hedge); the engine hook is itself wrapped
+(web → hedge for an external fact, local re-dispatch → hedge for anything else); the
+engine hook is itself wrapped
 (`"grounding escalation skipped"`) so total failure **degrades to the normal
 CHAT answer**. **No rollback — and none needed — because the tiers are
 side-effect-free reads** (web search reads; local re-dispatch is read-only).
@@ -103,22 +121,30 @@ but real.
 
 ## 5. Testing strategy (two layers + the gaps)
 
-**Layer 1 — code correctness:** **544 pytest files, 12,594 tests collected, all passing on the release run** — routing patterns, contracts, executor gates, memory, kernel,
-perception/voice, packaging. About 14 minutes for the full run; run on every change.
+**Layer 1 — code correctness:** **572 pytest files in `tests/` (593 with its
+subfolders)** — routing patterns, contracts, executor gates, memory, kernel,
+perception/voice, packaging. The full suite runs locally; CI runs a subset (below).
 
 **Layer 2 — behavioural eval:** `tools/eval/` (see `tools/eval/README.md`) drives the
 **real pipeline** and asserts on telemetry (action / grounding / response_mode /
 latency) + text. Cases seeded from fixed bug-logs as permanent regression guards.
 
-**Gaps that should exist for a system this complex and don't yet:**
-1. **No CI** — suites run by manual discipline, not automatically.
-2. **No coverage measurement** — hence no exact dead/dormant-code number
-   (a `process()`-under-coverage profiler over the 95 stored conversations
-   would close this).
-3. **Behavioural eval is new and small** (~13 cases) — grow to the ~30–50 seeded
-   set and beyond.
-4. **No perf/latency regression tracking** and **no multi-model comparison run**
-   standing yet — both enabled by the harness, not yet wired.
+**Where each gap stands:**
+1. **CI covers a subset.** `.github/workflows/cross-platform-smoke.yml` runs on every push
+   to `main` and every pull request, on Linux, macOS and Windows and several Python
+   versions: a list of self-contained test files, the claims suite and the eval router
+   cases. Installer, GPU-pack and release workflows sit beside it. The full suite is not run
+   in CI.
+2. **Runtime coverage, not pytest coverage.** `tools/eval/profile_runtime.py` replays stored
+   conversations and the eval cases under `sys.settrace` and reports the lines executed per
+   file, which actions route and which agents fire (route, agents or engine mode). Nothing
+   measures pytest coverage.
+3. **Behavioural eval has 93 cases** (`tools/eval/cases.yaml`); keep adding one per bug fixed
+   from a log.
+4. **Latency and model comparison are recorded, not enforced.** `run_eval.py --history`
+   appends pass rate and mean latency per model to `artifacts/eval/history/trend.jsonl`
+   (the nightly `eval` job runs it), and `tools/eval/benchmarks/` holds the model
+   benchmarks; nothing fails a release on a latency regression.
 
 ---
 
@@ -126,14 +152,13 @@ latency) + text. Cases seeded from fixed bug-logs as permanent regression guards
 
 | Fix | Why | Where |
 |---|---|---|
-| **Lazy vision load** | cuts cold start + frees VRAM + restores ctx (28672 vs 18432) | `perception/vision.py`, boot in `gui/…MKI.py` |
-| **Verify every model-calling daemon uses the non-blocking defer** | stops a background job stalling an interactive reply (minutes on 24B) | `runtime/self_improvement.py`, `planning/proactive_daemon.py`, `eli/tools/news/news_synthesis.py` vs `engine.py::_gguf_lock` |
-| **Boot-timing instrumentation** | turns "cold start" from estimate → measured | `gui/…MKI.py` `_debug_boot_ts` |
-| **Coverage profiler over stored conversations** | exact dead/dormant-code map | new `tools/eval/` profiler |
+| ~~Lazy vision load~~ | done: no vision model at boot unless `vision_coresident` is on | `perception/vision.py`, `cognition/gguf_inference.py` |
+| **Mark every background model call** | an unmarked call still waits for and holds the lock like a turn (minutes on 24B) | any `broker.infer` / `gguf_inference` call made off the user's turn |
+| **Boot-timing instrumentation** | turns "cold start" from estimate → measured | `gui/eli_pro_audio_gui_v2_0.py` `_debug_boot_ts` |
+| ~~Coverage profiler over stored conversations~~ | done: `tools/eval/profile_runtime.py` | `tools/eval/` |
 
 > Companion docs: `architecture.md` · `architecture_ascii.md` · `diagrams.md` ·
 > `tools/eval/README.md` (the measurement layer).
-```
 
 ---
 
@@ -150,5 +175,8 @@ latency) + text. Cases seeded from fixed bug-logs as permanent regression guards
   already flushed (session summary written), so nothing was lost, but it dumped core. `main()` now
   runs the shutdown/atexit flush (memory + session summary + explicit model unload) then
   `os._exit(rc)`, bypassing the destructor pass.
-- **STT no longer starves the main model:** faster-whisper is VRAM-aware (CPU on ≤8 GB cards), so
-  the main model reclaims its GPU layers (gpu_layers 11→99). See `perception.md`.
+- **STT no longer starves the main model:** faster-whisper is VRAM-aware. It goes on the GPU
+  only when the card holds its measured footprint beside every layer the language model's
+  plan puts there, else on the CPU (`ELI_WHISPER_DEVICE` overrides), so the main model keeps
+  its GPU layers (on the 8 GB development card at the time, gpu_layers went from 11 to 99).
+  See `perception.md`.

@@ -1,48 +1,28 @@
 # Contributing to ELI v2.0
 
-Thanks for your interest! One thing to know up front: **ELI is source-available,
-not open-source** (see [LICENSE](LICENSE)), and that shapes how contributions
-work.
+Thanks for your interest! ELI v2.0 is open source under the
+[Apache License 2.0](LICENSE) (copyright notice in [NOTICE](NOTICE)).
 
 ## How you can help
 
 - **Report bugs** or suggest improvements via
   [issues](https://github.com/ShadowESC95/ELI_v2.0/issues).
 - **Submit fixes or features** via pull request.
-- You may **use, modify, and redistribute** ELI under the license for any
-  **noncommercial** purpose, but you may **not** use it, or a modified version,
-  for a **commercial** purpose without a separate license. Contributing
-  improvements back here — rather than publishing your own fork — is still the
-  supported path.
 
-## Contributor terms (please read before opening a PR)
+## Licence of contributions
 
-Because the project is source-available and the author retains the right to
-maintain and commercialise it, contributions require a simple inbound grant.
-
-**By submitting a contribution (a pull request, patch, or code suggestion you
-author), you agree that:**
-
-1. The contribution is **your own original work** and you have the right to
-   submit it.
-2. You grant **Jason Fitzgibbon Bridgeman** (the copyright holder) a perpetual,
-   worldwide, irrevocable, royalty-free license to **use, modify, sublicense, and
-   relicense** your contribution — including for commercial purposes — as part of
-   ELI v2.0, under the project's current license and any future license the
-   holder may choose (including commercial / dual licensing).
-3. You retain your own copyright in your contribution; you are simply granting the
-   license above so I can keep the whole project under one license and keep steering it.
-4. Contributions are provided "as is", without warranty.
-
-If you can't agree to these terms, please open an issue to discuss rather than
-sending code.
+Contributions are accepted under the Apache License 2.0, as its section 5 sets
+out: anything you intentionally submit for inclusion (a pull request, patch or
+code suggestion) is licensed under the same terms as the rest of the project,
+with no further terms. By submitting, you confirm it is your own work, or that
+you have the right to submit it under that licence.
 
 ## Practical notes
 
 - Keep pull requests focused and small where possible.
-- Run the test suite before submitting: `pytest -q tests/`.
+- Run the test suite before submitting: `python -m pytest -q tests/`.
 - **No personal data, secrets, or machine-specific paths** (e.g. `/home/<you>`)
   in commits.
-- Be respectful and constructive.
+- Be respectful and constructive — see the [Code of Conduct](CODE_OF_CONDUCT.md).
 
-Questions? **jaybridgeman0095@gmail.com**
+Questions? [Open an issue](https://github.com/ShadowESC95/ELI_v2.0/issues).

@@ -1,6 +1,7 @@
 # Blueprint — Code-Mode Execution Layer for ELI (gap analysis)
 
-> **Updated for v2.4.84.** Restricted exec gated on Full Control; `api.call()` facade.
+> **Updated for v2.5.36.** Restricted exec gated on Full Control; `api.call()` facade. File and
+> line references below are as of v2.5.36.
 
 *Status: draft. Date: 2026-06-11.*
 *REVISED after auditing the codebase: an earlier version of this doc proposed building
@@ -21,8 +22,8 @@ Core implemented, gated, and tested (17 tests, `tests/test_code_mode.py`):
   `execute()`; `api.actions()` for discovery.
 - **Runner:** `eli/coding/code_mode.py` — generate→gate+validate+run→retry loop (injectable
   `generate`, testable without a model).
-- **Lane redirect:** `CODE_SOLVE` with `args.code_mode=True` runs in-process against `eli.api`
-  (fail-closed: refuses unless Full Control is ON).
+- **Lane redirect:** `CODE_SOLVE` with `args.code_mode=True` (or `execute_via_eli`) runs
+  in-process against `eli.api` (fail-closed: refuses unless Full Control is ON).
 - **#4 retrieval:** confirmed ABSENT (no top-K capability retriever); v1 passes a bounded
   `api.actions()` list — a semantic retriever is a future refinement, not required.
 
@@ -51,8 +52,8 @@ so we build only that.
 | DAG decomposition of a task | `solve_dag()` | `eli/coding/plan_graph.py` |
 | **Bounded sandbox execution** (CPU limit, scrubbed env, kill-switch) | `run_code()` | `eli/coding/sandbox.py` |
 | **Deterministic risk gate** (action classes → approved/blocked/pending-confirm) | `approval_engine.evaluate_record()` | `eli/runtime/approval_engine.py` |
-| **Fail-closed command allowlist** + destructive-pattern block (`rm -rf /`, `mkfs`, `dd`…) | `security` + `_BLOCKED_PATTERNS` | `eli/runtime/security.py`, `executor_enhanced.py` |
-| Authority / autonomy posture | `authority_gate`, `operator_policy` (proposal_only/supervised/…) | `eli/runtime/authority_gate.py`, `eli/execution/operator_policy.py` |
+| **Shell-command gate**: destructive-pattern block (`rm -rf /`, `mkfs`, `dd`…) + an executable denylist judged on every command in a line (`;`, `&&`, `\|`, `$( )`, wrappers such as `sudo`/`env`); only Full Control lifts it | `check_command`, `_BLOCKED_PATTERNS` | `eli/execution/shell_gate.py` |
+| Authority / autonomy posture | `authority_gate` (role gate: a member or viewer cannot have ELI run the owner's actions), `operator_policy` (proposal_only/supervised/…) | `eli/runtime/authority_gate.py`, `eli/execution/operator_policy.py` |
 | AST validate-and-retry of generated code | `code_examiner` (used live 2026-06-11) | `eli/runtime/code_examiner.py` |
 | Capability **registry** (register/get/list) | `capability_registry` | `eli/tools/registry/capability_registry.py` |
 | Capability **doc/digest generator** from the manifest | `generate_capabilities_doc()` | `eli/tools/registry/capabilities_doc.py` |
@@ -60,7 +61,7 @@ so we build only that.
 | Reasoning-native planning (model thinks, then emits) | working post-`e7ab0b9` | `eli/cognition/gguf_inference.py` |
 
 **Conclusion:** ELI is not missing "a code agent," "a sandbox," or "a safety gate." It has
-all three, plus verification, search, bug-memory, a risk engine, a command allowlist, and a
+all three, plus verification, search, bug-memory, a risk engine, a shell-command gate, and a
 capability registry. The CodeAgent already does CodeAct-style plan→code→verify→sandbox→retry.
 
 ## 2. The genuine DELTA (the only new work)
@@ -72,8 +73,8 @@ request*, and the reply is synthesised from the execution result. Each candidate
 audited IN FULL (2026-06-11); statuses below are grounded with file:line evidence.
 
 1. **`eli.api` facade — MOSTLY EXISTS (only typed sugar is new).** The callable dispatch
-   already exists: `execute(action, args)` at `executor_enhanced.py:12507` runs any of the
-   230 manifest actions by name. Generated code can already call `execute("SUMMARIZE_FILE", {...})`.
+   already exists: `execute(action, args)` at `executor_enhanced.py:12154` runs any of the
+   231 manifest actions by name. Generated code can already call `execute("SUMMARIZE_FILE", {...})`.
    The *only* delta is a typed, discoverable wrapper (`eli.api.files.summarize(path)`)
    generated from the registry — convenience + discoverability over an existing surface,
    not new execution machinery.
@@ -87,8 +88,8 @@ audited IN FULL (2026-06-11); statuses below are grounded with file:line evidenc
    `code_examiner` AST walker + `approval_engine` action-classes for the GREEN/AMBER/RED
    decision — but the in-process restricted-exec itself is new. This is THE work.
 3. **Routing lane to the code agent — ALREADY EXISTS as `CODE_SOLVE`.** Router lane
-   (`router_enhanced.py:3194`, `_CODE_SOLVE_RE`) + executor handler
-   (`executor_enhanced.py:10009`) → `eli.coding.solve` (plan→search→verify→repair, quick/
+   (`router_enhanced.py:3674`, `_CODE_SOLVE_RE`) + executor handler
+   (`executor_enhanced.py:9558`) → `eli.coding.solve` (plan→search→verify→repair, quick/
    thorough, DAG, background). Reuse it. The only variant is targeting `eli.api` for
    assistant-actions rather than producing a standalone script, + grounded synthesis of the
    result (reuses the `540f514` no-confabulation work). Do NOT build a new lane.
@@ -126,16 +127,17 @@ registry, AND the `CODE_SOLVE` routing lane are already yours.
 ## 4. Verified in full (2026-06-11)
 
 Audited against the project directory, not assumed:
-- **Callable dispatch surface?** YES — `execute(action, args)` at `executor_enhanced.py:12507`.
-  Generated code can already run any of the 230 manifest actions by name.
-- **Routing lane to the code agent?** YES — `CODE_SOLVE` (`router_enhanced.py:3194` +
-  `executor_enhanced.py:10009` → `eli.coding.solve`). Already plan→search→verify→repair,
+- **Callable dispatch surface?** YES — `execute(action, args)` at `executor_enhanced.py:12154`.
+  Generated code can already run any of the 231 manifest actions by name.
+- **Routing lane to the code agent?** YES — `CODE_SOLVE` (`router_enhanced.py:3674` +
+  `executor_enhanced.py:9558` → `eli.coding.solve`). Already plan→search→verify→repair,
   quick/thorough, DAG, background.
 - **Sandbox: namespace-restricted or process-only?** PROCESS-only (`coding/sandbox.py:129`:
   subprocess + scrubbed env + CPU limit), for *standalone* code. **Cannot host live-state
   code-mode** → the in-process AST-whitelist (§2.2) is genuinely required.
 - **Risk gate to compose with?** YES — `approval_engine.evaluate_record()` (action classes →
-  approved/blocked/pending-confirm) + the command allowlist. Map `eli.api` calls onto it.
+  approved/blocked/pending-confirm) + the shell gate (`shell_gate.check_command`). Map
+  `eli.api` calls onto it.
 - **AST walker to reuse?** YES — `code_examiner` (used live this session).
 - **Existing `eli.api`-style typed facade under `eli/tools/`/`eli/plugins/`?** NOT found —
   the registry stores metadata, not a callable typed surface. This (small) piece is new.
