@@ -202,6 +202,35 @@ def test_the_labs_runner_runs_a_script_with_its_own_interpreter(qapp, tmp_path):
     assert out and out[0][0].strip() == "from-the-shell", out
 
 
+@pytest.mark.parametrize("name,words,fence", [
+    ("tool.sh", "bash code", "bash"),
+    ("tool.js", "javascript code", "javascript"),
+    ("tool.rs", "code from a .rs file", "rs"),
+    (None, "python code", "python"),              # an unsaved buffer runs as Python
+])
+def test_labs_asks_eli_about_the_code_in_its_own_language(qapp, tmp_path, name, words, fence):
+    """ELI: Fix errors and ELI: Explain called every file Python code."""
+    import threading
+    from eli.gui.labs_tab import _SimIDETab
+    asked, answered = [], threading.Event()
+
+    def eli(prompt):
+        asked.append(prompt)
+        answered.set()
+        return "ok"
+
+    sim = _SimIDETab(eli_callback=eli)
+    sim._set_code("say hello\n")
+    if name:
+        sim._current_file = tmp_path / name
+    for ask in (sim._ask_eli_fix, sim._ask_eli_explain):
+        answered.clear()
+        ask()
+        assert answered.wait(10), ask.__name__
+        assert f" {words}" in asked[-1] and f"```{fence}\nsay hello" in asked[-1], asked[-1]
+        assert fence == "python" or "python" not in asked[-1].lower(), asked[-1]
+
+
 def test_calculator_tab_has_inputs(qapp):
     # A concrete sub-tab built its interactive surface (not just an empty frame).
     import eli.gui.labs_tab as lt

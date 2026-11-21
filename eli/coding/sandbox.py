@@ -57,6 +57,15 @@ def runner_for_suffix(suffix: str):
     return None
 
 
+def language_for_suffix(suffix: str) -> Optional[str]:
+    """The language a script file with this suffix runs as (".sh" is bash), or None."""
+    wanted = str(suffix or "").lower()
+    for language, (ext, _argv_builder) in _RUNNERS.items():
+        if ext == wanted:
+            return language
+    return None
+
+
 @dataclass
 class RunResult:
     """Outcome of one sandboxed execution."""

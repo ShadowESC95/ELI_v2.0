@@ -5229,6 +5229,19 @@ class _SimIDETab(QWidget):
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
 
+    def _code_kind(self) -> tuple:
+        """What the buffer is, for a prompt: (its words, its fence tag). The language comes from the
+        file's suffix by the table Run uses (eli.coding.sandbox); an unsaved buffer runs as Python.
+        A suffix that table does not know is named as it is, and a file without one is just code."""
+        from eli.coding.sandbox import language_for_suffix
+        suffix = self._current_file.suffix.lower() if self._current_file else ".py"
+        language = language_for_suffix(suffix)
+        if language:
+            return f"{language} code", language
+        if suffix:
+            return f"code from a {suffix} file", suffix.lstrip(".")
+        return "code", ""
+
     def _ask_eli_fix(self):
         code = self._get_code().strip()
         stderr = self._console.toPlainText().strip()
@@ -5237,8 +5250,9 @@ class _SimIDETab(QWidget):
         if not code and not stderr:
             self._set_eli_panel("Write some code first, then click Fix.")
             return
-        prompt = (f"Fix the following Python code. Errors:\n```\n{stderr[-500:]}\n```\n\n"
-                  f"Code:\n```python\n{code[:3000]}\n```\n\nReturn only the corrected code.")
+        words, fence = self._code_kind()
+        prompt = (f"Fix the following {words}. Errors:\n```\n{stderr[-500:]}\n```\n\n"
+                  f"Code:\n```{fence}\n{code[:3000]}\n```\n\nReturn only the corrected code.")
         self._run_eli(prompt)
 
     def _ask_eli_explain(self):
@@ -5248,7 +5262,8 @@ class _SimIDETab(QWidget):
         if not code:
             self._set_eli_panel("Write some code first, then click Explain.")
             return
-        prompt = f"Explain what this Python code does, step by step:\n```python\n{code[:3000]}\n```"
+        words, fence = self._code_kind()
+        prompt = f"Explain what this {words} does, step by step:\n```{fence}\n{code[:3000]}\n```"
         self._run_eli(prompt)
 
     def _run_eli(self, prompt: str):
