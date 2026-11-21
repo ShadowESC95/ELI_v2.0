@@ -2156,6 +2156,24 @@ def _asks_what_is_on_screen(low: str) -> bool:
     return bool(_ON_SCREEN_RE.search(low) and _SEE_CUE_RE.search(low))
 
 
+# An element on the screen named by what is written on it: "the button that says Submit", "the link
+# labelled Pricing", "the tab called Settings", "the button with the text Export".
+_ELEMENT_BY_ITS_LABEL = re.compile(
+    r"^(?:(?:the|a|an|that|this)\s+)?(?:\w+\s+)?(?:button|link|tab|icon|menu(?:\s+item)?|item|option|field|"
+    r"box|check\s*box|label|word|words|text|entry|toggle|switch|heading|title)\s+"
+    r"(?:(?:that|which)\s+(?:says|reads|is\s+(?:called|named|labell?ed|marked|titled))"
+    r"|called|named|labell?ed|marked|saying|reading|titled|entitled"
+    r"|with\s+(?:the\s+)?(?:text|label|words?|caption|name|title))\s+(?P<label>.+?)[\s.!?]*$", re.I)
+
+
+def _label_of_element(phrase: str) -> Optional[str]:
+    """What is written on the element a phrase names by it ("Submit" in "the button that says Submit"),
+    as the user wrote it, or None when the phrase does not name an element that way."""
+    m = _ELEMENT_BY_ITS_LABEL.match(str(phrase or "").strip())
+    label = m.group("label").strip(" \"'“”‘’") if m else ""
+    return label or None
+
+
 def _asks_now_playing(low: str) -> bool:
     """A question about the LIVE media session — what is currently playing or being watched —
     including wrapped request forms ('do you know what I'm watching', 'can you check what I'm
@@ -4628,6 +4646,16 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                    matched_by="browser.tab_new")
 
     # Screen-locator routes — find/click visible UI text on the screen.
+    # "find the button that says Submit", "click the link labelled Pricing": what is written on the
+    # element is what to look for. The rules below looked for "that says submit", and for "the".
+    m = re.match(r"^(?:please\s+|(?:can|could|would)\s+you\s+)?(?P<verb>find|locate|highlight|show\s+me|where\s+is|"
+                 r"look\s+for|click|tap|press|hit|select|choose)\s+(?:on\s+)?(?P<element>.+?)"
+                 r"(?:\s+on\s+(?:the\s+)?(?:screen|page))?[\s.!?]*$", raw, re.I)
+    _label = _label_of_element(m.group("element")) if m else None
+    if _label:
+        _click = m.group("verb").lower() in ("click", "tap", "press", "hit", "select", "choose")
+        return _mk("SCREEN_LOCATE", {"query": _label, **({"click": True} if _click else {})}, 0.94,
+                   matched_by="screen.locate_by_label", entities={"query": _label})
     # "find the word compose" names on-screen text without saying "on screen" (it searched the web).
     m = (re.search(r"\b(?:find|locate|where\s+is)\s+(?:the\s+)?(.+?)\s+on\s+(?:the\s+)?(?:screen|page)\b", low)
          or re.match(r"^(?:please\s+|can\s+you\s+)?(?:find|locate|highlight|show\s+me|where\s+is)\s+(?:the\s+)?"
@@ -4659,7 +4687,7 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     # Also bare "click compose" / "tap send" (it went to the model's guess: dictation, and a raw
     # "<click> compose </click>" as the reply). "press" alone stays with the keyboard.
     m = re.search(
-        r"\b(?:click|tap|press)\s+(?:on\s+)?(?:the\s+)?(.+?)\s+(?:link|tab|icon|menu|item)\b",
+        r"\b(?:click|tap|press)\s+(?:on\s+)?(?:the\s+)?(?!(?:the|a|an)\s)(.+?)\s+(?:link|tab|icon|menu|item)\b",
         low,
     ) or re.match(r"^(?:please\s+|can\s+you\s+|eli,?\s+)?(?:click|tap)\s+(?:on\s+)?(?:the\s+)?"
                   r"(\S+(?:\s+\S+){0,4}?)[\s.!]*$", low)

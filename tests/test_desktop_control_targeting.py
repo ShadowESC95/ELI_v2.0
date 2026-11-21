@@ -383,6 +383,23 @@ def test_find_the_word_looks_on_the_screen(said, query):
     assert r["action"] == "SCREEN_LOCATE" and r["args"]["query"] == query and not r["args"].get("click")
 
 
+# "find the button that says Submit" looked for the words "that says submit"; "click the link labelled
+# Pricing" looked for "the"; "press the button that says OK" went to chat.
+@pytest.mark.parametrize("said,query,click", [
+    ("find the button that says Submit", "Submit", False),
+    ("where is the link called Pricing", "Pricing", False),
+    ("find the text that reads Sign in on the page", "Sign in", False),
+    ("find the button with the text Export", "Export", False),
+    ("click the link labelled Pricing", "Pricing", True),
+    ("click on the tab called Settings", "Settings", True),
+    ('press the button that says "OK"', "OK", True),
+])
+def test_an_element_named_by_what_is_written_on_it_is_found_by_that(said, query, click):
+    r = route(said)
+    assert r["action"] == "SCREEN_LOCATE" and r["args"]["query"] == query and bool(r["args"].get("click")) is click
+    assert route("click the link")["args"]["query"] != "the"
+
+
 @pytest.mark.parametrize("said,action", [("left click", "GAZE_CLICK"), ("click play", "MEDIA_CONTROL"),
                                          ("press enter", "KEYBOARD"), ("find cheap flights to rome", "OPEN_BROWSER")])
 def test_mouse_media_keys_and_web_are_unchanged(said, action):
