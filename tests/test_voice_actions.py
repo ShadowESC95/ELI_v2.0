@@ -58,6 +58,21 @@ def test_freetext_persona_style_stays_persona(text):
     assert _action(text) == "SET_COMMUNICATION_STYLE"
 
 
+def test_setting_a_style_names_a_phrase_that_really_clears_it(monkeypatch):
+    """The reply said "Say 'reset your tone' to clear it". That phrase is CLEAR_TONE, which drops the
+    emotion-palette tone and leaves the saved style as it was."""
+    import re
+    import eli.kernel.state as state
+    from eli.execution.executor_enhanced import execute
+    saved = []
+    monkeypatch.setattr(state, "set_communication_style", lambda s, user_id=None: saved.append(s) or s)
+    reply = execute("SET_COMMUNICATION_STYLE", {"style": "like a lighthouse keeper"})["response"]
+    phrase = re.search(r"say [\"'“]([^\"'”]+)[\"'”]", reply, re.I).group(1)
+    routed = route(phrase)
+    execute(routed["action"], routed["args"])
+    assert saved[-1] == "", f"{phrase!r} went to {routed['action']} and left the style set"
+
+
 def test_install_firefox_is_not_a_voice_download():
     assert _action("install firefox") != "DOWNLOAD_VOICE"
 

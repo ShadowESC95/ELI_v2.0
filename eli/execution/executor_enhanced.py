@@ -4588,7 +4588,11 @@ def set_communication_style_action(style: str) -> Dict[str, Any]:
     except Exception as e:
         msg = f"Couldn't save that tone preference: {e}"
         return {"ok": False, "action": "SET_COMMUNICATION_STYLE", "error": repr(e), "content": msg, "response": msg}
-    msg = f"Got it — I'll speak to you {s} from now on. Say 'reset your tone' to clear it."
+    # What clears it is a reset word reaching this action ("set your style to none" does), or the
+    # Settings field left blank. "Reset your tone" was named here, and that is CLEAR_TONE: it drops
+    # the emotion-palette tone (tone_adaptor.clear_tone) and leaves this style in place.
+    msg = (f"Got it — from now on I'll speak to you this way: {s}. To clear it, say "
+           "\"set your style to none\", or empty \"Tone / how ELI speaks\" in Settings ▸ Identity.")
     return {"ok": True, "action": "SET_COMMUNICATION_STYLE", "communication_style": s, "content": msg, "response": msg}
 
 
