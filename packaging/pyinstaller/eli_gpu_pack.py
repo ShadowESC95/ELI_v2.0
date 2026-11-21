@@ -11,8 +11,8 @@ heavy GPU binaries are per-machine downloads, never part of the installer.
 
 Backends:
   NVIDIA      official CUDA wheels (abetlen index), picked by driver version
-  AMD/Intel   CI-built Vulkan wheels from the ELI_v2.0 `gpu-packs` release
-              (auto on AMD; use --vulkan to force, e.g. Intel Arc)
+  AMD/Intel/  CI-built Vulkan wheels from the ELI_v2.0 `gpu-packs` release
+  Qualcomm    (picked on AMD, Intel Arc or integrated, Adreno; --vulkan forces it elsewhere)
   Apple       nothing to do — the macOS bundle already uses Metal
 
 Invoked via:  ELI --install-gpu-pack [--vulkan] [--force]
@@ -33,7 +33,7 @@ from pathlib import Path
 WHEEL_INDEX = "https://abetlen.github.io/llama-cpp-python/whl/{cuda}/llama-cpp-python/"
 # Newest first — pick the newest index the driver supports.
 CUDA_INDEXES = ("cu124", "cu123", "cu122", "cu121")
-# CI-built Vulkan wheels (AMD / Intel Arc) — built by .github/workflows/
+# CI-built Vulkan wheels (AMD / Intel / Qualcomm) — built by .github/workflows/
 # gpu-packs.yml in the public ELI_v2.0 repo; both v2 and v3 download from it.
 VULKAN_RELEASE_API = "https://api.github.com/repos/ShadowESC95/ELI_v2.0/releases/tags/gpu-packs"
 # Direct asset URLs — used when the GitHub Releases API is rate-limited or
@@ -1275,11 +1275,11 @@ def _install(argv: list[str] | None = None, progress=None) -> int:
             )
     else:
         return _fail(
-            f"no supported GPU detected on this {sys.platform} — no NVIDIA, AMD, or "
-            "discrete Intel Arc GPU found. Apple GPUs are already handled by the "
-            "macOS (Metal) build. If you have a GPU the driver isn't exposing (or an "
-            "Intel iGPU), force the Vulkan pack with:  ELI --install-gpu-pack --vulkan. "
-            "CPU inference keeps working either way."
+            f"no supported GPU detected on this {sys.platform} — no NVIDIA, AMD, Intel "
+            "(Arc or integrated) or Qualcomm Adreno GPU found, and each of those gets its pack "
+            "without a flag. Apple GPUs are already handled by the macOS (Metal) build. If you "
+            "have a GPU the driver isn't exposing, force the Vulkan pack with:  "
+            "ELI --install-gpu-pack --vulkan. CPU inference keeps working either way."
         )
 
     prefer_cuda = nvidia_present and not want_vulkan

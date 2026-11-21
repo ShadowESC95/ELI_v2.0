@@ -197,7 +197,7 @@ data ships in any installer.
 - **Uninstall:** Windows → the **Uninstall** shortcut. Linux → the **Uninstall ELI v2.0** menu
   entry (removes the entries, offers to delete your data, then delete the AppImage file).
   macOS → drag the app to Trash; your data folder is listed above.
-- **GPU later / undo:** `ELI --install-gpu-pack` (add `--vulkan` for Intel Arc) ·
+- **GPU later / undo:** `ELI --install-gpu-pack` (it picks the pack for your GPU; `--vulkan` forces the Vulkan one) ·
   `ELI --remove-gpu-pack`.
 - **From source (developers):** `bash install.sh` from a clone works exactly as before.
 

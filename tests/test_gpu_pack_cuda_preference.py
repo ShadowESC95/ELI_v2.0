@@ -261,3 +261,16 @@ def test_verify_keeps_pack_on_clean_exit_false_negative(tmp_path, monkeypatch):
     ok, detail = eli_gpu_pack._verify(dest, require_offload=True)
     assert ok is True
     assert "cuda devices enumerated" in detail
+
+
+def test_with_no_gpu_found_the_message_does_not_send_an_intel_igpu_to_a_flag(tmp_path, monkeypatch, capsys):
+    """It said an Intel iGPU needs --vulkan; the picker finds Intel integrated (and Arc, AMD and
+    Adreno) by itself and takes the Vulkan pack for it without one."""
+    monkeypatch.setenv("ELI_PROJECT_ROOT", str(tmp_path))
+    monkeypatch.setattr(eli_gpu_pack, "_driver_cuda_version", lambda: None)
+    for finder in ("_has_nvidia_gpu", "_has_amd_gpu", "_has_intel_arc_gpu", "_has_intel_igpu", "_has_qualcomm_igpu"):
+        monkeypatch.setattr(eli_gpu_pack, finder, lambda: False)
+    assert eli_gpu_pack._install([]) == 1
+    said = capsys.readouterr().err
+    assert "no supported GPU detected" in said
+    assert "Intel iGPU), force" not in said and "Intel (Arc or integrated)" in said and "Qualcomm" in said
