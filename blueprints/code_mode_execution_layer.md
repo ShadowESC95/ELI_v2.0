@@ -14,12 +14,16 @@ own way.*
 
 ## BUILT (2026-06-11)
 
-Core implemented, gated, and tested (17 tests, `tests/test_code_mode.py`):
+Core implemented, gated, and tested (22 tests, `tests/test_code_mode.py`):
 - **Restricted exec (the one new piece):** `eli/coding/restricted_exec.py` — Full-Control-gated
   (`is_full_control()`, the GUI toggle), AST-whitelist (10 escape classes rejected: import/
   eval/open/getattr/dunder-attr/`__import__`/def/lambda/with/exec), restricted namespace.
 - **Facade (sugar):** `eli/tools/api.py` — `api.call("ACTION", **args)` + helpers, proxying to
-  `execute()`; `api.actions()` for discovery.
+  `execute()`; `api.actions()` for discovery. The program is the model's choice of actions, so
+  every call is held to the rule for any action a model proposes: an action
+  `llm_intent.model_may_choose` refuses (explicit-only or internal: the shell, forgetting,
+  plugin installs, confirmations) or the caller's role may not have run (`authority_gate`)
+  raises `PermissionError` before anything runs, and `api.actions()` lists only the rest.
 - **Runner:** `eli/coding/code_mode.py` — generate→gate+validate+run→retry loop (injectable
   `generate`, testable without a model).
 - **Lane redirect:** `CODE_SOLVE` with `args.code_mode=True` (or `execute_via_eli`) runs

@@ -93,6 +93,48 @@ def test_code_mode_loop_and_retry(monkeypatch):
     assert out["ok"] and out["result"] == "CHECK_JOB" and out["attempts"] == 2
 
 
+@pytest.mark.parametrize("program", [
+    "result = api.call('SHELL_EXEC', cmd='rm -rf ~/notes')",
+    "result = api.call('memory_forget', query='everything')",
+    "result = api.call('PLUGIN_INSTALL', plugin='keylogger')",
+    "result = api.call('CONFIRM_CODE_FIX')",
+])
+def test_a_program_the_model_wrote_cannot_call_an_action_the_model_may_not_choose(monkeypatch, program):
+    """Code-mode is the model choosing actions, so it is held to the rule for every action a
+    model proposes (the ReAct loop, the failure re-plan): nothing explicit-only or internal. Under
+    Full Control a program could call any action through api.call, the shell included."""
+    import eli.execution.executor_enhanced as ex
+    from eli.coding.code_mode import run_code_mode
+    from eli.tools.api import api
+
+    monkeypatch.setattr(fc, "is_full_control", lambda: True)
+    ran = []
+    monkeypatch.setattr(ex, "execute", lambda action, args=None, **kw: ran.append(action) or {"ok": True})
+    out = run_code_mode("tidy up", lambda p: program, api=api, max_attempts=2)
+    assert out["ok"] is False and "PermissionError" in out["error"], out
+    assert ran == [], f"the executor ran {ran} for a model-written program"
+    assert "SHELL_EXEC" not in api.actions() and "MEMORY_FORGET" not in api.actions()
+
+
+def test_a_program_is_held_to_the_callers_role(monkeypatch):
+    """A member's turn cannot have the model's program read a file, as it cannot ask for one."""
+    import eli.execution.executor_enhanced as ex
+    from eli.kernel import request_context as rc
+    from eli.tools.api import api
+
+    monkeypatch.setattr(fc, "is_full_control", lambda: True)
+    ran = []
+    monkeypatch.setattr(ex, "execute", lambda action, args=None, **kw: ran.append(action) or {"ok": True})
+    token = rc.caller_role_var.set("member")
+    try:
+        r = R.run_restricted("result = api.call('READ_FILE', path='notes.txt')", api=api)
+        assert r.ok is False and "owner only" in r.runtime_error
+        assert R.run_restricted("result = api.background_jobs()", api=api).ok
+    finally:
+        rc.caller_role_var.reset(token)
+    assert ran == ["BACKGROUND_JOBS"]
+
+
 def test_code_mode_blocked_without_full_control(monkeypatch):
     monkeypatch.setattr(fc, "is_full_control", lambda: False)
     from eli.coding.code_mode import run_code_mode

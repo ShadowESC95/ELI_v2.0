@@ -3,7 +3,10 @@
 This is the planner→run→retry loop (the same shape as the coding agent) pointed at
 `eli.api` instead of producing a standalone script: the model emits a short Python program
 that calls `api.*`, which is gated (Full Control), AST-whitelisted, and run in-process by
-`restricted_exec`. The reply is then grounded in the program's real `result`.
+`restricted_exec`. Every action the program calls is the model's choice, so `eli.api` holds it
+to the rule for any action a model proposes (llm_intent.model_may_choose and the caller's role):
+an explicit-only one stops the program before it runs. The reply is then grounded in the
+program's real `result`.
 
 `generate` is injected (a `prompt -> text` callable) so the whole loop is testable without
 a model — exactly like `eli.coding.agent`.
@@ -27,7 +30,7 @@ def _strip_fences(text: str) -> str:
 
 def _build_prompt(request: str, actions: List[str], *, prev_code: str = "", error: str = "") -> str:
     helpers = (
-        "api.call('ACTION_NAME', arg=value, ...)   # run any action, returns a result dict\n"
+        "api.call('ACTION_NAME', arg=value, ...)   # run one of the actions listed, returns a result dict\n"
         "api.summarize_file(path)\n"
         "api.check_job(job_id)\n"
         "api.background_jobs()\n"
