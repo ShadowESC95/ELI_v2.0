@@ -2252,8 +2252,9 @@ class AgentBus:
         """Run the agents on the frontier DAG orchestrator: dependency-ordered,
         intra-layer parallel, per-agent timeouts, upstream results passed downstream,
         with a full RunReport captured for observability. Behaviour-preserving vs the
-        layered path — agent fns never raise out (errors → ok=False), so dependency
-        edges only order + pass upstream, never gate."""
+        layered path — agent fns never raise out (errors → ok=False), and an agent past
+        its timeout is given up on while a downstream agent still runs with what did
+        come in, so dependency edges only order + pass upstream, never gate."""
         from eli.core.dag import Task, Orchestrator
         by_name = {a.name: a for a in active_agents}
         active = set(by_name)
@@ -2275,7 +2276,8 @@ class AgentBus:
         tasks = [
             Task(id=a.name, run=_make(a),
                  depends_on=set(_AGENT_DEPENDENCIES.get(a.name, set())) & active,
-                 timeout=self._agent_timeout(a, intent))
+                 timeout=self._agent_timeout(a, intent),
+                 skip_if_upstream_fails=False)
             for a in active_agents
         ]
         report = Orchestrator(max_workers=max(2, len(active_agents))).run(tasks, context={})
@@ -2290,6 +2292,8 @@ class AgentBus:
                 results.append(o.result)
             else:
                 err = (o.error if o else "not run") or (o.status if o else "missing")
+                if o is not None and o.status == "timeout":
+                    log.debug(f"[AGENTBUS] {a.name} given up on: {err}")
                 results.append(AgentResult(agent=a.name, ok=False, confidence=0.0, data={}, error=str(err)))
         return results
 

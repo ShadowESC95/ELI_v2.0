@@ -15,14 +15,16 @@ additively, so every existing class/function and caller is unchanged.
 - **Conditional nodes** — `when(ctx)->bool` skips a branch dynamically.
 - **Retries + backoff** — per-node `retries` with exponential `retry_backoff`.
 - **Fallback** — a `fallback` fn runs if all attempts fail.
-- **Per-node timeout** — a node with a `timeout` runs on a worker thread, but the timeout
-  does not cut the layer short: the layer's pool shuts down with wait, so a node past its
-  budget is still waited for, and its finished result is kept rather than recorded as a
-  timeout (dropping it threw away finished work).
+- **Per-node timeout** — a node with a `timeout` runs on a worker thread, and the timeout
+  counts from its start. A node past it is given up on: it is recorded as `timeout` without
+  its result, nothing waits for its thread (which keeps running until its fn returns), and
+  the run goes on; a node queued behind it in the layer starts in its place. A node that
+  finishes inside its timeout keeps its result.
 - **Memoisation** — pluggable `cache` keyed by `cache_key` (status `cached`).
 - **Priority scheduling** — higher-priority nodes first within a ready layer.
 - **Fail-fast + global time budget** — stop scheduling after a failure / budget.
-- **Auto-skip** — a node whose upstream didn't complete is skipped with a reason.
+- **Auto-skip** — a node whose upstream didn't complete is skipped with a reason, unless it
+  sets `skip_if_upstream_fails=False` and runs with the upstream results that did come in.
 - **`critical` semantics** — a non-critical node's failure doesn't fail the run.
 - **Deterministic `RunReport`** — per-node status/attempts/timing + order + layers +
   critical path + failed/skipped lists + `to_dict()` for observability.
@@ -33,9 +35,10 @@ Pure stdlib; the orchestrator does no LLM/IO — the node callables do.
 - **Agents (cognition):** the agent bus runs the agents it selected for the turn on the
   orchestrator (`_run_agents_orchestrated`, default `ELI_AGENT_ORCHESTRATOR=1`, falls back to
   the layered then flat paths). Dependency-ordered, intra-layer parallel, per-agent
-  timeouts set from the mode and model tier (waited past, as above), upstream results passed
-  downstream, and a `RunReport` captured per dispatch. Behaviour-preserving: agent fns never
-  raise out (errors → `ok=False`), so edges only order + pass upstream, never gate.
+  timeouts set from the mode and model tier (an agent past its timeout is given up on, as
+  above), upstream results passed downstream, and a `RunReport` captured per dispatch.
+  Behaviour-preserving: agent fns never raise out (errors → `ok=False`) and the agents' tasks
+  set `skip_if_upstream_fails=False`, so edges only order + pass upstream, never gate.
 - **Router → executor (observability):** `ORCHESTRATION_STATUS` action
   ("orchestration status" / "show your agent dag") returns the live engine, execution
   layers, dependencies, critical path, and last-run telemetry — so ELI can explain its

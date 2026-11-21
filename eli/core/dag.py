@@ -228,7 +228,7 @@ def build_dag(dependencies: Dict[str, Iterable[str]]) -> DAG:
 # Pure stdlib, no LLM or IO in here, that's the node callables' job.
 import time as _time
 import contextvars
-from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FTimeout
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait as _wait_futures
 from dataclasses import dataclass as _dc, field as _fld
 from typing import Callable as _Callable
 
@@ -255,11 +255,14 @@ class Task:
     priority: int = 0                      # higher runs first within a ready layer
     retries: int = 0                       # extra attempts after the first
     retry_backoff: float = 0.0             # base seconds for exponential backoff
-    timeout: Optional[float] = None        # total per-node budget (seconds)
+    timeout: Optional[float] = None        # seconds from its start; past them it is given up on
     fallback: Optional[NodeFn] = None      # run if all attempts fail
     when: Optional[Predicate] = None       # conditional skip if it returns False
     cache_key: Optional[str] = None        # memoisation key (with a cache supplied)
     critical: bool = True                  # if it fails, the overall run is not ok
+    # False: the node still runs when an upstream node failed, timed out or was skipped, and
+    # sees the results that did come in (its edges order it and pass results, never gate it).
+    skip_if_upstream_fails: bool = True
 
 
 @_dc
@@ -367,6 +370,48 @@ class Orchestrator:
         return NodeOutcome(task.id, "failed", None, error=str(last_err),
                            attempts=attempts, seconds=_time.perf_counter() - t0)
 
+    def _run_pooled(self, runnable: List["Task"], workers: int, snapshot: Dict[str, Any],
+                    shared: Dict[str, Any]) -> Iterable["NodeOutcome"]:
+        """Run one layer's nodes on worker threads, `workers` at a time, and yield each outcome as
+        soon as it is known. A node's timeout counts from its start. Past it the node is given up
+        on: it is recorded as a timeout without its result, nothing waits for its thread, and the
+        next queued node starts in its place. A node with no timeout is waited for."""
+        workers = max(1, int(workers or 1))
+        queue = deque(runnable)
+        live: Dict[Any, tuple] = {}            # future -> (task, started, deadline or None)
+        # One thread per node: a node given up on keeps its thread until its fn returns, and the
+        # nodes queued behind it must still get one at once.
+        ex = ThreadPoolExecutor(max_workers=len(runnable))
+        try:
+            while queue or live:
+                while queue and len(live) < workers:
+                    task = queue.popleft()
+                    # Each task runs in a copy of the caller's context: a pool thread otherwise
+                    # starts with an empty one, and an action run from here was missing from the
+                    # turn's audit row and carried no user id.
+                    fut = ex.submit(contextvars.copy_context().run, self._run_one, task, snapshot, shared)
+                    started = _time.perf_counter()
+                    live[fut] = (task, started,
+                                 None if task.timeout is None else started + float(task.timeout))
+                deadlines = [d for _task, _started, d in live.values() if d is not None]
+                wait_s = max(0.0, min(deadlines) - _time.perf_counter()) if deadlines else None
+                done, _ = _wait_futures(list(live), timeout=wait_s, return_when=FIRST_COMPLETED)
+                for fut in done:
+                    task, started, _deadline = live.pop(fut)
+                    try:
+                        yield fut.result()
+                    except Exception as e:  # noqa: BLE001 — _run_one keeps the node's own errors
+                        yield NodeOutcome(task.id, "failed", error=str(e), attempts=1,
+                                          seconds=_time.perf_counter() - started)
+                now = _time.perf_counter()
+                for fut, (task, started, deadline) in list(live.items()):
+                    if deadline is not None and now >= deadline and not fut.done():
+                        del live[fut]
+                        yield NodeOutcome(task.id, "timeout", error=f"exceeded {task.timeout}s",
+                                          attempts=1, seconds=now - started)
+        finally:
+            ex.shutdown(wait=False, cancel_futures=True)
+
     def run(self, tasks: Iterable["Task"],
             context: Optional[Dict[str, Any]] = None) -> "RunReport":
         task_map: Dict[str, Task] = {str(t.id): t for t in tasks}
@@ -405,7 +450,7 @@ class Orchestrator:
                 bad_dep = next((d for d in task.depends_on
                                 if str(d) in task_map and not outcomes.get(str(d), NodeOutcome(str(d), "skipped")).ok),
                                None)
-                if bad_dep is not None:
+                if bad_dep is not None and task.skip_if_upstream_fails:
                     _skip(tid, f"upstream '{bad_dep}' did not complete"); continue
                 if task.when is not None:
                     try:
@@ -430,32 +475,11 @@ class Orchestrator:
                     _emit(o)
                     had_failure = had_failure or (o.status in ("failed", "timeout") and task.critical)
             else:
-                _late: Dict[Any, "Task"] = {}
-                with ThreadPoolExecutor(max_workers=max(workers, 1)) as ex:
-                    # Each task runs in a copy of the caller's context: a pool thread otherwise
-                    # starts with an empty one, and an action run from here was missing from the
-                    # turn's audit row and carried no user id.
-                    futs = {ex.submit(contextvars.copy_context().run, self._run_one, t, snapshot, shared): t
-                            for t in runnable}
-                    for fut, task in futs.items():
-                        try:
-                            o = fut.result(timeout=task.timeout)
-                        except _FTimeout:
-                            _late[fut] = task
-                            continue
-                        _emit(o)
-                        had_failure = had_failure or (o.status in ("failed", "timeout") and task.critical)
-                # Leaving the `with` above runs shutdown(wait=True), so every task is already done and its
-                # answer is in the future. Recording slow ones as timeouts threw away finished work (a 121.4s
-                # memory node against a ~121s ceiling left the reply with no memory). Harvest instead.
-                for fut, task in _late.items():
-                    try:
-                        o = fut.result(timeout=0)
-                    except Exception:
-                        o = NodeOutcome(task.id, "timeout",
-                                        error=f"exceeded {task.timeout}s", attempts=1)
+                # The layer used to run inside `with ThreadPoolExecutor(...)`, whose exit waits for
+                # every node, so a timeout bounded nothing: a hung agent held its layer and the turn.
+                for o in self._run_pooled(runnable, workers, snapshot, shared):
                     _emit(o)
-                    had_failure = had_failure or (o.status in ("failed", "timeout") and task.critical)
+                    had_failure = had_failure or (o.status in ("failed", "timeout") and task_map[o.id].critical)
 
         ok = not any(o.status in ("failed", "timeout") and task_map[i].critical
                      for i, o in outcomes.items())

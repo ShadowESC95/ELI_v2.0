@@ -231,11 +231,11 @@ Execution (`AgentBus.dispatch`):
   Orchestrator (`_run_agents_orchestrated`, `ELI_AGENT_ORCHESTRATOR`); if that fails the bus
   runs them layer by layer (`_run_agents_layered`), and if the DAG fails it falls back to a
   flat parallel run (`ELI_AGENT_DAG=0` goes straight to the flat run).
-- **Per-agent timeout**: an exception becomes a failed `AgentResult`. On the layered and flat
-  paths a timeout does too, and never blocks the response. On the default orchestrated path the
-  timeout does not end the wait: the layer's worker pool is shut down with wait, so a slow
-  agent holds its layer until it finishes, and its late result is kept instead of being
-  recorded as a timeout.
+- **Per-agent timeout**: an exception becomes a failed `AgentResult`, and so does a timeout,
+  which never blocks the response. On the default orchestrated path an agent is given up on at
+  its own timeout (counted from its start), and an agent downstream of it still runs with what
+  the others found; on the layered and flat paths a layer waits until its longest timeout plus
+  a second and keeps any agent that finished by then.
 - **Aggregation** (`_aggregate_confidence`): per-agent contribution = evidence quality ×
   evidence density × a calibration learned per (agent, action) × relevance (2026-09-29:
   `term_overlap(user_input, representative_text) → relevance_gate()`, gated on ≥40 chars of
@@ -301,10 +301,10 @@ store nothing; their parent stores the real message and the reply the user saw.
 2. **Planning is only partly consolidated.** The engine's `_build_runtime_orchestrator_plan`
    (a rich stage dict) and the bus `OrchestratorAgent` plan coexist with the typed
    `ExecutionPlan`; only the ReAct loop and `MULTI_COMMAND` execute a sequence.
-3. **Timeouts do not cancel work.** On the layered and flat paths `future.result(timeout)`
-   only stops waiting, so a timed-out write-capable agent (memory, habit) can still land a late
-   database write. On the default orchestrated path the timeout does not stop the wait either:
-   a hung agent holds its layer, and the turn with it.
+3. **Timeouts do not cancel work.** A timeout only stops the wait (on every path), so a
+   timed-out write-capable agent (memory, habit) can still land a late database write, and a
+   system action given up on can still finish in the background after the turn reported it
+   unfinished.
 4. **Confidence is coupled to a fixed evidence-key schema.** `_evidence_density` counts known
    keys; a custom agent returning useful prose under an unknown key contributes zero.
 5. **No early exit for direct actions; failures are debug-only.** The bus waits for the
