@@ -404,3 +404,32 @@ def test_notes_are_kept_in_the_data_folder_not_where_eli_was_started(tmp_path, m
     execute("NEW_NOTE", {"title": "garage", "content": "call the garage on Monday"})
     listed = str(execute("LIST_NOTES", {}))
     assert "README.md" not in listed and (tmp_path / "data" / "notes").is_dir()
+
+
+def test_a_real_eli_folder_in_home_keeps_its_paths(monkeypatch, tmp_path):
+    # ~/eli stood for the program's folder (it used to live there), so on a machine with a real ~/eli
+    # folder every path under it was read from the program's folder: fixing or listing ~/eli/work/x.py,
+    # or anything in a checkout kept under ~/eli, reached a file that is not there
+    from eli.core.paths import canonical_project_root, resolve_user_repo_path
+    from eli.execution import executor_enhanced as EX
+
+    home = tmp_path / "home"
+    work = home / "eli" / "work"
+    work.mkdir(parents=True)
+    mine = work / "x.py"
+    mine.write_text("print('mine')\n")
+    monkeypatch.setenv("HOME", str(home))
+    assert resolve_user_repo_path("~/eli/work/x.py") == mine.resolve()
+    assert resolve_user_repo_path(str(mine)) == mine.resolve()
+    assert resolve_user_repo_path("~/eli/work/new.txt") == (work / "new.txt").resolve()
+    listed = EX.execute("LIST_DIR", {"path": "~/eli/work"})
+    assert listed.get("ok") is True and listed.get("path") == str(work.resolve())
+    assert "x.py" in listed.get("content", "")
+
+    # with no real ~/eli the old alias still reaches the program's folder and its package
+    bare = tmp_path / "bare"
+    bare.mkdir()
+    monkeypatch.setenv("HOME", str(bare))
+    root = canonical_project_root()
+    assert resolve_user_repo_path("~/eli/pyproject.toml") == (root / "pyproject.toml").resolve()
+    assert resolve_user_repo_path("~/eli/core") == (root / "eli" / "core").resolve()

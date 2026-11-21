@@ -7691,30 +7691,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "LIST_DIR":
         path = str((args or {}).get("path") or "~")
         try:
-            repo_root = Path(__file__).resolve().parents[2]  # project root
-            package_root = repo_root / "eli"
-            legacy_root = Path.home() / "eli"
-            raw = Path(path).expanduser()
-
-            package_toplevel = {
-                "api", "brain", "controllers", "core", "gui",
-                "integrations", "plugins", "tools", "utils"
-            }
-
-            if raw == legacy_root:
-                p = package_root.resolve()
-            else:
-                try:
-                    rel = raw.relative_to(legacy_root)
-                    if not rel.parts:
-                        p = package_root.resolve()
-                    elif rel.parts[0] in package_toplevel:
-                        p = (package_root / rel).resolve()
-                    else:
-                        p = (repo_root / rel).resolve()
-                except Exception:
-                    p = raw.resolve()
-
+            p = resolve_user_repo_path(path)
             if not p.exists():
                 return {"ok": False, "action": a, "error": f"Path not found: {p}", "content": f"Path not found: {p}", "response": f"Path not found: {p}"}
             if not p.is_dir():
@@ -12574,10 +12551,6 @@ except Exception:
     log.debug("suppressed exception", exc_info=True)
 
 
-_PACKAGE_MIRROR_TOPLEVEL = {
-    "api", "brain", "controllers", "core", "gui", "integrations", "plugins", "tools", "utils"
-}
-
 def _resolve_existing_user_or_artifact_path(path: str) -> Path:
     """Resolve a user path, then recover common generated artifact locations."""
     raw = str(path or "").strip()
@@ -12609,32 +12582,6 @@ def _resolve_existing_user_or_artifact_path(path: str) -> Path:
         except Exception:
             continue
     return resolved
-
-def _resolve_legacy_eli_fs_path(path: str) -> Path:
-    raw = str(path or "").strip()
-    if not raw:
-        return Path(".").resolve()
-
-    expanded = Path(raw).expanduser()
-    repo_root = Path(__file__).resolve().parents[2]  # project root
-    legacy_root = Path.home() / "eli"
-
-    if expanded == legacy_root:
-        return (repo_root / "eli").resolve()
-
-    try:
-        rel = expanded.relative_to(legacy_root)
-    except Exception:
-        return expanded.resolve()
-
-    if not rel.parts:
-        return (repo_root / "eli").resolve()
-
-    top = rel.parts[0]
-    if top in _PACKAGE_MIRROR_TOPLEVEL:
-        return (repo_root / "eli" / rel).resolve()
-
-    return (repo_root / rel).resolve()
 
 if __name__ == "__main__":
     import argparse
