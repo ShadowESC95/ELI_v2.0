@@ -1097,6 +1097,14 @@ def _eli_runtime_key_is_pathlike(key: str) -> bool:
     return any(m in k for m in markers)
 
 
+# The folders an ELI install keeps at its top: its code and the state eli.core.paths puts there.
+_PROJECT_TOPS = frozenset({
+    "eli", "config", "artifacts", "cache", "bin", "scripts", "tests",
+    "plugins", "ops", "outputs", "packaging", "docs", "voices", "training",
+    "models", "blueprints", "reports", "test_reports",
+})
+
+
 def _eli_runtime_external_path_to_current_install(candidate, root):
     """
     Map stale absolute project paths into the current install when the suffix is
@@ -1109,14 +1117,9 @@ def _eli_runtime_external_path_to_current_install(candidate, root):
     from pathlib import Path
 
     parts = list(candidate.parts)
-    project_tops = {
-        "eli", "config", "artifacts", "bin", "scripts", "tests",
-        "plugins", "ops", "outputs", "packaging", "docs",
-        "models", "blueprints", "reports", "test_reports",
-    }
 
     for i, part in enumerate(parts):
-        if part in project_tops:
+        if part in _PROJECT_TOPS:
             try:
                 return root / Path(*parts[i:])
             except Exception:
@@ -1205,10 +1208,45 @@ def _eli_runtime_sanitize_obj(obj, key_hint=""):
     return obj
 
 
+def inherited_from_another_install(value, root=None) -> Optional[Path]:
+    """The root of the ELI install a folder or file path belongs to, when that install is not this
+    one; None for a path of this install or of no ELI install, which is the user's own choice.
+
+    An ELI install is a tree holding the eli package (eli.core.paths._is_eli_root): a checkout, a
+    version's own folder, the place a copied install came from. A path is the install's when it is
+    the install itself or lies in one of the folders an install keeps (_PROJECT_TOPS: config,
+    artifacts, models, ...); every ELI product keeps its own, so such a path came from that
+    install. A folder of the user's that merely sits inside a checkout (a temp folder) is not one.
+    The path need not exist yet: the nearest ELI install above it decides."""
+    from eli.core.paths import _is_eli_root
+    root = Path(root) if root is not None else _eli_runtime_physical_project_root()
+    try:
+        path = Path(str(value)).expanduser()
+        if not path.is_absolute():
+            return None
+        path = path.resolve(strict=False)
+    except (OSError, RuntimeError, ValueError):
+        return None
+    if _eli_runtime_is_relative_to(path, root):
+        return None
+    for folder in (path, *path.parents):
+        if _is_eli_root(folder):
+            inside = path.relative_to(folder).parts
+            return folder if not inside or inside[0] in _PROJECT_TOPS else None
+    return None
+
+
 def _eli_runtime_clear_stale_env_paths():
     """
-    Remove stale env path overrides that point outside the current physical install.
-    External model paths remain allowed only when ELI_ALLOW_EXTERNAL_MODEL_PATHS=1.
+    Drop the folder and file variables another ELI install left in this process's environment.
+
+    A config, data or database path outside this install is dropped only when it belongs to another
+    ELI install (inherited_from_another_install): every ELI product keeps its own folders. One the
+    user set elsewhere stays, whether or not it exists yet. A model path outside the install stays
+    while the file is there (with ELI_ALLOW_EXTERNAL_MODEL_PATHS=1, always); ELI_PROJECT_ROOT is
+    where this install is, or it goes. Each variable dropped is logged. Every path outside the
+    install used to be dropped without a word, and ELI then read its own config/settings.json in
+    place of the one the user had pointed it at.
     """
     import os
     from pathlib import Path
@@ -1219,6 +1257,9 @@ def _eli_runtime_clear_stale_env_paths():
     env_keys = (
         "ELI_PROJECT_ROOT",
         "ELI_ARTIFACTS_DIR",
+        "ELI_DATA_DIR",
+        "ELI_DB_DIR",
+        "ELI_CACHE_DIR",
         "ELI_CONFIG_DIR",
         "ELI_RUNTIME_DIR",
         "ELI_STATE_DIR",
@@ -1236,6 +1277,7 @@ def _eli_runtime_clear_stale_env_paths():
         "ELI_BUNDLED_MODEL_PATH",
     )
 
+    dropped = False
     for env_key in env_keys:
         raw = str(os.getenv(env_key) or "").strip()
         if not raw:
@@ -1245,6 +1287,8 @@ def _eli_runtime_clear_stale_env_paths():
             candidate = Path(raw).expanduser()
         except Exception:
             os.environ.pop(env_key, None)
+            log.warning("[SETTINGS] %s=%s is not a path ELI can read, so it is not used", env_key, raw)
+            dropped = True
             continue
 
         if not candidate.is_absolute():
@@ -1258,10 +1302,29 @@ def _eli_runtime_clear_stale_env_paths():
         if _eli_runtime_is_relative_to(resolved, root):
             continue
 
-        if "MODEL" in env_key and (allow_external_models or resolved.exists()):
-            continue
-
+        if env_key == "ELI_PROJECT_ROOT":
+            why = f"this install is {root}"          # the root is where this ELI is, nowhere else
+        elif "MODEL" in env_key:
+            if allow_external_models or resolved.exists():
+                continue
+            why = "that model file does not exist"
+        else:
+            other = inherited_from_another_install(resolved, root)
+            if other is None:
+                continue
+            why = f"it is inside another ELI install ({other}), and this one ({root}) keeps its own folders"
         os.environ.pop(env_key, None)
+        log.warning("[SETTINGS] %s=%s is not used: %s", env_key, raw, why)
+        dropped = True
+
+    if dropped:
+        # the path resolvers may have read a dropped variable already
+        try:
+            from eli.core import paths as _paths
+            for _fn in (_paths.data_dir, _paths.config_dir, _paths.cache_dir):
+                _fn.cache_clear()
+        except Exception:
+            log.debug("could not reset the path resolvers", exc_info=True)
 
 
 

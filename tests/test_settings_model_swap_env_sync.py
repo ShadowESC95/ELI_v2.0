@@ -144,12 +144,38 @@ def test_a_path_set_while_running_stays_through_later_settings_reads(tmp_path, m
     assert os.environ["ELI_CONFIG_DIR"] == str(tmp_path / "cfg")
 
 
-def test_a_path_inherited_from_another_install_is_dropped_at_start(tmp_path, monkeypatch):
+def test_a_path_inherited_from_another_install_is_dropped_at_start(tmp_path, monkeypatch, caplog):
+    """Another ELI install's folders are its own (every ELI product keeps its own): a config folder
+    inside one is dropped, and the log says which and why."""
+    import logging
     from eli.core import runtime_settings as rs
+    other = tmp_path / "another-install"
+    for folder in ("eli/cognition", "eli/gui", "config"):
+        (other / folder).mkdir(parents=True)
     monkeypatch.setattr(rs, "_STALE_ENV_CHECKED", False)
-    monkeypatch.setenv("ELI_CONFIG_DIR", str(tmp_path / "another-install" / "config"))
-    rs.load_settings()
+    monkeypatch.setenv("ELI_CONFIG_DIR", str(other / "config"))
+    with caplog.at_level(logging.WARNING, logger="eli.core.runtime_settings"):
+        rs.load_settings()
     assert "ELI_CONFIG_DIR" not in os.environ
+    assert "ELI_CONFIG_DIR" in caplog.text and str(other) in caplog.text
+
+
+def test_a_config_folder_the_user_set_outside_the_install_is_kept_and_read(tmp_path, monkeypatch):
+    """The check dropped every folder variable outside the checkout when the process started, so an
+    ELI_CONFIG_DIR the user had set was taken away without a word and the checkout's own
+    config/settings.json was read in its place."""
+    import json
+    from eli.core import runtime_settings as rs
+    mine = tmp_path / "my-eli-settings"          # the user's own folder, in no ELI install
+    mine.mkdir()
+    (mine / "settings.json").write_text(json.dumps({"theme": "light"}), encoding="utf-8")
+    for name in ("ELI_SETTINGS_FILE", "ELI_SETTINGS_PATH"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(rs, "_STALE_ENV_CHECKED", False)
+    monkeypatch.setenv("ELI_CONFIG_DIR", str(mine))
+    assert rs.load_settings()["theme"] == "light"
+    assert os.environ["ELI_CONFIG_DIR"] == str(mine)
+    assert rs.inherited_from_another_install(mine / "not-made-yet") is None
 
 
 # ── The environment and the saved settings: which value governs (runtime_settings, above apply_env) ──

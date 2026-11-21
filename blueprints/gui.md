@@ -76,8 +76,10 @@ Proactive's sub-tabs are Suggestions, Summaries, Insights, Habits, Self-Improve 
 ## Launcher (`app.py`)
 
 The entry path for the `eli`/`eli-gui` console scripts. `main()` pins this install's root
-(`ELI_PROJECT_ROOT` and the data, config and models folders, from the venv running it) so
-it never writes into another checkout, runs the first-boot bootstrap
+(`ELI_PROJECT_ROOT`, from the venv running it) and its data and config folders where none is
+set or the one set belongs to another ELI install (`runtime_settings.inherited_from_another_install`),
+and its models folder where none is set, so it never writes into another checkout; a data or
+config folder the user set elsewhere is kept. It runs the first-boot bootstrap
 (`init_data.bootstrap_once`), stops with a plain message when the data folder cannot be
 written (`init_data.store_blocker`), and activates the bundled GPU pack when there is one.
 With the startup model picker

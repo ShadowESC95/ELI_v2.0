@@ -49,6 +49,32 @@ def test_auto_tune_of_an_unreadable_file_is_the_request_as_given(tmp_path, monke
 
 
 # --------------------------------------------------------------------------- #
+def test_the_launcher_keeps_the_users_config_folder_and_replaces_another_installs(tmp_path, monkeypatch):
+    """The console-script launcher pinned the data, config and models folders to its own checkout
+    whenever ELI_PROJECT_ROOT was not already its root: a config folder the user had set was
+    replaced too, and ELI read the checkout's settings in its place."""
+    import os
+    this, other = tmp_path / "this-install", tmp_path / "other-install"
+    for tree in (this, other):
+        for folder in ("eli/cognition", "eli/gui"):
+            (tree / folder).mkdir(parents=True)
+    mine, models = tmp_path / "my-config", tmp_path / "shared-models"
+    monkeypatch.setenv("ELI_CONFIG_DIR", str(mine))
+    monkeypatch.setenv("ELI_DATA_DIR", str(other / "artifacts"))
+    monkeypatch.setenv("ELI_MODELS_DIR", str(models))
+    app._pin_this_install(this)
+    assert os.environ["ELI_PROJECT_ROOT"] == str(this)
+    assert os.environ["ELI_CONFIG_DIR"] == str(mine)
+    assert os.environ["ELI_DATA_DIR"] == str(this / "artifacts")
+    assert os.environ["ELI_MODELS_DIR"] == str(models)
+    monkeypatch.delenv("ELI_CONFIG_DIR")
+    monkeypatch.delenv("ELI_MODELS_DIR")
+    app._pin_this_install(this)
+    assert os.environ["ELI_CONFIG_DIR"] == str(this / "config")
+    assert os.environ["ELI_MODELS_DIR"] == str(this / "models")
+
+
+# --------------------------------------------------------------------------- #
 def test_config_round_trip(monkeypatch):
     store: dict = {}
     monkeypatch.setattr(app, "save_settings", lambda c: store.clear() or store.update(c))

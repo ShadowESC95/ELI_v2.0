@@ -142,6 +142,24 @@ def _save_config(cfg: dict):
 
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+def _pin_this_install(root: Path) -> None:
+    """The venv that was launched owns the root. Its own data and config folders replace ones
+    another ELI install left in the environment, so this checkout never writes into another one's;
+    a data or config folder the user set elsewhere is kept (runtime_settings has the rule), and so
+    is a models folder. All four were overwritten here, the user's own config folder included."""
+    from eli.core.runtime_settings import inherited_from_another_install
+    os.environ["ELI_PROJECT_ROOT"] = str(root)
+    for var, own in (("ELI_DATA_DIR", root / "artifacts"), ("ELI_CONFIG_DIR", root / "config")):
+        current = os.environ.get(var, "").strip()
+        if not current or inherited_from_another_install(current, root):
+            os.environ[var] = str(own)
+    if not os.environ.get("ELI_MODELS_DIR", "").strip():
+        os.environ["ELI_MODELS_DIR"] = str(root / "models")
+    from eli.core import paths
+    for resolver in (paths.data_dir, paths.config_dir, paths.cache_dir):
+        resolver.cache_clear()          # read before the root was pinned
+
+
 def main():
     # An extension that drops references to None cannot abort the window (eli/core/singleton_refs.py).
     try:
@@ -163,12 +181,7 @@ def main():
         # the pin silently no-op'd and a stale env leaked through).
         _root = _P(_sys.executable).parents[2]  # bin/python → .venv → root
         if (_root / "eli" / "gui").is_dir() and _os.environ.get("ELI_PROJECT_ROOT", "") != str(_root):
-            # The venv you launched owns the root; overwrite any stale/foreign
-            # value so this checkout never writes into another checkout's folders.
-            _os.environ["ELI_PROJECT_ROOT"] = str(_root)
-            _os.environ["ELI_DATA_DIR"] = str(_root / "artifacts")
-            _os.environ["ELI_CONFIG_DIR"] = str(_root / "config")
-            _os.environ["ELI_MODELS_DIR"] = str(_root / "models")
+            _pin_this_install(_root)
     except Exception:
         log.debug("suppressed exception", exc_info=True)
     # ── First-run/boot DB + machine-inventory bootstrap (idempotent) ─────────
