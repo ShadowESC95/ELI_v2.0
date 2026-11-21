@@ -116,6 +116,7 @@ behaviours**. Alias families are grouped below so the real surface is visible.
 | `AMBIENT_VISION` | Toggle periodic background screen glances (about every 5 minutes by default, not mid-reply); says so when the vision model is missing. |
 | `SCREEN_LOCATE` | OCR-locate a named UI element or word on screen ("the button that says X", "find the word compose"), and click it ("click compose"). |
 | `SCREEN_READ_ANALYZE` | Screenshot → `ANALYZE_IMAGE` with a prompt for the depth asked (quick / standard / deep; OCR fused for standard and deep). |
+| `GENERATE_IMAGE` | A picture asked for in chat ("generate an image of …", "draw me …", "paint a picture of …", "make a logo for …"), read by `portable_intent_contract.image_request_prompt`, the reading the desktop chat box uses too (its requests open the Image Studio instead): one image from `gui_bridge.request_from_settings` and `generate_images` with the saved image settings (size, backend, model, personalisation), saved under `image_engine/outputs`; it says why when none is made (diffusion weights not downloaded), and asks what the image should show when the request names nothing. |
 | `IMAGE_STATUS` | Evidence packet of recent runtime events and recently generated artifacts (images, scripts or documents, by the question), from `evidence_ledger.status_evidence`. |
 
 ## 8. Coding & code-repair

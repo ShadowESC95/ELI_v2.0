@@ -12,6 +12,7 @@ from .gui_bridge import (
     generate_images,
     list_recent_outputs,
     output_dir,
+    request_from_settings,
     tool_root,
 )
 
@@ -28,4 +29,5 @@ __all__ = [
     "list_recent_outputs",
     "build_personalized_prompt",
     "generate_images",
+    "request_from_settings",
 ]

@@ -76,3 +76,35 @@ def test_no_swap_for_procedural(tmp_path, monkeypatch):
 def test_fetch_model_importable():
     from eli.tools.image_engine import fetch_model
     assert hasattr(fetch_model, "fetch")
+
+
+def test_a_picture_asked_for_in_chat_is_made_with_the_saved_settings(monkeypatch):
+    """Only the desktop chat box could make a picture; GENERATE_IMAGE makes one for every surface,
+    with the size and personalisation the image settings hold, and says where it went."""
+    from eli.execution import executor_enhanced as ex
+    import eli.tools.image_engine as ie
+    settings = {"image_default_width": 640, "image_default_height": 480, "image_auto_personalize": False}
+    req = GB.request_from_settings("a lighthouse", settings, seed=5)
+    assert (req.prompt, req.width, req.height, req.count, req.seed, req.auto_personalize) == (
+        "a lighthouse", 640, 480, 1, 5, False)
+    assert (req.backend, req.model, req.steps) == ("", "", 0)        # generate_images takes the saved ones
+
+    made = []
+
+    def fake_generate(request, settings=None, **_k):
+        made.append(request.prompt)
+        return GB.ImageGenerationResult(saved_paths=["/out/eli_chat_lighthouse.png"], contact_sheet=None,
+                                        manifest_path=None, out_dir="/out", applied_prompt=request.prompt)
+
+    monkeypatch.setattr(ie, "generate_images", fake_generate)
+    out = ex.execute("GENERATE_IMAGE", {"prompt": "a lighthouse"})
+    assert out["ok"] and made == ["a lighthouse"] and out["path"] == "/out/eli_chat_lighthouse.png"
+    assert "/out/eli_chat_lighthouse.png" in out["response"]
+
+    def nothing_made(request, settings=None, **_k):
+        return GB.ImageGenerationResult(saved_paths=[], contact_sheet=None, manifest_path=None, out_dir="/out",
+                                        applied_prompt=request.prompt, problem="no weights downloaded")
+
+    monkeypatch.setattr(ie, "generate_images", nothing_made)
+    out = ex.execute("GENERATE_IMAGE", {"prompt": "a lighthouse"})
+    assert not out["ok"] and out["response"] == "no weights downloaded"

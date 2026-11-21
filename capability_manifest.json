@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-11-21T05:05:13",
-  "total": 231,
+  "generated_at": "2026-11-21T05:27:14",
+  "total": 232,
   "capabilities": [
     {
       "action": "ADD_EVENT",
@@ -591,6 +591,15 @@
     },
     {
       "action": "GENERATE_DOCUMENT",
+      "source": "executor+router",
+      "plugin": null,
+      "routable": true,
+      "in_dispatch": true,
+      "in_supported_list": true,
+      "needs": []
+    },
+    {
+      "action": "GENERATE_IMAGE",
       "source": "executor+router",
       "plugin": null,
       "routable": true,

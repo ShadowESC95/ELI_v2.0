@@ -1185,6 +1185,8 @@ _DIRECT_RESULT_ACTIONS = frozenset({
     "ANALYZE_IMAGE", "ANALYZE_PDF", "ANALYZE_PDF_FOLDER",
     "SCREEN_READ_ANALYZE", "DATA_FABRICATOR", "GENERATE_PROJECT",
     "SEQUENCE", "MULTI_COMMAND",
+    # where the picture was saved, or why none was made: retold by a model, a path can come back wrong
+    "GENERATE_IMAGE",
 })
 
 

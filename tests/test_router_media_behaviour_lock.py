@@ -134,6 +134,37 @@ def test_implied_song_by_artist_defaults_to_spotify():
     _assert_arg("all eyez on me by tupac", "query", "all eyez on me by tupac")
 
 
+# A picture to make is not a song. Outside the desktop chat box "draw an image of a boat by the
+# harbour" played a song on Spotify, "generate an image of a red fox in snow" asked for the weather in
+# snow, and "make an image of a cat" went to chat.
+@pytest.mark.parametrize("said,prompt", [
+    ("generate an image of a red fox in snow", "a red fox in snow"),
+    ("draw an image of a boat by the harbour", "a boat by the harbour"),
+    ("generate an image of a cat sitting by a window", "a cat sitting by a window"),
+    ("paint a picture of a sunset over the sea", "a sunset over the sea"),
+    ("make an image of a cat", "a cat"),
+    ("draw me a lighthouse", "a lighthouse"),
+    ("can you draw me a cat?", "a cat"),
+    ("make a logo for a bakery", "a logo for a bakery"),
+    ("generate an image", ""),
+])
+def test_a_picture_to_make_goes_to_the_image_engine(said, prompt):
+    _assert_action(said, "GENERATE_IMAGE")
+    _assert_arg(said, "prompt", prompt)
+
+
+@pytest.mark.parametrize("said,action", [
+    ("play bohemian rhapsody by queen", "PLAY_MEDIA"),
+    ("bohemian rhapsody by queen", "PLAY_MEDIA"),
+    ("create an image file called x.png", "CREATE_FILE"),
+    ("analyse image ~/Pictures/cat.jpg", "ANALYZE_IMAGE"),
+])
+def test_songs_and_other_image_words_keep_their_actions(said, action):
+    _assert_action(said, action)
+    for talk in ("can you generate images?", "draw a conclusion", "make a cake", "i asked you to generate an image of a cat"):
+        assert _route(talk)["action"] != "GENERATE_IMAGE", talk
+
+
 # Punctuation between words is not part of the song.
 #
 # Live: "play evil; by orlo on spotify" searched "evil; orlo".

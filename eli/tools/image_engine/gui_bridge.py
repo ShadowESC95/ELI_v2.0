@@ -65,6 +65,8 @@ class ImageGenerationResult:
     out_dir: str
     applied_prompt: str
     personalization_notes: List[str] = field(default_factory=list)
+    # why no image was made, when that is known (the diffusion weights are not downloaded)
+    problem: str = ""
 
 
 def tool_root() -> Path:
@@ -335,6 +337,35 @@ def build_personalized_prompt(
     return final_prompt.strip(), notes
 
 
+def request_from_settings(prompt: str, settings: Dict[str, Any] | None = None, *,
+                          seed: Optional[int] = None) -> ImageGenerationRequest:
+    """One image of `prompt` made as the saved image settings say: the Image Studio's defaults for
+    size, project and personalisation. Backend, model, device, steps, guidance and the negative prompt
+    are left empty so generate_images takes the saved ones. For a request made in chat outside the
+    desktop's Image Studio (the web app, the API, MCP)."""
+    import random
+
+    s = dict(settings or {})
+    defaults = ImageGenerationRequest(prompt=prompt)
+    return ImageGenerationRequest(
+        prompt=prompt,
+        project=str(s.get("image_default_project_path") or ""),
+        backend="", model="", device="", steps=0, guidance=0.0, negative="",
+        count=1,
+        width=int(s.get("image_default_width") or defaults.width),
+        height=int(s.get("image_default_height") or defaults.height),
+        # a new picture each time, as the studio makes one when its seed is not locked
+        seed=int(seed) if seed is not None else random.randint(1, 999999),
+        prefix="eli_chat",
+        sheet=False,
+        manifest=False,
+        save_specs=True,
+        use_chat_context=False,
+        use_proactive_context=bool(s.get("image_use_proactive_context", defaults.use_proactive_context)),
+        auto_personalize=bool(s.get("image_auto_personalize", defaults.auto_personalize)),
+    )
+
+
 def generate_images(
     request: ImageGenerationRequest,
     settings: Dict[str, Any] | None = None,
@@ -401,7 +432,7 @@ def generate_images(
                 f"  python -m eli.tools.image_engine.fetch_model segmind/SSD-1B {args.model}")
         return ImageGenerationResult(
             saved_paths=[], contact_sheet=None, manifest_path=None, out_dir=out_dir,
-            applied_prompt=applied_prompt, personalization_notes=(notes or []) + [note])
+            applied_prompt=applied_prompt, personalization_notes=(notes or []) + [note], problem=note)
 
     _swapped = False
     if _use_diffusion and args.model and _vc.weights_present(args.model):

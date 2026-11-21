@@ -445,6 +445,64 @@ def infer_script_language(text: str) -> str:
     return "auto"
 
 
+# ── a picture to make ────────────────────────────────────────────────────────
+# A request for a picture made by ELI's image engine: "generate an image of a red fox in snow", "draw me
+# a lighthouse", "paint a picture of a sunset", "make a logo for a bakery". Only the desktop chat box
+# knew these; on the web app, the API and MCP "draw an image of a boat by the harbour" played a song on
+# Spotify and "make an image of a cat" went to chat.
+_ASK_FOR_A_PICTURE = re.compile(
+    r"^(?:(?:please|pls|eli|hey|ok(?:ay)?|now|just|so)[\s,]+)*"
+    r"(?:(?:can|could|would|will)\s+you\s+(?:please\s+)?|i(?:'d|\s+would)\s+like\s+(?:you\s+to\s+)?"
+    r"|i\s+want\s+you\s+to\s+|go\s+ahead\s+and\s+)?(?:please\s+)?"
+    r"(?P<verb>generate|create|make|draw|paint|render|design|produce|sketch|illustrate)\s+(?:me\s+|us\s+)?", re.I)
+# The picture as the thing made, with what describes it ("an image", "a watercolour painting", "three
+# pictures"). A plain image or picture says nothing about the result; a painting or a logo does.
+_PICTURE_WORD = (r"(?:image|picture|pic|photo(?:graph)?|drawing|painting|illustration|sketch|portrait|artwork|"
+                 r"art(?:\s+piece)?|wallpaper|poster|logo|icon|cover(?:\s+art)?|graphic|render(?:ing)?)s?\b")
+_A_PICTURE = re.compile(r"(?:(?:a|an|the|some|another|one|two|three|four|\d+)\s+)?(?:(?!of\b)[\w-]+\s+){0,3}?"
+                        + _PICTURE_WORD, re.I)
+_ONLY_A_PICTURE = re.compile(r"(?:(?:a|an|the|some|another|one|two|three|four|\d+)\s+)?(?:image|picture|pic|photo)s?",
+                             re.I)
+_AN_IMAGE_OF = re.compile(r"^(?:an?\s+)?(?:image|picture|drawing|painting)\s+of\s+", re.I)
+# What comes between the picture and what it shows.
+_SHOWING = re.compile(r"^(?:of|showing|depicting|with|for|about|featuring|that\s+shows|where|in\s+which)\s+", re.I)
+# A picture word that names something other than a new picture: an image file, an image's status.
+_NOT_A_NEW_PICTURE = re.compile(r"^(?:file|files|folder|directory|status|format|viewer|editor|size|path)\b", re.I)
+# "draw" and "paint" where nothing is pictured: "draw a conclusion", "paint the fence".
+_NOT_PICTURED = re.compile(
+    r"^(?:(?:a|an|the|my|your|some)\s+)?(?:conclusions?|lines?|breath|bath|blank|crowd|cards?|cheque|check|salary|"
+    r"lessons?|comparisons?|distinctions?|parallels?|attention|straws?|curtains?|blinds?|water|blood|fire|level|up|on|"
+    r"from|out|back|near|closer|close|together|in|wall|walls|fence|house|room|door|nails|ceiling|town)\b", re.I)
+_COURTESY_END = re.compile(r"(?:[\s,]+(?:please|pls|thanks|thank\s+you|for\s+me|now))*[\s.!]*$", re.I)
+
+
+def image_request_prompt(text: str) -> Optional[str]:
+    """What a request for a picture is to show: "a red fox in snow" in "generate an image of a red fox
+    in snow", "a logo for a bakery" in "make a logo for a bakery". "" when it asks for a picture without
+    saying of what ("draw a picture"); None when the text does not ask for a picture to be made. The
+    router and the desktop chat box both read requests with this."""
+    said = re.split(r"(?<=[.!?])\s+(?=\S)", re.sub(r"\s+", " ", str(text or "")).strip(), maxsplit=1)[0]
+    head = _ASK_FOR_A_PICTURE.match(said)
+    if not head:
+        bare = _AN_IMAGE_OF.match(said)
+        return _COURTESY_END.sub("", said[bare.end():]).strip() if bare else None
+    rest = said[head.end():]
+    picture = _A_PICTURE.match(rest)
+    if picture:
+        tail = _COURTESY_END.sub("", " " + rest[picture.end():]).strip(" ?")
+        plain = bool(_ONLY_A_PICTURE.fullmatch(picture.group(0).strip()))
+        # an image file, a photo album, a picture-perfect cake: the word is not the thing made
+        if _NOT_A_NEW_PICTURE.match(tail) or (plain and tail and not _SHOWING.match(tail)):
+            return None
+        shows = _SHOWING.sub("", tail).strip()
+        if not shows:
+            return ""
+        return shows if plain else _COURTESY_END.sub("", " " + rest).strip(" ?")
+    if head.group("verb").lower() in ("draw", "paint", "sketch", "illustrate") and rest and not _NOT_PICTURED.match(rest):
+        return _COURTESY_END.sub("", rest).strip(" ?") or None
+    return None
+
+
 # Code asked for with its testing or verification: "write a script that renames files and test it",
 # "implement a function that reverses a string and make sure it works". One task for the verified
 # coding agent (CODE_SOLVE), which writes, runs and repairs it. Read as a script to write and a second
@@ -733,6 +791,8 @@ def try_route(text: str) -> Optional[dict]:
         _multi_sentence = bool(re.search(r"[.!?]", raw.strip().rstrip(".!? ")))
         if (_before_words & _sentence_signals) or _too_long or _multi_sentence:
             pass  # "by" is a preposition in a sentence — not a media query
+        elif image_request_prompt(raw) is not None:
+            pass  # "draw an image of a boat by the harbour" is a picture to make, not a song
         else:
             query = _clean_target(raw)
             query = re.sub(r"(?i)^\s*play\s+", "", query).strip()

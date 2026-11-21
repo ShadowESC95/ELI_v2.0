@@ -424,9 +424,11 @@ topic, not only reminders.
 - "gaze status" · "disable gaze clicking" · "disable gaze"
 
 ### 🎨 Making images
-- "make an image of a red bike by the sea" · "draw an image of …" · "generate an image of …" —
-  typed or spoken in the desktop app, these go straight to the **Images** tab. (Say "image":
-  "a picture of …" isn't recognised as an image request.)
+- "make an image of a red bike by the sea" · "draw an image of …" · "paint a picture of …" ·
+  "draw me a lighthouse" · "make a logo for …" — typed or spoken in the desktop app, these go
+  straight to the **Images** tab; in the web app, the API and MCP ELI makes the image with the
+  saved image settings and says where it saved it. With nothing to show ("draw a picture") ELI
+  asks what it should be of.
 - Two engines: a fast **procedural** one (always available) and **diffusion** (SSD-1B) for
   photoreal results — ELI briefly frees the model's VRAM to run it. Diffusion needs its weights
   downloaded once (`python -m eli.tools.image_engine.fetch_model segmind/SSD-1B <folder>`; ELI

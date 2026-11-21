@@ -404,6 +404,19 @@ def test_which_one_is_answered_by_number_or_by_name(agenda, proposals, answer):
     assert "Dentist appointment" in left and "check-up" not in left
 
 
+def test_the_answer_to_what_the_image_should_show_makes_it(proposals):
+    """"generate an image" names nothing to show: ELI asks, and the answer is the picture's subject."""
+    from eli.execution import executor_enhanced as ex
+    from eli.execution.router_enhanced import route
+    asked = ex.execute("GENERATE_IMAGE", {})
+    assert not asked["ok"] and asked["response"] == "What should the image show?"
+    assert pp.get_follow_up()["awaiting"]["needs"] == "subject"
+    got = route("a red fox in the snow")
+    assert got["action"] == "GENERATE_IMAGE" and got["meta"]["matched_by"] == "pending_proposal.answer"
+    assert got["args"]["prompt"] == "a red fox in the snow"
+    assert not pp.is_the_detail("set a timer for 5 minutes", "subject") and not pp.is_the_detail("no thanks", "subject")
+
+
 @pytest.mark.parametrize("reply,is_it", [("friday at 3pm", True), ("in 20 minutes", True), ("tomorrow", True),
                                          ("at 4", True), ("make it 7.30pm", True), ("next monday at 9", True),
                                          ("set a timer for 5 minutes", False), ("what's on tomorrow", False),

@@ -653,4 +653,11 @@ def is_the_detail(reply: str, needs: str) -> bool:
             return False
         return not is_consent(low) and not _re.search(
             r"\b(?:no|nope|nah|never ?mind|cancel|stop|skip|leave it|forget it|nowhere|dunno|idk|what|why|how)\b", low)
+    if str(needs or "") == "subject":
+        # what a picture is to show ("a red fox in the snow"): a short answer that is not a yes, a no,
+        # or a new request of its own
+        from eli.runtime.command_splitter import starts_with_command
+        low = str(reply or "").strip().lower().strip(" .!")
+        return bool(low) and not is_consent(low) and not starts_with_command(low, after_lead=True) and not _re.search(
+            r"\b(?:no|nope|nah|never ?mind|cancel|stop|skip|leave it|forget it|nothing|dunno|idk)\b", low)
     return False

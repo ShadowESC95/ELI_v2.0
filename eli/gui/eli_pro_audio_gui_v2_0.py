@@ -3611,22 +3611,11 @@ class EliMainWindow(QMainWindow):
             dock.append_log(text)
 
     def _extract_image_prompt_from_chat(self, text: str) -> str:
-        raw = str(text or "").strip()
-        if not raw:
-            return ""
-        patterns = [
-            r"^(?:please\s+)?(?:create|generate|make|draw|paint|render|design)\s+(?:me\s+)?(?:an?\s+)?image(?:\s+of|\s+showing|\s+with|\s+for)?\s+(.+)$",
-            r"^(?:please\s+)?(?:create|generate|make|draw|paint|render|design)\s+(?:an?\s+)?(?:portrait|logo|poster|wallpaper|icon|illustration|artwork|cover)\s+(?:of|for)?\s+(.+)$",
-            r"^(?:an?\s+)?image\s+of\s+(.+)$",
-        ]
-        for pattern in patterns:
-            match = re.match(pattern, raw, re.I)
-            if match:
-                prompt = match.group(1).strip(" .")
-                prompt = re.sub(r"^(?:an?\s+image\s+of\s+)", "", prompt, flags=re.I)
-                if prompt:
-                    return prompt
-        return ""
+        # The router reads image requests with the same function, so a request the chat box sends to
+        # the Image Studio is the one the web app, the API and MCP send to GENERATE_IMAGE. A request
+        # that says no subject ("draw a picture") goes on to the engine, which asks what it should show.
+        from eli.execution.portable_intent_contract import image_request_prompt
+        return image_request_prompt(text) or ""
 
     def _start_chat_image_request(self, prompt: str, *, source_text: str = ""):
         if not prompt:

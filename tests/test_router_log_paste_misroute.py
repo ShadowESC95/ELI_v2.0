@@ -275,3 +275,11 @@ def test_a_word_of_a_question_in_a_statement_asks_nothing(said):
 ])
 def test_the_same_words_asking_still_get_the_answer(asked, action):
     assert route(asked)["action"] == action
+
+
+def test_a_word_read_as_misspelt_keeps_the_mark_after_it():
+    """"can you generate images?" was read as the misspelt "can you generate image", without its
+    question mark, and the question became a request to make a picture of nothing."""
+    from eli.runtime.command_splitter import misspelt_commands
+    assert all(reading.endswith("?") for reading, _ in misspelt_commands("can you generate images?"))
+    assert route("vol don.")["action"] == "VOLUME"

@@ -398,8 +398,11 @@ def misspelt_commands(text: str, *, max_words: int = 4) -> List[tuple]:
         low = word.lower().strip(".,!?")
         if len(low) < 3 or low in vocab or not low.isalpha():
             continue
+        # the mark after the word ends the sentence and stays: "can you generate images?" is still a
+        # question when "images" is read as "image"
+        mark = word[len(word.rstrip(".,!?")):]
         for near in sorted(w for w in vocab if w[0] == low[0] and _one_edit_apart(low, w)):
-            readings.append((" ".join(words[:i] + [near] + words[i + 1:]), near))
+            readings.append((" ".join(words[:i] + [near + mark] + words[i + 1:]), near))
     return readings
 
 

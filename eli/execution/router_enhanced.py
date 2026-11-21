@@ -7937,8 +7937,9 @@ def _eli_media_contract_post(raw, result):
         if isinstance(result, dict) and str(result.get("action") or "").upper() == "MULTI_COMMAND":
             return result
         # Already resolved to a real task lookup — don't let the "resume X" catch-all below
-        # reinterpret it as media playback.
-        if isinstance(result, dict) and str(result.get("action") or "").upper() == "RESUME_TASK":
+        # reinterpret it as media playback. A picture to make is not a song either ("generate an
+        # image of a cat sitting by a window" played "...by a window").
+        if isinstance(result, dict) and str(result.get("action") or "").upper() in ("RESUME_TASK", "GENERATE_IMAGE"):
             return result
         original = str(raw or "")
         low = re.sub(r"\s+", " ", original.lower()).strip(" .,!?:;")
@@ -8798,6 +8799,21 @@ try:
             def _stage_identity_name_source_contract(text, *_a, **_k):
                 return _eli_phase38_identity_name_source_single_safe_contract(text)
 
+            def _stage_image_request(text, *_a, **_k):
+                """A picture to make with ELI's image engine, before any rule reads a word of the request
+                as something else: "draw an image of a boat by the harbour" played a song by "the
+                harbour", and "generate an image of a red fox in snow" asked for the weather in snow."""
+                from eli.execution.portable_intent_contract import image_request_prompt
+                from eli.runtime.command_splitter import holds_more_than_one
+                said = str(text or "").strip()
+                prompt = image_request_prompt(said)
+                # "can you generate images?" asks whether ELI can, and names nothing to make; "... of a
+                # cat and set a timer" is two commands, divided by the rules after this one
+                if prompt is None or (not prompt and said.endswith("?")) or holds_more_than_one(prompt):
+                    return None
+                return _mk("GENERATE_IMAGE", {"prompt": prompt}, 0.95, matched_by="image.request",
+                           entities={"prompt": prompt})
+
             def _stage_generate_script_prepass(text, *_a, **_k):
                 """Fire BEFORE GPU/runtime guards so 'write a bash script that monitors GPU...'
                 always routes to GENERATE_SCRIPT, not GPU_STATUS."""
@@ -9205,6 +9221,7 @@ try:
                 # before pasted text: a link to read is not text to react to
                 ("read_linked_page", lambda t, *a, **k: _eli_linked_page_prepass(str(t or ""))),
                 ("react_to_pasted_content", _stage_react_to_pasted_content),
+                ("image_request", _stage_image_request),
                 ("precedence", _stage_precedence),
                 ("identity_audit", _stage_identity_audit),
                 ("frontier_status", _stage_frontier_status),
@@ -9291,7 +9308,8 @@ try:
         # out only when the sentence is telling ELI to do it. The stages before them read a reply
         # to something ELI asked, or a statement that is itself the request ("my name is ...").
         _ELI_WORD_RULE_STAGES = frozenset((
-            "schedule_prepass", "shell_prepass", "portable_route", "voice_contract", "web_lookup", "core_router"))
+            "image_request", "schedule_prepass", "shell_prepass", "portable_route", "voice_contract", "web_lookup",
+            "core_router"))
 
         def _eli_fits(text, candidate):
             try:

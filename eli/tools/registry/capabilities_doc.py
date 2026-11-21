@@ -117,6 +117,7 @@ _add("Vision & screen", "SCREEN_LOCATE", "Find on-screen UI text/element", "“f
 _add("Vision & screen", "SCREENSHOT", "Capture a screenshot", "“take a screenshot”")
 _add("Vision & screen", "OCR_IMAGE", "Extract text from an image file", "“ocr photo.png”")
 _add("Vision & screen", "ANALYZE_IMAGE", "Describe/analyse an image file (VLM)", "“analyse image ~/Pictures/cat.jpg”")
+_add("Vision & screen", "GENERATE_IMAGE", "Make a picture with ELI's local image engine, as the saved image settings say (procedural, or a diffusion model when one is set up), saved in its image outputs; in the desktop chat box the Image Studio makes it", "“generate an image of a red fox in snow”", "“draw me a lighthouse”", "“paint a picture of a sunset over the sea”")
 _add("Vision & screen", "ANALYZE_PDF", "Read/summarise a PDF", "“summarise report.pdf”", "“analyse this pdf”")
 _add("Vision & screen", "ANALYZE_PDF_FOLDER", "Analyse all PDFs in a folder", "(no phrase reaches it in this release: “analyse the pdfs in <folder>” goes to SUMMARIZE_FILE)")
 _add("Vision & screen", "ANALYZE_CSV", "Analyse a CSV/spreadsheet", "“analyse data.csv”")

@@ -2438,6 +2438,7 @@ SUPPORTED_ACTIONS = [
     'FRONTIER_STATUS',
     'FOCUS_APP',
     'GENERATE_DOCUMENT',
+    'GENERATE_IMAGE',
     'GENERATE_PROJECT',
     'GENERATE_SCRIPT',
     'GET_CLIPBOARD',
@@ -8439,6 +8440,34 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     "result": cycle}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
+
+    # ---- GENERATE_IMAGE ----
+    # A picture made by ELI's local image engine from a request in chat, as the saved image settings
+    # say (backend, model, size, steps, personalisation). The desktop chat box has its own intercept,
+    # which also opens the Image Studio; every other surface (the web app, the API, MCP) comes here.
+    if a == "GENERATE_IMAGE":
+        prompt = str((args or {}).get("prompt") or "").strip()
+        if not prompt:
+            msg = "What should the image show?"
+            return {"ok": False, "action": a, "error": "missing_prompt", "content": msg, "response": msg,
+                    "asks_user": True,
+                    "awaiting": {"command": "generate an image of {answer}", "action": a, "needs": "subject"}}
+        try:
+            from eli.core.runtime_settings import load_settings as _img_settings
+            from eli.tools.image_engine import generate_images, request_from_settings
+            _settings = _img_settings() or {}
+            result = generate_images(request_from_settings(prompt, _settings), _settings)
+        except Exception as e:
+            log.debug("GENERATE_IMAGE failed", exc_info=True)
+            msg = f"The image engine could not make it: {e}"
+            return {"ok": False, "action": a, "error": str(e), "content": msg, "response": msg}
+        if result.saved_paths:
+            msg = f"Made an image of {prompt}.\nSaved: {result.saved_paths[0]}"
+            return {"ok": True, "action": a, "path": result.saved_paths[0], "paths": list(result.saved_paths),
+                    "prompt": prompt, "content": msg, "response": msg}
+        # nothing saved: the engine says why when it knows (the diffusion weights not downloaded)
+        msg = str(getattr(result, "problem", "") or "") or "The image engine saved no image."
+        return {"ok": False, "action": a, "error": "no_image_saved", "content": msg, "response": msg}
 
     # ---- MORNING_REPORT ----
     if a == "MORNING_REPORT":
