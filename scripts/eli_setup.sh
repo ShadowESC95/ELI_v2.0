@@ -8,7 +8,8 @@
 #   NVIDIA / AMD / Apple → GPU path
 #   Intel Arc → Vulkan
 #   Intel iGPU / ≤8 GB / no discrete GPU → CPU-only
-# Override: ELI_INSTALL_CPU_ONLY=0|1
+# Override: ELI_INSTALL_CPU_ONLY=1 (the CPU build) or 0 (the GPU build, handed to install.sh as
+# ELI_FORCE_GPU=1, so an Intel iGPU or low-RAM machine gets it too)
 #
 # The GUI wizard owns the single full install.sh run. This script only
 # bootstraps a minimal .venv + PySide6 so the wizard can open.
@@ -34,7 +35,10 @@ if [ -f "$ROOT/RUN_ELI.sh" ]; then LAUNCH="bash \"$ROOT/RUN_ELI.sh\""; else LAUN
 _eli_apply_hw_policy() {
   case "${ELI_INSTALL_CPU_ONLY:-}" in
     0|false|FALSE|no|NO|off|OFF)
-      export ELI_INSTALL_CPU_ONLY=0
+      # Asked for, the GPU build is built: install.sh takes ELI_FORCE_GPU=1 as --gpu. A 0 alone is
+      # also what the policy below exports when it picks the GPU, and install.sh still prefers the
+      # CPU build for an Intel iGPU or low RAM then.
+      export ELI_INSTALL_CPU_ONLY=0 ELI_FORCE_GPU=1
       return 0
       ;;
     1|true|TRUE|yes|YES|on|ON)

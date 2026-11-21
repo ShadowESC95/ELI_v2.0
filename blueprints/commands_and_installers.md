@@ -27,7 +27,7 @@ chmod +x ELI_Setup.sh
 `ELI_Setup.sh` → `scripts/eli_setup.sh`:
 
 1. Minimal `.venv` + PySide6 (when a display is available)
-2. **`eli.setup.hardware_policy`** decides CPU vs GPU (`ELI_INSTALL_CPU_ONLY=1` or `=0` overrides it)
+2. **`eli.setup.hardware_policy`** decides CPU vs GPU (`ELI_INSTALL_CPU_ONLY=1` or `=0` overrides it; `=0` reaches `install.sh` as `ELI_FORCE_GPU=1`, so the GPU build is made even on an Intel iGPU or with 8 GB of RAM or less)
 3. **Unified Install Wizard** streams `install.sh` / `install.ps1` **once**
 4. Hard-fail stages until nomic + voice + chat model succeed
 

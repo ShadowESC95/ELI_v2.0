@@ -477,6 +477,44 @@ def test_asking_for_the_gpu_build_gets_it_where_the_cpu_build_would_be_chosen():
     assert _choose_build(OS="Darwin") == (0, "GPU (Metal)")
 
 
+def _setup_hands_install_sh(**given):
+    """What scripts/eli_setup.sh (ELI_Setup.sh) exports for install.sh after its hardware-policy step,
+    with these variables in its environment; the policy itself answers "gpu" here."""
+    text = (Path(__file__).resolve().parents[1] / "scripts" / "eli_setup.sh").read_text(encoding="utf-8")
+    start = text.index("_eli_apply_hw_policy() {")
+    body = text[start:text.index("\n}\n", start) + 3]
+    env = {k: v for k, v in __import__("os").environ.items() if k not in ("ELI_INSTALL_CPU_ONLY", "ELI_FORCE_GPU")}
+    env.update({k: str(v) for k, v in given.items()})
+    script = ("set -euo pipefail\npython3() { echo gpu; }\n" + body
+              + '_eli_apply_hw_policy\necho "${ELI_INSTALL_CPU_ONLY:-}|${ELI_FORCE_GPU:-}"\n')
+    ran = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env)
+    assert ran.returncode == 0, ran.stderr
+    cpu, gpu = ran.stdout.strip().split("|")
+    return {name: value for name, value in (("ELI_INSTALL_CPU_ONLY", cpu), ("ELI_FORCE_GPU", gpu)) if value}
+
+
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="runs the installers' own shell functions")
+def test_the_documented_gpu_override_for_eli_setup_builds_for_the_gpu():
+    """`ELI_INSTALL_CPU_ONLY=0 ./ELI_Setup.sh` is the documented way to ask for the GPU build, and on an
+    Intel iGPU laptop or a low-RAM machine install.sh built for the CPU all the same: only --gpu and
+    ELI_FORCE_GPU=1 reach its switch. ELI_Setup.sh hands the 0 on as ELI_FORCE_GPU=1."""
+    igpu = dict(HAS_INTEL_IGPU=1, ASSUME_YES=1)
+    small = dict(HAS_QUALCOMM_IGPU=1, ASSUME_YES=1, _RAMGB=8)
+    asked = _setup_hands_install_sh(ELI_INSTALL_CPU_ONLY=0)
+    assert asked == {"ELI_INSTALL_CPU_ONLY": "0", "ELI_FORCE_GPU": "1"}
+    assert _choose_build(**asked, **igpu) == (0, "GPU (Intel Vulkan)")
+    assert _choose_build(**asked, **small) == (0, "GPU (Qualcomm Vulkan)")
+    assert _choose_build(BUILD_FLAG="cpu", **asked, **igpu) == (1, "CPU-only")   # its CPU retry still is one
+    # The policy's own answer is not an override: install.sh still prefers the CPU build there.
+    decided = _setup_hands_install_sh()
+    assert decided == {"ELI_INSTALL_CPU_ONLY": "0"}
+    assert _choose_build(**decided, **igpu) == (1, "CPU-only (Intel iGPU laptop)")
+    for value in ("1", "yes"):
+        cpu = _setup_hands_install_sh(ELI_INSTALL_CPU_ONLY=value)
+        assert cpu == {"ELI_INSTALL_CPU_ONLY": "1"} and _choose_build(**cpu, HAS_NVIDIA=1) == (1, "CPU-only")
+    assert _setup_hands_install_sh(ELI_FORCE_GPU=1) == {"ELI_INSTALL_CPU_ONLY": "0", "ELI_FORCE_GPU": "1"}
+
+
 def test_linux_nvidia_build_finds_nvcc_off_path():
     """The CUDA toolkit is routinely installed without being on PATH."""
     text = _sh_text()

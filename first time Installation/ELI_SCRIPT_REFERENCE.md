@@ -328,7 +328,7 @@ The shell scripts under `scripts/` (31 files), then the Python and PowerShell he
 | | |
 |---|---|
 | **When to use** | **Recommended entry for new users** on Linux/macOS with a display. |
-| **Flow** | 0) Hardware policy: `ELI_INSTALL_CPU_ONLY` if set, else `python3 -m eli.setup.hardware_policy` (`gpu`/`cpu`). Android/Termux: `python3 -m eli.setup --full-install --launch`. 1) If DISPLAY/WAYLAND: make a minimal `.venv` (`eli_env.py create`), install PySide6 into it (`requirements-portable-bootstrap.txt`, wheelhouse first), then `.venv/bin/python -m eli.setup --full-install` (log: `artifacts/setup_gui.log`). 2) If that did not finish: `install.sh --yes [--cpu-only] --auto-model` (the other build on failure), then `exec .venv/bin/python -m eli.setup --run-remaining`. Outside Android it does not launch ELI itself (the wizard's Launch button does); it takes no arguments. |
+| **Flow** | 0) Hardware policy: `ELI_INSTALL_CPU_ONLY` if set (a `0` also exports `ELI_FORCE_GPU=1`, which `install.sh` reads as `--gpu`), else `python3 -m eli.setup.hardware_policy` (`gpu`/`cpu`). Android/Termux: `python3 -m eli.setup --full-install --launch`. 1) If DISPLAY/WAYLAND: make a minimal `.venv` (`eli_env.py create`), install PySide6 into it (`requirements-portable-bootstrap.txt`, wheelhouse first), then `.venv/bin/python -m eli.setup --full-install` (log: `artifacts/setup_gui.log`). 2) If that did not finish: `install.sh --yes [--cpu-only] --auto-model` (the other build on failure), then `exec .venv/bin/python -m eli.setup --run-remaining`. Outside Android it does not launch ELI itself (the wizard's Launch button does); it takes no arguments. |
 | **Exit codes** | `0` GUI success; `1` no `python3`, core install incomplete, or PySide6 missing; otherwise the exit code of `eli.setup --run-remaining`. |
 
 ---
@@ -1257,7 +1257,7 @@ Not set by the launchers: `ELI_NOTEBOOK_DIR` (default `$ELI_DATA_DIR/notebook`),
 
 | Variable | Purpose |
 |----------|---------|
-| `ELI_INSTALL_CPU_ONLY` | `1` / `0` forces the CPU or the GPU path in `eli_setup.sh` and the wizard; `1` also forces CPU in `install.sh` |
+| `ELI_INSTALL_CPU_ONLY` | `1` / `0` forces the CPU or the GPU path in `eli_setup.sh` and the wizard; `1` also forces CPU in `install.sh`, and `eli_setup.sh` (`ELI_Setup.sh`) hands a `0` on to `install.sh` as `ELI_FORCE_GPU=1`, the GPU build even on an Intel iGPU or with 8 GB of RAM or less |
 | `ELI_FORCE_GPU` | `1` makes the hardware policy pick the GPU path when `ELI_INSTALL_CPU_ONLY` is unset, and `install.sh` build for the GPU as `--gpu` does (unless `ELI_INSTALL_CPU_ONLY=1` or a flag says otherwise) |
 | `ELI_INSTALL_ROOT` | AppImage/deb copy target (`~/.local/share/ELI_v2`) |
 | `ELI_APPIMAGE_FORCE_SYNC` | Force AppImage tree re-sync (source-portable AppImage) |

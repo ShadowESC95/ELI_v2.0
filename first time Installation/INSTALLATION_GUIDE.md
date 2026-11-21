@@ -112,7 +112,7 @@ ELI_INSTALL_CPU_ONLY=1 ./ELI_Setup.sh
 ELI_INSTALL_CPU_ONLY=0 ./ELI_Setup.sh
 # or ELI_FORCE_GPU=1
 ```
-`ELI_Setup.sh` itself takes no options; these variables are how its hardware choice is overridden.
+`ELI_Setup.sh` itself takes no options; these variables are how its hardware choice is overridden. `ELI_INSTALL_CPU_ONLY=0` and `ELI_FORCE_GPU=1` make the build for the GPU found even where the CPU build would be chosen (an Intel iGPU, or 8 GB of RAM or less).
 
 ---
 
