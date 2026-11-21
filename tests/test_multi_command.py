@@ -233,3 +233,18 @@ def test_remember_it_keeps_what_the_message_said(text, kept):
     """"Please remember it" was stored as the word "it", which the memory filter turned down."""
     routed = route(text)
     assert routed["action"] == "MEMORY_STORE" and routed["args"]["text"] == kept
+
+
+@pytest.mark.parametrize("text, action", [
+    ("start dictation", "DICTATE"),
+    ("start a new chat", "CLEAR_CHAT_HISTORY"),
+    ("open system settings", "OPEN_SYSTEM_SETTINGS"),
+    ("open media hub", "OPEN_MEDIA_HUB"),
+    ("open network settings", "OPEN_NETWORK_BROWSER"),
+    ("start a pomodoro", "POMODORO_START"),
+    ("open spotify", "OPEN_APP"),
+])
+def test_elis_own_features_are_not_apps_to_open(text, action):
+    """"start dictation" offered to install a program called "dictation". The features are known by
+    their actions' names, so rewording a phrase in the capability list cannot lose one."""
+    assert route(text)["action"] == action

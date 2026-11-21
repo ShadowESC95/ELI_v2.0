@@ -5719,6 +5719,9 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("SKIP_YOUTUBE_AD", {}, 0.95, matched_by="media.skip_ad")
 
     # ── Clear chat history ───────────────────────────────────────────────────
+    # "start a new chat" is a fresh one: the current history cleared
+    if re.fullmatch(r"(?:start|begin|open)\s+(?:a\s+)?(?:new|fresh)\s+(?:chat|conversation)[.!]*", low.strip()):
+        return _mk("CLEAR_CHAT_HISTORY", {}, 0.93, matched_by="system.new_chat")
     if re.search(r"\bclear\s+(?:chat|conversation|history|our\s+conversation)\b|"
                  r"\breset\s+(?:chat|conversation|history)\b|\berase\s+(?:chat|history)\b|"
                  r"\bwipe\s+(?:chat|conversation|history)\b", low):

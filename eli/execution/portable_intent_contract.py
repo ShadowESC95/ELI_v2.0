@@ -188,31 +188,51 @@ def _browser_open_target(target: str):
     return rest.strip(" .,:;-")
 
 
-_ELI_FEATURES: Optional[frozenset] = None
+_ELI_FEATURES: Optional[dict] = None
+# OPEN_ actions that open something other than one of ELI's own features.
+_NOT_FEATURES = frozenset({"OPEN_APP", "OPEN_URL", "OPEN_BROWSER", "OPEN_IN_IDE", "OPEN_FILE_SYSTEM"})
 
 
-def _names_an_eli_feature(target: str) -> bool:
-    """Whether "open/start <target>" names one of ELI's own features rather than a program: the
-    object of an "open/start/launch/run ..." phrase in the capability list for an action other
-    than opening an app ("start dictation", "start a new chat", "open system settings"). Each of
-    those went to OPEN_APP and offered to install a program called "dictation"."""
+def _eli_feature(target: str) -> str:
+    """The action of ELI's own that "open/start <target>" names, or "". Each of these went to
+    OPEN_APP and offered to install a program called "dictation" or "system settings".
+
+    Read from the capability list (eli/tools/registry/capabilities_doc.py) two ways: an OPEN_ action
+    by its own name and its description ("OPEN_MEDIA_HUB", "Open the media hub": "media hub"), and
+    the object of an "open/start/launch/run ..." phrase listed for any other action ("start
+    dictation"). The names hold when a listed phrase is reworded."""
     global _ELI_FEATURES
     if _ELI_FEATURES is None:
-        found = set()
+        found: dict = {}
+
+        def _bare(text: str) -> str:
+            text = re.sub(r"\s*\(.*?\)\s*", " ", str(text or "")).strip().lower()
+            return re.sub(r"^(?:the|a|an|my)\s+", "", text)
+
         try:
             from eli.tools.registry.capabilities_doc import _C
-            for action, (_cat, _desc, phrases) in _C.items():
-                if action in ("OPEN_APP", "OPEN_URL", "OPEN_BROWSER"):
+            for action, (_cat, desc, phrases) in _C.items():
+                if action.startswith("OPEN_") and action not in _NOT_FEATURES:
+                    found.setdefault(_bare(action[5:].replace("_", " ")), action)
+                    m = re.match(r"^open\s+(.+)$", str(desc or ""), re.I)
+                    if m:
+                        found.setdefault(_bare(m.group(1)), action)
+                if action in _NOT_FEATURES:
                     continue
                 for phrase in phrases:
                     m = re.match(r"^\W*(?:open|start|launch|run)\s+(.+?)\W*$", str(phrase), re.I)
                     if m and "<" not in m.group(1) and not re.search(r"\b[A-Z]\b|\bX\b", m.group(1)):
-                        found.add(re.sub(r"^(?:the|a|an|my)\s+", "", m.group(1).strip().lower()))
+                        found.setdefault(_bare(m.group(1)), action)
         except Exception:
-            log.debug("capability phrases unavailable", exc_info=True)
-        _ELI_FEATURES = frozenset(found)
+            log.debug("capability list unavailable", exc_info=True)
+        _ELI_FEATURES = found
     said = re.sub(r"^(?:the|a|an|my)\s+", "", str(target or "").strip().lower())
-    return bool(said) and said in _ELI_FEATURES
+    return _ELI_FEATURES.get(said, "") if said else ""
+
+
+def _names_an_eli_feature(target: str) -> bool:
+    """Whether "open/start <target>" names one of ELI's own features rather than a program."""
+    return bool(_eli_feature(target))
 
 
 def _looks_like_app_target(target: str) -> bool:
@@ -556,8 +576,12 @@ def try_route(text: str) -> Optional[dict]:
                 "confidence": 0.98,
                 "meta": {"matched_by": "portable_intent_contract.open_browser"},
             }
+        elif _eli_feature(target).startswith("OPEN_"):
+            # "open system settings", "open media hub": ELI's own action for it, which needs no arguments
+            return {"action": _eli_feature(target), "args": {}, "confidence": 0.97,
+                    "meta": {"matched_by": "portable_intent_contract.eli_feature"}}
         elif _names_an_eli_feature(target):
-            pass        # "start dictation", "open system settings": ELI's own, for the router's rule
+            pass        # "start dictation", "start a new chat": ELI's own, for the router's rule
         elif _looks_like_app_target(target):
             return {
                 "action": "OPEN_APP",
