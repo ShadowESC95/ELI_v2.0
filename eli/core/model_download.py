@@ -21,6 +21,7 @@ CLI:
     python -m eli.core.model_download --list
     python -m eli.core.model_download <key>          # e.g. qwen2.5-7b
     python -m eli.core.model_download --auto          # pick by detected VRAM
+    python -m eli.core.model_download --starter DIR   # the open-licence starter in DIR, for packages
 """
 from __future__ import annotations
 
@@ -37,10 +38,11 @@ from eli.core.paths import models_dir
 
 # Curated catalog: suggested downloads, not an inference-path constraint. size_gb is approximate
 # (display and a download sanity check). vram_gb is the rough minimum for comfortable GPU offload;
-# all run on CPU.
+# all run on CPU. license is the upstream model card's, as models/MODEL_LICENSES.md lists it.
 CATALOG: List[Dict[str, Any]] = [
     {
         "key": "qwen2.5-3b",
+        "license": "Qwen Research License (non-commercial)",
         "name": "Qwen2.5-3B-Instruct (Q4_K_M)",
         "filename": "Qwen2.5-3B-Instruct-Q4_K_M.gguf",
         "url": "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf",
@@ -50,6 +52,7 @@ CATALOG: List[Dict[str, Any]] = [
     },
     {
         "key": "qwen2.5-7b",
+        "license": "Apache-2.0",
         "name": "Qwen2.5-7B-Instruct (Q4_K_M)",
         "filename": "Qwen2.5-7B-Instruct-Q4_K_M.gguf",
         "url": "https://huggingface.co/bartowski/Qwen2.5-7B-Instruct-GGUF/resolve/main/Qwen2.5-7B-Instruct-Q4_K_M.gguf",
@@ -60,6 +63,7 @@ CATALOG: List[Dict[str, Any]] = [
     },
     {
         "key": "qwen3-8b",
+        "license": "Apache-2.0",
         "name": "Qwen3-8B (Q4_K_M)",
         "filename": "Qwen_Qwen3-8B-Q4_K_M.gguf",
         "url": "https://huggingface.co/bartowski/Qwen_Qwen3-8B-GGUF/resolve/main/Qwen_Qwen3-8B-Q4_K_M.gguf",
@@ -69,6 +73,7 @@ CATALOG: List[Dict[str, Any]] = [
     },
     {
         "key": "falcon3-10b",
+        "license": "TII Falcon License",
         "name": "Falcon3-10B-Instruct (Q4_K_M)",
         "filename": "Falcon3-10B-Instruct-Q4_K_M.gguf",
         "url": "https://huggingface.co/bartowski/Falcon3-10B-Instruct-GGUF/resolve/main/Falcon3-10B-Instruct-Q4_K_M.gguf",
@@ -78,6 +83,7 @@ CATALOG: List[Dict[str, Any]] = [
     },
     {
         "key": "phi-4",
+        "license": "MIT",
         "name": "Phi-4 (Q4_K_M)",
         "filename": "phi-4-Q4_K_M.gguf",
         "url": "https://huggingface.co/bartowski/phi-4-GGUF/resolve/main/phi-4-Q4_K_M.gguf",
@@ -87,6 +93,7 @@ CATALOG: List[Dict[str, Any]] = [
     },
     {
         "key": "qwen3.6-35b-a3b",
+        "license": "Apache-2.0",
         "name": "Qwen3.6-35B-A3B (UD-Q4_K_M, MoE)",
         "filename": "Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
         "url": "https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF/resolve/main/Qwen3.6-35B-A3B-UD-Q4_K_M.gguf",
@@ -97,6 +104,7 @@ CATALOG: List[Dict[str, Any]] = [
     },
     {
         "key": "falcon-h1-34b",
+        "license": "TII Falcon License",
         "name": "Falcon-H1-34B-Instruct (Q4_K_M)",
         "filename": "Falcon-H1-34B-Instruct-Q4_K_M.gguf",
         "url": "https://huggingface.co/tiiuae/Falcon-H1-34B-Instruct-GGUF/resolve/main/Falcon-H1-34B-Instruct-Q4_K_M.gguf",
@@ -276,6 +284,19 @@ def default_entry() -> Dict[str, Any]:
         if e.get("default"):
             return e
     return cat[0]
+
+
+# Licences under which anyone may pass a model on, commercially or not, keeping its notice: the ones
+# a package ELI ships to every user may carry without asking.
+OPEN_LICENSES = ("Apache-2.0", "MIT")
+
+
+def starter_model(folder: Path) -> Optional[Dict[str, Any]]:
+    """The catalog's smallest chat model under an open licence (OPEN_LICENSES) whose file is in
+    `folder`: what a release package may bundle as its starter. None when there is none."""
+    present = [e for e in list_catalog()
+               if e.get("license") in OPEN_LICENSES and (Path(folder) / str(e.get("filename") or "")).is_file()]
+    return min(present, key=lambda e: float(e.get("size_gb", 0)), default=None)
 
 
 def recommend_for_vram(free_vram_gb: Optional[float]) -> Dict[str, Any]:
@@ -607,6 +628,12 @@ def main(argv: Optional[List[str]] = None) -> int:
         return 0
     if argv[0] in ("--choose", "--select", "-c"):
         return interactive_select()
+    if argv[0] == "--starter":
+        # The file name a package bundles from this folder (scripts/package_desktop_app.sh).
+        found = starter_model(Path(argv[1]) if len(argv) > 1 else models_dir())
+        if found:
+            print(found["filename"])
+        return 0 if found else 1
     if argv[0] in ("--list", "-l"):
         print(_fmt_catalog())
         return 0

@@ -215,12 +215,13 @@ else
   rmdir "$STAGING/gpu-packs" 2>/dev/null || true
 fi
 
-# Starter model — bundle a genuinely usable small GGUF so a fresh install answers well
-# out of the box. Default: Qwen2.5-3B-Instruct (great on 4GB+ GPUs / CPU). Override with
-# ELI_STARTER_MODEL=<filename in models/>. Users can still download any other model from
-# the full catalog during setup — this is just the default it ships with.
-STARTER_MODEL="${ELI_STARTER_MODEL:-Qwen2.5-3B-Instruct-Q4_K_M.gguf}"
-if [ -f "$ASSET_ROOT/models/$STARTER_MODEL" ]; then
+# Starter model — bundle a usable GGUF so a fresh install answers out of the box. By default the
+# catalog's smallest chat model under an open licence that models/ holds (model_download.py
+# starter_model): the package goes to every user, so a non-commercial model is never the default.
+# ELI_STARTER_MODEL=<filename in models/> picks one by hand. Users can still download any other
+# model from the full catalog during setup — this is just the one the package ships with.
+STARTER_MODEL="${ELI_STARTER_MODEL:-$(cd "$ROOT" && PYTHONPATH="$ROOT" "$PYTHON" -m eli.core.model_download --starter "$ASSET_ROOT/models" 2>/dev/null || true)}"
+if [ -n "$STARTER_MODEL" ] && [ -f "$ASSET_ROOT/models/$STARTER_MODEL" ]; then
   echo "[package] bundling starter model: $STARTER_MODEL ($(du -h "$ASSET_ROOT/models/$STARTER_MODEL" | cut -f1))"
   mkdir -p "$STAGING/models"; cp "$ASSET_ROOT/models/$STARTER_MODEL" "$STAGING/models/"
   # A "full" package (starter model present) also bundles the small aux weights the installer
@@ -240,7 +241,7 @@ if [ -f "$ASSET_ROOT/models/$STARTER_MODEL" ]; then
     fi
   done
 else
-  echo "[package] starter model $STARTER_MODEL not found in models/ — skipping (installer will download one)"
+  echo "[package] no starter model (${STARTER_MODEL:-none under an open licence} in $ASSET_ROOT/models) — skipping (installer will download one)"
 fi
 
 if [ "$WITH_ASSETS" -eq 1 ]; then

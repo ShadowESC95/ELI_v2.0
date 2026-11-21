@@ -99,7 +99,10 @@ Install cleared voices only, or fetch alternatives from [rhasspy/piper-voices](h
 | `qwen3.6-35b-a3b` | [unsloth/Qwen3.6-35B-A3B-GGUF](https://huggingface.co/unsloth/Qwen3.6-35B-A3B-GGUF) | Apache-2.0 | Same |
 | `falcon-h1-34b` | [tiiuae/Falcon-H1-34B-Instruct-GGUF](https://huggingface.co/tiiuae/Falcon-H1-34B-Instruct-GGUF) | **TII Falcon License** — read upstream model card | Verify before commercial use |
 
-These are downloaded by the user from Hugging Face; ELI does not redistribute them.
+These are downloaded by the user from Hugging Face; the release builds bundle none of them. A
+portable package built with `scripts/package_desktop_app.sh` bundles one as its starter only
+when its licence is open (Apache-2.0 or MIT, `OPEN_LICENSES` in `eli/core/model_download.py`),
+unless `ELI_STARTER_MODEL` names another.
 
 ---
 

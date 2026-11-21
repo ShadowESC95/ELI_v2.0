@@ -117,3 +117,30 @@ def test_the_frozen_builds_carry_only_the_wake_word_files_eli_loads():
     kept = {Path(src).stem for src, _dest in wakeword.feature_model_files(hooks.collect_data_files("openwakeword"))}
     pretrained = {Path(p).stem for p in oww.get_pretrained_model_paths()}
     assert kept == loaded and pretrained and not kept & pretrained
+
+
+def test_a_package_bundles_no_non_commercial_model_unless_asked(tmp_path, monkeypatch):
+    """scripts/package_desktop_app.sh bundled Qwen2.5-3B, under the non-commercial Qwen Research
+    License, whenever models/ had it, and the package goes to every user."""
+    from eli.core import model_download as md
+    monkeypatch.setattr(md, "_load_override_catalog", lambda: [])
+    manifest = (REPO / "models" / "MODEL_LICENSES.md").read_text(encoding="utf-8")
+    for entry in md.CATALOG:                       # the catalog says what the manifest says
+        row = next(line for line in manifest.splitlines() if line.startswith(f"| `{entry['key']}` |"))
+        assert entry["license"].split(" (")[0] in row, (entry["key"], row)
+
+    for entry in md.CATALOG:
+        (tmp_path / entry["filename"]).write_bytes(b"")
+    picked = md.starter_model(tmp_path)
+    open_sizes = [e["size_gb"] for e in md.CATALOG if e["license"] in md.OPEN_LICENSES]
+    assert picked["license"] in md.OPEN_LICENSES and picked["size_gb"] == min(open_sizes)
+    closed = tmp_path / "closed"
+    closed.mkdir()
+    for entry in md.CATALOG:
+        if entry["license"] not in md.OPEN_LICENSES:
+            (closed / entry["filename"]).write_bytes(b"")
+    assert md.starter_model(closed) is None
+
+    script = (REPO / "scripts" / "package_desktop_app.sh").read_text(encoding="utf-8")
+    assert "eli.core.model_download --starter" in script
+    assert not [e["filename"] for e in md.CATALOG if e["filename"] in script], "a model is named in the script"
