@@ -160,6 +160,27 @@ def test_v2_never_touches_another_eli_versions_launchers(tmp_path, monkeypatch):
     assert (home / ".local" / "bin" / "eli-v2-run").is_file()
 
 
+def test_a_frozen_build_writes_no_source_tree_launchers(tmp_path, monkeypatch):
+    """The installed Windows app wrote three Start Menu shortcuts, eli-run.cmd and the install pointer
+    on every start, and the macOS app its .command files: they start the source tree's eli.bat and
+    scripts/, which a frozen build does not have, so each one failed. Setup (or the .app, or the
+    AppImage's own integration) makes a frozen build's launchers; only a source tree gets these."""
+    root = tmp_path / "ELI_v2"
+    (root / "eli").mkdir(parents=True)
+    (root / "pyproject.toml").write_text('[project]\nname = "eli-v2.0"\nversion = "2.0.0"\n', encoding="utf-8")
+    asked = []
+    monkeypatch.setattr(dl, "install_desktop_launchers", lambda r=None, **_kw: asked.append(r) or [])
+    monkeypatch.setattr(dl, "scrub_stale_eli_desktops", lambda **_kw: [])
+    monkeypatch.delenv("APPIMAGE", raising=False)
+    monkeypatch.delenv("ELI_SKIP_DESKTOP_REFRESH", raising=False)
+    for platform in ("win32", "darwin", "linux"):
+        monkeypatch.setattr(dl, "sys", type("S", (), {"platform": platform, "frozen": True})())
+        assert dl.ensure_desktop_launchers(root) is False, platform
+    assert asked == []
+    monkeypatch.setattr(dl, "sys", type("S", (), {"platform": "win32", "frozen": False})())
+    assert dl.ensure_desktop_launchers(root) is True and asked == [root.resolve()]
+
+
 def _run_appimage_integration(entry: Path, home: Path, appimage: Path, root: Path) -> None:
     import os
     import subprocess

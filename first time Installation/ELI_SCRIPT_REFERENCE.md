@@ -389,7 +389,7 @@ Fresh venv (deletes existing), backs up secrets, runs `install.sh --yes --no-mod
 
 ### `scripts/install_desktop_apps.sh`
 
-Runs `python -m eli.runtime.desktop_launchers install`: writes **ELI v2.0**, **ELI Server**, **ELI Setup** and **Uninstall ELI v2.0** entries (`~/.local/share/applications/eli-v2*.desktop`, Linux) or `.command` launchers (macOS), or prints the Windows PS1 command. Every entry starts `~/.local/bin/eli-v2-run <action>`, a guard script with zenity error dialogs that reads the install-root pointer (`~/.local/share/ELI_v2/runtime/install_root`), so no extract-folder path is written into an entry. It only replaces or removes ELI v2's own entries. `scripts/install_desktop_apps.ps1` does the same for Start Menu shortcuts through `%LOCALAPPDATA%\ELI_v2\eli-run.cmd`.
+Runs `python -m eli.runtime.desktop_launchers install`: writes **ELI v2.0**, **ELI Server**, **ELI Setup** and **Uninstall ELI v2.0** entries (`~/.local/share/applications/eli-v2*.desktop`, Linux) or `.command` launchers (macOS), or prints the Windows PS1 command. Every entry starts `~/.local/bin/eli-v2-run <action>`, a guard script with zenity error dialogs that reads the install-root pointer (`~/.local/share/ELI_v2/runtime/install_root`), so no extract-folder path is written into an entry. It only replaces or removes ELI v2's own entries. `scripts/install_desktop_apps.ps1` does the same for Start Menu shortcuts through `%LOCALAPPDATA%\ELI_v2\eli-run.cmd`. A GUI start from a source tree refreshes them; a frozen build writes none (they start the source tree's scripts): Setup, the .app and the AppImage's own integration make its launchers.
 
 ---
 
@@ -407,7 +407,7 @@ Installs the `eli-v2` + `eli2` commands for this checkout (`install_eli_command.
 
 ### `scripts/eli_uninstall.sh`
 
-Stops processes from this install (not itself or the terminal it runs in); removes ELI v2's desktop entries, `~/.local/bin/eli-v2-run`, older v2-only entries (and an old `~/.local/bin/eli` that names v2) and v2's theme icon, and the `~/.local/bin/eli-v2` / `eli2` commands, the shell block `fix_eli_shell_env.sh` wrote and the install-root pointer when they belong to this install (another install's are left); then asks whether to delete the install folder. `--yes` removes the integration without asking and keeps the folder; `--purge` also deletes the folder. `scripts/uninstall.ps1` (via `UNINSTALL.bat`) removes the Start Menu shortcuts and optionally the folder on Windows.
+Stops processes from this install (not itself or the terminal it runs in); removes ELI v2's desktop entries, `~/.local/bin/eli-v2-run`, older v2-only entries (and an old `~/.local/bin/eli` that names v2) and v2's theme icon, and the `~/.local/bin/eli-v2` / `eli2` commands, the shell block `fix_eli_shell_env.sh` wrote and the install-root pointer when they belong to this install (another install's are left); then asks whether to delete the install folder. `--yes` removes the integration without asking and keeps the folder; `--purge` also deletes the folder. `scripts/uninstall.ps1` (via `UNINSTALL.bat`) does the same on Windows: it removes the Start Menu shortcuts that start `%LOCALAPPDATA%\ELI_v2\eli-run.cmd` or a file in this folder, and that launcher and the install pointer when the pointer names this install (another install's are left; their folders go only when empty), then asks whether to delete the folder.
 
 ---
 
@@ -586,7 +586,7 @@ Lean `.deb` (about 10 MB at v2.5.35): `dist/app_packages/ELI_v2-<v>-amd64.deb`, 
 
 ### `packaging/windows/installer.iss`
 
-Inno Setup script for the frozen bundle (`dist\ELI\`): `iscc packaging\windows\installer.iss /DMyAppVersion=<version>` → `dist\ELI-Setup-<version>.exe`, the installer releases publish. Per-user install to `%LOCALAPPDATA%\Programs\ELI` (no admin); data stays in `%LOCALAPPDATA%\ELI_v2` and survives an uninstall; a "Fresh install" task resets settings and memory but keeps downloaded models and the GPU pack; installs the Visual C++ runtime when missing. The GPU pack is not downloaded by Setup: ELI offers it on first start.
+Inno Setup script for the frozen bundle (`dist\ELI\`): `iscc packaging\windows\installer.iss /DMyAppVersion=<version>` → `dist\ELI-Setup-<version>.exe`, the installer releases publish. Per-user install to `%LOCALAPPDATA%\Programs\ELI` (no admin); data stays in `%LOCALAPPDATA%\ELI_v2` and survives an uninstall, which removes only the launcher, install pointer and Start Menu shortcuts the app wrote there up to 2.5.37 (when the pointer names that folder; `packaging/windows/eli_launchers.iss`, which `ELI_Setup.iss` uses the same way); a "Fresh install" task resets settings and memory but keeps downloaded models and the GPU pack; installs the Visual C++ runtime when missing. The GPU pack is not downloaded by Setup: ELI offers it on first start.
 
 ---
 

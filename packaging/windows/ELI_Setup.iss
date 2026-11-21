@@ -49,7 +49,17 @@ Filename: "{app}\ELI_Setup.bat"; Description: "Set up ELI now (recommended)"; Fl
 Filename: "{app}\eli.bat"; Description: "Launch ELI (after setup)"; Flags: postinstall nowait skipifsilent unchecked
 
 [Code]
+#include "eli_launchers.iss"
+
 function InitializeSetup(): Boolean;
 begin
   Result := True;
+end;
+
+{ After Setup's own files are gone: the launcher, install pointer and Start Menu shortcuts that
+  ELI_Setup.bat's install wrote for this folder (eli_launchers.iss says which, and when they are left). }
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+begin
+  if CurUninstallStep = usPostUninstall then
+    RemoveEliLaunchers(ExpandConstant('{app}'));
 end;

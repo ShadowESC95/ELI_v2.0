@@ -141,6 +141,55 @@ def test_uninstall_leaves_what_another_install_added(tmp_path):
     assert gone.returncode == 0 and not mine.exists() and theirs.is_dir()
 
 
+def _not_comments(text: str, comment: str) -> str:
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith(comment))
+
+
+def test_the_windows_uninstallers_take_away_the_launcher_and_pointer_this_install_added(monkeypatch):
+    """scripts/uninstall.ps1 and both Inno uninstallers left %LOCALAPPDATA%\\ELI_v2\\eli-run.cmd and the
+    install pointer behind (and the shortcuts that start it). Every v2 install writes the same ones, so
+    they go when the pointer names this install, as in eli_uninstall.sh, and stay for the install it
+    names otherwise; a shortcut goes only when it starts that launcher or a file in this folder (v3 uses
+    some of the same names), and a folder only when that leaves it empty (the app's data is in ELI_v2)."""
+    import eli.runtime.desktop_launchers as dl
+    monkeypatch.setattr(dl, "product_line", lambda: "v2")
+    labels = [f"{label}.lnk" for label, _action in dl.windows_shortcuts()]
+    assert labels and all("v3" not in label for label in labels)
+
+    ps = _not_comments((ROOT / "scripts" / "uninstall.ps1").read_text(encoding="utf-8-sig"), "#")
+    assert 'Join-Path $env:LOCALAPPDATA "ELI_v2"' in ps
+    assert '$Launcher = Join-Path $Share "eli-run.cmd"' in ps and '$Pointer = Join-Path $Share "runtime\\install_root"' in ps
+    for label in labels:
+        assert f'"{label}"' in ps, label
+    read = ps.index("Get-Content -LiteralPath $Pointer -Encoding UTF8")
+    mine = ps.index("$Mine = ")
+    assert read < mine < ps.index("Remove-Item") and "(Get-FullPath $Root)" in ps[mine:mine + 200]
+    links = ps[ps.index("foreach ($n in"):ps.index("if ($Mine) {")]
+    assert "CreateShortcut($lnk).TargetPath" in links and "(Get-FullPath $Launcher)" in links and "$Inside" in links
+    ours = ps[ps.index("if ($Mine) {"):]
+    ours = ours[:ours.index("\n} else {")]
+    assert "@($Launcher, $Pointer)" in ours and "[System.IO.Directory]::Delete($d, $false)" in ours
+    assert ps.count("-Recurse") == 1, "only the folder the user agreed to delete goes recursively"
+
+    include = ROOT / "packaging" / "windows" / "eli_launchers.iss"
+    pas = _not_comments(include.read_text(encoding="utf-8"), "{")
+    body = pas[pas.index("procedure RemoveEliLaunchers(const Root: String);"):]
+    assert "LoadStringsFromFile(Pointer, Lines)" in body and "EliSamePath(Pointed, Root)" in body
+    for label in labels:
+        assert f"'{label}'" in body, label
+    assert "EliSamePath(Target, Launcher)" in body and "EliInside(Target, Root)" in body
+    assert "DeleteFile(Launcher)" in body and "DeleteFile(Pointer)" in body and "DelTree" not in body
+    for name, root in (("installer.iss", "ExpandConstant('{localappdata}\\ELI_v2')"),
+                       ("ELI_Setup.iss", "ExpandConstant('{app}')")):
+        iss = (ROOT / "packaging" / "windows" / name).read_text(encoding="utf-8")
+        code = iss[iss.index("[Code]"):]
+        assert '#include "eli_launchers.iss"' in code, name
+        step = code[code.index("procedure CurUninstallStepChanged"):]
+        assert "usPostUninstall" in step and f"RemoveEliLaunchers({root})" in step, name
+        assert b"\r\n" not in (ROOT / "packaging" / "windows" / name).read_bytes(), name
+    assert b"\r\n" not in include.read_bytes()
+
+
 def test_the_windows_uninstaller_does_not_stop_itself():
     """uninstall.ps1 stops every process whose command line names the install folder, and its own
     (powershell -File <folder>\\scripts\\uninstall.ps1) does: it ended before removing the shortcuts."""

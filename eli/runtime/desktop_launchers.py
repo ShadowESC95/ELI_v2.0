@@ -16,10 +16,11 @@ Instead:
 Every file this writes is named for its own version (eli-v2*.desktop, eli-v2-run, the eli-v2 icon), and
 clean-up only ever touches entries of its own version: other ELI products (v3, the first version, ELI
 Legal, ELI VR) are separate and their launchers are never replaced or removed from here.
-  4. Setup and every non-AppImage GUI start refresh the pointer + rewrite
+  4. Setup and every GUI start from a source tree refresh the pointer + rewrite
      stale entries (including copies dragged onto ``~/Desktop``).
 
-AppImage keeps its own ``--integrate`` path (``Exec`` = the AppImage file).
+A frozen build writes none of these (they start a source tree's scripts): the AppImage keeps its own
+``--integrate`` path (``Exec`` = the AppImage file), and Setup / the .app make the Windows and macOS ones.
 """
 from __future__ import annotations
 
@@ -41,6 +42,7 @@ __all__ = [
     "write_install_root",
     "product_line",
     "scrub_stale_eli_desktops",
+    "windows_shortcuts",
 ]
 
 
@@ -606,6 +608,12 @@ def _write_macos_commands(root: Path) -> list[Path]:
     return written
 
 
+def windows_shortcuts() -> tuple[tuple[str, str], ...]:
+    """(label, eli-run action) of each Start Menu shortcut a source install gets. scripts/uninstall.ps1
+    and packaging/windows/eli_launchers.iss remove the shortcuts by these names."""
+    return ((_display_name(), "gui"), ("ELI Server (Web App)", "serve"), ("ELI Uninstall", "uninstall"))
+
+
 def _write_windows_shortcuts(root: Path) -> list[Path]:
     write_install_root(root)
     eli_run = _write_eli_run()
@@ -618,7 +626,6 @@ def _write_windows_shortcuts(root: Path) -> list[Path]:
     programs = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
     programs.mkdir(parents=True, exist_ok=True)
     shell = win32com.client.Dispatch("WScript.Shell")
-    name = _display_name()
     icon = None
     for rel in ("packaging/desktop/Eli_Icon.ico", "packaging/desktop/Eli_Icon.png"):
         cand = root / rel
@@ -626,11 +633,7 @@ def _write_windows_shortcuts(root: Path) -> list[Path]:
             icon = str(cand)
             break
     written: list[Path] = []
-    for label, action in (
-        (name, "gui"),
-        ("ELI Server (Web App)", "serve"),
-        ("ELI Uninstall", "uninstall"),
-    ):
+    for label, action in windows_shortcuts():
         path = programs / f"{label}.lnk"
         sc = shell.CreateShortcut(str(path))
         sc.TargetPath = str(eli_run)
@@ -649,13 +652,8 @@ def _write_windows_shortcuts_ps(root: Path, eli_run: Path) -> list[Path]:
     import subprocess
     programs = Path(os.environ.get("APPDATA", "")) / "Microsoft" / "Windows" / "Start Menu" / "Programs"
     programs.mkdir(parents=True, exist_ok=True)
-    name = _display_name()
     written: list[Path] = []
-    for label, action in (
-        (name, "gui"),
-        ("ELI Server (Web App)", "serve"),
-        ("ELI Uninstall", "uninstall"),
-    ):
+    for label, action in windows_shortcuts():
         path = programs / f"{label}.lnk"
         wd = str(stable_user_root())
         ps = (
@@ -698,8 +696,10 @@ def ensure_desktop_launchers(root: Optional[Path | str] = None) -> bool:
     """Best-effort refresh at GUI / Setup start. No-op for AppImage (owns integrate)."""
     if os.environ.get("APPIMAGE") or os.environ.get("ELI_SKIP_DESKTOP_REFRESH") == "1":
         return False
-    if getattr(sys, "frozen", False) and sys.platform.startswith("linux"):
-        # Frozen AppImage / pyinstaller Linux uses eli_entry._integrate
+    if getattr(sys, "frozen", False):
+        # These launchers start a source tree's eli.bat / scripts/, which a frozen build does not
+        # have: Setup's Start Menu entries (Windows), the .app (macOS) and eli_entry._integrate
+        # (the AppImage) are a frozen build's launchers.
         return False
     try:
         # Always kill GNOME-dead Path= stubs first (even if root discovery fails).
