@@ -151,6 +151,46 @@ def test_a_path_with_nothing_asked_of_it_is_left_alone(tmp_path):
     assert paths_named("this and/or that / other") == []
 
 
+@pytest.mark.parametrize("said, action, name", [
+    ("summarise sales.csv.", "ANALYZE_CSV", "sales.csv"),
+    ("summarise report.pdf.", "ANALYZE_PDF", "report.pdf"),
+    ("summarise report.docx...", "SUMMARIZE_FILE", "report.docx"),
+    ("can you summarise sales.csv?", "ANALYZE_CSV", "sales.csv"),
+    ("summarise sales.csv!", "ANALYZE_CSV", "sales.csv"),
+    ("read notes.txt.", "READ_FILE", "notes.txt"),
+    ("read ~/notes.txt.", "READ_FILE", "notes.txt"),
+    ("ocr photo.png.", "OCR_IMAGE", "photo.png"),
+    ("transcribe audio.wav.", "TRANSCRIBE", "audio.wav"),
+    ("analyse image ~/Pictures/cat.jpg.", "ANALYZE_IMAGE", "cat.jpg"),
+])
+def test_the_mark_that_ends_a_sentence_is_not_part_of_the_file_it_ends_on(said, action, name, monkeypatch):
+    """"summarise sales.csv." recalled memories about "sales.csv." and "read ~/notes.txt." listed a
+    folder of that name: the full stop was read as part of the file."""
+    import os
+    from eli.execution import router_enhanced as R
+    monkeypatch.setattr(R, "_last_used_path", None)      # no folder analysed before this
+    got = route(said)
+    assert got["action"] == action, got
+    assert os.path.basename(got["args"].get("path") or got["args"].get("source")) == name
+
+
+def test_the_mark_stays_where_it_is_not_the_end_of_a_file(tmp_path):
+    from eli.execution.router_enhanced import _normalize_text, paths_named
+    assert _normalize_text("I live in the U.S.")[0] == "I live in the U.S."
+    assert _normalize_text("what's in notes.txt?")[0] == "what's in notes.txt?"   # a question about it
+    odd = tmp_path / "draft."
+    odd.write_text("x")
+    assert _normalize_text(f"read {odd}")[0] == f"read {odd}"                     # a file whose name ends so
+    one, two = tmp_path / "one.pdf", tmp_path / "two.pdf"
+    one.write_bytes(b"")
+    two.write_bytes(b"")
+    assert [p for _, p in paths_named(f"summarise {one} and {two}.")] == [str(one), str(two)]
+
+
+def test_a_csv_named_after_other_words_is_the_file_and_not_the_words():
+    assert route("parse the csv data.csv")["args"]["path"] == "data.csv"
+
+
 def test_analyse_them_is_the_job_in_hand_and_never_the_current_folder(tmp_path, monkeypatch):
     from eli.execution.router_enhanced import route
     from eli.runtime import background_tasks as bt

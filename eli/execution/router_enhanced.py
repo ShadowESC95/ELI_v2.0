@@ -763,13 +763,46 @@ def _without_courtesy(text: str) -> str:
 def _normalize_text(text: str) -> Tuple[str, str]:
     """
     Returns (raw_clean, low_clean)
-    Removes weird whitespace/control chars that can break regexes.
+    Removes weird whitespace/control chars that can break regexes, and the mark that ends the
+    sentence when the sentence ends on a file (_without_end_mark).
     """
     raw = (text or "")
     raw = raw.replace("\u200b", " ").replace("\ufeff", " ")
     raw = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", " ", raw)  # strip control chars
-    raw = re.sub(r"\s+", " ", raw).strip()
+    raw = _without_end_mark(re.sub(r"\s+", " ", raw).strip())
     return raw, raw.lower()
+
+
+# The last word of a message and the mark that ends it, with a closing quote or bracket between.
+_LAST_WORD_AND_MARK = re.compile(r"(?P<word>[^\s\"'`]+?)(?P<close>[\"'`)\]]?)(?P<mark>[.!?]+)$")
+
+
+def _names_a_file(word: str) -> bool:
+    """Whether a word is written as a path or a file's name: with a folder separator, or ending in a
+    file extension ("sales.csv", "~/notes", "eli/core/paths.py"). "U.S." and "2.5." are neither."""
+    from eli.execution.portable_intent_contract import _FILE_EXTENSIONS
+    if word.startswith(("~", "/", "./", "../")) or "/" in word or "\\" in word:
+        return True
+    return "." in word and word.rsplit(".", 1)[1].lower() in _FILE_EXTENSIONS
+
+
+def _without_end_mark(raw: str) -> str:
+    """The text without the mark that ends its sentence, when the sentence ends on a file or folder.
+    "summarise sales.csv." looked for a file called "sales.csv.", found no extension on it and recalled
+    memories about it instead; "read ~/notes.txt." listed a folder of that name. A question mark is kept
+    on a question about the file ("what's in notes.txt?"), as the question it marks; it goes when the
+    sentence asks for something to be done ("can you summarise sales.csv?"). A path that exists with
+    the mark is left as it is."""
+    m = _LAST_WORD_AND_MARK.search(raw)
+    if not m or not _names_a_file(m.group("word")):
+        return raw
+    if os.path.exists(os.path.expanduser(m.group("word") + m.group("mark"))):
+        return raw
+    if "?" in m.group("mark"):
+        from eli.runtime import command_splitter as _cs
+        if not (_cs.is_request(raw) or _cs.starts_with_command(raw, after_lead=True)):
+            return raw
+    return raw[:m.end("close")]
 
 
 # Person-attribute nouns for personal-knowledge routing ("what do you know about
@@ -1518,8 +1551,10 @@ def paths_named(text: str) -> list:
             if not m:
                 break
             words = line[m.start():].split(" ")
-            hit = next((c for c in (" ".join(words[:k]).rstrip(" ,;:") for k in range(len(words), 0, -1))
-                        if os.path.exists(os.path.expanduser(c))), None)
+            # each stretch as written, then without the mark that ends the sentence on it
+            stretches = (" ".join(words[:k]).rstrip(" ,;:") for k in range(len(words), 0, -1))
+            hit = next((c for s in stretches for c in dict.fromkeys((s, s.rstrip(".!?")))
+                        if c and os.path.exists(os.path.expanduser(c))), None)
             if hit is None:
                 pos = m.end()
                 continue
@@ -4908,10 +4943,16 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             any(w in low for w in ["read", "show"]) and ".csv" in low):
         if any(w in low for w in [
                "analyze", "analyse", "summarize", "summarise", "read", "parse", "show"]):
-            m = re.search(r'([~/\w.\-/ ]+\.csv)\b', raw, re.I)
+            m = re.search(r"\.csv\b", raw, re.I)
             if m:
-                return _mk("ANALYZE_CSV", {"path": m.group(1).strip(
-                )}, 0.95, matched_by="analyze.csv", entities={"path": m.group(1).strip()})
+                # The file is the longest stretch ending at ".csv" that exists (paths hold spaces), else
+                # the word itself: a class with a space in it took the verb, "analyse data.csv".
+                words = raw[:m.end()].split(" ")
+                _csv = next((" ".join(words[k:]) for k in range(len(words))
+                             if os.path.exists(os.path.expanduser(" ".join(words[k:])))),
+                            words[-1].lstrip("\"'`(["))
+                return _mk("ANALYZE_CSV", {"path": _csv}, 0.95, matched_by="analyze.csv",
+                           entities={"path": _csv})
 
     # ------------------------------------------------------------
     # 10) DOCUMENT / NOTES / GENERATION

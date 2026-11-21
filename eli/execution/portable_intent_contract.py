@@ -288,7 +288,7 @@ _FILE_EXTENSIONS = frozenset({
     "ppt", "pptx", "odp", "json", "yaml", "yml", "toml", "ini", "cfg", "conf", "log", "xml",
     "py", "js", "ts", "jsx", "tsx", "sh", "bash", "c", "h", "cpp", "hpp", "rs", "go", "java",
     "kt", "rb", "php", "lua", "sql", "db", "sqlite", "sqlite3", "gguf", "bin", "safetensors",
-    "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico", "mp3", "wav", "flac", "ogg",
+    "png", "jpg", "jpeg", "gif", "webp", "bmp", "svg", "ico", "tif", "tiff", "mp3", "wav", "flac", "ogg",
     "m4a", "mp4", "mkv", "avi", "mov", "webm", "zip", "tar", "gz", "xz", "7z", "rar", "deb",
     "rpm", "appimage", "exe", "msi", "dmg", "iso", "desktop", "html", "htm", "css", "ipynb",
 })
