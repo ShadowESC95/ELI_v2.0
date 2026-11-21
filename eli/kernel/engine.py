@@ -4730,9 +4730,11 @@ class CognitiveEngine:
         from eli.memory.document_index import get_document_index
         index = get_document_index()
         if index is not None:
-            # ELI's own notes and the documents it has written, and anything edited since it last ran.
-            from eli.core.paths import documents_dir, notes_dir
-            index.refresh_once((documents_dir(), notes_dir()))
+            # ELI's own notes (NEW_NOTE's notes/ and WRITE_NOTE's notebook/) and the documents it has
+            # written, and anything edited since it last ran.
+            from eli.core.paths import documents_dir, notebook_dir, notes_dir
+            folders = (documents_dir(), notes_dir(), notebook_dir())
+            index.refresh_once(tuple(dict.fromkeys(Path(f).resolve() for f in folders)))
         return index
 
     @property

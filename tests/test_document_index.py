@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import numpy as np
 import pytest
+from pathlib import Path
 
 from eli.memory import document_index as di
 
@@ -251,6 +252,17 @@ def test_document_passages_outrank_ordinary_evidence_when_the_prompt_is_trimmed(
 def test_the_engine_exposes_the_index_to_the_orchestrator(live_index):
     from eli.kernel.engine import CognitiveEngine
     assert CognitiveEngine.document_rag.fget(SimpleNamespace()) is live_index
+
+
+def test_the_first_refresh_walks_the_notebook_that_write_note_writes(live_index, monkeypatch):
+    """WRITE_NOTE writes paths.notebook_dir(); a note written there while ELI was closed was
+    never picked up, because the refresh walked documents/ and notes/ only."""
+    from eli.core.paths import notebook_dir
+    from eli.kernel.engine import CognitiveEngine
+    walked = []
+    monkeypatch.setattr(live_index, "refresh_once", lambda folders=(): walked.extend(folders))
+    CognitiveEngine.document_rag.fget(SimpleNamespace())
+    assert notebook_dir().resolve() in [Path(f).resolve() for f in walked]
 
 
 def test_forgetting_a_document_asks_first_and_leaves_the_file(live_index, pack, monkeypatch):

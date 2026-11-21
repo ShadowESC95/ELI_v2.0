@@ -312,8 +312,8 @@ to be answered from.
 - **What gets indexed.** Anything an action reads, summarises or writes (`READ_FILE`,
   `SUMMARIZE_FILE`, `ANALYZE_PDF`, `CREATE_DOCUMENT`, `DOC_GENERATE`, `GENERATE_DOCUMENT`,
   `CONVERT_DOCUMENT`, `WRITE_NOTE`, `NEW_NOTE`; hooked in the executor's post-dispatch), a
-  file handed over with a message (`[File: path]`), and ELI's own `documents/` and `notes/`
-  folders on first use. PDF, DOCX, ODT, EPUB and prose text formats only; names that look
+  file handed over with a message (`[File: path]`), and ELI's own `documents/`, `notes/` and
+  `notebook/` folders on first use (so a note written while ELI was closed is found too). PDF, DOCX, ODT, EPUB and prose text formats only; names that look
   like secrets (`.env`, keys, credentials, wallets) and files over 96 MB are never stored.
   An unchanged file is not stored twice; a changed one replaces its passages.
 - **How.** A worker thread extracts the whole text (`document_reader.document_sections`, with
