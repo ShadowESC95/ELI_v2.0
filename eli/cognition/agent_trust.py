@@ -92,12 +92,12 @@ def _load() -> Dict[str, Any]:
 
 
 def _save(data: Dict[str, Any]) -> None:
-    p = registry_path()
-    p.parent.mkdir(parents=True, exist_ok=True)
+    """The registry decides which code ELI runs, so it is written owner-only (0600) and atomically
+    through eli.core.secure_io: no other user of the machine can read it or slip an approval into
+    it, and no reader sees half a file. Its plain temp-file write left it readable by everyone."""
+    from eli.core.secure_io import secure_write_text
     data["updated"] = time.strftime("%Y-%m-%dT%H:%M:%S")
-    tmp = p.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
-    tmp.replace(p)
+    secure_write_text(registry_path(), json.dumps(data, indent=2, ensure_ascii=False), mode=0o600)
 
 
 def list_grants() -> List[Dict[str, Any]]:

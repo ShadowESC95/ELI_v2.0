@@ -172,6 +172,24 @@ def test_approval_records_provenance(isolated):
     assert v["scan_verdict"] == "clean"
 
 
+@pytest.mark.skipif(__import__("os").name != "posix", reason="POSIX file modes")
+def test_the_registry_is_written_for_its_owner_only(isolated):
+    """trusted_agents.json decides which code runs. Its plain temp-file write left it readable (and
+    on a loose umask writable) by other users; it is written 0600, atomically (eli.core.secure_io)."""
+    import os
+    import stat
+    old = os.umask(0o022)
+    try:
+        T.grant(_write(isolated, "a.py"))
+        T.revoke(isolated / "a.py")
+    finally:
+        os.umask(old)
+    registry = T.registry_path()
+    assert stat.S_IMODE(registry.stat().st_mode) == 0o600
+    assert not list(registry.parent.glob("*.tmp")), "a temp file was left beside the registry"
+    assert T.inspect(isolated / "a.py")["status"] == T.REVOKED
+
+
 def test_editing_an_approved_file_revokes_it(isolated):
     p = _write(isolated, "a.py")
     T.grant(p)

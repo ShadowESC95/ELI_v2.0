@@ -304,9 +304,9 @@ the same shell gate and CREATE_FILE rules. The web surface adds:
   `tempfile.mkstemp` (born `0600`) → write → fsync → `os.replace` (atomic). The destination
   **never exists world-readable for any instant**, and readers see old-or-new, never partial.
 - Routed through it: the **audit HMAC key**, the **API user store**, the **LAN API token**, the
-  LAN HTTPS **private key**, and **settings** (may hold broker passwords/tokens). The
-  **agent-trust registry** (`trusted_agents.json`, the integrity anchor for §5) is written
-  atomically (temp file, then rename) but with the default file mode, not through `secure_io`.
+  LAN HTTPS **private key**, **settings** (may hold broker passwords/tokens) and the
+  **agent-trust registry** (`trusted_agents.json`, the integrity anchor for §5). Before 2.5.37
+  the registry was written atomically but with the default file mode, readable by other users.
 
 ### 10. Sandboxed research ingest
 - Corpus ingest for the research workspace reads only inside one folder
