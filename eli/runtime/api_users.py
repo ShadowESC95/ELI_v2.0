@@ -1,10 +1,11 @@
-"""API users + roles (admin / member RBAC) for the web server.
+"""API users + roles (admin / member / viewer RBAC) for the web server.
 
 Opt-in. With no users defined the API stays in single-operator mode — the legacy
 ``ELI_API_TOKEN`` (or a loopback bind) is treated as the admin operator, exactly as
 before. Define users and every request's bearer token resolves to a ``(user_id, role)``:
 attribution becomes *authenticated* (a member can't claim to be someone else), and
-admin-only surfaces (the Admin console + user management) are gated to admins.
+admin-only surfaces (the Admin console + user management) are gated to admins, and a
+viewer can read the dashboards but not act.
 
 Security: tokens are stored ONLY as SHA-256 hashes; the raw token is shown once, at
 creation. The store lives at ``config/api_users.json`` (gitignored, per-deployment).
@@ -86,9 +87,12 @@ def resolve_token(token: str) -> Optional[Dict[str, str]]:
 def add_user(user_id: str, role: str = "member") -> Dict[str, Any]:
     """Create (or replace) a user, returning a freshly-minted token ONCE."""
     user_id = (user_id or "").strip()
-    role = role if role in ROLES else "member"
+    role = (role or "member").strip().lower()
     if not user_id:
         return {"ok": False, "error": "user_id required"}
+    if role not in ROLES:
+        # Refused rather than guessed: a mistyped "viewer" must not become a member.
+        return {"ok": False, "error": f"role must be one of: {', '.join(ROLES)}"}
     token = secrets.token_urlsafe(24)
     with _lock:
         users = [u for u in _load_raw() if u.get("user_id") != user_id]
@@ -112,7 +116,7 @@ def remove_user(user_id: str) -> Dict[str, Any]:
 
 def _main(argv: List[str]) -> int:
     use = ("Usage: python -m eli.runtime.api_users "
-           "add <user_id> [admin|member] | remove <user_id> | list")
+           "add <user_id> [admin|member|viewer] | remove <user_id> | list")
     if not argv:
         print(use)
         return 2

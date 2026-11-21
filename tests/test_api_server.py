@@ -311,10 +311,8 @@ def test_read_endpoint_returns_structured_json(tokenless_client, path):
 
 @pytest.mark.parametrize("path", _READ_ENDPOINTS)
 def test_read_endpoint_is_token_gated(secured, monkeypatch, path):
-    # Every dashboard read requires auth in secured (LAN) mode. /v1/ui/prefs is the
-    # one deliberately-open UI-preferences read (no principal), so it's exempt.
-    if path == "/v1/ui/prefs":
-        pytest.skip("ui/prefs is intentionally open (no principal)")
+    # Every dashboard read requires auth in secured (LAN) mode, /v1/ui/prefs included:
+    # it loads the caller's own layout, so it needs to know who the caller is.
     client, _ = secured(monkeypatch)
     assert client.get(path).status_code == 401, f"{path} served unauthenticated"
 
@@ -414,3 +412,56 @@ def test_a_token_still_works_by_any_name(monkeypatch):
     c = TestClient(app, base_url="http://proxy.example")
     assert c.get("/v1/system").status_code == 401
     assert c.get("/v1/system", headers={"Authorization": "Bearer tok-xyz-123"}).status_code == 200
+
+
+# --------------------------------------------------------------------------- #
+# Token rotation from another process (the desktop app rotates; this server runs
+# as its own process, as the frozen Windows build and a terminal launch do).
+# --------------------------------------------------------------------------- #
+@pytest.fixture
+def saved_token_dir(monkeypatch, tmp_path):
+    import eli.core.paths as paths
+    monkeypatch.setattr(paths, "config_dir", lambda: tmp_path)
+    monkeypatch.delenv("ELI_API_ALLOW_TOKENLESS", raising=False)
+    monkeypatch.setenv("ELI_API_TOKEN_FOLLOWS_FILE", "0")   # restored after the test
+    return tmp_path
+
+
+def _status(client, token):
+    return client.get("/v1/system", headers={"Authorization": f"Bearer {token}"}).status_code
+
+
+def test_a_token_rotated_elsewhere_reaches_a_server_serving_the_saved_token(
+        saved_token_dir, monkeypatch):
+    from api import api_token
+    monkeypatch.delenv("ELI_API_TOKEN", raising=False)
+    old = api_token.get_stable_token()
+    monkeypatch.setenv("ELI_API_TOKEN", old)        # what this process was started with
+    assert api_token.serve_persisted(old) is True
+    client = TestClient(app, base_url="http://localhost")
+    assert _status(client, old) == 200
+
+    api_token._write_file_token("token-rotated-by-the-desktop-app")   # another process
+    assert _status(client, old) == 401, "the retired token still worked"
+    assert _status(client, "token-rotated-by-the-desktop-app") == 200
+
+
+def test_an_explicit_token_is_kept_when_the_saved_one_changes(saved_token_dir, monkeypatch):
+    from api import api_token
+    monkeypatch.delenv("ELI_API_TOKEN", raising=False)
+    api_token.get_stable_token()
+    monkeypatch.setenv("ELI_API_TOKEN", "explicit-operator-token")
+    assert api_token.serve_persisted("explicit-operator-token") is False
+    api_token._write_file_token("token-rotated-by-the-desktop-app")
+    client = TestClient(app, base_url="http://localhost")
+    assert _status(client, "explicit-operator-token") == 200
+    assert _status(client, "token-rotated-by-the-desktop-app") == 401
+
+
+def test_an_unknown_role_is_refused_not_turned_into_member(tmp_path, monkeypatch):
+    from eli.runtime import api_users
+    monkeypatch.setenv("ELI_API_USERS_FILE", str(tmp_path / "users.json"))
+    res = api_users.add_user("reader", "viewr")
+    assert res["ok"] is False and "viewer" in res["error"]
+    assert api_users.list_users() == []
+    assert api_users.add_user("reader", "Viewer")["role"] == "viewer"

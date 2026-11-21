@@ -8908,8 +8908,8 @@ class EliMainWindow(QMainWindow):
             args.append("--lan")
             args.append("--https")
         args.extend(["--port", str(port)])
-        if token:
-            args.extend(["--token", token])
+        # The token travels in the child's environment only: on the command line any
+        # local user could read it from the process list.
         env = os.environ.copy()
         env["ELI_API_HOST"] = host
         env["ELI_API_PORT"] = str(port)
@@ -9038,11 +9038,12 @@ class EliMainWindow(QMainWindow):
     def _eli_server_rotate_token(self) -> None:
         """Mint a fresh LAN access token, retiring every currently-paired device.
 
-        The running server reads ELI_API_TOKEN LIVE (see api/server.py), so the new
-        token takes effect immediately — old links go 401 at once. If the server is
-        up in phone/Wi-Fi mode we refresh the displayed URL so you can re-pair; if
-        it's stopped or loopback-only, the new token is simply persisted for the
-        next LAN launch.
+        rotate_token() saves the new token and exports it here. A server inside this
+        process reads ELI_API_TOKEN per request, and one running as a separate process
+        serves the saved token and re-reads its file (api_token.current_token), so
+        either way old links go 401 at once. If the server is up in phone/Wi-Fi mode
+        we refresh the displayed URL so you can re-pair; if it's stopped or
+        loopback-only, the new token is simply persisted for the next LAN launch.
         """
         import os
         try:

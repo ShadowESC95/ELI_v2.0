@@ -541,7 +541,7 @@ is unique under `eli/`; recount the others with `wc -l`.
 | Module | Lines | Role |
 |---|---:|---|
 | `active_project.py` | 78 | Active project signal. |
-| `api_users.py` | 145 | API users + roles (admin / member RBAC) for the web server. |
+| `api_users.py` | 145 | API users + roles (admin / member / viewer RBAC) for the web server. |
 | `authority_gate.py` | 86 | Who may have ELI carry out an action: `check()` refuses a caller whose role is below admin (`request_context.caller_role_var`, set by the API) the owner-only actions (`owner_only()`: shell, code, file read/write, screen, clipboard, keyboard/mouse, plus `llm_intent`'s explicit-only list of settings, plugins, MCP …); the desktop app and ELI's own daemons are the owner. Checked at the executor's entry and on each `SEQUENCE` step; the MCP server withholds the same list. |
 | `autopilot_debugger.py` | 424 | Autopilot debugger — one loop that turns a failure into a plan. |
 | `background_deepening.py` | 143 | Stage 3b background deepening: a poorly-grounded Quick factual answer is returned at once and re-gathered in the background, surfacing in the Proactive panel only when it does better (Part 6). |

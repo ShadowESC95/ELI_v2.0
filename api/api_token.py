@@ -80,9 +80,47 @@ def get_stable_token() -> str:
 def rotate_token() -> str:
     """Generate a NEW token, persist it, and export it into the environment.
 
-    Invalidates every currently-paired device — they must re-open the fresh URL.
+    Invalidates every currently-paired device — they must re-open the fresh URL. A
+    server in another process sees it through its token file (``serve_persisted``).
     """
     tok = secrets.token_urlsafe(16)
     _write_file_token(tok)
     os.environ[_TOKEN_ENV] = tok
     return tok
+
+
+# Set in a server process whose token is the persisted one. The flag lives in the
+# environment because uvicorn imports `api.server` afresh: a module global set in
+# main() is not the module that answers requests.
+_FOLLOW_FILE_ENV = "ELI_API_TOKEN_FOLLOWS_FILE"
+_file_cache: dict = {"key": None, "token": ""}
+
+
+def serve_persisted(token: str) -> bool:
+    """Called by a server as it starts with ``token``. When that is the persisted token,
+    requests are checked against the token file from then on (``current_token``), so
+    a rotation made by another process — the desktop app — reaches this server at
+    once. An explicit token that is not the persisted one is kept as given."""
+    if token and token == _read_file_token():
+        os.environ[_FOLLOW_FILE_ENV] = "1"
+        return True
+    os.environ.pop(_FOLLOW_FILE_ENV, None)
+    return False
+
+
+def current_token() -> str:
+    """The token a request is checked against: the token file's when this process
+    serves the persisted token, else ``ELI_API_TOKEN``. The file is re-read only when
+    it changes, and an unreadable file falls back to the token the server started with."""
+    env = os.environ.get(_TOKEN_ENV, "").strip()
+    if os.environ.get(_FOLLOW_FILE_ENV) != "1":
+        return env
+    try:
+        st = _token_file().stat()
+        key = (st.st_mtime_ns, st.st_size, st.st_ino)
+    except OSError:
+        return env
+    if key != _file_cache["key"]:
+        _file_cache["token"] = _read_file_token()
+        _file_cache["key"] = key
+    return _file_cache["token"] or env

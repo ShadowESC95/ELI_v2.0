@@ -70,10 +70,16 @@ from eli.kernel.engine import get_engine, MAIN_REPLY_DONE_SENTINEL
 # for zero-friction same-machine use. Local-first: nothing here reaches the network; the
 # token only controls who on YOUR LAN may talk to the server.
 def _api_token() -> str:
-    """Active bearer token, read LIVE from the environment so a token set at startup
-    (e.g. the non-loopback safety guard in main()) is always enforced — not merely
-    whatever happened to be present at import time."""
-    return os.environ.get("ELI_API_TOKEN", "").strip()
+    """Active bearer token, read LIVE per request so a token set at startup (e.g. the
+    non-loopback safety guard in main()) is always enforced — not merely whatever
+    happened to be present at import time. A server serving the persisted token reads
+    the token file (api_token.current_token), so a token rotated in the desktop app
+    reaches it even when it runs as a separate process."""
+    try:
+        from api.api_token import current_token
+        return current_token()
+    except ImportError:
+        return os.environ.get("ELI_API_TOKEN", "").strip()
 
 
 def _is_loopback_host(host: str) -> bool:
@@ -112,7 +118,7 @@ from typing import NamedTuple
 
 
 class Principal(NamedTuple):
-    """The authenticated caller: a user id and a role (admin | member)."""
+    """The authenticated caller: a user id and a role (admin | member | viewer)."""
     user_id: str
     role: str
 
@@ -660,7 +666,7 @@ class TTSRequest(BaseModel):
 
 class UserCreate(BaseModel):
     user_id: str
-    role: str = "member"   # admin | member
+    role: str = "member"   # admin | member | viewer
 
 class UserRef(BaseModel):
     user_id: str
@@ -2307,8 +2313,10 @@ def main():
     os.environ["ELI_API_SCHEME"] = "http"  # primary is always HTTP (reliable phone-open)
 
     # The auth gate fails CLOSED by default; main() relaxes it for the two safe cases ONLY.
+    from api.api_token import serve_persisted
     if _is_loopback_host(host):
         os.environ.setdefault("ELI_API_ALLOW_TOKENLESS", "1")
+        serve_persisted(_api_token())
         local_url = f"http://127.0.0.1:{port}/"
     else:
         os.environ.pop("ELI_API_ALLOW_TOKENLESS", None)
@@ -2318,10 +2326,13 @@ def main():
             # Use the PERSISTED stable token (saved 0600 under config_dir) so it stays the
             # SAME across restarts — otherwise every restart mints a fresh random token and
             # strands the already-paired phone (its QR/URL carries the old one → 401 →
-            # "loads but not fully"). Rotate deliberately via the Connect tab.
+            # "loads but not fully"). Rotate it deliberately in the desktop app
+            # (Settings → Web Server → Rotate token).
             from api.api_token import get_stable_token
             token = get_stable_token()
             os.environ["ELI_API_TOKEN"] = token
+        # Serving the saved token: follow its file, so a rotation reaches this process.
+        serve_persisted(token)
         ip = _lan_ip()
         _bar = "=" * 72
         print(_bar, flush=True)
@@ -2338,7 +2349,8 @@ def main():
         print(f"  Or send header:   Authorization: Bearer {token}", flush=True)
         if auto_generated:
             print("  (Stable token — saved locally, survives restarts so your phone stays paired.", flush=True)
-            print("   Change it with the Connect tab's Rotate, or pass --token <secret>.)", flush=True)
+            print("   Change it with Rotate token in the desktop app's Settings → Web Server,", flush=True)
+            print("   or pass --token <secret>.)", flush=True)
         try:
             _fw = _firewall_hint()
             if _fw.get("commands"):

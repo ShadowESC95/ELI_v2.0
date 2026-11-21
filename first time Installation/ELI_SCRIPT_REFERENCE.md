@@ -1009,7 +1009,7 @@ The `eli/` package contains **451 Python modules**: 2 at the package root and th
 - `runtime/action_commitment.py` — Detect when ELI's reply COMMITS to performing an action.
 - `runtime/active_project.py` — Active project signal.
 - `runtime/agenda.py` — The agenda: ELI's own calendar and reminders.
-- `runtime/api_users.py` — API users + roles (admin / member RBAC) for the web server.
+- `runtime/api_users.py` — API users + roles (admin / member / viewer RBAC) for the web server.
 - `runtime/approval_engine.py` — Module in the ELI v2 runtime.
 - `runtime/authority_gate.py` — authority_gate — who may have ELI carry out an action.
 - `runtime/autopilot_debugger.py` — Autopilot debugger — one loop that turns a failure into a plan.

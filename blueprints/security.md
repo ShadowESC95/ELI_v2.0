@@ -371,9 +371,10 @@ Two web-tier changes this cycle, both verified against the code:
   restarts (`api/api_token.py`: env → a `0600` file under the config dir → generate-and-save),
   so a paired phone is no longer stranded every time the server bounces. The desktop **Web
   Server panel's Rotate token** button issues a fresh token and saves it; a server running inside
-  the desktop app reads the token live, so old links stop working at once (a server the app
-  started as a separate process keeps the token it was started with until it restarts). It is
-  the manual override for a lost/compromised phone. `/health` stays tokenless by design.
+  the desktop app reads the token live, and one running as a separate process that serves the
+  saved token re-reads its file, so old links stop working at once either way (a server started
+  with an explicit `--token` other than the saved one keeps that token). It is the manual
+  override for a lost/compromised phone. `/health` stays tokenless by design.
 
 - **Model switching is admin-gated and allowlist-bound.** The dashboard's model dropdown posts
   to `POST /v1/model`, which requires an **admin** principal and only accepts a path already in
