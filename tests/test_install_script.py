@@ -234,9 +234,10 @@ def test_windows_installer_detects_more_than_nvidia():
 
 
 def test_windows_installer_cannot_fall_into_a_source_build():
-    """--prefer-binary lets pip build from source when no wheel matches. That
+    """--prefer-binary lets pip build from source when no wheel matches, unannounced. That
     needs MSVC, and its failure aborted the installer right after the GPU
-    accelerator step."""
+    accelerator step. The CUDA step takes a wheel or nothing; the build that follows
+    is said first and does not end the install (the test after the next)."""
     code = _ps1_code()
     llama = code[code.index("llama-cpp-python (CUDA"):]
     assert "--only-binary=:all:" in llama, "source build is still reachable"
@@ -249,6 +250,27 @@ def test_windows_installer_falls_back_to_cpu_wheel():
     assert "$llamaCudaOk" in llama, "no fallback path when the CUDA wheel is missing"
     # After falling back it must stop claiming a GPU build.
     assert "$CpuOnly = $true" in llama, "fallback does not correct the build label"
+
+
+def test_with_no_ready_made_engine_the_windows_installer_builds_one_and_goes_on():
+    """PyPI publishes llama-cpp-python as source only. When the CUDA index had nothing new enough,
+    install.ps1 fell back to --only-binary from PyPI, which cannot succeed, and Invoke-Pip's error
+    ended the installer; the CPU path and the older-CPU repair counted on a PyPI wheel the same way."""
+    code = _ps1_code()
+    llama = code[code.index("Eli-Progress -Phase llama"):code.index("Eli-Progress -Phase eli")]
+    for call in re.findall(r"Invoke-Pip[^\n]*", llama):
+        assert "--extra-index-url" in call, f"a pip step that can only fail stops the installer: {call}"
+    build = llama[llama.index("function Build-LlamaHere"):]
+    build = build[:build.index("\n}\n")]
+    assert "--no-binary llama-cpp-python" in build and "Invoke-Pip" not in build and "throw" not in build
+    assert "BuildTools" in build, "a failed build does not say what it needs"
+    # the CPU path, the CUDA wheel missing, the older-CPU repair and the -InstallCuda rebuild
+    assert llama.count("Build-LlamaHere -Reason") == 4
+    assert '-CmakeArgs "-DGGML_NATIVE=ON"' in llama, "the repair is not built for this CPU"
+    # a check of an engine that may be missing never goes through PowerShell's error stream
+    probes = [line for line in llama.splitlines() if "$PythonVenv -c" in line]
+    assert probes == ["    & $PythonVenv -c $Code *> $null"], probes
+    assert "if ($BuildWarn)" in code and "llama-cpp $BuildLabel" in code
 
 
 def test_windows_installer_explains_the_fallback():

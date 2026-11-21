@@ -258,19 +258,58 @@ if ($CpuOnly) {
     }
 }
 
-# llama-cpp-python
+# llama-cpp-python. PyPI publishes it as source only, so a ready-made build comes from the CUDA
+# wheel index (NVIDIA) or a bundled wheelhouse. Without one it is built here, which takes several
+# minutes and needs the Microsoft C++ Build Tools. A build that fails is said plainly and the install
+# goes on: ELI starts, and runs a local model once the engine is in.
 Eli-Progress -Phase llama -Pct 35 -Msg "Installing inference engine"
+$LlamaReq = "llama-cpp-python>=0.3.35"
+$LlamaBuilt = $false
+# AVX2 floor, not cmake's native tuning (the -InstallCuda rebuild below says why).
+$LlamaCpuFlags = "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=/arch:AVX2 -DCMAKE_CXX_FLAGS=/arch:AVX2"
+
+# Whether a Python check in the venv passes. Its output is dropped with the error preference relaxed:
+# Windows PowerShell turns a redirected stderr line into an error, which would stop this script.
+function Test-VenvPython {
+    param([string]$Code)
+    $ErrorActionPreference = "Continue"
+    & $PythonVenv -c $Code *> $null
+    return ($LASTEXITCODE -eq 0)
+}
+
+# Builds the engine here from its source with these CMake flags, and sets $LlamaBuilt.
+function Build-LlamaHere {
+    param([string]$Reason, [string]$CmakeArgs, [string]$IfFailed, [string[]]$Extra = @())
+    $ErrorActionPreference = "Continue"
+    Write-Host "[..] $Reason" -ForegroundColor Yellow
+    Write-Host "     Building llama-cpp-python here: several minutes, and it needs the Microsoft C++ Build Tools." -ForegroundColor Yellow
+    $env:CMAKE_ARGS = $CmakeArgs
+    & $PythonVenv -m pip install @Extra --no-cache-dir --no-binary llama-cpp-python $LlamaReq --quiet
+    $script:LlamaBuilt = ($LASTEXITCODE -eq 0)
+    Remove-Item Env:CMAKE_ARGS -ErrorAction SilentlyContinue
+    if (-not $script:LlamaBuilt) {
+        Write-Host "[WARN] The build failed: $IfFailed" -ForegroundColor Yellow
+        Write-Host "       Without the C++ build tools it cannot build. Add them, then run this installer again:" -ForegroundColor Yellow
+        Write-Host '         winget install Microsoft.VisualStudio.2022.BuildTools --override "--passive --wait --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"' -ForegroundColor Yellow
+        Write-Host "       Or install ELI-Setup-<version>.exe from the Releases page, which brings its own engine." -ForegroundColor Yellow
+    }
+}
+
+$NoEngineYet = "ELI starts, but cannot run a local model until the engine is in."
 if ($CpuOnly) {
     Write-Host "[..] Installing llama-cpp-python (CPU)..."
-    Invoke-Pip (@("install") + $PipFindLinksArgs + @("llama-cpp-python", "--quiet"))
+    & $PythonVenv -m pip install @PipFindLinksArgs $LlamaReq "--only-binary=:all:" --quiet
+    if ($LASTEXITCODE -ne 0) {
+        Build-LlamaHere -Reason "No ready-made llama-cpp-python 0.3.35 or newer for Python $pyVer here (PyPI has its source only)." -CmakeArgs $LlamaCpuFlags -IfFailed $NoEngineYet
+    }
 } else {
     Write-Host "[..] Installing llama-cpp-python (CUDA $CudaVersion)..."
     # --only-binary=:all: is the important part. With --prefer-binary, pip
     # falls back to building from source when the CUDA index has no wheel for
-    # this Python version; that needs the MSVC toolchain, and its failure
-    # aborted the whole installer at the last step, right after "GPU
-    # accelerator". Forbid the source build, then fall back to the CPU wheel
-    # so the install always completes with a working ELI.
+    # this Python version, unannounced; that needs the MSVC toolchain, and its
+    # failure aborted the whole installer at the last step, right after "GPU
+    # accelerator". The source build below is said first, and the install goes
+    # on when it fails.
     $llamaCudaOk = $false
     try {
         # The CUDA wheel index is stale: it stops at 0.3.19 for cp312, and
@@ -281,19 +320,21 @@ if ($CpuOnly) {
         $llamaCudaOk = $true
     } catch {
         Write-Host "[WARN] No prebuilt CUDA $CudaVersion wheel for llama-cpp-python on Python $pyVer." -ForegroundColor Yellow
-        Write-Host "       Installing the CPU build instead so the install completes." -ForegroundColor Yellow
         Write-Host "       (The CUDA wheel index tops out at 0.3.19 for some Python versions;" -ForegroundColor Yellow
         Write-Host "        ELI needs >=0.3.35 to read current GGUF architectures and plan loads.)" -ForegroundColor Yellow
-        Write-Host "       ELI will run without GPU offload. Options:" -ForegroundColor Yellow
+        Write-Host "       For GPU offload:" -ForegroundColor Yellow
         Write-Host "         - re-run with -CudaVersion cu124 (or another published version)" -ForegroundColor Yellow
         Write-Host "         - re-run with -InstallCuda to build with CUDA locally" -ForegroundColor Yellow
     }
     if (-not $llamaCudaOk) {
-        Invoke-Pip (@("install") + $PipFindLinksArgs + @("llama-cpp-python>=0.3.35", "--only-binary=:all:", "--quiet"))
-        # Keep the rest of the run honest: the offload verify below and the
-        # summary must not claim a GPU build that was not installed.
-        $CpuOnly = $true
-        $BuildLabel = "CPU-only (CUDA wheel unavailable)"
+        # PyPI has no llama-cpp-python wheel to fall back to: the CPU engine is built here.
+        Build-LlamaHere -Reason "Building the CPU engine so the install completes." -CmakeArgs $LlamaCpuFlags -IfFailed $NoEngineYet
+        # Keep the rest of the run honest: the offload verify below and the summary must not
+        # claim a GPU build that was not installed. With -InstallCuda that step rebuilds it with CUDA.
+        if (-not $InstallCuda) {
+            $CpuOnly = $true
+            $BuildLabel = "CPU-only (CUDA wheel unavailable)"
+        }
     }
 }
 
@@ -305,34 +346,42 @@ if ($CpuOnly) {
 # (0xC000001D) on an older Intel part. Windows had no equivalent check, so the
 # install reported success and the app crashed on first launch with nothing to
 # explain it. Catch it here, while a fallback is still cheap.
-& $PythonVenv -c "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init(); print('ok')" *> $null
-if ($LASTEXITCODE -ne 0) {
+$StartsHere = "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init()"
+$BuildWarn = $false
+if (-not (Test-VenvPython "import llama_cpp")) {
+    Write-Host "[WARN] llama-cpp-python is not installed. $NoEngineYet" -ForegroundColor Yellow
+    $CpuOnly = $true
+    $BuildWarn = $true
+    $BuildLabel = "NOT installed - no local model until it is (see above)"
+} elseif (Test-VenvPython $StartsHere) {
+    Write-Host "[OK] llama-cpp runtime starts on this CPU." -ForegroundColor Green
+} else {
     Write-Host "[WARN] llama-cpp failed to initialise on this CPU (exit $LASTEXITCODE)." -ForegroundColor Yellow
-    Write-Host "       This CPU predates the instruction set the prebuilt wheel was built for." -ForegroundColor Yellow
-    Write-Host "[..] Reinstalling the generic PyPI CPU wheel, which targets a lower baseline..."
-    Invoke-Pip (@("install", "--force-reinstall", "--no-cache-dir") + $PipFindLinksArgs + @("llama-cpp-python>=0.3.35", "--only-binary=:all:", "--quiet"))
-    & $PythonVenv -c "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init(); print('ok')" *> $null
-    if ($LASTEXITCODE -eq 0) {
+    Write-Host "       This CPU predates the instruction set the installed build was made for." -ForegroundColor Yellow
+    # PyPI has no lower-baseline wheel either: build for this CPU's own instruction set.
+    Build-LlamaHere -Reason "Rebuilding llama-cpp-python for this CPU." -CmakeArgs "-DGGML_NATIVE=ON" -IfFailed "the engine installed before stays, and it does not start on this CPU." -Extra @("--force-reinstall", "--no-deps")
+    if ($LlamaBuilt -and (Test-VenvPython $StartsHere)) {
         Write-Host "[OK] llama-cpp runtime starts on this CPU (CPU build)." -ForegroundColor Green
         $CpuOnly = $true
-        $BuildLabel = "CPU-only (older CPU baseline)"
+        $BuildLabel = "CPU-only (built for this CPU)"
     } else {
         Write-Host "[WARN] llama-cpp still will not start on this CPU." -ForegroundColor Yellow
         Write-Host "       ELI is installed, but inference cannot run until a compatible build exists." -ForegroundColor Yellow
-        Write-Host "       Options: install Visual Studio Build Tools and rebuild from source, or" -ForegroundColor Yellow
+        Write-Host "       Options: add the C++ build tools (above) and run this installer again, or" -ForegroundColor Yellow
         Write-Host "       run ELI in server mode against another machine on your network." -ForegroundColor Yellow
+        $CpuOnly = $true
+        $BuildWarn = $true
+        $BuildLabel = "installed, but does not start on this CPU (see above)"
     }
-} else {
-    Write-Host "[OK] llama-cpp runtime starts on this CPU." -ForegroundColor Green
 }
 
 # Verify llama-cpp GPU offload actually compiled in (catch a silent CPU-only wheel).
+$Offloads = "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)"
 if (-not $CpuOnly) {
-    & $PythonVenv -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    if (Test-VenvPython $Offloads) {
         Write-Host "[OK] llama-cpp-python has CUDA GPU offload." -ForegroundColor Green
     } elseif ($InstallCuda) {
-        Write-Host "[WARN] prebuilt llama-cpp is CPU-only -- installing CUDA toolkit (winget) + rebuilding..." -ForegroundColor Yellow
+        Write-Host "[WARN] the installed llama-cpp is CPU-only -- installing CUDA toolkit (winget) + rebuilding..." -ForegroundColor Yellow
         if (Get-Command winget -ErrorAction SilentlyContinue) {
             winget install --id Nvidia.CUDA --silent --accept-package-agreements --accept-source-agreements 2>$null
         } else {
@@ -343,13 +392,17 @@ if (-not $CpuOnly) {
         # for a local build: native detection can pick up an instruction set (e.g. on a
         # hybrid P-core/E-core CPU) that is not present on every core, which SIGILLs the
         # moment a thread lands on a core that lacks it. AVX2 is the safe floor.
-        $env:CMAKE_ARGS = "-DGGML_CUDA=on -DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=/arch:AVX2 -DCMAKE_CXX_FLAGS=/arch:AVX2"
-        & $PythonVenv -m pip install --force-reinstall --no-cache-dir llama-cpp-python --quiet
-        & $PythonVenv -c "import llama_cpp,sys; sys.exit(0 if llama_cpp.llama_supports_gpu_offload() else 1)" 2>$null
-        if ($LASTEXITCODE -eq 0) { Write-Host "[OK] llama-cpp-python rebuilt with CUDA." -ForegroundColor Green }
-        else { Write-Host "[WARN] still CPU-only -- ELI will run on CPU." -ForegroundColor Yellow }
+        Build-LlamaHere -Reason "Rebuilding llama-cpp-python with CUDA." -CmakeArgs "-DGGML_CUDA=on $LlamaCpuFlags" -IfFailed "the CPU engine installed before stays." -Extra @("--force-reinstall", "--no-deps")
+        if (Test-VenvPython $Offloads) {
+            Write-Host "[OK] llama-cpp-python rebuilt with CUDA." -ForegroundColor Green
+            $BuildLabel = "GPU (CUDA, built here)"
+        } else {
+            Write-Host "[WARN] still CPU-only -- ELI will run on CPU." -ForegroundColor Yellow
+            $BuildLabel = "CPU-only (the CUDA build did not compile)"
+        }
     } else {
         Write-Host "[WARN] llama-cpp-python is CPU-ONLY -- ELI will be slow. Re-run with -InstallCuda to fix." -ForegroundColor Yellow
+        $BuildLabel = "CPU-only (no GPU offload in the installed build)"
     }
 }
 
@@ -510,7 +563,11 @@ Write-Host "  ELI v2.0 - installation complete" -ForegroundColor Green
 Write-Host "==================================================" -ForegroundColor Green
 Write-Host ""
 Write-Host "--- Summary ---" -ForegroundColor Magenta
-Write-Host "[OK] Build       llama-cpp $BuildLabel" -ForegroundColor Green
+if ($BuildWarn) {
+    Write-Host "[WARN] Build     llama-cpp $BuildLabel" -ForegroundColor Yellow
+} else {
+    Write-Host "[OK] Build       llama-cpp $BuildLabel" -ForegroundColor Green
+}
 Write-Host "[OK] Model       $ModelStatus" -ForegroundColor Green
 Write-Host "[OK] Voice       $VoiceStatus" -ForegroundColor Green
 Write-Host "[OK] Data        fresh local databases, offline-by-default" -ForegroundColor Green
