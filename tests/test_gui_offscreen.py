@@ -19,12 +19,11 @@ from __future__ import annotations
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-# Constructing a widget must never reach the network. FirstBootWizard kicks off a
-# real asset prefetch (Piper voices + the embedder) from its constructor, which in
-# this lane downloaded and copied files mid-test and ABORTED the pytest process —
-# taking every test after it with it. This lane is usually run with --noconftest,
-# so it cannot rely on the root conftest for the offline default: set it here, the
-# same way the offscreen Qt platform is set, so the file is hermetic on its own.
+# Constructing a widget must never reach the network. This lane is usually run with
+# --noconftest, so it cannot rely on the root conftest for the offline default: set it
+# here, the same way the offscreen Qt platform is set, so the file is hermetic on its
+# own. FirstBootWizard's asset prefetch opens a network window of its own, which this
+# does not close: the _no_model_is_loaded fixture below stops that prefetch.
 os.environ["ELI_OFFLINE"] = "1"
 
 import pytest
@@ -43,6 +42,40 @@ except Exception as _e:  # pragma: no cover
 def qapp():
     app = QApplication.instance() or QApplication([])
     yield app
+
+
+# A model built while a widget is constructed, recorded and refused: no test here loads one.
+_MODEL_LOADS: list = []
+_NOT_FETCHED = {"ok": False, "error": "not fetched in the offscreen GUI tests"}
+# How long a thread a widget started is given to finish before its test fails (it then would
+# run on into later tests); the wizard's asset step, with nothing fetched, takes well under it.
+_THREAD_WAIT_MS = 60_000
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _no_model_is_loaded():
+    """FirstBootWizard fetches its support assets from its constructor (_SupportAssetsThread): the
+    embedder through model_download.download_aux, the Piper voice and faster-whisper through
+    voice_assets.ensure_voice_assets. That step opens its own network window, so ELI_OFFLINE does
+    not stop it, and with whisper's files on the box it loaded the real model. Those two calls are
+    the wizard's boundary; here they fetch and load nothing."""
+    with pytest.MonkeyPatch.context() as mp:
+        import eli.core.model_download as model_download
+        import eli.runtime.voice_assets as voice_assets
+        mp.setattr(model_download, "download_aux", lambda *a, **k: [dict(_NOT_FETCHED)])
+        mp.setattr(voice_assets, "ensure_voice_assets",
+                   lambda *a, **k: {"piper": dict(_NOT_FETCHED), "whisper": dict(_NOT_FETCHED)})
+        for module, name in (("faster_whisper", "WhisperModel"), ("llama_cpp", "Llama")):
+            try:
+                target = __import__(module)
+            except Exception:
+                continue
+
+            def _refused(*args, _what=f"{module}.{name}", **kwargs):
+                _MODEL_LOADS.append(_what)
+                raise RuntimeError(f"{_what}: no model is loaded in the offscreen GUI tests")
+            mp.setattr(target, name, _refused)
+        yield
 
 
 # --------------------------------------------------------------------------- #
@@ -202,9 +235,14 @@ MORE_WIDGETS = [
 @pytest.mark.parametrize("module,clsname", MORE_WIDGETS)
 def test_gui_widget_constructs(qapp, module, clsname):
     import importlib
+    from PySide6.QtCore import QThread
     cls = getattr(importlib.import_module(module), clsname)
+    _MODEL_LOADS.clear()
     w = cls()
     assert isinstance(w, QWidget)
+    for thread in w.findChildren(QThread):      # what it started finishes here, not in a later test
+        assert thread.wait(_THREAD_WAIT_MS), f"{clsname}: {type(thread).__name__} still running"
+    assert not _MODEL_LOADS, f"{clsname} loaded a model: {_MODEL_LOADS}"
 
 
 def test_agent_edit_dialog_constructs(qapp):
