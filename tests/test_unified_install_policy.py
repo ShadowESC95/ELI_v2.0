@@ -271,3 +271,33 @@ def test_assets_are_restored_after_the_setup_the_same_run_does(tmp_path):
     root, log = _startup_tree(tmp_path, with_venv=False)
     assert _run_startup(root, log, "--with-github-assets") == ["setup", "restore", "launch  DISABLE="]
     assert _run_startup(root, log, "--with-github-assets", "--no-setup")[-2:] == ["restore", "launch  DISABLE="]
+
+
+def test_the_launch_hint_names_the_launcher_this_tree_has(tmp_path, monkeypatch):
+    """Clone users were told to run RUN_ELI.sh, which only the portable package has."""
+    import shlex
+    import shutil
+    import subprocess
+    import sys
+    from eli.setup.status import launcher_command
+
+    on_posix = sys.platform != "win32" and shutil.which("bash")
+    monkeypatch.setattr(sys, "platform", "linux")
+    clone, portable = tmp_path / "clone", tmp_path / "portable"
+    clone.mkdir()
+    portable.mkdir()
+    (portable / "RUN_ELI.sh").write_text("#!/usr/bin/env bash\n", encoding="utf-8")
+    assert launcher_command(clone) == f'"{clone / "eli.sh"}"'
+    assert launcher_command(portable) == f'bash "{portable / "RUN_ELI.sh"}"'
+    assert launcher_command(clone, headless=True) == f'"{clone / "eli.sh"}" --headless'
+    installer = Path("eli/setup/unified_installer.py").read_text(encoding="utf-8")
+    assert "RUN_ELI.sh'}" not in installer and "launcher_command(root, headless=" in installer
+
+    setup = Path("scripts/eli_setup.sh").read_text(encoding="utf-8")
+    assert setup.count("Launch ELI with: $LAUNCH") == 3 and 'with: bash \\"$ROOT/RUN_ELI.sh' not in setup
+    if on_posix:
+        line = next(l for l in setup.splitlines() if l.startswith('if [ -f "$ROOT/RUN_ELI.sh" ]'))
+        for tree, expected in ((clone, f'"{clone}/eli.sh"'), (portable, f'bash "{portable}/RUN_ELI.sh"')):
+            said = subprocess.run(["bash", "-c", f'ROOT={shlex.quote(str(tree))}\n{line}\necho "$LAUNCH"'],
+                                  capture_output=True, text=True).stdout.strip()
+            assert said == expected

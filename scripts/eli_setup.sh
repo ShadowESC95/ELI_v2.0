@@ -25,6 +25,10 @@ unset QT_STYLE_OVERRIDE 2>/dev/null || true
 
 cd "$ROOT"
 
+# How to start ELI from this tree, as eli.setup.status.launcher_command says it: only the portable
+# package has RUN_ELI.sh; a clone starts with eli.sh.
+if [ -f "$ROOT/RUN_ELI.sh" ]; then LAUNCH="bash \"$ROOT/RUN_ELI.sh\""; else LAUNCH="\"$ROOT/eli.sh\""; fi
+
 # ── Hardware policy (Python is the source of truth) ───────────────────────────
 # Falls back to CPU-only only if policy import fails before any tree is usable.
 _eli_apply_hw_policy() {
@@ -176,7 +180,7 @@ _try_gui_installer() {
     _code=${PIPESTATUS[0]}
     if [ "$_code" -eq 0 ]; then
       echo ""
-      echo "  [OK] Setup complete. Launch ELI with: bash \"$ROOT/RUN_ELI.sh\""
+      echo "  [OK] Setup complete. Launch ELI with: $LAUNCH"
       return 0
     fi
     return 1
@@ -194,7 +198,7 @@ if _gui_available; then
   # Wizard failed but core may already be complete (e.g. assets-only retry left).
   if _install_complete && _real_qt_ok; then
     echo ""
-    echo "  [OK] Core install complete. Launch ELI with: bash \"$ROOT/RUN_ELI.sh\""
+    echo "  [OK] Core install complete. Launch ELI with: $LAUNCH"
     echo "  Tip: re-run ./ELI_Setup.sh to finish remaining assets in the wizard."
     exit 0
   fi
@@ -246,5 +250,5 @@ if ! _real_qt_ok; then
   exit 1
 fi
 
-echo "  [OK] Launch ELI with: bash \"$ROOT/RUN_ELI.sh\""
+echo "  [OK] Launch ELI with: $LAUNCH"
 exec "$PY" -m eli.setup --run-remaining

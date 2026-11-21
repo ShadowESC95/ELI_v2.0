@@ -30,6 +30,21 @@ def has_venv() -> bool:
     return venv_python().exists()
 
 
+def launcher_command(root: Path | None = None, *, headless: bool = False) -> str:
+    """How a person starts ELI from this tree: RUN_ELI.sh in the portable package, eli.sh in a clone,
+    eli.bat on Windows, with --headless where there is no window. Only the portable package has
+    RUN_ELI.sh; naming it to a clone sent people to a file they did not have."""
+    import sys
+    base = Path(root) if root is not None else project_root()
+    if sys.platform == "win32":
+        command = f'"{base / "eli.bat"}"'
+    elif (base / "RUN_ELI.sh").is_file():
+        command = f'bash "{base / "RUN_ELI.sh"}"'
+    else:
+        command = f'"{base / "eli.sh"}"'
+    return command + (" --headless" if headless else "")
+
+
 def _scan_chat_gguf(root: Path) -> bool:
     """Filesystem scan only — must not import the full GUI (pulls in llama_cpp)."""
     for base in (root / "models", root / "models" / "gguf"):

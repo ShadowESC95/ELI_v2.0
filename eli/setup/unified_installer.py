@@ -40,6 +40,7 @@ from eli.setup.platform_profile import (
 from eli.setup.status import (
     has_chat_model,
     has_venv,
+    launcher_command,
     project_root,
     stage_checks,
     venv_python,
@@ -545,7 +546,7 @@ def run_terminal_headless_installer(*, launch_after: bool = False) -> int:
     if launch_after:
         py = venv_python()
         if py.exists():
-            print(f"     Launch: bash \"{root / 'RUN_ELI.sh'}\"")
+            print(f"     Launch: {launcher_command(root, headless=not info.supports_gui)}")
             env = os.environ.copy()
             env["ELI_PROJECT_ROOT"] = str(root)
             env["PYTHONPATH"] = str(root)
@@ -574,7 +575,7 @@ def _core_install_complete(root: Path) -> bool:
 
     Import-only checks are not enough: a foreign portable on PYTHONPATH, or a
     CUDA wheel that imports then SIGILLs, previously made the wizard claim
-    success while ``RUN_ELI.sh`` still failed.
+    success while the launcher (``RUN_ELI.sh`` / ``eli.sh``) still failed.
     """
     if not has_venv():
         return False
