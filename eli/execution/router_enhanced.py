@@ -1315,12 +1315,29 @@ def _route_set_user_name(raw: str, low: str) -> Optional[Dict[str, Any]]:
     return None
 
 
+def _manner_forms(manner: str) -> List[str]:
+    """A manner as said and, for each adverb in it, the adjective it is made from: "normally" ->
+    "normal", "like you usually do" -> "usual", "happily" -> "happy", "gently" -> "gentle",
+    "sarcastically" -> "sarcastic"."""
+    forms = [manner]
+    for word in re.findall(r"[a-z]{5,}", manner.lower()):
+        if word.endswith("ly"):
+            stem = word[:-2]
+            forms += [stem, stem + "e", word[:-3] + "y", word[:-4]]
+    return forms
+
+
 def _route_set_communication_style(raw: str, low: str) -> Optional[Dict[str, Any]]:
     """Detect explicit 'speak to me like X' / 'change your tone to X' requests and route to
-    SET_COMMUNICATION_STYLE so the tone preference persists into the persona brief."""
+    SET_COMMUNICATION_STYLE so the tone preference persists into the persona brief. A manner that
+    is ELI's default ("speak to me normally", "talk to me like normal") clears the saved style."""
     import re as _re
     _pats = (
         r"(?:speak|talk)\s+to\s+me\s+(?:like|as|more|in a way that'?s?|in)\s+(.{2,80})",
+        # the manner as an adverb: "speak to me normally", "talk to me a bit more gently from now on"
+        r"(?:speak|talk)\s+to\s+me\s+((?:(?:a\s+(?:bit|little)|much|really|very|more|less)\s+)*"
+        r"(?!(?:only|early|daily|weekly|nightly|hourly|likely|really)\b)[a-z]{3,}ly)"
+        r"(?:\s+(?:from\s+now\s+on|again|please|for\s+a\s+change|for\s+once))*[\s.!]*$",
         r"(?:respond|reply|answer|talk)\s+(?:to me\s+)?(?:as|like)\s+(.{2,80})",
         r"(?:change|set|update|make)\s+your\s+(?:tone|persona|voice|style|character|way you (?:speak|talk))\s+(?:to|into)?\s*(.{2,80})",
         r"(?:be|talk|speak)\s+(?:more\s+|less\s+)?((?:funny|funnier|blunt|blunter|formal|casual|serious|sarcastic|playful|concise|verbose|warm|friendly|professional|direct|witty|humorous|relaxed)(?:\s+and\s+[\w ]+)?)",
@@ -1345,11 +1362,17 @@ def _route_set_communication_style(raw: str, low: str) -> Optional[Dict[str, Any
                         log.debug("voice disambig in persona route failed", exc_info=True)
                 # A named emotion/tone from the palette ("be comedic", "more sarcastic",
                 # "professional tone") → SET_TONE (shades delivery, keeps core persona).
-                # A free-text style that isn't a palette tone stays persona.
+                # A free-text style that isn't a palette tone stays persona. The palette's neutral
+                # is ELI's normal self, not a tone to pin (the tone rule turns it down too): asked
+                # for, it is the default way of speaking, which is no saved style.
                 try:
                     from eli.cognition.emotion_palette import resolve_tone as _rt
-                    if _rt(style) or _rt(raw):
-                        return _mk("SET_TONE", {"tone": (_rt(style) or _rt(raw))}, 0.94,
+                    _tone = next((t for t in map(_rt, _manner_forms(style)) if t), None) or _rt(raw)
+                    if _tone == "neutral":
+                        return _mk("SET_COMMUNICATION_STYLE", {"style": "none"}, 0.95,
+                                   matched_by="persona.clear_communication_style")
+                    if _tone:
+                        return _mk("SET_TONE", {"tone": _tone}, 0.94,
                                    matched_by="tone.set.persona_disambig")
                 except Exception:
                     log.debug("tone disambig in persona route failed", exc_info=True)
@@ -1690,7 +1713,8 @@ def _route_plugin_bridge_prepass(raw: str, low: str):
     )
     if _speak_m:
         text_to_say = _speak_m.group(1).strip()
-        if text_to_say:
+        # "speak to me normally", "speak to me about the match": who is spoken to, not words to say
+        if text_to_say and not re.match(r"to\s+(?:me|us)\b", text_to_say, re.I):
             return _mk("SPEAK", {"text": text_to_say}, 0.98, matched_by="plugin.prepass.tts_speak",
                        entities={"text": text_to_say})
 
@@ -4459,17 +4483,8 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             return _mk("WEB_SEARCH", {"query": query}, 0.96, matched_by="plugin.web_search",
                        entities={"query": query})
 
-    # TTS plugin
-    _speak_m = re.match(
-        r"^(?:speak|say|read\s+aloud|tts)\s+(.+)$",
-        raw,
-        re.I,
-    )
-    if _speak_m:
-        text_to_say = _speak_m.group(1).strip()
-        if text_to_say:
-            return _mk("SPEAK", {"text": text_to_say}, 0.96, matched_by="plugin.tts_speak",
-                       entities={"text": text_to_say})
+    # (SPEAK is the plugin prepass's, which runs first: what it turns down, "speak to me normally",
+    # is not text to say)
 
     # System stats plugin
     if re.match(r"^(?:system\s+stats|system\s+statistics|resource\s+usage|show\s+system\s+stats)$", low):

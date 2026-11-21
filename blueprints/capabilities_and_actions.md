@@ -26,7 +26,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `LIST_CAPABILITIES` | Enumerate ELI's capabilities | “what can you do” · “list your capabilities” | Core |
 | `SET_TONE` | Shade ELI's expressed tone/emotion (words+voice+face) without changing his core personality | “be comedic” · “talk street” · “sound more professional” · “use a deadpan tone” | Core |
 | `CLEAR_TONE` | Drop a pinned tone — back to autonomous, situation-adaptive delivery | “go back to normal” · “be yourself” · “drop the tone” | Core |
-| `SET_COMMUNICATION_STYLE` | Persist how you want ELI to speak to you (empty or a reset phrase clears it) | “speak concisely from now on” | Core |
+| `SET_COMMUNICATION_STYLE` | Persist how you want ELI to speak to you; asked to speak normally, or given an empty style, it clears it (a tone pinned with SET_TONE is CLEAR_TONE's) | “speak concisely from now on” · “speak to me normally” | Core |
 | `SET_AI_MODE` | Set the reasoning mode (Quick, Normal, Advanced, Research, Expert); reached through the intent resolver or the mode selector | (no dedicated phrase) | Core |
 | `MULTI_COMMAND` | Run several chained commands from one utterance, in order | “close steam and set an alarm for 7am” · “open spotify then play X” | Core |
 

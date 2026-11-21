@@ -36,7 +36,7 @@ _BUILTIN: Dict[str, Dict[str, Any]] = {
     "neutral": {
         "desc": "ELI's default — dry, direct, alive", "category": "core",
         "text": "Your normal self: direct, dry, a little wry; no cheerful-assistant sludge.",
-        "voice": {}, "expression": "neutral", "aliases": ["default", "normal", "balanced"],
+        "voice": {}, "expression": "neutral", "aliases": ["default", "normal", "balanced", "usual"],
     },
     "happy": {
         "desc": "warm and upbeat", "category": "positive",

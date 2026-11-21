@@ -73,6 +73,39 @@ def test_setting_a_style_names_a_phrase_that_really_clears_it(monkeypatch):
     assert saved[-1] == "", f"{phrase!r} went to {routed['action']} and left the style set"
 
 
+@pytest.mark.parametrize("text", [
+    "speak to me normally", "talk to me like normal", "talk to me as usual", "speak to me like you usually do",
+])
+def test_asked_to_speak_normally_the_saved_style_is_cleared(monkeypatch, text):
+    """"speak to me normally" read "to me normally" aloud (SPEAK), and "talk to me like normal" pinned
+    the neutral tone (SET_TONE), which stops ELI adapting its tone. The manner names ELI's default
+    way of speaking: the saved style is cleared, and a tone pinned on its own is said to be still on."""
+    import eli.kernel.state as state
+    from eli.cognition import tone_adaptor
+    from eli.execution.executor_enhanced import execute
+    saved = []
+    monkeypatch.setattr(state, "set_communication_style", lambda s, user_id=None: saved.append(s) or s)
+    routed = route(text)
+    assert routed["action"] == "SET_COMMUNICATION_STYLE", routed
+    tone_adaptor.set_tone("sarcastic")
+    try:
+        reply = execute(routed["action"], routed["args"])["response"]
+    finally:
+        tone_adaptor.clear_tone()
+    assert saved == [""], saved
+    assert "sarcastic tone you set is still on" in reply, reply
+
+
+@pytest.mark.parametrize("text", ["speak to me about the match", "speak to me more gently", "speak to me bluntly"])
+def test_speak_to_me_is_never_words_to_read_aloud(text):
+    assert _action(text) != "SPEAK"
+
+
+def test_say_and_speak_still_read_their_words_aloud():
+    assert route("say good morning")["args"]["text"] == "good morning"
+    assert route("speak hello world")["action"] == "SPEAK"
+
+
 def test_install_firefox_is_not_a_voice_download():
     assert _action("install firefox") != "DOWNLOAD_VOICE"
 

@@ -170,7 +170,7 @@ behaviours**. Alias families are grouped below so the real surface is visible.
 | `CLEAR_CHAT_HISTORY` | Empties the chat history in the executor's `state.json`; memories and the conversation log stay. |
 | `PERSONA_LOCK_SET`, `PERSONA_LOCK_CLEAR`, `PERSONA_LOCK_STATUS` | Record / clear / check the persona lock: the chat model name, an optional Modelfile's SHA-256 and Ollama's digest, verified by the executor's `chat()` before it answers. |
 | `PERSONA_REFRESH` | Purge the stale persona auto-overlay (`persona_hygiene.clean_auto_persona`) and rebuild the active profile; no memory or conversation rows are deleted. |
-| `SET_COMMUNICATION_STYLE`, `SET_TONE`, `CLEAR_TONE` | A free-text speaking style saved to the profile ("blunt, concise"; "set your style to none" or the Settings field left blank clears it, "reset your tone" does not) / a named tone from the emotion palette for words, voice and face ("be comedic") / back to adaptive tone. |
+| `SET_COMMUNICATION_STYLE`, `SET_TONE`, `CLEAR_TONE` | A free-text speaking style saved to the profile ("blunt, concise"; "speak to me normally", "set your style to none" or the Settings field left blank clears it, "reset your tone" does not) / a named tone from the emotion palette for words, voice and face ("be comedic") / back to adaptive tone. |
 
 ## 12. Habits, proactivity & goals
 | Action(s) | What it does |

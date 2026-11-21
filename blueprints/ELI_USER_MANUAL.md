@@ -471,9 +471,10 @@ itself with you. When you want to steer it, you can, without erasing that:
 - **Set how it talks to you** *(new, 2.1.23)* — say *"speak to me more bluntly"*, *"be
   funnier"*, *"respond as Rick"* or *"respond as a terse senior engineer"* and it **sticks**. You
   can also set it in **Settings → Identity → Tone / how ELI speaks**. This explicit preference
-  takes priority over the tone ELI infers; to drop it, empty that field and save, or say *"set
-  your style to none"* ("reset your tone" only drops a tone set with "be comedic" and the like,
-  below). Leaving it blank keeps ELI's natural emergent voice in charge.
+  takes priority over the tone ELI infers; to drop it, empty that field and save, or say *"speak
+  to me normally"* or *"set your style to none"* ("reset your tone" only drops a tone set with "be
+  comedic" and the like, below, and ELI says when one of those is still on). Leaving it blank keeps
+  ELI's natural emergent voice in charge.
 - "refresh your persona" reloads it from your latest profile (after ELI's learned something new
   about you).
 - **The persona lock is about the model, not the manner**, and it is for Ollama users: "lock

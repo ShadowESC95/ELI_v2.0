@@ -4517,7 +4517,16 @@ def set_communication_style_action(style: str) -> Dict[str, Any]:
             _set("")
         except Exception:
             log.debug("suppressed exception", exc_info=True)
-        msg = "Tone reset — back to my default voice."
+        msg = "Style cleared: I'll speak to you my own way again."
+        # A tone pinned with SET_TONE ("be sarcastic") is CLEAR_TONE's to drop, and still on: said
+        # plainly, instead of a reset of the tone that did not happen.
+        try:
+            from eli.cognition import tone_adaptor
+            _pinned = tone_adaptor.current_tone()
+            if _pinned.get("source") == "override":
+                msg += f" The {_pinned.get('tone')} tone you set is still on; \"go back to normal\" drops it."
+        except Exception:
+            log.debug("pinned tone check failed", exc_info=True)
         return {"ok": True, "action": "SET_COMMUNICATION_STYLE", "communication_style": "", "content": msg, "response": msg}
     if not s:
         msg = "Tell me how you'd like me to speak — e.g. 'blunt, with dry humour, concise'."

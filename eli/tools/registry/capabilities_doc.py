@@ -237,7 +237,7 @@ _add("Self-maintenance", "AUTOPILOT_DEBUG", "Turn a failure into a plan: root ca
 _add("Self-maintenance", "CODEBASE_GRAPH", "Import graph of ELI's own source: what depends on what", "“show the codebase graph”")
 _add("Self-maintenance", "TIMESTAMP_DIAG", "Run real clock and timestamp diagnostics instead of guessing", "“check the timestamps”", "“investigate the timestamp problem”")
 _add("Voice", "DESIGN_VOICE", "Build a custom style voice from a base voice with pitch, speed and effects", "“design a voice called Nova, deep and slow”", "“make a custom voice named Nova”")
-_add("Conversation & persona", "SET_COMMUNICATION_STYLE", "Persist how you want ELI to speak to you (empty or a reset phrase clears it)", "“speak concisely from now on”")
+_add("Conversation & persona", "SET_COMMUNICATION_STYLE", "Persist how you want ELI to speak to you; asked to speak normally, or given an empty style, it clears it (a tone pinned with SET_TONE is CLEAR_TONE's)", "“speak concisely from now on”", "“speak to me normally”")
 _add("Conversation & persona", "SET_AI_MODE", "Set the reasoning mode (Quick, Normal, Advanced, Research, Expert); reached through the intent resolver or the mode selector", "(no dedicated phrase)")
 _add("Memory & profile", "USER_INFO_REPORT", "Full report of the living user profile; reached through the intent resolver", "(no dedicated phrase)")
 _add("Vision & screen", "IMAGE_STATUS", "Status of the latest image job", "“what is the latest image status”", "“image status”")
