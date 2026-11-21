@@ -208,7 +208,7 @@ flowchart TD
 | **When to use** | Windows installer; invoked by `install.bat`, `ELI_Setup.bat` and the GUI wizard (`-Yes -AutoModel [-CpuOnly]`). |
 | **Requires** | Python 3.10+ (the floor `eli_env.py versions` reads from `pyproject.toml`), PowerShell. |
 
-**Step-by-step:** Mirrors `install.sh` for Windows: Python pick (`eli_env.py pick`, always — `PYTHON` is not read), system report (including non-NVIDIA GPU detection), venv check/repair/creation, PyTorch (newest CUDA build for this Python and driver unless `-CudaVersion` is given, checked on the GPU, else CPU), llama-cpp-python ≥0.3.35 (a ready-made wheel from the `-CudaVersion` CUDA index, default `cu121`, or a bundled wheelhouse; PyPI has its source only, so otherwise it is built here, which needs the Microsoft C++ Build Tools, and a failed build is said while the install goes on) with a check that it starts on this CPU (rebuilt for this CPU when it does not), ELI from a `dist\eli_v2_0-*.whl` if present else editable, requirements lock (fallback: `requirements-windows.txt` ranges, then one at a time), config seed, init_data, capability manifest, FFmpeg / Tesseract / mpv via winget (best-effort), embedder + voice fetch, Start Menu shortcuts (`scripts\install_desktop_apps.ps1`), progress markers. A chat model is downloaded only with `-AutoModel`, `-Model` or a yes at the model prompt (a no skips the chat model only: the embedder is still fetched, as in `install.sh`); `-Yes` alone downloads none.
+**Step-by-step:** Mirrors `install.sh` for Windows: Python pick (`eli_env.py pick`, always — `PYTHON` is not read), system report (an NVIDIA GPU counts only when `nvidia-smi` answers without an error, as in `install.sh`; non-NVIDIA GPUs are detected too), venv check/repair/creation, PyTorch (newest CUDA build for this Python and driver unless `-CudaVersion` is given, checked on the GPU, else CPU), llama-cpp-python ≥0.3.35 (a ready-made wheel from the `-CudaVersion` CUDA index, default `cu121`, or a bundled wheelhouse; PyPI has its source only, so otherwise it is built here, which needs the Microsoft C++ Build Tools, and a failed build is said while the install goes on) with a check that it starts on this CPU (rebuilt for this CPU when it does not), ELI from a `dist\eli_v2_0-*.whl` if present else editable, requirements lock (fallback: `requirements-windows.txt` ranges, then one at a time), config seed, init_data, capability manifest, FFmpeg / Tesseract / mpv via winget (best-effort), embedder + voice fetch, Start Menu shortcuts (`scripts\install_desktop_apps.ps1`), progress markers. A chat model is downloaded only with `-AutoModel`, `-Model` or a yes at the model prompt (a no skips the chat model only: the embedder is still fetched, as in `install.sh`); `-Yes` alone downloads none.
 
 **Parameters:** `-CpuOnly`, `-Gpu` (does force the CUDA build without a detected NVIDIA GPU), `-Latest`, `-InstallCuda`, `-Yes`, `-AutoModel`, `-NoModel`, `-Model`, `-CudaVersion`.
 
@@ -536,6 +536,12 @@ The Python environment helper the installers and launchers call: `pick` (the int
 ### `scripts/eli_serve.ps1`
 
 Windows counterpart of `eli_serve.sh`: `-Lan`, `-Https`, `-Port <n>` (default 8081), `-Token <s>`; repairs the environment first if its Python is gone.
+
+---
+
+### `scripts/eli_native.ps1`
+
+`Invoke-Native`, which `install.ps1` and `eli_serve.ps1` load to run each program they check or whose output they hide: it returns the program's exit code and output, with `$ErrorActionPreference` relaxed for that call only. Under `"Stop"`, Windows PowerShell 5.1 ends a script on the first line a program writes to a redirected stderr (`2>$null`, `2>&1`, `*>$null`), even when the program succeeds; `tests/test_install_script.py` fails on any such redirect in the shipped scripts outside this function.
 
 ---
 

@@ -21,6 +21,10 @@ function Eli-Progress {
 }
 
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+# Invoke-Native: every check of a program, and every program whose output is hidden, goes through
+# it. Under "Stop", Windows PowerShell 5.1 ends the script on the first line a program writes to a
+# redirected stderr; the helper relaxes that for its own call only.
+. (Join-Path $ScriptDir "scripts\eli_native.ps1")
 $Venv = Join-Path $ScriptDir ".venv"
 $env:ELI_PROJECT_ROOT = $ScriptDir
 if (-not $env:ELI_DATA_DIR) { $env:ELI_DATA_DIR = Join-Path $ScriptDir "artifacts" }
@@ -98,9 +102,13 @@ try {
 } catch {}
 $HasNvidia = $false
 if (Get-Command nvidia-smi -ErrorAction SilentlyContinue) {
-    $gpuNames = @(& nvidia-smi --query-gpu=name --format=csv,noheader 2>$null | Where-Object { $_ })
+    # A driver that cannot answer prints why on stdout and exits non-zero: only a run that
+    # succeeded names GPUs (as in install.sh and eli.setup.hardware_policy).
+    $Smi = Invoke-Native nvidia-smi @("--query-gpu=name", "--format=csv,noheader")
+    $gpuNames = @(if ($Smi.ExitCode -eq 0) { $Smi.Output | Where-Object { $_.Trim() } })
     if ($gpuNames.Count -ge 1) {
-        $vramTot = (& nvidia-smi --query-gpu=memory.total --format=csv,noheader,nounits 2>$null | Measure-Object -Sum).Sum
+        $vramTot = ((Invoke-Native nvidia-smi @("--query-gpu=memory.total", "--format=csv,noheader,nounits")).Output |
+            Where-Object { $_ -match '^\s*\d+\s*$' } | Measure-Object -Sum).Sum
         if ($gpuNames.Count -gt 1) {
             Write-Host "[OK] GPU         $($gpuNames.Count)x $($gpuNames[0])  ($vramTot MiB total VRAM)" -ForegroundColor Green
         } else {
@@ -210,6 +218,12 @@ function Invoke-Pip {
     }
 }
 
+# Whether a Python check in the venv passes, by its exit code; what it prints is not shown.
+function Test-VenvPython {
+    param([string]$Code)
+    return ((Invoke-Native $PythonVenv @("-c", $Code)).ExitCode -eq 0)
+}
+
 if (-not $RequirementsFile) {
     throw "Could not find requirements-windows.txt or requirements.txt in $ScriptDir"
 }
@@ -239,16 +253,11 @@ if ($CpuOnly) {
     $TorchOnGpu = $false
     foreach ($TorchIndex in $TorchTry) {
         Write-Host "[..] Installing PyTorch (CUDA build $($TorchIndex.Split('/')[-1]))..."
-        $prevEap = $ErrorActionPreference
-        $ErrorActionPreference = "Continue"
-        try {
-            & $PythonVenv -m pip install torch --index-url $TorchIndex --only-binary=:all: --quiet
-            if ($LASTEXITCODE -eq 0) {
-                & $PythonVenv -c "import sys, torch; x = torch.ones(1, device='cuda'); sys.exit(0 if (x + 1).item() == 2 else 1)" *> $null
-                $TorchOnGpu = ($LASTEXITCODE -eq 0)
-            }
-            if (-not $TorchOnGpu) { & $PythonVenv -m pip uninstall -y torch *> $null }
-        } finally { $ErrorActionPreference = $prevEap }
+        & $PythonVenv -m pip install torch --index-url $TorchIndex --only-binary=:all: --quiet
+        if ($LASTEXITCODE -eq 0) {
+            $TorchOnGpu = Test-VenvPython "import sys, torch; x = torch.ones(1, device='cuda'); sys.exit(0 if (x + 1).item() == 2 else 1)"
+        }
+        if (-not $TorchOnGpu) { Invoke-Native $PythonVenv @("-m", "pip", "uninstall", "-y", "torch") | Out-Null }
         if ($TorchOnGpu) { Write-Host "[OK] PyTorch $($TorchIndex.Split('/')[-1]) runs on the GPU." -ForegroundColor Green; break }
     }
     if (-not $TorchOnGpu) {
@@ -267,15 +276,6 @@ $LlamaReq = "llama-cpp-python>=0.3.35"
 $LlamaBuilt = $false
 # AVX2 floor, not cmake's native tuning (the -InstallCuda rebuild below says why).
 $LlamaCpuFlags = "-DGGML_NATIVE=OFF -DCMAKE_C_FLAGS=/arch:AVX2 -DCMAKE_CXX_FLAGS=/arch:AVX2"
-
-# Whether a Python check in the venv passes. Its output is dropped with the error preference relaxed:
-# Windows PowerShell turns a redirected stderr line into an error, which would stop this script.
-function Test-VenvPython {
-    param([string]$Code)
-    $ErrorActionPreference = "Continue"
-    & $PythonVenv -c $Code *> $null
-    return ($LASTEXITCODE -eq 0)
-}
 
 # Builds the engine here from its source with these CMake flags, and sets $LlamaBuilt.
 function Build-LlamaHere {
@@ -383,7 +383,7 @@ if (-not $CpuOnly) {
     } elseif ($InstallCuda) {
         Write-Host "[WARN] the installed llama-cpp is CPU-only -- installing CUDA toolkit (winget) + rebuilding..." -ForegroundColor Yellow
         if (Get-Command winget -ErrorAction SilentlyContinue) {
-            winget install --id Nvidia.CUDA --silent --accept-package-agreements --accept-source-agreements 2>$null
+            Invoke-Native winget @("install", "--id", "Nvidia.CUDA", "--silent", "--accept-package-agreements", "--accept-source-agreements") -Show | Out-Null
         } else {
             Write-Host "        winget not found -- install the CUDA Toolkit from https://developer.nvidia.com/cuda-downloads" -ForegroundColor Yellow
         }
@@ -454,12 +454,11 @@ if ($LASTEXITCODE -ne 0) {
 
 # Verify core + GUI imports in the project venv (GUI wheels belong in .venv only).
 Write-Host "[..] Verifying installation..."
-& $PythonVenv -c "import eli" 2>$null
-if ($LASTEXITCODE -ne 0) {
+if (-not (Test-VenvPython "import eli")) {
     throw "'import eli' failed in the virtual environment - the package did not install."
 }
-& $PythonVenv -c "from eli.gui.qt_compat import real_qt_available; import sys; sys.exit(0 if real_qt_available() else 1)" 2>$null
-if ($LASTEXITCODE -ne 0) {
+$QtWorks = "from eli.gui.qt_compat import real_qt_available; import sys; sys.exit(0 if real_qt_available() else 1)"
+if (-not (Test-VenvPython $QtWorks)) {
     Write-Host "[WARN] GUI bindings not importable - installing portable bootstrap into .venv..." -ForegroundColor Yellow
     $Bootstrap = Join-Path $ScriptDir "requirements-portable-bootstrap.txt"
     if (Test-Path $Bootstrap) {
@@ -467,8 +466,7 @@ if ($LASTEXITCODE -ne 0) {
     } else {
         Invoke-Pip (@("install") + $PipFindLinksArgs + @("PySide6>=6.6.0"))
     }
-    & $PythonVenv -c "from eli.gui.qt_compat import real_qt_available; import sys; sys.exit(0 if real_qt_available() else 1)" 2>$null
-    if ($LASTEXITCODE -eq 0) {
+    if (Test-VenvPython $QtWorks) {
         Write-Host "[OK] GUI bindings (PySide6) installed in .venv." -ForegroundColor Green
     } else {
         Write-Host "[WARN] PySide6 still not importable - re-run install.ps1 -Yes or use wheelhouse/ offline wheels." -ForegroundColor Yellow
@@ -521,7 +519,7 @@ if ($LASTEXITCODE -ne 0) {
 if (Get-Command winget -ErrorAction SilentlyContinue) {
     Write-Host "[..] Installing optional system tools (ffmpeg, tesseract) via winget..."
     foreach ($id in @("Gyan.FFmpeg", "UB-Mannheim.TesseractOCR", "mpv.MPV")) {
-        winget install --id $id --silent --accept-package-agreements --accept-source-agreements 2>$null
+        Invoke-Native winget @("install", "--id", $id, "--silent", "--accept-package-agreements", "--accept-source-agreements") -Show | Out-Null
     }
     Write-Host "[OK] Optional system tools step done (skips any already present)." -ForegroundColor Green
 } else {

@@ -14,11 +14,13 @@ param(
 )
 $ErrorActionPreference = "Stop"
 $Root = Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path)
+# Invoke-Native runs the checks below: under "Stop", Windows PowerShell 5.1 ends the script on the
+# first line a program writes to a redirected stderr.
+. (Join-Path $Root "scripts\eli_native.ps1")
 $Py = Join-Path $Root ".venv\Scripts\python.exe"
 if (-not (Test-Path $Py)) { Write-Host "[eli-serve] .venv not found - run install.ps1 first."; exit 1 }
 # The Python this environment was built from may have been removed or upgraded since.
-$EnvOk = $false
-try { & $Py -c "import sys" 2>$null | Out-Null; $EnvOk = ($LASTEXITCODE -eq 0) } catch { $EnvOk = $false }
+$EnvOk = ((Invoke-Native $Py @("-c", "import sys")).ExitCode -eq 0)
 if (-not $EnvOk) {
     $BootPython = $null
     if (Get-Command py -ErrorAction SilentlyContinue) { $BootPython = "py" }
@@ -73,10 +75,10 @@ $env:ELI_API_PORT = "$Port"
 Set-Location $Root
 
 $needVoice = $false
-& $Py -c "from eli.perception.local_whisper_stt import whisper_cache_ready; import sys; sys.exit(0 if whisper_cache_ready() else 1)" 2>$null
-if ($LASTEXITCODE -ne 0) { $needVoice = $true }
-& $Py -c "from eli.runtime.voice_assets import piper_voice_ready; import sys; sys.exit(0 if piper_voice_ready() else 1)" 2>$null
-if ($LASTEXITCODE -ne 0) { $needVoice = $true }
+foreach ($ready in @("from eli.perception.local_whisper_stt import whisper_cache_ready as ready",
+                     "from eli.runtime.voice_assets import piper_voice_ready as ready")) {
+    if ((Invoke-Native $Py @("-c", "$ready; import sys; sys.exit(0 if ready() else 1)")).ExitCode -ne 0) { $needVoice = $true }
+}
 if ($needVoice) {
     Write-Host "[eli-serve] Voice models not cached - fetching once..."
     & $Py -m eli.runtime.voice_assets

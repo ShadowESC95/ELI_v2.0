@@ -100,9 +100,12 @@ _PS1_SKIP_DIRS = {".venv", "venv", "build", "dist", ".git", ".claude",
 
 
 def _ps1_files():
+    # by the path inside the tree: a checkout that is itself under .claude/ (a worktree) found none
     root = Path(__file__).resolve().parents[1]
-    return sorted(p for p in root.rglob("*.ps1")
-                  if not (_PS1_SKIP_DIRS & set(p.parts)))
+    files = sorted(p for p in root.rglob("*.ps1")
+                   if not (_PS1_SKIP_DIRS & set(p.relative_to(root).parts)))
+    assert files, "no PowerShell scripts found"
+    return files
 
 
 def test_shipped_ps1_is_pure_ascii():
@@ -169,6 +172,85 @@ def test_on_windows_pip_is_run_as_a_module_never_as_pip_exe():
     code = _ps1_code()
     assert "pip.exe" not in code and "$Pip " not in code
     assert "& $PythonVenv -m pip @Arguments" in code
+
+
+# Windows PowerShell 5.1 turns each line a program writes to a redirected stderr (2>$null, 2>&1,
+# *>$null) into an error record, and under $ErrorActionPreference = "Stop" the first one ends the
+# script though the program succeeded. One function relaxes the preference for its own call and is
+# the only place a program's streams are redirected while "Stop" is in force.
+_NATIVE_HELPER = ("eli_native.ps1", "Invoke-Native")
+_STREAM_REDIRECT = re.compile(r"(?<![\w$])[2*]>(?:>|&1)?")
+_STOP = re.compile(r"""^\s*\$ErrorActionPreference\s*=\s*["']Stop["']""", re.M | re.I)
+_DOT_SOURCED = re.compile(r"""^\s*\.\s+.*?([\w.-]+\.ps1)\b""", re.M)
+
+
+def _ps1_statements(path):
+    """(line number, code) for each line of a PowerShell file, without comments, here-strings and
+    single-quoted strings: a redirect written in a message or a comment is not one."""
+    ends = None
+    for number, line in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
+        if ends:
+            if not line.startswith(ends) and ends != "#>":
+                continue
+            if ends == "#>":
+                if "#>" not in line:
+                    continue
+                line = line.split("#>", 1)[1]
+            else:
+                line = line[len(ends):]
+            ends = None
+        code = re.sub(r"'(?:[^']|'')*'", "''", line)
+        if "<#" in code:
+            code, ends = code.split("<#", 1)[0], "#>"
+        code = re.split(r"(?:^|\s)#", code, maxsplit=1)[0]
+        if code.rstrip().endswith(("@'", '@"')):
+            ends = code.rstrip()[-1] + "@"
+        if code.strip():
+            yield number, code
+
+
+def _redirects_under_stop():
+    files = _ps1_files()
+    stop = {p for p in files if _STOP.search(p.read_text(encoding="utf-8-sig"))}
+    # a file dot-sourced by one of them runs under its preference
+    sourced = {name for p in stop for name in _DOT_SOURCED.findall(p.read_text(encoding="utf-8-sig"))}
+    stop |= {p for p in files if p.name in sourced}
+    found = []
+    for path in sorted(stop):
+        helper_body = False
+        for number, code in _ps1_statements(path):
+            if path.name == _NATIVE_HELPER[0] and re.match(rf"function\s+{_NATIVE_HELPER[1]}\b", code):
+                helper_body = True
+            elif helper_body and code.rstrip() == "}":
+                helper_body = False
+            elif not helper_body and _STREAM_REDIRECT.search(code):
+                found.append(f"{path.name}:{number}: {code.strip()}")
+    return stop, found
+
+
+def test_no_powershell_probe_redirects_a_program_s_stderr_while_stop_is_in_force():
+    """install.ps1 dropped stderr with 2>$null on `import eli`, the Qt check, nvidia-smi and winget, and
+    eli_serve.ps1 on its Python and voice checks: on Windows PowerShell 5.1 a warning printed there
+    stopped the script. They go through Invoke-Native, which relaxes the preference for its call."""
+    for bad in ('& $Py -c "import sys" 2>$null | Out-Null', "winget install --id $id --silent 2>$null",
+                "& nvidia-smi --query-gpu=name 2>&1", "& $PythonVenv -c $Code *> $null", "x 2>>log.txt"):
+        assert _STREAM_REDIRECT.search(bad), bad
+    for fine in ("& $Py -m pip install x | Out-Null", "$n -ge 2", "Get-Item x -ErrorAction SilentlyContinue",
+                 "@(& $Py $EnvHelper versions)[0]"):
+        assert not _STREAM_REDIRECT.search(fine), fine
+    stop, found = _redirects_under_stop()
+    assert {"install.ps1", "eli_serve.ps1"} <= {p.name for p in stop}
+    assert not found, f"a program's stderr redirected while Stop is in force, outside {_NATIVE_HELPER[1]}: {found}"
+
+    helper = next(p for p in _ps1_files() if p.name == _NATIVE_HELPER[0])
+    body = helper.read_text(encoding="utf-8-sig")
+    body = body[body.index(f"function {_NATIVE_HELPER[1]}"):]
+    body = body[:body.index("\n}")]
+    assert body.index('$ErrorActionPreference = "Continue"') < body.index("2>&1"), "the helper does not relax Stop"
+    assert "$LASTEXITCODE" in body and "catch" in body
+    for script in ("install.ps1", "eli_serve.ps1"):
+        text = next(p for p in _ps1_files() if p.name == script).read_text(encoding="utf-8-sig")
+        assert re.search(r'^\. \(Join-Path \$\w+ "scripts\\eli_native\.ps1"\)', text, re.M), f"{script} does not load the helper"
 
 
 def test_no_powershell_script_escapes_a_quote_with_a_backslash():
@@ -297,9 +379,14 @@ def test_with_no_ready_made_engine_the_windows_installer_builds_one_and_goes_on(
     # the CPU path, the CUDA wheel missing, the older-CPU repair and the -InstallCuda rebuild
     assert llama.count("Build-LlamaHere -Reason") == 4
     assert '-CmakeArgs "-DGGML_NATIVE=ON"' in llama, "the repair is not built for this CPU"
-    # a check of an engine that may be missing never goes through PowerShell's error stream
+    # a check of an engine that may be missing never goes through PowerShell's error stream: each one
+    # is Test-VenvPython, which runs it through Invoke-Native
     probes = [line for line in llama.splitlines() if "$PythonVenv -c" in line]
-    assert probes == ["    & $PythonVenv -c $Code *> $null"], probes
+    assert probes == [], probes
+    check = code[code.index("function Test-VenvPython"):]
+    assert 'return ((Invoke-Native $PythonVenv @("-c", $Code)).ExitCode -eq 0)' in check[:check.index("\n}\n")]
+    assert code.index("function Test-VenvPython") < code.index("Test-VenvPython \"import sys, torch"), \
+        "the PyTorch check runs before the function is defined"
     assert "if ($BuildWarn)" in code and "llama-cpp $BuildLabel" in code
 
 
