@@ -65,7 +65,9 @@ Flow inside `AgentOrchestrator.run()`:
 
 - **Non-CHAT actions** (only when the engine hands one over; see *When each runs*): dispatch the
   AgentBus for specialist evidence, then a **ReAct
-  observation loop**: run the executor, ask the loaded model for `ANSWER` or
+  observation loop**: start from the bus's record of the routed action when its system or
+  plugin agent carried it out (or handed it, still running, to a job), else run the executor,
+  so the action runs once; ask the loaded model for `ANSWER` or
   `TOOL:<action> <args>`, chain to the next tool and accumulate observations. The mode sets
   how many tools it may run (`orchestrator_react_steps`): Quick runs the routed action alone,
   with no decision call, and the other modes up to three. The proposed tool must be one a model

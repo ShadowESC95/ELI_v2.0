@@ -148,6 +148,18 @@ def _handed_over_allowance() -> float:
         return 0.0
 
 
+def _bus_record(bus_result: Any, action: str) -> Optional[Dict[str, Any]]:
+    """What the agent bus's system or plugin agent made of `action` this turn, by the engine's own
+    rule for reusing it (_eli_phase13c_bus_action_result), or None when the bus did not run it."""
+    try:
+        from eli.kernel.engine import _eli_phase13c_bus_action_result
+        record = _eli_phase13c_bus_action_result(bus_result, action)
+    except Exception:
+        log.debug("[ORCHESTRATOR] bus record not read", exc_info=True)
+        return None
+    return dict(record) if isinstance(record, dict) and record else None
+
+
 def _react_next_step(decision: Any, user_input: str) -> Optional[Tuple[str, Dict[str, Any]]]:
     """The tool the model asked to run next ("TOOL:<ACTION> <args>"), as (action, args), or None
     to stop. Only an action a model may pick on its own is taken (llm_intent.model_may_choose: no
@@ -953,7 +965,6 @@ class AgentOrchestrator:
                 "NAME_SOURCE_AUDIT",
             }
             bus_result = None
-            bus_context = ""
 
             try:
                 from eli.cognition.agent_bus import get_bus
@@ -964,6 +975,8 @@ class AgentOrchestrator:
                     user_id=self.engine.user_id,
                     reasoning_mode=reasoning_mode,
                 )
+                # Its evidence reaches the model through wm.bus_result: the persona handoff renders
+                # the bus's context block at the mode's size (_build_persona_handoff_once).
                 wm.bus_result = bus_result
                 # Mirror the CHAT path's rotation: non-CHAT turns (RUNTIME_STATUS, MEMORY_STATUS...)
                 # also feed the next turn's persona handoff, or LAST_TURN_TRACE goes stale on a
@@ -974,11 +987,6 @@ class AgentOrchestrator:
                     self.engine._last_bus_result = bus_result
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
-                bus_context = (
-                    bus_result.to_context_block()
-                    if hasattr(bus_result, "to_context_block")
-                    else str(getattr(bus_result, "memory_context", "") or "")
-                ).strip()
                 wm.trace["agent_bus_nonchat"] = {
                     "agents_used": list(getattr(bus_result, "agents_used", []) or []),
                     "aggregated_confidence": float(
@@ -994,7 +1002,12 @@ class AgentOrchestrator:
             observations: list = []
             result = {}
             for _react_i in range(_react_steps):
-                result = self.executor_agent.execute(intent, user_input)
+                # The bus's system or plugin agent has already carried out the routed action (or
+                # handed it, still running, to a job): its record is the first observation. Running
+                # the executor as well did the action twice.
+                result = _bus_record(bus_result, action) if _react_i == 0 else None
+                if result is None:
+                    result = self.executor_agent.execute(intent, user_input)
                 obs_text = str(
                     result.get("content") or result.get("response") or result.get("error") or ""
                 ).strip()

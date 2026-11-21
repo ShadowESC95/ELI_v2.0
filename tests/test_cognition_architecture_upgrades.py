@@ -49,7 +49,7 @@ class _ReactEngine:
         return True
 
 
-def _run_react(monkeypatch, mode, decisions):
+def _run_react(monkeypatch, mode, decisions, bus_agent_results=()):
     from types import SimpleNamespace
     from eli.cognition import agent_bus as ab
     from eli.cognition.orchestrator import AgentOrchestrator
@@ -58,7 +58,8 @@ def _run_react(monkeypatch, mode, decisions):
     monkeypatch.setattr(gr, "handle_confirmation", lambda text: None)
     monkeypatch.setattr(gr, "try_handle_query", lambda text: None)
     monkeypatch.setattr(ab, "get_bus", lambda: SimpleNamespace(
-        dispatch=lambda *a, **k: ab.DispatchResult(intent_action="GET_WEATHER", intent_confidence=0.9)))
+        dispatch=lambda *a, **k: ab.DispatchResult(intent_action="GET_WEATHER", intent_confidence=0.9,
+                                                   agent_results=list(bus_agent_results))))
     engine = _ReactEngine({"action": "GET_WEATHER", "args": {"location": "Lisbon"}, "confidence": 0.9},
                           decisions)
     orch = AgentOrchestrator(engine)
@@ -69,8 +70,24 @@ def _run_react(monkeypatch, mode, decisions):
         return {"ok": True, "content": f"{intent['action']} done"}
 
     monkeypatch.setattr(orch.executor_agent, "execute", _execute)
-    orch.run("what's the weather in Lisbon tomorrow", reasoning_mode=mode)
+    out = orch.run("what's the weather in Lisbon tomorrow", reasoning_mode=mode)
+    engine.out = out
     return engine, ran
+
+
+def test_the_react_loop_takes_the_buses_record_of_the_routed_action_instead_of_running_it_again(monkeypatch):
+    """The bus's plugin agent had already fetched the weather (as its system agent carries out a
+    system action) when the loop ran the executor for the same action: every forced non-CHAT turn
+    did its action twice. The loop now starts from the bus's record and runs only the next tools."""
+    from eli.cognition.agent_bus import AgentResult
+    fetched = AgentResult(agent="plugin", ok=True, confidence=0.9,
+                          data={"action": "GET_WEATHER", "ok": True, "content": "Lisbon: 21C, clear"})
+    engine, ran = _run_react(monkeypatch, "quick", [], bus_agent_results=[fetched])
+    assert ran == [] and engine.out.get("content") == "Lisbon: 21C, clear"
+    engine, ran = _run_react(monkeypatch, "normal", ["TOOL:WEB_SEARCH Lisbon forecast"],
+                             bus_agent_results=[fetched])
+    assert [a for a, _ in ran] == ["WEB_SEARCH"]
+    assert "Lisbon: 21C, clear" in engine.prompts[0]
 
 
 def test_quick_runs_the_routed_action_alone_with_no_react_decision(monkeypatch):
