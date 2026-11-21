@@ -30,6 +30,122 @@ log = logging.getLogger(__name__)
 
 _DEVICE_TYPES = {"light", "switch", "fan", "sensor", "climate", "media", "cover", "outlet"}
 
+# What people call a kind of device, as the registry's type ("the lights in the study" means the
+# study's lights, not its fan). "switch" is left out: it is the verb in "switch on the lamp".
+_TYPE_WORDS = {
+    "light": "light", "lamp": "light", "bulb": "light", "dimmer": "light", "lighting": "light",
+    "fan": "fan",
+    "plug": "outlet", "socket": "outlet", "outlet": "outlet",
+    "thermostat": "climate", "heating": "climate", "heater": "climate", "radiator": "climate",
+    "blind": "cover", "curtain": "cover", "shade": "cover", "shutter": "cover",
+}
+
+
+def _spoken_words(text: Any) -> List[str]:
+    """Lower-case words with a plural "s" taken off, the same for what was said and for a name, so
+    "the lights" finds "Hall Light". Words of three letters or fewer keep their "s" (bus, gas)."""
+    out = []
+    for w in re.findall(r"[a-z0-9]+", str(text or "").lower()):
+        if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+            w = w[:-1]
+        out.append(w)
+    return out
+
+
+def parse_spoken_command(text: Any) -> "tuple":
+    """(command, value) from what was said: "turn off", "switch the lamp on", "dim the hall light to
+    30%", "set the thermostat to 20". (None, None) when it names no command. "on" and "off" are
+    whole words: "front" and "conservatory" contain "on", and the old substring test turned those
+    lights on when asked to turn them off."""
+    low = " ".join(str(text or "").lower().split())
+    m = (re.search(r"\b(?:turn|switch|power|put)\s+(on|off)\b", low)
+         or re.search(r"\b(?:turn|switch|power|put)\b.*?\b(on|off)\b", low))
+    if m:
+        return (m.group(1), None)
+    if re.search(r"\btoggle\b", low):
+        return ("toggle", None)
+    if re.search(r"\b(?:dim|dimmer|brighten|brighter|brightness)\b|%|\bpercent\b", low):
+        m = re.search(r"(\d+)\s*(?:%|percent)", low) or re.search(r"\bto\s+(\d+)\b", low)
+        return ("brightness", int(m.group(1)) if m else None)
+    m = re.search(r"\bset\b.*?\bto\s+(-?\d+(?:\.\d+)?)", low)
+    if m:
+        v = float(m.group(1))
+        return ("set", int(v) if v.is_integer() else v)
+    words = set(re.findall(r"[a-z]+", low))
+    if ("on" in words) != ("off" in words):
+        return ("on" if "on" in words else "off", None)
+    return (None, None)
+
+
+def resolve_spoken_target(text: Any, devices: List[Dict[str, Any]], rooms: List[Dict[str, Any]] = (),
+                          scenes: List[Dict[str, Any]] = ()) -> Dict[str, Any]:
+    """Which registered device, room or scene a spoken command names: "turn off the reading lamp",
+    "the lights in the study", "movie night", or a bare name. A name counts when each of its words
+    was said, in any order, and the name with the most words wins, so the device "Study Lamp" beats
+    the room "Study". A kind of device said with a room ("the lights in the study") narrows the
+    room to that kind. Said alone, it is every device of that kind when it is plural or "all" ("turn
+    off the lights"), else the one device of that kind, and a question when there are several.
+
+    Returns {"kind": "device", "device": row} | {"kind": "room", "room": name, "devices": rows or
+    None} | {"kind": "type", "type": t, "devices": rows} | {"kind": "scene", "scene": name} |
+    {"kind": None, "choices": [...], "type": ...}."""
+    said = _spoken_words(text)
+    said_set = set(said)
+    low = " ".join(str(text or "").lower().split())
+    want_type = next((_TYPE_WORDS[w] for w in said if w in _TYPE_WORDS), None)
+    raw_words = re.findall(r"[a-z0-9]+", low)
+    every = bool({"all", "every", "everything"} & set(raw_words)) or any(
+        w != s and s in _TYPE_WORDS for w, s in zip(raw_words, said))
+
+    def _label(d: Dict[str, Any]) -> str:
+        return str(d.get("display_name") or d.get("name") or d.get("id") or "")
+
+    found = []      # (words matched, rank, kind, item) — a device outranks a room, a room a scene
+    for d in devices or []:
+        names = {str(d.get(k) or "").strip() for k in ("display_name", "custom_name", "name", "id")} - {""}
+        if any(n.lower() == low for n in names):
+            return {"kind": "device", "device": d}
+        best = max((len(w) for w in (_spoken_words(n) for n in names) if w and set(w) <= said_set), default=0)
+        if best:
+            found.append((best, 2, "device", d))
+    for r in rooms or []:
+        name = str(r.get("room") or "").strip()
+        words = _spoken_words(name)
+        if words and name != "Unassigned" and set(words) <= said_set:
+            found.append((len(words), 1, "room", name))
+    for s in scenes or []:
+        name = str(s.get("name") or "").strip()
+        words = _spoken_words(name)
+        if words and set(words) <= said_set:
+            found.append((len(words), 0, "scene", name))
+    if found:
+        top = max(f[:2] for f in found)
+        winners = [f for f in found if f[:2] == top]
+        if len(winners) > 1:
+            return {"kind": None, "choices": [_label(w[3]) if w[2] == "device" else w[3] for w in winners]}
+        _, _, kind, item = winners[0]
+        if kind == "device":
+            return {"kind": "device", "device": item}
+        if kind == "scene":
+            return {"kind": "scene", "scene": item}
+        in_room = None
+        if want_type:
+            in_room = [d for d in devices or [] if str(d.get("room") or "").strip() == item
+                       and str(d.get("type") or "").lower() == want_type]
+        return {"kind": "room", "room": item, "devices": in_room, "type": want_type}
+    if want_type:
+        typed = [d for d in devices or [] if str(d.get("type") or "").lower() == want_type]
+        if len(typed) == 1:
+            return {"kind": "device", "device": typed[0]}
+        if typed and every:
+            return {"kind": "type", "type": want_type, "devices": typed}
+        return {"kind": None, "type": want_type, "choices": [_label(d) for d in typed]}
+    # A part of a name ("the porch" for "Front Porch Light"), the way a device argument was matched.
+    part = [d for d in devices or [] if low and low in _label(d).lower()]
+    if len(part) == 1:
+        return {"kind": "device", "device": part[0]}
+    return {"kind": None, "choices": [_label(d) for d in part]}
+
 
 def _registry_path() -> Path:
     from eli.core.paths import get_paths

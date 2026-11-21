@@ -11497,48 +11497,84 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     return {"ok": True, "action": a, "content": _say, "response": _say}
                 _e = _r.get("error") or "I couldn't do that with Bluetooth."
                 return {"ok": False, "action": a, "error": _e, "content": _e, "response": _e}
-            cmd = "on" if "on" in raw else "off" if "off" in raw else raw
-            if not device:
-                msg = "Which device or room? For example: 'turn on the desk lamp'."
-                return {"ok": False, "action": a, "error": "no_device", "content": msg, "response": msg}
+            # The router sends the whole request ("turn off the reading lamp") as the command, with no
+            # device: the device, room or scene is read from it against the registry, and the command
+            # from its words. Every routed request used to get "Which device or room?".
+            from eli.runtime.device_server import parse_spoken_command, resolve_spoken_target
+            spoken = raw or str(args.get("text") or "").strip().lower()
+            cmd, value = parse_spoken_command(spoken)
             devs = srv.list_devices()
             if not devs:
                 msg = ("No devices set up yet — add them in the Home tab of ELI's web app "
                        "(ELI's own MQTT device server).")
                 return {"ok": False, "action": a, "error": "no_devices", "content": msg, "response": msg}
-            dl = device.lower()
-            match = next((d for d in devs if d["id"].lower() == dl or (d.get("name", "").lower() == dl)), None)
-            if match is None:
-                match = next((d for d in devs if dl and dl in (d.get("name", "").lower())), None)
-            if match is not None:
-                res = srv.control(match["id"], cmd)
-                label = match.get("name") or match["id"]
-                if res.get("ok"):
-                    msg = f"{label}: {cmd}"
-                    return {"ok": True, "action": a, "content": msg, "response": msg}
-                err = res.get("error") or "control failed"
-                return {"ok": False, "action": a, "error": err, "content": err, "response": err}
-            # Not a device — maybe a room name ("turn off the kitchen").
-            room_names = {r["room"].lower(): r["room"] for r in srv.rooms()}
-            if dl in room_names:
-                res = srv.control_room(room_names[dl], cmd)
-                if res.get("ok"):
-                    msg = f"{room_names[dl]}: {cmd} ({res.get('count', 0)} device(s))"
-                    return {"ok": True, "action": a, "content": msg, "response": msg}
-                err = res.get("error") or "no controllable devices"
-                return {"ok": False, "action": a, "error": err, "content": err, "response": err}
-            # Not a device or room — maybe a scene ("activate movie mode" / "movie mode").
-            scene_names = {s["name"].lower(): s["name"] for s in srv.list_scenes()}
-            scene_key = next((k for k in scene_names if k in dl or dl in k), None)
-            if scene_key:
-                res = srv.activate_scene(scene_names[scene_key])
+            target = resolve_spoken_target(device or spoken, devs, srv.rooms())
+            if target["kind"] is None and not target.get("choices"):
+                _scene = resolve_spoken_target(device or spoken, [], [], srv.list_scenes())
+                if _scene["kind"] == "scene":
+                    target = _scene
+
+            def _label(d):
+                return d.get("display_name") or d.get("name") or d["id"]
+
+            if target["kind"] == "scene":
+                res = srv.activate_scene(target["scene"])
                 if res.get("ok"):
                     msg = f"Scene '{res.get('scene')}' activated ({res.get('ran', 0)} device(s))."
                     return {"ok": True, "action": a, "content": msg, "response": msg}
                 err = res.get("error") or "scene failed"
                 return {"ok": False, "action": a, "error": err, "content": err, "response": err}
-            msg = f"I don't have a device, room, or scene called '{device}'."
-            return {"ok": False, "action": a, "error": "not_found", "content": msg, "response": msg}
+            if target["kind"] is None:
+                _known = ", ".join(_label(d) for d in devs)
+                _rooms = ", ".join(r["room"] for r in srv.rooms() if r.get("room") != "Unassigned")
+                if target.get("choices"):
+                    msg = f"Which one: {', '.join(target['choices'])}?"
+                elif target.get("type"):
+                    msg = f"No {target['type']} is set up. The devices are: {_known}."
+                elif device:
+                    msg = f"I don't have a device, room, or scene called '{device}'. The devices are: {_known}."
+                else:
+                    msg = f"Which device or room? The devices are: {_known}" + (f"; rooms: {_rooms}." if _rooms else ".")
+                return {"ok": False, "action": a, "error": "no_device", "content": msg, "response": msg}
+            if cmd is None:
+                _what = _label(target["device"]) if target["kind"] == "device" else (target.get("room") or "them")
+                msg = f"What should I do with {_what}: turn it on or off?"
+                return {"ok": False, "action": a, "error": "no_command", "content": msg, "response": msg}
+            if cmd == "brightness" and value is None:
+                _what = _label(target["device"]) if target["kind"] == "device" else (target.get("room") or "them")
+                msg = f"What brightness should {_what} be set to?"
+                return {"ok": False, "action": a, "error": "no_value", "content": msg, "response": msg}
+            _say = cmd if value is None else f"{cmd} {value}"
+            if target["kind"] == "device":
+                res = srv.control(target["device"]["id"], cmd, value)
+                if res.get("ok"):
+                    msg = f"{_label(target['device'])}: {_say}"
+                    return {"ok": True, "action": a, "content": msg, "response": msg}
+                err = res.get("error") or "control failed"
+                return {"ok": False, "action": a, "error": err, "content": err, "response": err}
+            # A room, or every device of a kind: the kind said narrows the room ("the lights in the
+            # study" leaves the study's fan alone), and a value goes to each device.
+            group = target.get("devices")
+            if target["kind"] == "room" and group is None and value is None:
+                res = srv.control_room(target["room"], cmd)
+                if res.get("ok"):
+                    msg = f"{target['room']}: {cmd} ({res.get('count', 0)} device(s))"
+                    return {"ok": True, "action": a, "content": msg, "response": msg}
+                err = res.get("error") or "no controllable devices"
+                return {"ok": False, "action": a, "error": err, "content": err, "response": err}
+            if group is None:
+                group = [d for d in devs if str(d.get("room") or "").strip() == target["room"]]
+            where = f" in {target['room']}" if target["kind"] == "room" else ""
+            if not group:
+                msg = f"No {target.get('type') or 'device'}{where} is set up."
+                return {"ok": False, "action": a, "error": "no_device", "content": msg, "response": msg}
+            done = [d for d in group if srv.control(d["id"], cmd, value).get("ok")]
+            if not done:
+                msg = f"None of {', '.join(_label(d) for d in group)} took '{_say}'."
+                return {"ok": False, "action": a, "error": "control failed", "content": msg, "response": msg}
+            msg = f"{', '.join(_label(d) for d in done)}: {_say}" + (
+                f" ({len(group) - len(done)} did not respond)" if len(done) < len(group) else "")
+            return {"ok": True, "action": a, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 

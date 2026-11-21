@@ -1,6 +1,8 @@
 import importlib
 import os
 
+import pytest
+
 
 def _executor():
     return importlib.import_module("eli.execution.executor_enhanced")
@@ -131,6 +133,60 @@ def test_smart_home_controls_room(monkeypatch):
 
     assert result.get("ok") is True
     assert calls == [("Kitchen", "off")]
+
+
+class _HomeSrv:
+    """Two rooms, invented names: a study with a lamp and a fan, a porch light outside."""
+
+    def __init__(self):
+        self.calls = []
+
+    def list_devices(self):
+        return [{"id": "lamp-7", "name": "Reading Lamp", "type": "light", "room": "Study", "command_topic": "h/l"},
+                {"id": "fan-2", "name": "Desk Fan", "type": "fan", "room": "Study", "command_topic": "h/f"},
+                {"id": "porch-1", "name": "Front Porch Light", "type": "light", "room": "Outside",
+                 "command_topic": "h/p"}]
+
+    def rooms(self):
+        return [{"room": "Outside", "devices": []}, {"room": "Study", "devices": []}]
+
+    def list_scenes(self):
+        return [{"name": "Movie Night", "actions": []}]
+
+    def control(self, device_id, command, value=None):
+        self.calls.append((device_id, command, value))
+        return {"ok": True}
+
+    def control_room(self, room, command):
+        self.calls.append((room, command, None))
+        return {"ok": True, "count": 2}
+
+    def activate_scene(self, name):
+        self.calls.append(("scene", name, None))
+        return {"ok": True, "scene": name, "ran": 1}
+
+
+@pytest.mark.parametrize("said,expected", [
+    ("turn off the reading lamp", [("lamp-7", "off", None)]),
+    # "front" holds "on": the old substring test switched the porch light ON when asked to turn it off
+    ("switch off the front porch light", [("porch-1", "off", None)]),
+    # the study's lights, not its fan
+    ("turn the lights off in the study", [("lamp-7", "off", None)]),
+    ("dim the reading lamp to 30%", [("lamp-7", "brightness", 30)]),
+    ("smart home movie night", [("scene", "Movie Night", None)]),
+])
+def test_smart_home_reads_the_device_from_what_was_said(monkeypatch, said, expected):
+    """The router sends the whole request as `command` and no `device`, and every request got
+    "Which device or room?"."""
+    import eli.runtime.device_server as ds
+    from eli.execution.router_enhanced import route
+    srv = _HomeSrv()
+    monkeypatch.setattr(ds, "get_server", lambda: srv)
+    routed = route(said)
+    assert routed["action"] == "SMART_HOME"
+    result = _executor().execute("SMART_HOME", routed["args"])
+    assert result.get("ok") is True, result
+    assert srv.calls == expected
 
 
 def test_pomodoro_start_stop_uses_temp_config_dir(monkeypatch, tmp_path):
