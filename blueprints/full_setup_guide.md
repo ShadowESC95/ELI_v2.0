@@ -332,9 +332,10 @@ completely:
 ./scripts/eli_uninstall.sh --purge    # removes the menu icons, then the whole folder
 ```
 
-Without `--purge` it asks before deleting the folder. Two things it leaves: the
-`~/.local/bin/eli-v2` and `~/.local/bin/eli2` commands, and the "ELI v2 launcher" lines the
-installer added to `~/.bashrc` (and `~/.bash_aliases`, `~/.profile`) — delete those by hand.
+Without `--purge` it asks before deleting the folder (`--yes` keeps it). It also takes away the
+`~/.local/bin/eli-v2` and `~/.local/bin/eli2` commands and the "ELI v2 launcher" lines the
+installer added to `~/.bashrc` (and `~/.bash_aliases`, `~/.profile`), when they are this
+folder's.
 
 The AppImage removes its own menu entries with `./ELI_v2-*.AppImage --uninstall` and offers
 to delete its data (`~/.local/share/ELI_v2`); then delete the `.AppImage` file. On Windows,

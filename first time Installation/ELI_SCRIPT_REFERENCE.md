@@ -407,7 +407,7 @@ Installs the `eli-v2` + `eli2` commands for this checkout (`install_eli_command.
 
 ### `scripts/eli_uninstall.sh`
 
-Stops processes from this install; removes ELI v2's desktop entries, `~/.local/bin/eli-v2-run`, older v2-only entries (and an old `~/.local/bin/eli` that names v2) and v2's theme icon; then asks whether to delete the install folder. `--yes` removes the integration without asking and keeps the folder; `--purge` also deletes the folder. It does not remove `~/.local/bin/eli-v2` / `eli2`, the shell block `fix_eli_shell_env.sh` wrote, or the install-root pointer. `scripts/uninstall.ps1` (via `UNINSTALL.bat`) removes the Start Menu shortcuts and optionally the folder on Windows.
+Stops processes from this install (not itself or the terminal it runs in); removes ELI v2's desktop entries, `~/.local/bin/eli-v2-run`, older v2-only entries (and an old `~/.local/bin/eli` that names v2) and v2's theme icon, and the `~/.local/bin/eli-v2` / `eli2` commands, the shell block `fix_eli_shell_env.sh` wrote and the install-root pointer when they belong to this install (another install's are left); then asks whether to delete the install folder. `--yes` removes the integration without asking and keeps the folder; `--purge` also deletes the folder. `scripts/uninstall.ps1` (via `UNINSTALL.bat`) removes the Start Menu shortcuts and optionally the folder on Windows.
 
 ---
 

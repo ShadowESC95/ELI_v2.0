@@ -16,9 +16,20 @@ Write-Host ""
 # reasoning as eli_uninstall.sh's _stop_running on Linux/macOS.
 Write-Host "Checking for a running ELI (server/desktop) from this install..."
 try {
-    $procs = Get-CimInstance Win32_Process -ErrorAction Stop | Where-Object {
-        ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)) -or
-        ($_.CommandLine -and $_.CommandLine.Contains($Root))
+    $all = @(Get-CimInstance Win32_Process -ErrorAction Stop)
+    # This script and the processes that started it (UNINSTALL.bat's console, the Start Menu
+    # launcher) name this folder too: stopping them ended the uninstall before it removed anything.
+    $own = @()
+    $cur = $PID
+    while ($cur -and ($own -notcontains $cur)) {
+        $own += $cur
+        $mine = $all | Where-Object { $_.ProcessId -eq $cur } | Select-Object -First 1
+        $cur = if ($mine) { $mine.ParentProcessId } else { 0 }
+    }
+    $procs = $all | Where-Object {
+        ($own -notcontains $_.ProcessId) -and (
+            ($_.ExecutablePath -and $_.ExecutablePath.StartsWith($Root, [System.StringComparison]::OrdinalIgnoreCase)) -or
+            ($_.CommandLine -and $_.CommandLine.Contains($Root)))
     }
     if ($procs) {
         foreach ($p in $procs) {

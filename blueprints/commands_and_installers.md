@@ -320,16 +320,18 @@ the parts they cover: some voices, for example, are not cleared for redistributi
 ELI's data stays inside its own folder, but the installers add a few things outside it: the
 app-menu entries, the `~/.local/bin/eli-v2-run` launcher they start, and (when you said yes or
 used `--yes`) the `eli-v2` / `eli2` commands and an "ELI v2 launcher" block in `~/.bashrc`,
-`~/.bash_aliases` and `~/.profile`. The uninstaller removes the menu entries, `eli-v2-run` and
-ELI v2's theme icon, then asks whether to delete the folder:
+`~/.bash_aliases` and `~/.profile`. The uninstaller removes the menu entries, `eli-v2-run`,
+ELI v2's theme icon, and the `eli-v2` / `eli2` commands, that shell block and the install pointer
+when they belong to this install (another install's are left), then asks whether to delete the
+folder:
 
 ```bash
 ./scripts/eli_uninstall.sh            # interactive
+./scripts/eli_uninstall.sh --yes      # no questions; the install folder is kept
 ./scripts/eli_uninstall.sh --purge    # no questions, and the install folder is deleted too
 ```
 
-It leaves `~/.local/bin/eli-v2`, `~/.local/bin/eli2` and the shell block in place: delete those by
-hand if `fix_eli_shell_env.sh` added them. For the AppImage, `./ELI_v2-*.AppImage --uninstall`
+For the AppImage, `./ELI_v2-*.AppImage --uninstall`
 removes its menu entries and its `~/.local/bin/eli-v2` command and offers to delete the data in
 `~/.local/share/ELI_v2`; then delete the `.AppImage` file. On Windows, uninstall the Setup.exe
 install from the Start Menu; your data stays in `%LOCALAPPDATA%\ELI_v2` until you delete it.
