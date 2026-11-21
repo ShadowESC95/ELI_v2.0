@@ -112,6 +112,41 @@ def test_saving_settings_does_not_turn_the_setting_into_a_global_override(tmp_pa
     assert load_request("/m/b.gguf").n_gpu_layers is None
 
 
+_LAYER_VARS = ("ELI_GGUF_N_GPU_LAYERS", "ELI_N_GPU_LAYERS", "ELI_GPU_LAYERS", "ELI_SETTINGS_PUBLISHED")
+
+
+def test_an_exported_layer_count_is_honoured_for_any_model(tmp_path, monkeypatch):
+    """ELI_N_GPU_LAYERS and ELI_GPU_LAYERS were read into the settings and then dropped, because no
+    pin was recorded for the model being loaded: an exported count did nothing."""
+    from eli.cognition.gguf_inference import load_request
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(tmp_path / "settings.json"))
+    for var in _LAYER_VARS:
+        monkeypatch.delenv(var, raising=False)
+    for var, count in (("ELI_N_GPU_LAYERS", 20), ("ELI_GPU_LAYERS", 12), ("ELI_GGUF_N_GPU_LAYERS", 0)):
+        monkeypatch.setenv(var, str(count))
+        assert load_request("/m/a.gguf").n_gpu_layers == count, var
+        assert rs.pinned_gpu_layers_for_model(
+            "/m/b.gguf", {"n_gpu_layers": 7, "n_gpu_layers_model": "a.gguf"}, current_ctx=4096) == count, var
+        monkeypatch.delenv(var)
+    assert load_request("/m/a.gguf").n_gpu_layers is None
+
+
+def test_a_count_set_in_the_app_takes_over_from_the_exported_one(tmp_path, monkeypatch):
+    from eli.cognition.gguf_inference import load_request
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(tmp_path / "settings.json"))
+    for var in _LAYER_VARS:
+        monkeypatch.delenv(var, raising=False)
+    monkeypatch.setenv("ELI_N_GPU_LAYERS", "20")
+    rs.save_settings({"model_path": "/m/a.gguf"})
+    rs.save_settings({"n_gpu_layers": 20, "n_gpu_layers_source": "user"})   # the count in force, saved back
+    rs.save_settings({"n_gpu_layers": 9, "n_gpu_layers_source": "tuner"})   # a measurement, not the user's
+    assert load_request("/m/a.gguf").n_gpu_layers == 20
+    rs.save_settings({"n_gpu_layers": 7, "n_gpu_layers_model": "a.gguf", "n_gpu_layers_source": "user"})
+    assert "ELI_N_GPU_LAYERS" not in __import__("os").environ
+    assert load_request("/m/a.gguf").n_gpu_layers == 7
+    assert load_request("/m/b.gguf").n_gpu_layers is None
+
+
 def test_the_gui_defers_to_the_shared_rule():
     """GUI and headless must decide identically or they will drift apart."""
     src = _tuner_source()

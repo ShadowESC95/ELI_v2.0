@@ -85,13 +85,13 @@ Nothing here requires code changes; it's all configuration.
   catalog). Download helpers: `python -m eli.core.model_download --auto` (pick by detected VRAM),
   `--choose` (multi-select), `<key>` (one catalog model, e.g. `qwen2.5-7b`), `--list`.
 - **Load knobs (env vars)**, read by the loader (`gguf_inference.load_request`: the environment
-  first, then the settings; in the desktop app the startup window's own boxes are the request):
+  first, then the settings; in the desktop app the startup window's own boxes are the request).
+  An exported value stays in force through every settings save until that setting is changed in
+  the app (`runtime_settings`, the order above `apply_env`):
   - `ELI_GGUF_N_CTX` / `ELI_N_CTX` — context window
-  - `ELI_GGUF_N_GPU_LAYERS` — a cap on the layers put on the GPUs; leave unset and every layer that
-    fits goes there (`-1` is every layer). `ELI_N_GPU_LAYERS` / `ELI_GPU_LAYERS` only set the
-    `n_gpu_layers` setting, which counts as a cap only when the settings record it as the
-    operator's pin for this model at this context (`pinned_gpu_layers_for_model`); for a model with
-    no such pin they cap nothing
+  - `ELI_GGUF_N_GPU_LAYERS` / `ELI_N_GPU_LAYERS` / `ELI_GPU_LAYERS` — a cap on the layers put on the
+    GPUs, for whichever model loads; leave unset and every layer that fits goes there (`-1` is every
+    layer)
   - `ELI_GGUF_N_BATCH` / `ELI_BATCH_SIZE` — batch size
   - `ELI_CTX_FRACTION` — share of the model's trained context the automatic window aims for
     (default 0.9)

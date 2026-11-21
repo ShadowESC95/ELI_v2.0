@@ -376,7 +376,8 @@ Reopen Firefox once, then relaunch the server — clicks (and the auto-open) wor
 **Symptom:** ELI boots on a small model (e.g. tinyllama-1B) even though settings point at
 your 35B A3B.
 **Cause:** a stray `ELI_GGUF_MODEL_PATH` / `ELI_MODEL_PATH` env var in your shell
-**overrides config** (it wins over everything).
+**overrides config**: it is the model in force at every start, and stays so through settings
+saves until a model is picked in the app.
 **Fix:**
 ```bash
 echo $ELI_GGUF_MODEL_PATH        # if this prints a model path, that's the culprit

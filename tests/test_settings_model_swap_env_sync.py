@@ -150,3 +150,76 @@ def test_a_path_inherited_from_another_install_is_dropped_at_start(tmp_path, mon
     monkeypatch.setenv("ELI_CONFIG_DIR", str(tmp_path / "another-install" / "config"))
     rs.load_settings()
     assert "ELI_CONFIG_DIR" not in os.environ
+
+
+# ── The environment and the saved settings: which value governs (runtime_settings, above apply_env) ──
+_LOAD_VARS = ("ELI_N_CTX", "ELI_GGUF_N_CTX", "ELI_GGUF_N_BATCH", "ELI_BATCH_SIZE", "ELI_SETTINGS_PUBLISHED")
+
+
+@pytest.fixture()
+def saved_auto_ctx(tmp_path, monkeypatch):
+    for name in _LOAD_VARS:
+        monkeypatch.delenv(name, raising=False)
+    settings_file = tmp_path / "settings.json"
+    settings_file.write_text('{"n_ctx": 0, "batch_size": 512}\n', encoding="utf-8")
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(settings_file))
+    return settings_file
+
+
+def test_a_save_keeps_the_context_and_batch_the_operator_exported(saved_auto_ctx, monkeypatch):
+    """Every save wrote the file's values over the load variables: with the saved context on auto
+    an exported ELI_N_CTX=16384 was removed, and ELI_GGUF_N_BATCH=1024 became the saved 512."""
+    from eli.core import runtime_settings as rs
+    monkeypatch.setenv("ELI_N_CTX", "16384")
+    monkeypatch.setenv("ELI_GGUF_N_BATCH", "1024")
+    rs.save_settings({"theme": "light"})
+    assert os.environ["ELI_N_CTX"] == os.environ["ELI_GGUF_N_CTX"] == "16384"   # the loader's name too
+    assert os.environ["ELI_GGUF_N_BATCH"] == os.environ["ELI_BATCH_SIZE"] == "1024"
+    rs.apply_env(rs.load_settings_from_disk())              # what a reload does
+    assert os.environ["ELI_N_CTX"] == os.environ["ELI_GGUF_N_CTX"] == "16384"
+    assert os.environ["ELI_GGUF_N_BATCH"] == "1024"
+    loaded = rs.load_settings()
+    assert (loaded["n_ctx"], loaded["batch_size"]) == (16384, 1024)
+
+
+def test_the_user_changing_a_setting_in_the_app_takes_over_from_the_export(saved_auto_ctx, monkeypatch):
+    from eli.core import runtime_settings as rs
+    monkeypatch.setenv("ELI_N_CTX", "16384")
+    monkeypatch.setenv("ELI_GGUF_N_BATCH", "1024")
+    rs.save_settings({"n_ctx": 16384, "batch_size": 1024})     # what was in force, saved back: no change
+    assert os.environ["ELI_N_CTX"] == "16384" and os.environ["ELI_GGUF_N_BATCH"] == "1024"
+    rs.save_settings({"n_ctx": 8192})
+    assert os.environ["ELI_N_CTX"] == os.environ["ELI_GGUF_N_CTX"] == "8192"
+    assert os.environ["ELI_GGUF_N_BATCH"] == "1024"             # not changed, still the export
+    rs.save_settings({"n_ctx": 0})                               # auto
+    assert "ELI_N_CTX" not in os.environ and "ELI_GGUF_N_CTX" not in os.environ
+    rs.save_settings({"theme": "dark"})
+    assert "ELI_N_CTX" not in os.environ and rs.load_settings()["n_ctx"] == 0
+
+
+def test_an_exported_model_outlasts_saves_until_a_model_is_picked_in_the_app(settings_home, monkeypatch):
+    """The fixture exports ELI_GGUF_MODEL_PATH (old-model). Saves of other settings and a reload
+    wrote the file's model over it; picking a model in the app is what replaces it."""
+    _tmp_path, _old_model, new_model, settings_file = settings_home
+    from eli.core import runtime_settings as rs
+    monkeypatch.delenv("ELI_SETTINGS_PUBLISHED", raising=False)
+    settings_file.write_text('{"provider":"custom_gguf","model_path":"models/new-model.gguf"}\n', encoding="utf-8")
+    rs.save_settings({"theme": "light"})
+    assert os.environ["ELI_GGUF_MODEL_PATH"] == "models/old-model.gguf"     # the export, not the file
+    rs.apply_env(rs.load_settings_from_disk())
+    assert os.environ["ELI_GGUF_MODEL_PATH"] == "models/old-model.gguf"
+    rs.save_settings({"model_path": "models/new-model.gguf"})              # picked in the app
+    assert Path(os.environ["ELI_GGUF_MODEL_PATH"]).name == new_model.name
+    rs.save_settings({"theme": "dark"})
+    assert Path(os.environ["ELI_GGUF_MODEL_PATH"]).name == new_model.name
+
+
+def test_the_think_switch_follows_a_change_made_through_the_settings(saved_auto_ctx, monkeypatch):
+    """ELI_MODEL_THINK was written once and then never again: turning deep thinking off through the
+    settings (the API, the dashboard) had no effect until a restart."""
+    from eli.core import runtime_settings as rs
+    monkeypatch.delenv("ELI_MODEL_THINK", raising=False)
+    rs.save_settings({"model_thinking": True})
+    assert os.environ["ELI_MODEL_THINK"] == "1"
+    rs.save_settings({"model_thinking": False})
+    assert os.environ["ELI_MODEL_THINK"] == "0"

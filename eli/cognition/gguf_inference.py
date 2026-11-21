@@ -801,19 +801,18 @@ def _make_stopping_criteria(background: bool):
 def load_request(model_path, settings: Optional[Dict[str, Any]] = None, **overrides):
     """What the operator asked to load this model with (eli/core/load_plan.Request): the environment
     first, then the settings, then `overrides` (the window's own boxes). Context 0 is auto; a GPU-layer
-    count counts only for the model and context it was set for (pinned_gpu_layers_for_model), else as
-    many layers as fit."""
+    count is an exported one (any of its ELI_ names), else the saved count for the model and context it
+    was set for (pinned_gpu_layers_for_model), else as many layers as fit."""
     from eli.core import config
     from eli.core.load_plan import Request
     from eli.core.runtime_settings import _resolve_gpu_split, pinned_gpu_layers_for_model
     settings = settings if settings is not None else _load_runtime_settings()
     n_ctx = int(_env_int("ELI_GGUF_N_CTX", None) or _as_int(_runtime_value(settings, "n_ctx", "context_size"), 0) or 0)
-    n_gpu_layers = _env_int("ELI_GGUF_N_GPU_LAYERS", None)
-    if n_gpu_layers is None:
-        try:
-            n_gpu_layers = pinned_gpu_layers_for_model(model_path, settings, current_ctx=n_ctx or None)
-        except Exception:
-            log.debug("[GGUF] gpu-layer pin provenance unavailable", exc_info=True)
+    n_gpu_layers = None
+    try:
+        n_gpu_layers = pinned_gpu_layers_for_model(model_path, settings, current_ctx=n_ctx or None)
+    except Exception:
+        log.debug("[GGUF] gpu-layer pin provenance unavailable", exc_info=True)
     ts, main_gpu, split_mode = _resolve_gpu_split(settings)
     _force_cpu = str(os.environ.get("ELI_FORCE_CPU", "")).strip().lower() in ("1", "true", "yes", "on")
     cache_k, cache_v = _cache_types(settings)

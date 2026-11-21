@@ -105,11 +105,16 @@ def test_auto_is_sized_for_the_configured_model(monkeypatch):
 
 
 def test_auto_does_not_leave_a_stale_number_in_the_environment(monkeypatch):
+    """The number ELI wrote for an earlier setting goes when the setting is auto. (A number the
+    operator exported is theirs and stays: tests/test_settings_model_swap_env_sync.py.)"""
     from eli.core import runtime_settings
-    monkeypatch.setenv("ELI_GGUF_N_CTX", "12288")
-    runtime_settings.apply_env({"n_ctx": 0})
     import os
-    assert "ELI_GGUF_N_CTX" not in os.environ
+    for name in ("ELI_GGUF_N_CTX", "ELI_N_CTX", "ELI_SETTINGS_PUBLISHED"):
+        monkeypatch.delenv(name, raising=False)
+    runtime_settings.apply_env({"n_ctx": 12288})
+    assert os.environ["ELI_GGUF_N_CTX"] == "12288"
+    runtime_settings.apply_env({"n_ctx": 0})
+    assert "ELI_GGUF_N_CTX" not in os.environ and "ELI_N_CTX" not in os.environ
     runtime_settings.apply_env({"n_ctx": 10000})
     assert os.environ["ELI_GGUF_N_CTX"] == "10000"
 

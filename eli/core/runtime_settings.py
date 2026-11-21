@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import threading
 from pathlib import Path
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 try:
     from eli.core.portable_paths import PROJECT_ROOT, make_portable_path_value, resolve_path_value
@@ -273,7 +274,14 @@ def pinned_gpu_layers_for_model(model_path, settings=None, current_ctx=None):
     Lives here, not in the GUI, because the desktop app is not the only loader:
     the server/API path (and the mobile client riding the same /v1) resolves the
     same setting and needs the same answer.
+
+    A count the operator exported (ELI_GGUF_N_GPU_LAYERS, ELI_N_GPU_LAYERS,
+    ELI_GPU_LAYERS) comes first and applies to every model, as the other exported
+    load variables do, until the user sets a count in the app (exported_gpu_layers).
     """
+    exported = exported_gpu_layers()
+    if exported is not None:
+        return exported
     s = settings if settings is not None else (load_settings() or {})
     try:
         pin = int(s.get("n_gpu_layers") or 0)
@@ -327,6 +335,9 @@ def model_identity_key(model_path) -> str:
     return raw.rsplit("/", 1)[-1].strip().casefold()
 
 
+# Every variable of a setting, in the order load_settings applies them: a later one wins, so the name
+# the loader reads first (the ELI_GGUF_ one) is listed last. Which value governs, the variable's or
+# the saved one, is set out above apply_env.
 ENV_TO_KEY = {
     "ELI_PROVIDER": "provider",
     "ELI_MODEL_PATH": "model_path",
@@ -339,6 +350,7 @@ ENV_TO_KEY = {
     "ELI_USER_NAME": "user_name",
     "ELI_USER_TEXT_COLOR": "user_text_color",
     "ELI_N_CTX": "n_ctx",
+    "ELI_GGUF_N_CTX": "n_ctx",
     "ELI_MAX_TOKENS": "max_tokens",
     "ELI_TEMPERATURE": "temperature",
     "ELI_TOP_P": "top_p",
@@ -346,11 +358,16 @@ ENV_TO_KEY = {
     "ELI_REPEAT_PENALTY": "repeat_penalty",
     "ELI_N_GPU_LAYERS": "n_gpu_layers",
     "ELI_GPU_LAYERS": "n_gpu_layers",         # legacy env name; same canonical key
+    "ELI_GGUF_N_GPU_LAYERS": "n_gpu_layers",
     "ELI_N_THREADS": "n_threads",
     "ELI_CPU_THREADS": "n_threads",           # legacy env name
+    "ELI_GGUF_THREADS": "n_threads",
     "ELI_BATCH_SIZE": "batch_size",
+    "ELI_GGUF_N_BATCH": "batch_size",
     "ELI_USE_MMAP": "use_mmap",
+    "ELI_GGUF_USE_MMAP": "use_mmap",
     "ELI_USE_MLOCK": "use_mlock",
+    "ELI_GGUF_USE_MLOCK": "use_mlock",
     "ELI_TENSOR_SPLIT": "tensor_split",
     "ELI_GGUF_TENSOR_SPLIT": "tensor_split",
     "ELI_MAIN_GPU": "main_gpu",
@@ -361,6 +378,7 @@ ENV_TO_KEY = {
     "ELI_RAM_BUDGET_PERCENT": "ram_budget_percent",
     "ELI_FIT_PRIORITY": "fit_priority",
     "ELI_GPU_PROFILES_FILE": "gpu_profiles_file",
+    "ELI_MODEL_THINK": "model_thinking",
     "ELI_AUTO_SPEAK": "auto_speak",
     "ELI_MIC_ENABLED": "mic_enabled",
     "ELI_AUTO_SAVE": "auto_save",
@@ -607,9 +625,12 @@ def _load_settings_unsanitized(*, apply_env_overlay: bool = True) -> Dict[str, A
             log.debug("suppressed exception", exc_info=True)
 
     if apply_env_overlay:
+        # What the operator exported, over the file; apply_env's own copies of saved values are not
+        # an export (the order above apply_env).
+        published = _published()
         for env_name, key in ENV_TO_KEY.items():
-            val = os.environ.get(env_name)
-            if val not in (None, ""):
+            val = _operator_value(env_name, published)
+            if val is not None:
                 settings[key] = _coerce_value(key, val)
 
     # Canonical coercion (no more dual-key fallbacks)
@@ -680,6 +701,7 @@ def save_settings(settings: Dict[str, Any]) -> None:
 
     # Migrate anything legacy in existing first
     existing, _ = _bring_up_to_date(existing)
+    before = dict(existing)
 
     # Apply caller updates
     for k, v in settings.items():
@@ -707,11 +729,12 @@ def save_settings(settings: Dict[str, Any]) -> None:
     from eli.core.secure_io import secure_write_text as _secure_write
     _secure_write(settings_file, json.dumps(existing, indent=2, ensure_ascii=False), mode=0o600)
 
-    # Keep process env in sync with the just-saved model path. Without this,
-    # get_model_path() keeps returning the previous GGUF via ELI_GGUF_MODEL_PATH
-    # that the GUI pinned at first load, and settings "model swaps" are no-ops.
+    # Keep the process environment in step with what was saved, by the order above apply_env. Without
+    # it get_model_path() kept returning the previous GGUF through ELI_GGUF_MODEL_PATH and a model
+    # swap in the settings did nothing; done without the order, every save removed or overwrote the
+    # context, batch and model the operator had exported.
     try:
-        apply_env(dict(existing))
+        apply_env(dict(existing), changed=_changed_by(settings, before, existing))
     except Exception:
         log.debug("[SETTINGS] apply_env after save failed", exc_info=True)
 
@@ -835,63 +858,194 @@ def _resolve_gpu_split(s):
     return ts, main_gpu, sm
 
 
-def apply_env(settings=None):
+# ── The environment and the saved settings: which value governs ──────────────────────────────────
+# A load setting reaches the loader through the environment as well as settings.json: the loader
+# (gguf_inference.load_request, get_model_path) and config.get_gguf_* read the ELI_ variable first.
+# apply_env writes the saved settings into those variables, after every save and before a reload.
+# One order for every variable it writes:
+#   1. The user changed the setting in the app: a save gives it a value other than the one in force.
+#      The new value governs from then on, over an export: every variable of the setting carries it,
+#      or is removed when the setting is auto.
+#   2. Otherwise a value the operator exported governs: a variable of the setting holding a value
+#      apply_env did not write (the shell, a launcher, a script, other code that set it on purpose).
+#      It is never overwritten or removed, and the setting's other variables are given its value.
+#   3. Otherwise the saved value: the variables carry it, or are removed when the setting is auto.
+# A setting's variables are its names in ENV_TO_KEY. What apply_env wrote is recorded in
+# ELI_SETTINGS_PUBLISHED, so a variable holding exactly that is a copy of a saved setting, not an
+# export, here and in the processes this one starts. load_settings follows rule 2 as well: the
+# operator's variables over the file, never apply_env's copies.
+# n_gpu_layers has no variable apply_env writes: the loader takes the saved count per model
+# (pinned_gpu_layers_for_model). An exported count governs every load (rule 2) until the user sets
+# a count in the app, which removes the exported variables (rule 1); a count the tuner measured
+# (n_gpu_layers_source "tuner") is not the user's.
+_PUBLISHED_VAR = "ELI_SETTINGS_PUBLISHED"
+_ENV_LOCK = threading.RLock()
+
+# The variables apply_env writes (_env_values), and the settings they carry.
+_PUBLISHED_VARS = (
+    "ELI_GGUF_N_CTX", "ELI_N_CTX", "ELI_GGUF_N_BATCH", "ELI_BATCH_SIZE",
+    "ELI_GGUF_THREADS", "ELI_N_THREADS", "ELI_MAX_TOKENS",
+    "ELI_GGUF_USE_MMAP", "ELI_GGUF_USE_MLOCK", "ELI_MODEL_THINK",
+    "ELI_GGUF_TENSOR_SPLIT", "ELI_GGUF_MAIN_GPU", "ELI_GGUF_SPLIT_MODE", "ELI_GGUF_MODEL_PATH",
+)
+_PUBLISHED_KEYS = frozenset(ENV_TO_KEY[name] for name in _PUBLISHED_VARS)
+# the settings a model choice is saved under; the loader takes the first one set
+_MODEL_CHOICE_KEYS = ("model_path", "custom_model_path", "bundled_model_path")
+
+
+def _published() -> Dict[str, Optional[str]]:
+    """The variables apply_env wrote, with what it wrote (None: it removed the variable)."""
+    try:
+        data = json.loads(os.environ.get(_PUBLISHED_VAR) or "{}")
+    except ValueError:
+        log.debug("[SETTINGS] unreadable %s", _PUBLISHED_VAR, exc_info=True)
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _operator_value(name: str, published: Optional[Dict[str, Optional[str]]] = None) -> Optional[str]:
+    """Variable `name` as the operator set it: None when it is unset, empty, or apply_env's copy."""
+    val = os.environ.get(name)
+    if val in (None, ""):
+        return None
+    published = _published() if published is None else published
+    if name in published and published[name] == val:
+        return None
+    return val
+
+
+def _setting_vars(key: str) -> list:
+    """The variables of setting `key`, the one that governs first (ENV_TO_KEY lists it last)."""
+    return [name for name, k in reversed(list(ENV_TO_KEY.items())) if k == key]
+
+
+def _operator_setting(key: str, published: Optional[Dict[str, Optional[str]]] = None) -> Optional[str]:
+    """The value the operator exported for setting `key` (rule 2), None when there is none."""
+    published = _published() if published is None else published
+    for name in _setting_vars(key):
+        val = _operator_value(name, published)
+        if val is not None:
+            return val
+    return None
+
+
+def exported_gpu_layers() -> Optional[int]:
+    """The GPU-layer count the operator exported (ELI_GGUF_N_GPU_LAYERS, ELI_N_GPU_LAYERS or the
+    older ELI_GPU_LAYERS), for whatever model loads, as every other exported load variable is; None
+    when there is none or the user has since set a count in the app (the order above apply_env)."""
+    raw = _operator_setting("n_gpu_layers")
+    if raw is None:
+        return None
+    try:
+        layers = int(str(raw).strip())
+    except ValueError:
+        log.warning("[SETTINGS] ignoring an exported GPU-layer count that is not a number: %r", raw)
+        return None
+    return ALL_GPU_LAYERS if layers == _LEGACY_ALL_GPU_LAYERS else layers
+
+
+def _env_values(s: Dict[str, Any]) -> Dict[str, Optional[str]]:
+    """Each variable apply_env writes, with the value settings `s` give it (None: removed)."""
+    def _int(key: str, default: int = 0) -> int:
+        try:
+            return int(s.get(key) or default)
+        except (TypeError, ValueError):
+            return int(default)
+
+    def _flag(key: str, default: bool) -> str:
+        return "1" if _coerce_value(key, s.get(key, default)) else "0"
+
+    n_ctx, n_threads = _int("n_ctx"), _int("n_threads")           # 0 is auto: nothing pinned
+    n_batch = _int("batch_size", DEFAULTS["batch_size"])
+    max_tokens = _int("max_tokens", DEFAULTS["max_tokens"])
+    out: Dict[str, Optional[str]] = {
+        "ELI_GGUF_N_CTX": str(n_ctx) if n_ctx > 0 else None,
+        "ELI_N_CTX": str(n_ctx) if n_ctx > 0 else None,            # the name older readers use
+        "ELI_GGUF_N_BATCH": str(n_batch),
+        "ELI_BATCH_SIZE": str(n_batch),
+        "ELI_GGUF_THREADS": str(n_threads) if n_threads > 0 else None,
+        "ELI_N_THREADS": str(n_threads) if n_threads > 0 else None,
+        "ELI_MAX_TOKENS": str(max_tokens),
+        "ELI_GGUF_USE_MMAP": _flag("use_mmap", True),
+        "ELI_GGUF_USE_MLOCK": _flag("use_mlock", False),
+        # deep thinking on reasoning models, read per call (gguf_inference._thinking_wanted)
+        "ELI_MODEL_THINK": _flag("model_thinking", True),
+    }
+    # Multi-GPU split (single-GPU users: all empty, nothing written), from the settings or
+    # config/gpu_profiles.json, for the loader's tensor_split.
+    ts, main_gpu, sm = _resolve_gpu_split(s)
+    out["ELI_GGUF_TENSOR_SPLIT"] = str(ts) if ts else None
+    out["ELI_GGUF_MAIN_GPU"] = str(main_gpu) if ts and main_gpu not in (None, "") else None
+    out["ELI_GGUF_SPLIT_MODE"] = str(sm) if ts and sm else None
+    model = str(next((s.get(k) for k in _MODEL_CHOICE_KEYS if s.get(k)), "") or "").strip()
+    if model:                       # an empty choice leaves the variable as it is
+        out["ELI_GGUF_MODEL_PATH"] = model
+    return out
+
+
+def _same_env_value(name: str, a: Optional[str], b: Optional[str]) -> bool:
+    if name == "ELI_GGUF_MODEL_PATH" and a and b:
+        return resolve_path_value(a, PROJECT_ROOT) == resolve_path_value(b, PROJECT_ROOT)
+    return a == b
+
+
+def _changed_by(delta: Dict[str, Any], before: Dict[str, Any], after: Dict[str, Any]) -> set:
+    """The load settings a save changes (rule 1): the caller gives one a value other than the one in
+    force, the operator's export or else the saved value."""
+    given = {LEGACY_KEY_MIGRATIONS.get(k, k) for k in (delta or {})}
+    if given & set(_MODEL_CHOICE_KEYS):
+        given.add("model_path")
+    published = _published()
+    in_force = dict(DEFAULTS)
+    in_force.update(before)
+    for key in _PUBLISHED_KEYS | {"n_gpu_layers"}:
+        op = _operator_setting(key, published)
+        if op is not None:
+            in_force[key] = _coerce_value(key, op)
+    saved = dict(DEFAULTS)
+    saved.update(after)
+    was, now = _env_values(in_force), _env_values(saved)
+    changed = {ENV_TO_KEY[name] for name in set(was) | set(now)
+               if ENV_TO_KEY[name] in given and not _same_env_value(name, was.get(name), now.get(name))}
+    if ("n_gpu_layers" in given
+            and str(saved.get("n_gpu_layers_source") or "").strip().lower() != "tuner"
+            and _coerce_value("n_gpu_layers", in_force.get("n_gpu_layers"))
+            != _coerce_value("n_gpu_layers", saved.get("n_gpu_layers"))):
+        changed.add("n_gpu_layers")
+    return changed
+
+
+def apply_env(settings=None, changed=()):
+    """Write the load settings into the variables the loader reads, by the order above. `changed`:
+    the settings the user has just changed in the app (save_settings works them out)."""
     s = dict(load_settings() if settings is None else settings)
+    changed = set(changed or ())
+    with _ENV_LOCK:
+        published = _published()
+        live = dict(s)                                  # the settings in force
+        for key in _PUBLISHED_KEYS - changed:
+            op = _operator_setting(key, published)
+            if op is not None:
+                live[key] = _coerce_value(key, op)
 
-    n_ctx = int(s.get("n_ctx") or 0)
-    n_batch = int(s.get("batch_size", DEFAULTS["batch_size"]) or DEFAULTS["batch_size"])
-    n_threads = int(s.get("n_threads") or 0)
-    max_tokens = int(s.get("max_tokens", DEFAULTS["max_tokens"]) or DEFAULTS["max_tokens"])
+        def _write(name: str, value: Optional[str]) -> None:
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+            published[name] = value
 
-    if n_ctx > 0:
-        os.environ["ELI_GGUF_N_CTX"] = str(n_ctx)
-    else:                                    # auto: nothing pinned
-        os.environ.pop("ELI_GGUF_N_CTX", None)
-    os.environ["ELI_GGUF_N_BATCH"] = str(n_batch)
-    for _env in ("ELI_GGUF_THREADS", "ELI_N_THREADS"):
-        if n_threads > 0:
-            os.environ[_env] = str(n_threads)
-        else:                                # auto: nothing pinned
-            os.environ.pop(_env, None)
-    # n_gpu_layers is not exported: the loader reads it per model (pinned_gpu_layers_for_model)
-    os.environ["ELI_MAX_TOKENS"] = str(max_tokens)
-
-    # legacy mirrors for older callers still reading the non-GGUF names
-    if n_ctx > 0:
-        os.environ["ELI_N_CTX"] = str(n_ctx)
-    else:
-        os.environ.pop("ELI_N_CTX", None)
-    os.environ["ELI_BATCH_SIZE"] = str(n_batch)
-
-    os.environ["ELI_GGUF_USE_MMAP"] = "1" if bool(s.get("use_mmap", True)) else "0"
-    os.environ["ELI_GGUF_USE_MLOCK"] = "1" if bool(s.get("use_mlock", False)) else "0"
-
-    # Multi-GPU split (single-GPU users: all empty → no-op). Resolved from settings/env or
-    # config/gpu_profiles.json; published for the loader to apply via tensor_split.
-    _gpu_ts, _gpu_main, _gpu_sm = _resolve_gpu_split(s)
-    if _gpu_ts:
-        os.environ["ELI_GGUF_TENSOR_SPLIT"] = str(_gpu_ts)
-        if _gpu_main not in (None, ""):
-            os.environ["ELI_GGUF_MAIN_GPU"] = str(_gpu_main)
-        if _gpu_sm:
-            os.environ["ELI_GGUF_SPLIT_MODE"] = str(_gpu_sm)
-    else:
-        for _k in ("ELI_GGUF_TENSOR_SPLIT", "ELI_GGUF_MAIN_GPU", "ELI_GGUF_SPLIT_MODE"):
-            os.environ.pop(_k, None)
-
-    # Deep-thinking toggle for reasoning models → ELI_MODEL_THINK (read by
-    # gguf_inference._no_think_prefill). Don't clobber an explicit shell override.
-    if "ELI_MODEL_THINK" not in os.environ:
-        os.environ["ELI_MODEL_THINK"] = "1" if bool(s.get("model_thinking", True)) else "0"
-
-    model_path = str(
-        s.get("model_path", "")
-        or s.get("custom_model_path", "")
-        or s.get("bundled_model_path", "")
-    ).strip()
-    if model_path:
-        os.environ["ELI_GGUF_MODEL_PATH"] = model_path
-
+        for name, value in _env_values(live).items():
+            key = ENV_TO_KEY[name]
+            if key in changed:
+                for target in _setting_vars(key):       # rule 1: every variable of it, exports too
+                    _write(target, value)
+            elif _operator_value(name, published) is None:
+                _write(name, value)                     # rules 2 and 3; the operator's own is left alone
+        if "n_gpu_layers" in changed:
+            for target in _setting_vars("n_gpu_layers"):
+                _write(target, None)
+        os.environ[_PUBLISHED_VAR] = json.dumps(published, sort_keys=True)
     return s
 
 # --- ELI portability runtime path guard: BEGIN ---

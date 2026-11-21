@@ -21,9 +21,16 @@ path is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
   already running, or the one the last runtime snapshot names. No model name is baked in.
 - **`load_model(force_reload)`**: `load_request()` reads the settings (env first): context
   (0 = auto), threads (0 = the physical performance cores), batch, cache type, GPUs to use and
-  their shares, and a GPU-layer count only when `ELI_GGUF_N_GPU_LAYERS` sets one or it was
-  pinned for this model at this context (`pinned_gpu_layers_for_model`; -1, llama.cpp's own
-  value, is every layer). `load_plan.plan()` turns that into the load (below) and
+  their shares, and a GPU-layer count only when one is exported (`ELI_GGUF_N_GPU_LAYERS`,
+  `ELI_N_GPU_LAYERS` or `ELI_GPU_LAYERS`, for any model) or it was pinned for this model at this
+  context (`pinned_gpu_layers_for_model`; -1, llama.cpp's own value, is every layer).
+  `runtime_settings.apply_env` writes the saved settings into those variables after each save and
+  before a reload, in one order: a setting the user has just changed in the app takes the new
+  value; otherwise a value the operator exported stays (it is never overwritten or removed, and
+  the setting's other variable names get the same value); otherwise the saved value. What
+  `apply_env` wrote is recorded in `ELI_SETTINGS_PUBLISHED`, so its own copies are never taken
+  for an export. A saved layer count is not written there (it applies per model); an exported
+  one holds until a count is set in the app. `load_plan.plan()` turns that into the load (below) and
   `_build_with_plan` makes it. A load that still fails is planned again for the memory free at
   that moment, then on the processor (three attempts); a cache type llama.cpp refuses is planned
   again with the default cache; a GPU pack too old for the model hands over to the bundled
