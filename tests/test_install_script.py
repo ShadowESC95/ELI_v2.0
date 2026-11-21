@@ -212,6 +212,18 @@ def _ps1_code() -> str:
                       if not line.strip().startswith("#"))
 
 
+def test_declining_the_model_prompt_on_windows_skips_only_the_chat_model():
+    """Answering "n" set -NoModel, and -NoModel also skips the embedder memory and recall need;
+    install.sh's answer skips the chat model alone."""
+    code = _ps1_code()
+    prompt = code[code.index("Choose model(s) to download now?"):]
+    answer = prompt[:prompt.index("\n    }")]
+    assert "$NoModel" not in answer, "the model prompt's answer still turns on -NoModel"
+    assert "$ChooseModel = -not ($m -match '^[Nn]')" in answer
+    embedder = code[code.index("eli.core.model_download --aux") - 300:code.index("eli.core.model_download --aux")]
+    assert "if (-not $NoModel)" in embedder and "ChooseModel" not in embedder
+
+
 def test_windows_installer_detects_more_than_nvidia():
     """nvidia-smi was the only detector, so AMD and Intel Arc machines were
     told they had no GPU at all and silently got a CPU-only build."""

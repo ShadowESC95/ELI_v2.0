@@ -166,8 +166,10 @@ if (-not $Yes) {
     if ($ans -match '^[Nn]') { Write-Host "Aborted - nothing changed."; exit 0 }
     if ((-not $NoModel) -and (-not $AutoModel) -and (-not $Model)) {
         $m = Read-Host "  Choose model(s) to download now? [Y/n]"
-        # --choose opens a multi-select menu (pick any number, or auto/all/none).
-        if ($m -match '^[Nn]') { $NoModel = $true } else { $ChooseModel = $true }
+        # --choose opens a multi-select menu (pick any number, or auto/all/none). Declining
+        # skips only the chat model, as in install.sh: the small embedder memory and recall
+        # need is still fetched below. -NoModel stays the one way to skip both.
+        $ChooseModel = -not ($m -match '^[Nn]')
     }
 }
 
