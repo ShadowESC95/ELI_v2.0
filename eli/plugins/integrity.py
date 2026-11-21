@@ -54,6 +54,21 @@ def sha256_of(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def listing_kind(listing: Optional[Dict[str, Any]]) -> str:
+    """"mcp" for an MCP server listing, else "plugin": the listing's own kind, or an MCP server
+    definition in it."""
+    listing = listing or {}
+    return str(listing.get("kind") or ("mcp" if listing.get("mcp") else "plugin"))
+
+
+def _listing_words(listing: Optional[Dict[str, Any]]) -> tuple:
+    """How messages name a listing and what its checksum and signature cover: a plugin's
+    downloaded file, an MCP server's definition (mcp_listing_payload)."""
+    if listing_kind(listing) == "mcp":
+        return "MCP server", "server definition"
+    return "plugin", "file"
+
+
 def mcp_listing_payload(listing: Dict[str, Any]) -> bytes:
     """The bytes an MCP listing's sha256 and signature cover.
 
@@ -73,8 +88,9 @@ def mcp_listing_payload(listing: Dict[str, Any]) -> bytes:
                       ensure_ascii=False).encode("utf-8")
 
 
-def verify_hash(data: bytes, expected: Optional[str]) -> Dict[str, Any]:
-    """Compare a download against the hash the listing promised.
+def verify_hash(data: bytes, expected: Optional[str], covers: str = "file") -> Dict[str, Any]:
+    """Compare a download against the hash the listing promised. `covers`: what the hash is
+    of, as the messages name it (a plugin's file, an MCP server's definition).
 
     A listing with no hash is not an error here — it is reported as unpinned so the
     caller can decide. It is, however, the single biggest quality signal about a
@@ -84,11 +100,12 @@ def verify_hash(data: bytes, expected: Optional[str]) -> Dict[str, Any]:
     if not expected:
         return {"ok": True, "pinned": False, "actual": actual,
                 "reason": "The listing did not pin a checksum, so ELI cannot tell "
-                          "whether this is the file the publisher intended."}
+                          f"whether this is the {covers} the publisher intended."}
     expected = str(expected).strip().lower()
     if actual != expected:
+        what = "downloaded file" if covers == "file" else covers
         return {"ok": False, "pinned": True, "actual": actual, "expected": expected,
-                "reason": ("The downloaded file does not match the checksum in the "
+                "reason": (f"The {what} does not match the checksum in the "
                            "listing. It has been altered in transit or at the source. "
                            "Installation refused.")}
     return {"ok": True, "pinned": True, "actual": actual, "expected": expected,
@@ -228,11 +245,13 @@ def signing_available() -> bool:
 
 
 def verify_signature(data: bytes, signature_b64: Optional[str],
-                     publisher_id: Optional[str]) -> Dict[str, Any]:
-    """Check an ed25519 signature against a publisher key the operator trusts."""
+                     publisher_id: Optional[str], *, names: str = "plugin",
+                     covers: str = "file") -> Dict[str, Any]:
+    """Check an ed25519 signature against a publisher key the operator trusts. `names` and
+    `covers`: what the listing is and what was signed, as the messages say them."""
     if not signature_b64 or not publisher_id:
         return {"ok": False, "status": UNVERIFIED,
-                "reason": "This plugin is not signed. ELI cannot confirm who wrote it."}
+                "reason": f"This {names} is not signed. ELI cannot confirm who wrote it."}
 
     pubs = trusted_publishers()
     entry = pubs.get(str(publisher_id))
@@ -254,7 +273,7 @@ def verify_signature(data: bytes, signature_b64: Optional[str],
     except Exception as exc:
         return {"ok": False, "status": FAILED,
                 "reason": (f"The signature does not match publisher '{publisher_id}'. "
-                           f"The file may have been altered ({type(exc).__name__}). "
+                           f"The {covers} may have been altered ({type(exc).__name__}). "
                            f"Installation refused.")}
 
     return {"ok": True, "status": VERIFIED_SIGNED,
@@ -267,10 +286,13 @@ def assess(data: bytes, listing: Dict[str, Any]) -> Dict[str, Any]:
 
     Returns {ok, status, hash, signature, warnings}. `ok` False means REFUSE —
     reserved for active evidence of tampering (a hash or signature mismatch), never
-    for the ordinary case of an unsigned community plugin.
+    for the ordinary case of an unsigned community plugin. The messages name the
+    listing's own kind (listing_kind).
     """
-    h = verify_hash(data, listing.get("sha256"))
-    s = verify_signature(data, listing.get("signature"), listing.get("publisher_id"))
+    names, covers = _listing_words(listing)
+    h = verify_hash(data, listing.get("sha256"), covers)
+    s = verify_signature(data, listing.get("signature"), listing.get("publisher_id"),
+                         names=names, covers=covers)
 
     warnings = []
     if not h["ok"]:
@@ -290,11 +312,13 @@ def assess(data: bytes, listing: Dict[str, Any]) -> Dict[str, Any]:
     return {"ok": True, "status": status, "hash": h, "signature": s, "warnings": warnings}
 
 
-def status_summary(status: str) -> str:
-    """One line for the operator. Never overstates what was actually checked."""
+def status_summary(status: str, listing: Optional[Dict[str, Any]] = None) -> str:
+    """One line for the operator. Never overstates what was actually checked. `listing`
+    names what was checked (a plugin's file unless it is an MCP listing)."""
+    covers = _listing_words(listing)[1]
     return {
-        VERIFIED_SIGNED: "Signed by a publisher you trust, and the file matches the listing.",
-        VERIFIED_HASH_ONLY: ("The file matches the checksum in the listing, but nothing "
+        VERIFIED_SIGNED: f"Signed by a publisher you trust, and the {covers} matches the listing.",
+        VERIFIED_HASH_ONLY: (f"The {covers} matches the checksum in the listing, but nothing "
                              "proves who wrote it."),
         UNVERIFIED: ("Unverified. Nothing proves who wrote this or that it is unchanged. "
                      "Install only if you trust the source."),
@@ -303,7 +327,8 @@ def status_summary(status: str) -> str:
 
 
 __all__ = [
-    "sha256_of", "mcp_listing_payload", "verify_hash", "verify_signature", "assess", "status_summary",
+    "sha256_of", "listing_kind", "mcp_listing_payload", "verify_hash", "verify_signature", "assess",
+    "status_summary",
     "trust_publisher", "untrust_publisher", "trusted_publishers", "signing_available",
     "OFFICIAL_PUBLISHER_ID", "OFFICIAL_PUBLISHER_KEY",
     "VERIFIED_SIGNED", "VERIFIED_HASH_ONLY", "UNVERIFIED", "FAILED",

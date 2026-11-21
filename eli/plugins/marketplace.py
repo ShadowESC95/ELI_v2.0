@@ -371,6 +371,7 @@ def browse(*, refresh: bool = True, timeout: float = 10) -> Dict[str, Any]:
     data and never interpreted as instructions, and the fields shown to the operator
     are validated before display.
     """
+    from eli.plugins.integrity import listing_kind
     from eli.plugins.manifest import validate_manifest
     from eli.plugins.permissions import risk_of
 
@@ -404,7 +405,7 @@ def browse(*, refresh: bool = True, timeout: float = 10) -> Dict[str, Any]:
             # A registry may list MCP servers alongside Python plugins. They install
             # very differently — an MCP server is a separate process ELI configures,
             # not code loaded into it — so the kind travels with the listing.
-            m["kind"] = str(raw.get("kind") or ("mcp" if raw.get("mcp") else "plugin"))
+            m["kind"] = listing_kind(raw)
             if m["kind"] == "mcp":
                 m["mcp"] = raw.get("mcp") or {}
             listings.append(m)
@@ -502,6 +503,8 @@ def _integrity_refusal(listing: Dict[str, Any], verdict: Dict[str, Any],
         return None
     sig = verdict.get("signature") or {}
     expected = integrity.OFFICIAL_PUBLISHER_ID
+    altered = ("the listing or the file" if integrity.listing_kind(listing) != "mcp"
+               else "the listing's server definition")
     if verdict.get("status") != integrity.VERIFIED_SIGNED:
         return {
             "ok": False, "stage": "curation", "integrity": verdict, "warnings": [],
@@ -509,7 +512,7 @@ def _integrity_refusal(listing: Dict[str, Any], verdict: Dict[str, Any],
                 f"'{name}' is listed on a curated registry but its signature "
                 f"did not verify. Every listing on {listing.get('registry_label') or 'that store'} "
                 f"is signed when it is approved, so an unsigned or unverifiable one "
-                f"means the listing or the file was altered after approval. Refused.",
+                f"means {altered} was altered after approval. Refused.",
                 sig.get("reason") or "No valid signature was present."]}
     if str(listing.get("publisher_id") or "") != expected:
         return {

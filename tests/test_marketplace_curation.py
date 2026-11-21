@@ -319,3 +319,20 @@ def test_community_mcp_listing_gets_the_plugin_integrity_check(official, started
     res = marketplace.install_mcp(stale)
     assert res["ok"] is False and res["stage"] == "integrity"
     assert len(started) == 1
+
+
+def test_an_mcp_listings_integrity_messages_name_an_mcp_server_and_its_definition(official, started):
+    """An MCP listing has no file and is not a plugin; its warnings said 'This plugin is not signed'
+    and spoke of the file the publisher intended."""
+    unsigned = _mcp_listing(registry="somecommunity", registry_label="Some Community")
+    told = [marketplace.install_mcp(unsigned)["warnings"],
+            marketplace.install_mcp(dict(unsigned, sha256="0" * 64))["problems"],
+            marketplace.install_mcp(_mcp_listing())["problems"]]          # curated, unsigned
+    for lines in told:
+        text = " ".join(lines).replace(unsigned["name"], "")                # the listing's own name
+        assert "MCP server" in text or "server definition" in text, lines
+        assert "plugin" not in text.lower() and "file" not in text.lower(), lines
+    assert any("This MCP server is not signed" in w for w in told[0])
+    plugin = integrity.assess(b"print('hi')\n", {"id": "p", "kind": "plugin"})
+    assert any("This plugin is not signed" in w for w in plugin["warnings"])
+    assert "server definition" in integrity.status_summary(integrity.VERIFIED_HASH_ONLY, unsigned)
