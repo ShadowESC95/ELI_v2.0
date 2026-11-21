@@ -10,8 +10,9 @@ eli_isolate_env() {
   root="$(cd "$root" && pwd)"
 
   unset VIRTUAL_ENV PYTHONHOME 2>/dev/null || true
-  # Do not inherit another checkout's data/config dirs.
-  unset ELI_PROJECT_ROOT ELI_DATA_DIR ELI_CONFIG_DIR ELI_MODELS_DIR ELI_CACHE_DIR 2>/dev/null || true
+  # Do not inherit another checkout's data/config dirs. A models folder the user set is kept: models
+  # are large files kept wherever there is room, and any install may load them.
+  unset ELI_PROJECT_ROOT ELI_DATA_DIR ELI_CONFIG_DIR ELI_CACHE_DIR 2>/dev/null || true
 
   export ELI_PROJECT_ROOT="$root"
   export ELI_DATA_DIR="${ELI_DATA_DIR:-$root/artifacts}"

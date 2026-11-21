@@ -296,6 +296,19 @@ def test_a_launcher_starts_a_working_environment_and_explains_a_broken_one(insta
     assert "Traceback" not in said and "ModuleNotFoundError" not in said
 
 
+@pytest.mark.skipif(not POSIX or not __import__("shutil").which("bash"), reason="the shell launchers")
+def test_the_launchers_keep_a_models_folder_the_user_set(tmp_path):
+    """eli_isolate_env unset ELI_MODELS_DIR with the data and config folders, so every launch read
+    the checkout's models/ whatever folder the user kept their models in."""
+    isolate = 'source "%s/scripts/eli_isolate_env.sh"; eli_isolate_env "$1"; echo "$ELI_MODELS_DIR|$ELI_CONFIG_DIR"' % ROOT
+    env = {k: v for k, v in os.environ.items() if not k.startswith("ELI_")}
+    kept = subprocess.run(["bash", "-c", isolate, "_", str(tmp_path)], capture_output=True, text=True,
+                          env=dict(env, ELI_MODELS_DIR="/srv/shared-models", ELI_CONFIG_DIR="/elsewhere/config"))
+    assert kept.stdout.strip() == "/srv/shared-models|%s/config" % tmp_path      # another install's config is not
+    unset = subprocess.run(["bash", "-c", isolate, "_", str(tmp_path)], capture_output=True, text=True, env=env)
+    assert unset.stdout.strip() == "%s/models|%s/config" % (tmp_path, tmp_path)
+
+
 @pytest.mark.parametrize("script", ["eli.sh", "scripts/eli_launch.sh", "scripts/eli_serve.sh",
                                     "scripts/eli_startup.sh", "scripts/run_eli_repo_venv.sh"])
 def test_every_shell_launcher_checks_the_environment_before_starting(script):

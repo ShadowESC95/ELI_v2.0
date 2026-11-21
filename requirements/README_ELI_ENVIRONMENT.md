@@ -35,7 +35,8 @@ Use the project runner:
 The runner:
 - resolves the project root;
 - isolates the environment (`scripts/eli_isolate_env.sh`): drops inherited ELI folder variables
-  and other checkouts' `.venv` from `PATH`, and checks the `.venv` can still run ELI;
+  (a models folder the user set, `ELI_MODELS_DIR`, is kept) and other checkouts' `.venv` from
+  `PATH`, and checks the `.venv` can still run ELI;
 - activates `<ELI_PROJECT_ROOT>/.venv`;
 - exports `ELI_PROJECT_ROOT`;
 - exports the repository root through `PYTHONPATH`;

@@ -517,7 +517,7 @@ Rebuild `blueprints/new_user_install_guide.pdf` only.
 
 ### `scripts/eli_isolate_env.sh`
 
-Sourced by the launchers. `eli_isolate_env ROOT` unsets inherited `VIRTUAL_ENV` / `ELI_*` folder variables, points `ELI_PROJECT_ROOT`, `ELI_DATA_DIR`, `ELI_CONFIG_DIR`, `ELI_MODELS_DIR`, `ELI_CACHE_DIR` and `PYTHONPATH` at ROOT and drops other ELI checkouts' `.venv` from `PATH`. `eli_env_ready ROOT` checks that `.venv` can run ELI and otherwise runs `scripts/eli_env.py repair` or says to run `bash install.sh`.
+Sourced by the launchers. `eli_isolate_env ROOT` unsets inherited `VIRTUAL_ENV` / `ELI_*` folder variables, points `ELI_PROJECT_ROOT`, `ELI_DATA_DIR`, `ELI_CONFIG_DIR`, `ELI_CACHE_DIR` and `PYTHONPATH` at ROOT, and `ELI_MODELS_DIR` at `ROOT/models` unless the user set one (that one is kept), and drops other ELI checkouts' `.venv` from `PATH`. `eli_env_ready ROOT` checks that `.venv` can run ELI and otherwise runs `scripts/eli_env.py repair` or says to run `bash install.sh`.
 
 ---
 

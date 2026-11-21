@@ -80,7 +80,7 @@ dramatic jump from 7B and the fastest way to see what your scaffolding does with
 Nothing here requires code changes; it's all configuration.
 
 - **Drop-in any model.** Put a `.gguf` in `models/` (the models directory of a source checkout;
-  `scripts/eli_launch.sh` always uses the checkout's own), or point ELI at a catalog:
+  `scripts/eli_launch.sh` uses the checkout's own unless `ELI_MODELS_DIR` names another), or point ELI at a catalog:
   `ELI_MODEL_CATALOG=/path/catalog.json` or `<models_dir>/catalog.json` (same schema as the built-in
   catalog). Download helpers: `python -m eli.core.model_download --auto` (pick by detected VRAM),
   `--choose` (multi-select), `<key>` (one catalog model, e.g. `qwen2.5-7b`), `--list`.
