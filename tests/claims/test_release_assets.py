@@ -4,10 +4,34 @@ Frozen bundles alone are insufficient for pip installs, Debian packages,
 Windows source portables, and offline wheelhouses — all of which
 self_upgrade and install.sh depend on.
 """
+import fnmatch
 from pathlib import Path
+
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 RELEASE_YML = (ROOT / ".github/workflows/release.yml").read_text(encoding="utf-8")
+WORKFLOW = yaml.safe_load(RELEASE_YML)
+
+
+def _steps_using(action: str):
+    """(job name, job, step) for each step that uses this action."""
+    for name, job in WORKFLOW["jobs"].items():
+        for step in job.get("steps") or []:
+            if str(step.get("uses", "")).split("@", 1)[0] == action:
+                yield name, job, step
+
+
+def _publish_step():
+    """The job and step that make the GitHub Release, found by the action the step uses. The text
+    after the first "release:" is not it: that is in the source job's release notes."""
+    found = list(_steps_using("softprops/action-gh-release"))
+    assert len(found) == 1, f"expected one step that publishes the release, found {len(found)}"
+    return found[0]
+
+
+def _lines(block: str) -> list:
+    return [line.strip() for line in str(block).splitlines() if line.strip()]
 
 
 def test_release_workflow_builds_source_artifacts():
@@ -17,18 +41,22 @@ def test_release_workflow_builds_source_artifacts():
 
 
 def test_release_workflow_publishes_wheel_and_deb():
-    publish = RELEASE_YML.split("release:", 1)[1]
-    assert "dist/*.whl" in publish
-    assert "dist/*.deb" in publish
-    assert "dist/WHEELHOUSE*.txt" in publish        # WHEELHOUSE.txt and WHEELHOUSE-arm64.txt
-    assert "dist/RELEASE_NOTES.md" in publish
-    assert "windows-portable-full" in publish
+    _name, job, step = _publish_step()
+    files = _lines(step["with"]["files"])
+    for pattern in ("dist/*.whl", "dist/*.deb", "dist/WHEELHOUSE*.txt", "dist/RELEASE_NOTES.md"):
+        assert pattern in files, f"the publish step does not upload {pattern}"
+    # the full Windows portable: built and handed on by the source job, and uploaded by a pattern here
+    assert "build-source-artifacts" in job["needs"]
+    handed_on = [s for n, _j, s in _steps_using("actions/upload-artifact") if n == "build-source-artifacts"]
+    assert len(handed_on) == 1 and "dist/*windows-portable-full.zip" in _lines(handed_on[0]["with"]["path"])
+    assert any(fnmatch.fnmatchcase("dist/ELI_v2-2.0.0-windows-portable-full.zip", p) for p in files)
 
 
 def test_release_workflow_builds_full_windows_portable():
-    source = RELEASE_YML.split("build-source-artifacts:", 1)[1].split("release:", 1)[0]
-    assert "windows-lean windows" in source or "windows-lean" in source and "windows" in source
-    assert "windows-portable-full.zip" in source
+    runs = [str(step.get("run", "")) for step in WORKFLOW["jobs"]["build-source-artifacts"]["steps"]]
+    build = [line.split() for run in runs for line in run.splitlines() if "bash build_packages.sh" in line]
+    assert len(build) == 1 and {"windows-lean", "windows"} <= set(build[0]), build
+    assert any("windows-portable-full.zip" in run for run in runs)
 
 
 def test_gpu_packs_refresh_on_version_tags():
@@ -37,9 +65,8 @@ def test_gpu_packs_refresh_on_version_tags():
 
 
 def _upload_patterns():
-    publish = RELEASE_YML.split("\n  release:", 1)[1]
-    files = publish.split("files: |", 1)[1].split("fail_on_unmatched_files", 1)[0]
-    return [line.strip()[len("dist/"):] for line in files.splitlines() if line.strip().startswith("dist/")]
+    _name, _job, step = _publish_step()
+    return [line[len("dist/"):] for line in _lines(step["with"]["files"]) if line.startswith("dist/")]
 
 
 def test_every_file_the_checksums_list_is_one_the_release_uploads():
