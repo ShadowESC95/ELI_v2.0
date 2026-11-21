@@ -173,6 +173,7 @@ def _what_runs(words: list) -> list:
             opt = words[i]
             if base == "env" and (opt in ("-S", "--split-string") or opt.startswith("--split-string=")):
                 line = opt.split("=", 1)[1] if "=" in opt else (words[i + 1] if i + 1 < len(words) else "")
+                line = line.strip().strip("\"'")   # Windows lexing keeps the quotes round the string
                 rest = words[i + (1 if "=" in opt else 2):]
                 return _what_runs([w for part in _commands_in(line) for w in part] + rest)
             if opt.startswith("-"):
