@@ -124,3 +124,17 @@ def test_ollama_never_starts_or_answers_unless_it_is_the_chosen_backend(monkeypa
     assert not spawned
     client.ensure_server_running(timeout=0.1, user_choice=True)   # the user choosing it in the GUI
     assert spawned
+
+
+def test_status_and_the_persona_lock_ask_ollama_nothing_unless_it_is_chosen(monkeypatch):
+    """GET_STATUS called Ollama's /api/ps on every call, with a GGUF model in use and Ollama never
+    chosen; the persona lock asked it too, and could ask it to load a model."""
+    from eli.execution import executor_enhanced as ex
+    asked = []
+    monkeypatch.setattr(client, "ollama_chosen", lambda: False)
+    monkeypatch.setattr(ex.requests, "get", lambda url, *a, **k: asked.append(url))
+    monkeypatch.setattr(ex.requests, "post", lambda url, *a, **k: asked.append(url))
+    status = ex.execute("GET_STATUS", {})
+    assert status["ok"] is True and status.get("ollama_ps") is None
+    ex._verify_persona_lock({"persona_lock": {"model": None, "ollama_digest": "sha256:abc"}})
+    assert asked == [], f"Ollama was asked: {asked}"

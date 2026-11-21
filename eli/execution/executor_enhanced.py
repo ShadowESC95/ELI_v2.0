@@ -236,7 +236,7 @@ def _ollama_warm_load(model: str, ollama_host: str) -> bool:
     """
     try:
         model = (model or "").strip()
-        if not model:
+        if not model or not _ollama_in_use():
             return False
         host = (ollama_host or "http://localhost:11434").rstrip("/")
         url = host + "/api/chat"
@@ -2726,7 +2726,22 @@ def _state_append_history(st: Dict[str, Any], user_msg: str, assistant_msg: str)
 # Persona lock + checksum verification
 # ----------------------------
 
+def _ollama_in_use() -> bool:
+    """Whether Ollama is the backend the user chose (eli.integrations.ollama.client.ollama_chosen).
+    Ollama is asked nothing otherwise: not its loaded models, not to load one."""
+    try:
+        from eli.integrations.ollama.client import ollama_chosen
+        return bool(ollama_chosen())
+    except ImportError:
+        log.debug("ollama client unavailable", exc_info=True)
+        return False
+
+
 def _ollama_ps() -> Dict[str, Any]:
+    """What Ollama has loaded (/api/ps), when Ollama is the chosen backend; GET_STATUS and the
+    persona lock asked it on every call whichever backend was in use."""
+    if not _ollama_in_use():
+        return {"models": [], "ollama_chosen": False}
     try:
         return requests.get(f"{OLLAMA_HOST}/api/ps", timeout=10).json()
     except Exception:
@@ -4691,7 +4706,7 @@ def _purge_conflicting_identity_patterns(new_name: str) -> int:
 
 def get_status() -> Dict[str, Any]:
     st = _load_state()
-    ps = _ollama_ps()
+    ps = _ollama_ps() if _ollama_in_use() else None
     msg = "Status OK."
     return {
         "ok": True,
