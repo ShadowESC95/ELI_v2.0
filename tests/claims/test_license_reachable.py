@@ -184,6 +184,7 @@ def test_each_release_attaches_the_source_of_the_gpl_packages_it_carries():
     release = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
     linux = release.split("\n  build-linux:", 1)[1].split("\n  build-source-artifacts:", 1)[0]
     assert "python packaging/gpl_sources.py dist/gpl-sources" in linux and "-gpl-sources.tar.gz" in linux
+    assert "espeak-ng's source (compiled into piper-tts) is not in the GPL source archive" in linux
     notes = release.split("Write release notes stub", 1)[1].split("Verify:", 1)[0]
     assert "gpl-sources.tar.gz" in notes, "the release notes do not say where the GPL source is"
     assert "body_path: dist/RELEASE_NOTES.md" in release.split("\n  release:", 1)[1]

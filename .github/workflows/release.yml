@@ -476,6 +476,11 @@ jobs:
         run: |
           python packaging/gpl_sources.py dist/gpl-sources
           cat dist/gpl-sources/SOURCES.md
+          # piper-tts compiles espeak-ng in: its source has to be here, fetched or inside piper's sdist
+          if ls dist/gpl-sources/piper* >/dev/null 2>&1; then
+            ls dist/gpl-sources | grep -qi espeak || tar -tzf dist/gpl-sources/piper*.tar.gz | grep -qi "espeak-ng/src/" \
+              || { echo "::error::espeak-ng's source (compiled into piper-tts) is not in the GPL source archive"; exit 1; }
+          fi
           tar -czf "dist/ELI_v2-${{ needs.guard.outputs.version }}-gpl-sources.tar.gz" -C dist gpl-sources
           rm -rf dist/gpl-sources
 
