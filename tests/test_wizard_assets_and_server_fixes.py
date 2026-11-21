@@ -16,6 +16,22 @@ def test_has_embedder_uses_models_dir_status():
     assert "models_dir" in src
 
 
+def test_a_chat_model_in_eli_models_dir_counts_as_installed(tmp_path, monkeypatch):
+    """The setup check looked only in the program's own models/: with the models kept in
+    ELI_MODELS_DIR, where model discovery finds them, it reported no chat model."""
+    from eli.setup import status
+    kept = tmp_path / "my-models"
+    kept.mkdir()
+    (kept / "chat.gguf").write_bytes(b"GGUF")
+    monkeypatch.setenv("ELI_PROJECT_ROOT", str(tmp_path / "program"))    # its own models/: none
+    monkeypatch.delenv("ELI_MODELS_DIR", raising=False)
+    assert status.has_chat_model() is False
+    monkeypatch.setenv("ELI_MODELS_DIR", str(kept))
+    assert status.has_chat_model() is True
+    (kept / "chat.gguf").rename(kept / "text-embed.gguf")
+    assert status.has_chat_model() is False
+
+
 def test_voice_assets_main_ignores_repair_for_exit():
     src = Path("eli/runtime/voice_assets.py").read_text(encoding="utf-8")
     assert 'required = ("piper", "whisper")' in src

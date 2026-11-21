@@ -1,9 +1,12 @@
 """Read-only setup completeness checks for first-run / grandparent setup."""
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
+
+log = logging.getLogger(__name__)
 
 try:
     from eli.core.paths import canonical_root
@@ -45,20 +48,35 @@ def launcher_command(root: Path | None = None, *, headless: bool = False) -> str
     return command + (" --headless" if headless else "")
 
 
-def _scan_chat_gguf(root: Path) -> bool:
+def _model_folders() -> List[Path]:
+    """Where model discovery looks (hardware_profile.discover_models): the models folder
+    (paths.models_dir(): ELI_MODELS_DIR, else the checkout's or the data folder's) and the
+    program's own models/."""
+    folders: List[Path] = []
+    try:
+        from eli.core.paths import models_dir
+        folders.append(Path(models_dir()))
+    except Exception:
+        log.debug("models folder unavailable", exc_info=True)
+    folders.append(project_root() / "models")
+    return folders
+
+
+def _scan_chat_gguf(folder: Path) -> bool:
     """Filesystem scan only — must not import the full GUI (pulls in llama_cpp)."""
-    for base in (root / "models", root / "models" / "gguf"):
-        if not base.exists():
-            continue
-        for p in base.rglob("*.gguf"):
-            name = p.name.lower()
-            if "embed" not in name and "mmproj" not in name:
-                return True
+    if not folder.is_dir():
+        return False
+    for p in folder.rglob("*.gguf"):
+        name = p.name.lower()
+        if "embed" not in name and "mmproj" not in name:
+            return True
     return False
 
 
 def has_chat_model() -> bool:
-    return _scan_chat_gguf(project_root())
+    """A chat model in any folder model discovery searches. Only the program's own models/ was
+    looked in, so models kept in ELI_MODELS_DIR counted as none."""
+    return any(_scan_chat_gguf(folder) for folder in _model_folders())
 
 
 def has_embedder() -> bool:
