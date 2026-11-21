@@ -1,7 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
+# Runs on the bash every Mac has (3.2) and on BSD find and readlink as well as GNU's.
 
-THIS="$(readlink -f "${BASH_SOURCE[0]}")"
+# The file's path with every symlink followed, as GNU readlink -f gives it (the readlink of macOS
+# 12.2 and older has no -f); fails when a folder on the way does not exist.
+_real_path() {
+  local target="$1" dir
+  while [ -L "$target" ]; do
+    dir="$(cd -P "$(dirname "$target")" 2>/dev/null && pwd)" || return 1
+    target="$(readlink "$target")" || return 1
+    case "$target" in /*) ;; *) target="$dir/$target" ;; esac
+  done
+  dir="$(cd -P "$(dirname "$target")" 2>/dev/null && pwd)" || return 1
+  printf '%s/%s\n' "${dir%/}" "$(basename "$target")"
+}
+
+THIS="$(_real_path "${BASH_SOURCE[0]}")"
 BIN_DIR="$(dirname "$THIS")"
 ROOT="$(cd "$BIN_DIR/.." && pwd)"
 REAL="$ROOT/bin/elix.real"
@@ -56,7 +70,10 @@ if [ ! -d "$MODEL_DIR" ]; then
   exec "$REAL" "$@"
 fi
 
-mapfile -t MODELS < <(
+MODELS=()
+while IFS= read -r model; do
+  if [ -n "$model" ]; then MODELS+=("$model"); fi
+done < <(
   {
     find "$MODEL_DIR" -maxdepth 2 -type f -name '*.gguf' \
       ! -path '*/hf/*' \
@@ -64,13 +81,11 @@ mapfile -t MODELS < <(
       ! -path '*/adapters/*' \
       ! -path '*/embeddings/*' \
       ! -iname '*embed*' \
-      -printf '%p
-' 2>/dev/null
+      -print 2>/dev/null || true
 
     find "$ROOT/models/gguf/runtime" "$ROOT/models/gguf/eli_phi" \
       -type f -name '*.gguf' \
-      -printf '%p
-' 2>/dev/null || true
+      -print 2>/dev/null || true
   } | sort -u
 )
 
@@ -91,7 +106,7 @@ fi
 echo
 
 i=1
-for model in "${MODELS[@]}"; do
+for model in ${MODELS[@]+"${MODELS[@]}"}; do
   rel="${model#$ROOT/}"
   size="$(du -h "$model" 2>/dev/null | awk '{print $1}')"
   printf '  %2d) %-9s %s\n' "$i" "$size" "$rel"
@@ -101,7 +116,7 @@ done
 echo
 read -r -p "Choose model number, Enter for current/1, or q to cancel: " choice
 
-case "${choice,,}" in
+case "$(printf '%s' "$choice" | tr '[:upper:]' '[:lower:]')" in
   q|quit|exit)
     echo "Cancelled."
     exit 130
@@ -115,12 +130,14 @@ if [ -z "$choice" ]; then
     SELECTED="${MODELS[0]}"
   fi
 else
-  if ! [[ "$choice" =~ ^[0-9]+$ ]]; then
-    echo "❌ Invalid selection: $choice" >&2
-    exit 2
-  fi
+  case "$choice" in
+    *[!0-9]*)
+      echo "❌ Invalid selection: $choice" >&2
+      exit 2
+      ;;
+  esac
 
-  idx=$((choice - 1))
+  idx=$((10#$choice - 1))
   if [ "$idx" -lt 0 ] || [ "$idx" -ge "${#MODELS[@]}" ]; then
     echo "❌ Selection out of range: $choice" >&2
     exit 2
@@ -129,13 +146,13 @@ else
   SELECTED="${MODELS[$idx]}"
 fi
 
-SELECTED="$(readlink -f "$SELECTED")"
+SELECTED="$(_real_path "$SELECTED")"
 
 echo
 echo "✅ Selected model:"
 echo "$SELECTED"
 
-if [ -n "$CURRENT" ] && [ "$(readlink -f "$CURRENT" 2>/dev/null || true)" = "$SELECTED" ]; then
+if [ -n "$CURRENT" ] && [ "$(_real_path "$CURRENT" 2>/dev/null || true)" = "$SELECTED" ]; then
   :   # already the app's model
 elif ! _app_model "$SELECTED" >/dev/null; then
   # The settings could not be written: this start still loads the model chosen, without keeping it.

@@ -18,9 +18,17 @@ if [ "${1:-}" = "--list-capabilities" ]; then
 fi
 
 set -euo pipefail
+# Runs on the bash every Mac has (3.2) and on BSD readlink as well as GNU's.
 
-_SELF="$(readlink -f "${BASH_SOURCE[0]}")"
-_BIN_DIR="$(cd "$(dirname "$_SELF")" && pwd)"
+# This script with every symlink followed, as GNU readlink -f gives it (the readlink of macOS 12.2
+# and older has no -f).
+_SELF="${BASH_SOURCE[0]}"
+while [ -L "$_SELF" ]; do
+  _link_dir="$(cd -P "$(dirname "$_SELF")" && pwd)"
+  _SELF="$(readlink "$_SELF")"
+  case "$_SELF" in /*) ;; *) _SELF="$_link_dir/$_SELF" ;; esac
+done
+_BIN_DIR="$(cd -P "$(dirname "$_SELF")" && pwd)"
 
 if [ -d "$_BIN_DIR/../eli" ]; then
   ELI_PROJECT_ROOT="$(cd "$_BIN_DIR/.." && pwd)"

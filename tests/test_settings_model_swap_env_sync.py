@@ -265,9 +265,20 @@ def test_the_think_switch_follows_a_change_made_through_the_settings(saved_auto_
 
 
 # ── the legacy bin/elix launcher ──────────────────────────────────────────────────────────────────
-def _elix_install(tmp_path):
+# find and readlink as a Mac has them: BSD find has no -printf, and the readlink of macOS 12.2 and
+# older has no -f (GNU options); each refuses those as macOS does and otherwise is the real tool.
+_BSD_TOOLS = {
+    "find": ('for a in "$@"; do case "$a" in -printf|-fprintf|-regextype)\n'
+             '  echo "find: $a: unknown primary or operator" >&2; exit 1;; esac; done\n'),
+    "readlink": ('case "${1:-}" in -f|-e|-m|--*) echo "readlink: illegal option -- ${1#-}" >&2\n'
+                 '  echo "usage: readlink [-n] [file ...]" >&2; exit 1;; esac\n'),
+}
+
+
+def _elix_install(tmp_path, userland="gnu"):
     """A copy of bin/elix and bin/elix.real in a folder of their own, two models, a saved choice, and
-    a stand-in for the venv's python that records what the app would be started with."""
+    a stand-in for the venv's python that records what the app would be started with. `userland`
+    "bsd" puts find and readlink as macOS has them first on PATH."""
     import json
     import shutil
     import sys
@@ -298,6 +309,13 @@ def _elix_install(tmp_path):
     env.update(PYTHONPATH=str(repo), ELIX_TEST_PYTHON=sys.executable, ELIX_TEST_RECORD=str(tmp_path / "started"),
                ELI_TEST_MODE="1", HOME=str(home), XDG_DATA_HOME=str(home / "data"),
                XDG_CONFIG_HOME=str(home / "config"))
+    if userland == "bsd":
+        tools = tmp_path / "bsd-tools"
+        tools.mkdir()
+        for name, refuse in _BSD_TOOLS.items():
+            (tools / name).write_text(f'#!/bin/sh\n{refuse}exec {shutil.which(name)} "$@"\n', encoding="utf-8")
+            (tools / name).chmod(0o755)
+        env["PATH"] = f"{tools}{os.pathsep}{env.get('PATH', '')}"
     return root, alpha, beta, env
 
 
@@ -320,14 +338,17 @@ def _run_elix(root, env, answer=None):
     return subprocess.CompletedProcess(proc.args, proc.returncode, out, "")
 
 
-@pytest.mark.skipif(not __import__("sys").platform.startswith("linux") or not __import__("shutil").which("bash"),
-                    reason="runs the bash launcher (GNU find, bash 4)")
-def test_the_legacy_elix_launcher_keeps_its_model_choice_in_the_apps_settings(tmp_path):
+@pytest.mark.skipif(__import__("sys").platform == "win32" or not __import__("shutil").which("bash"),
+                    reason="runs the bash launcher in a terminal (pty)")
+@pytest.mark.parametrize("userland", ["gnu", "bsd"])
+def test_the_legacy_elix_launcher_keeps_its_model_choice_in_the_apps_settings(tmp_path, userland):
     """bin/elix saved its choice in .env.eli_v2_0 as ELI_GGUF_MODEL_PATH, bin/elix.real loaded that
     file on every start, and the variable comes before the settings: a model picked in the app was
-    ignored at the next elix start. Its choice is now the app's own model setting."""
+    ignored at the next elix start. Its choice is now the app's own model setting. With find and
+    readlink as a Mac has them it stopped at its first line (readlink -f) and listed no model
+    (find -printf)."""
     import json
-    root, alpha, beta, env = _elix_install(tmp_path)
+    root, alpha, beta, env = _elix_install(tmp_path, userland)
     settings = root / "config" / "settings.json"
     started = tmp_path / "started"
     old_choice = "".join(f"export {name}={alpha}\n" for name in

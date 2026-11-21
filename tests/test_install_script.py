@@ -47,21 +47,47 @@ def test_a_clone_with_no_built_wheel_gets_past_the_wheel_lookup(tmp_path):
 
 
 # ── shipped shell scripts must run on the bash every Mac has (3.2) ─────────
-def _sh_code():
-    """(file, line number, line) for every code line of every shipped shell script."""
+_SHELL_SHEBANG = re.compile(r"#!\s*(\S*/)?(env\s+(-\S+\s+)*)?(ba)?sh(\s|$)")
+
+
+def _is_shell_script(path: Path) -> bool:
+    """A *.sh file, or any file whose first line runs it with bash or sh (bin/elix, bin/elix.real)."""
+    if path.suffix == ".sh":
+        return True
+    try:
+        with path.open("rb") as fh:
+            first = fh.readline(200).decode("utf-8", "replace")
+    except OSError:
+        return False
+    return bool(_SHELL_SHEBANG.match(first))
+
+
+def _shell_scripts() -> list:
     root = Path(__file__).resolve().parents[1]
     try:
-        listed = subprocess.run(["git", "-C", str(root), "ls-files", "*.sh"],
+        listed = subprocess.run(["git", "-C", str(root), "ls-files", "-z"],
                                 capture_output=True, text=True, timeout=30)
-        names = listed.stdout.split() if listed.returncode == 0 else []
+        names = [n for n in listed.stdout.split("\0") if n] if listed.returncode == 0 else []
     except (OSError, subprocess.SubprocessError):
         names = []
     files = ([root / n for n in names] if names else
-             sorted(p for p in root.rglob("*.sh") if not (_PS1_SKIP_DIRS & set(p.relative_to(root).parts))))
+             sorted(p for p in root.rglob("*") if not (_PS1_SKIP_DIRS & set(p.relative_to(root).parts))))
+    return [p for p in files if p.is_file() and _is_shell_script(p)]
+
+
+def test_the_shell_script_scan_takes_in_scripts_named_without_sh():
+    names = {p.relative_to(Path(__file__).resolve().parents[1]).as_posix() for p in _shell_scripts()}
+    assert {"install.sh", "bin/elix", "bin/elix.real"} <= names, sorted(names)[:20]
+    assert _SHELL_SHEBANG.match("#!/usr/bin/env bash\n") and _SHELL_SHEBANG.match("#!/bin/sh\n")
+    assert not _SHELL_SHEBANG.match("#!/usr/bin/env python3\n")
+
+
+def _sh_code():
+    """(file, line number, line) for every code line of every shipped shell script."""
+    root = Path(__file__).resolve().parents[1]
+    files = _shell_scripts()
     assert files, "no shell scripts found"
     for path in files:
-        if not path.is_file():
-            continue
         for number, line in enumerate(path.read_text(encoding="utf-8", errors="replace").splitlines(), 1):
             if not line.lstrip().startswith("#"):
                 yield path.relative_to(root).as_posix(), number, line
