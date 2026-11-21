@@ -230,3 +230,26 @@ class TestReasoningModesModule:
         text = "Candidate 1: answer one\nCandidate 2: answer two\nFinal answer: answer one"
         result = strip_reasoning_leaks(text)
         assert "Candidate 1" not in result or "Candidate 2" not in result
+
+
+def test_every_coverage_lane_runs_in_the_suite_sandbox_and_a_failed_lane_is_said():
+    """scripts/coverage_full.sh ran lanes 2-4 with --noconftest and only ELI_ARTIFACTS_DIR set, so the
+    stores and the audit chain resolved to the checkout's artifacts/db; and lane 3's model fixture is
+    defined in tests/conftest.py, so it errored on every run, which `|| true` hid."""
+    import shutil
+    import subprocess
+    import sys
+    from pathlib import Path
+    script = (Path(__file__).resolve().parents[1] / "scripts" / "coverage_full.sh").read_text(encoding="utf-8")
+    code = [line for line in script.splitlines() if not line.lstrip().startswith("#")]
+    lanes = [line for line in code if "coverage run" in line]
+    assert len(lanes) == 4 and not any("--noconftest" in line for line in lanes), lanes
+    assert not any("|| true" in line for line in code if "pytest" in line or line.startswith("lane "))
+    assert 'echo "Lanes that failed: $FAILED"' in script and "exit 1" in script
+    if sys.platform != "win32" and shutil.which("bash"):
+        body = script[script.index("lane() {"):]
+        body = body[:body.index("\n}\n") + 3]
+        said = subprocess.run(["bash", "-c", 'set -uo pipefail\nFAILED=""\n' + body +
+                               'lane "a" false\nlane "b" true\nlane "c" sh -c "exit 3"\necho "$FAILED"\n'],
+                              capture_output=True, text=True).stdout.strip()
+        assert said == "a (exit 1), c (exit 3)"
