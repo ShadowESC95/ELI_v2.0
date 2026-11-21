@@ -59,6 +59,16 @@ input_channel_var: ContextVar[Optional[str]] = ContextVar("eli_input_channel", d
 # The role of the API user this turn is for ("admin", "member", "viewer"); None for the owner at the
 # desktop and for ELI's own turns. authority_gate.check reads it.
 caller_role_var: ContextVar[Optional[str]] = ContextVar("eli_caller_role", default=None)
+# Set inside work the turn runs on another thread and may stop waiting for (an agent on the bus): an
+# Event that is set once the turn has given up on it and wants nothing more from it. A model call made
+# for that work stops at its next token and gives the model back (gguf_inference).
+given_up_var: ContextVar[Optional[Any]] = ContextVar("eli_given_up", default=None)
+
+
+def given_up() -> bool:
+    """True inside work the turn has stopped waiting for: nothing it makes reaches the reply."""
+    event = given_up_var.get()
+    return bool(event is not None and event.is_set())
 
 
 def in_user_turn() -> bool:

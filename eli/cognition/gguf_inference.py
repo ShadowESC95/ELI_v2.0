@@ -741,13 +741,33 @@ def _fg_preempt_enabled() -> bool:
     return os.environ.get("ELI_FG_PREEMPT", "1").strip().lower() not in ("0", "false", "no", "off")
 
 
+try:
+    from eli.kernel.request_context import given_up as _turn_gave_up
+except Exception:
+    _turn_gave_up = None
+
+
+def _given_up() -> bool:
+    """The call is made for work the turn has stopped waiting for (an agent past its timeout on the
+    bus, request_context.given_up): nobody will read what it writes. Read at every token and by
+    the decode's abort callback, so the lookup is bound once at import."""
+    try:
+        return bool(_turn_gave_up is not None and _turn_gave_up())
+    except Exception:
+        _SWLOG.debug("given-up check failed", exc_info=True)
+        return False
+
+
 def _should_abort_generation(background: bool) -> bool:
     """True when an in-flight generation should yield at the next token: shutdown is
     signalled (aborts ANY call, except one deliberately exempted via
-    allow_one_call_during_shutdown), the user clicked Stop (aborts ANY call), or — for
-    BACKGROUND calls with preemption enabled — a foreground turn is waiting on the
-    shared lock."""
+    allow_one_call_during_shutdown), the user clicked Stop (aborts ANY call), the turn has
+    given up on the work the call is for (aborts it, foreground or not: it kept the model,
+    and the reply waited for an answer nobody would read), or — for BACKGROUND calls with
+    preemption enabled — a foreground turn is waiting on the shared lock."""
     if _USER_CANCEL.is_set():
+        return True
+    if _given_up():
         return True
     if _SHUTDOWN.is_set() and not getattr(_bg_tls, "allow_during_shutdown", False):
         return True
@@ -1505,6 +1525,10 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
     _fit_prompt, attempt_max = _fit_generation_budget(llm, full_prompt, max_tokens)
     if _fit_prompt is not full_prompt:
         full_prompt = _fit_prompt
+    # Work the turn has stopped waiting for does not take the model: the reply would queue behind it.
+    if _given_up():
+        log.debug("[GGUF] call not started: the turn has stopped waiting for the work it is for")
+        return iter(()) if stream else {"choices": [{"text": ""}]}
     last_exc = None
     bg = is_background_inference()
     if not bg:
@@ -1668,7 +1692,8 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
             # about to reuse, then retried into the same abort, three times over. The background
             # caller tries again after the turn (chat_completion); a stopped turn stops.
             if _code and _code.group(1) == "2":
-                if getattr(_bg_tls, "cut_short", False) or _USER_CANCEL.is_set() or _SHUTDOWN.is_set():
+                if (getattr(_bg_tls, "cut_short", False) or _USER_CANCEL.is_set() or _SHUTDOWN.is_set()
+                        or _given_up()):
                     raise
                 log.debug("[GGUF] decode aborted with nothing asking it to stop; trying again as it was")
                 continue

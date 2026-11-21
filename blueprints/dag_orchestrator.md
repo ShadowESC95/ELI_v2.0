@@ -18,8 +18,10 @@ additively, so every existing class/function and caller is unchanged.
 - **Per-node timeout** — a node with a `timeout` runs on a worker thread, and the timeout
   counts from its start. A node past it is given up on: it is recorded as `timeout` without
   its result, nothing waits for its thread (which keeps running until its fn returns), and
-  the run goes on; a node queued behind it in the layer starts in its place. A node that
-  finishes inside its timeout keeps its result.
+  the run goes on; a node queued behind it in the layer starts in its place. The node's
+  `NodeContext.given_up` event is set, it is not retried and its fallback does not run, and
+  the timeout outcome's `late` future brings the node's own outcome when its fn returns. A
+  node that finishes inside its timeout keeps its result.
 - **Memoisation** — pluggable `cache` keyed by `cache_key` (status `cached`).
 - **Priority scheduling** — higher-priority nodes first within a ready layer.
 - **Fail-fast + global time budget** — stop scheduling after a failure / budget.
@@ -36,7 +38,9 @@ Pure stdlib; the orchestrator does no LLM/IO — the node callables do.
   orchestrator (`_run_agents_orchestrated`, default `ELI_AGENT_ORCHESTRATOR=1`, falls back to
   the layered then flat paths). Dependency-ordered, intra-layer parallel, per-agent
   timeouts set from the mode and model tier (an agent past its timeout is given up on, as
-  above), upstream results passed downstream, and a `RunReport` captured per dispatch.
+  above: a model call made by an agent gathering evidence stops at its next token, and the
+  system or plugin agent carrying out the turn's action hands it, still running, to a
+  background job), upstream results passed downstream, and a `RunReport` captured per dispatch.
   Behaviour-preserving: agent fns never raise out (errors → `ok=False`) and the agents' tasks
   set `skip_if_upstream_fails=False`, so edges only order + pass upstream, never gate.
 - **Router → executor (observability):** `ORCHESTRATION_STATUS` action

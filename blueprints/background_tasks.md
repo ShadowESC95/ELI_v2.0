@@ -34,6 +34,10 @@ runs live in-process Python work (agent runs) for the session.
   `queued → running → done/failed/cancelled`, result, error, elapsed, note. `schedule(...)`
   holds a job as `scheduled` until its time.
 - `get(id)`, `list()`, `cancel(id)` (best-effort), `wait(id)`, `stats()`.
+- `adopt(name, kind=..., meta=...)` puts work that is already running elsewhere on the record as a
+  running job and returns its id; `finish(id, result)` ends it like any job. The agent bus uses it
+  for an action it stopped waiting for (`agent_bus._hand_over_to_job`, kind `action`, `meta.tell`):
+  the action is neither dropped nor run again, and its end reaches the person below.
 - Singleton `get_background_tasks()`; thread-safe.
 - **What a job's status means.** A handler that returns `ok: False` failed, whatever the thread did;
   `skipped` is not a failure. `elapsed` counts from the start, so a job waiting for its time reads 0.

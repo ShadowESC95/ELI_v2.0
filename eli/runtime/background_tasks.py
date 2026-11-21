@@ -180,48 +180,74 @@ class BackgroundTasks:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
         _running.job = (self, jid)
+        res, error = None, "it was interrupted before it returned"
         try:
             res = fn(*args, **kwargs)
-            with self._lock:
-                t = self._tasks[jid]
-                t.result = res
-                t.finished = time.time()
-                # A handler that reports failure did not finish the job, whatever the thread did.
-                if isinstance(res, dict) and res.get("ok") is False and not res.get("skipped"):
-                    t.status = "failed"
-                    t.error = str(res.get("error") or res.get("content") or "it reported failure")[:500]
-                else:
-                    t.status = "done"
-                if not t.note:
-                    t.note = _summarize_result(res)
-                if isinstance(res, dict) and res.get("document_path"):
-                    t.meta["document_path"] = res["document_path"]
+            error = None
         except Exception as exc:
-            with self._lock:
-                t = self._tasks[jid]
-                t.status = "failed"
-                t.finished = time.time()
-                t.error = f"{exc}\n{traceback.format_exc()[-800:]}"
+            error = f"{exc}\n{traceback.format_exc()[-800:]}"
             log.debug(f"[BG] task {jid} ({name}) failed: {exc}")
         finally:
             _running.job = None
-            self._save_ledger()
-            if on_done:
-                try:
-                    on_done(self._tasks.get(jid))
-                except Exception:
-                    log.debug("suppressed exception", exc_info=True)
-            with self._lock:
-                t = self._tasks.get(jid)
-                ended = t.to_dict(include_result=True) if t else None
-            for listener in list(self._listeners) if ended else ():
-                try:
-                    listener(ended)
-                except Exception as exc:    # the job's own record says what did not happen after it
-                    log.debug("job listener failed", exc_info=True)
-                    with self._lock:
-                        self._tasks[jid].meta["after_job_error"] = str(exc)[:200]
-                    self._save_ledger()
+            self._ended(jid, res, error, on_done)
+
+    def _ended(self, jid: int, res: Any, error: Optional[str], on_done=None) -> None:
+        """A job's end, however it ran: its record, the ledger, then whoever listens."""
+        with self._lock:
+            t = self._tasks.get(jid)
+            if t is not None:
+                t.finished = time.time()
+                if error is not None:
+                    t.status, t.error = "failed", str(error)
+                else:
+                    t.result = res
+                    # A handler that reports failure did not finish the job, whatever the thread did.
+                    if isinstance(res, dict) and res.get("ok") is False and not res.get("skipped"):
+                        t.status = "failed"
+                        t.error = str(res.get("error") or res.get("content") or "it reported failure")[:500]
+                    else:
+                        t.status = "done"
+                    if not t.note:
+                        t.note = _summarize_result(res)
+                    if isinstance(res, dict) and res.get("document_path"):
+                        t.meta["document_path"] = res["document_path"]
+        self._save_ledger()
+        if on_done:
+            try:
+                on_done(self._tasks.get(jid))
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+        with self._lock:
+            t = self._tasks.get(jid)
+            ended = t.to_dict(include_result=True) if t else None
+        for listener in list(self._listeners) if ended else ():
+            try:
+                listener(ended)
+            except Exception as exc:    # the job's own record says what did not happen after it
+                log.debug("job listener failed", exc_info=True)
+                with self._lock:
+                    self._tasks[jid].meta["after_job_error"] = str(exc)[:200]
+                self._save_ledger()
+
+    def adopt(self, name: str, *, kind: str = "task", meta: Optional[Dict[str, Any]] = None) -> int:
+        """Put work that is already running elsewhere on the record as a running job, and return its
+        id: an action the turn stopped waiting for goes on, and must not go on unseen. finish()
+        ends it like any job (the record, the ledger, the listeners that tell the person)."""
+        with self._lock:
+            self._counter += 1
+            jid = self._counter
+            self._tasks[jid] = Task(id=jid, name=str(name)[:120], kind=kind, status="running",
+                                    started=time.time(), meta=dict(meta or {}))
+        self._save_ledger()
+        return jid
+
+    def finish(self, jid: int, result: Any = None, *, error: Optional[str] = None) -> None:
+        """The end of an adopted job: what the work came back with, or the error it ended with."""
+        with self._lock:
+            t = self._tasks.get(int(jid))
+            if t is None or t.status != "running":
+                return
+        self._ended(int(jid), result, error)
 
     def report(self, jid: int, done: int, total: int, stage: str = "") -> None:
         with self._lock:

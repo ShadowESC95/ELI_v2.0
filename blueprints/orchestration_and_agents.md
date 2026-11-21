@@ -236,7 +236,14 @@ Execution (`AgentBus.dispatch`):
   which never blocks the response. On the default orchestrated path an agent is given up on at
   its own timeout (counted from its start), and an agent downstream of it still runs with what
   the others found; on the layered and flat paths a layer waits until its longest timeout plus
-  a second and keeps any agent that finished by then.
+  a second and keeps any agent that finished by then. Once the bus gives up on an agent that
+  gathers evidence, a model call it makes stops at its next token and gives the model back to
+  the reply (`request_context.given_up`, read by `gguf_inference`; the broker does not ask
+  again). The system or plugin agent that carries out the turn's action is not dropped: the
+  running action goes on as a background job (`_hand_over_to_job`, `background_tasks.adopt`),
+  the turn's record says it is still running as that job, the engine neither logs it as a
+  failure nor re-plans or runs it again (`engine._still_running`), and when it ends the job
+  keeps its result and the person is told, as for any job they asked for.
 - **Aggregation** (`_aggregate_confidence`): per-agent contribution = evidence quality ×
   evidence density × a calibration learned per (agent, action) × relevance (2026-09-29:
   `term_overlap(user_input, representative_text) → relevance_gate()`, gated on ≥40 chars of
@@ -302,10 +309,10 @@ store nothing; their parent stores the real message and the reply the user saw.
 2. **Planning is only partly consolidated.** The engine's `_build_runtime_orchestrator_plan`
    (a rich stage dict) and the bus `OrchestratorAgent` plan coexist with the typed
    `ExecutionPlan`; only the ReAct loop and `MULTI_COMMAND` execute a sequence.
-3. **Timeouts do not cancel work.** A timeout only stops the wait (on every path), so a
-   timed-out write-capable agent (memory, habit) can still land a late database write, and a
-   system action given up on can still finish in the background after the turn reported it
-   unfinished.
+3. **Timeouts do not cancel every kind of work.** A model call stops when the bus gives up
+   on the agent that made it, and an action given up on goes on as a job that reports its end,
+   but other work only stops being waited for: a timed-out write-capable agent (memory, habit)
+   can still land a late database write.
 4. **Confidence is coupled to a fixed evidence-key schema.** `_evidence_density` counts known
    keys; a custom agent returning useful prose under an unknown key contributes zero.
 5. **No early exit for direct actions; failures are debug-only.** The bus waits for the
@@ -316,7 +323,8 @@ Fixed and worth knowing: `_apply_runtime_policy_timeouts()` is applied to built-
 after `_load_custom_agents()`, so custom agents get hardware-adapted timeouts too.
 
 Highest leverage now: an agent-health surface built from `agent_metrics` and
-`pipeline_trace`, and a cooperative cancel token for write-capable agents.
+`pipeline_trace`, and write-capable agents that read the bus's give-up signal
+(`request_context.given_up`) before a late write.
 
 ## Habits reach the chat path
 

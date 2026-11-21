@@ -32,6 +32,16 @@ def _is_think_only(response: str) -> bool:
         return False
 
 
+def _given_up() -> bool:
+    """The call is for work the turn has stopped waiting for (request_context.given_up)."""
+    try:
+        from eli.kernel.request_context import given_up
+        return given_up()
+    except Exception:
+        log.debug("given-up check failed", exc_info=True)
+        return False
+
+
 def stamp_foreground_activity() -> None:
     """The user is active: a turn started or a user-facing generation began. Background chores wait
     (foreground_recently_active). A turn that never uses the model counts too: a 109 s news synthesis
@@ -207,7 +217,9 @@ class InferenceBroker:
         try:
             with self._lock:
                 response = self._call(prompt, system, max_tokens, temperature, top_p)
-            if (not response or _is_think_only(response)) and retry:
+            # A call for work the turn stopped waiting for stopped at its next token and gave the model
+            # back (gguf_inference); asking again would take it from the reply a second time.
+            if (not response or _is_think_only(response)) and retry and not _given_up():
                 # A reasoning model can spend its whole budget inside <think> and return nothing, or
                 # a think block that never closes. Force it closed on the retry so the budget goes
                 # to the answer. A no-op for non-thinking models.

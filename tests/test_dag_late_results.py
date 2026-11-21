@@ -83,6 +83,30 @@ def test_downstream_of_a_timed_out_node_is_skipped_unless_it_runs_without_it():
     assert report.result("runs_anyway") == []       # ran, without the node given up on
 
 
+def test_a_node_given_up_on_is_told_so_brings_its_late_result_and_is_not_tried_again():
+    """A timeout stops the wait, not the work. The node's fn learns the run stopped waiting
+    (ctx.given_up), the timeout outcome's `late` future brings what the fn finally returned, and a
+    node with retries left is not run a second time: a retry of an action nobody waits for would
+    do it twice."""
+    release = threading.Event()
+    runs = []
+
+    def _slow(ctx):
+        runs.append(ctx.attempt)
+        release.wait(5)
+        assert ctx.given_up.is_set()            # the run stopped waiting before the fn returned
+        raise RuntimeError("ended after the wait")
+
+    report = Orchestrator(max_workers=2).run(
+        [Task(id="slow", run=_slow, timeout=0.2, retries=2)], context={})
+    o = report.outcomes["slow"]
+    assert o.status == "timeout" and o.late is not None and not o.late.done()
+    release.set()
+    late = o.late.result(timeout=5)
+    assert late.status == "failed" and "ended after the wait" in late.error
+    assert runs == [0], f"a node given up on was tried again: attempts {runs}"
+
+
 def test_a_failing_node_still_reports_failure():
     def _boom(ctx):
         time.sleep(0.3)

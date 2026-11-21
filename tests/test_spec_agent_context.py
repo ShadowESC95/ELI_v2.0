@@ -131,3 +131,70 @@ def test_a_spec_agent_in_the_users_turn_is_heard_and_one_outside_it_stays_backgr
 
     outside = agent.run("when is high tide", {"action": "CHAT"}, "s1", "u1")
     assert not outside.ok and model.budgets == [600]   # deferred: a turn just used the model
+
+
+class _Llama:
+    """Stands in for llama_cpp.Llama under the real gguf_inference path: one token per step,
+    its stopping criteria read before each, as llama.cpp does."""
+
+    def __init__(self, tokens, step):
+        self.tokens, self.step, self.made = tokens, step, 0
+        self.n_batch = 512
+
+    def n_ctx(self):
+        return 4096
+
+    def tokenize(self, text, add_bos=True, special=False):
+        return list(range(max(1, len(text) // 4)))
+
+    def detokenize(self, ids):
+        return b"tide " * len(ids)
+
+    def __call__(self, prompt, max_tokens=16, stopping_criteria=None, stream=False, **kw):
+        ids = []
+        for i in range(min(self.tokens, max_tokens)):
+            if stopping_criteria is not None and any(stop(ids, None) for stop in stopping_criteria):
+                break
+            time.sleep(self.step)
+            ids.append(i)
+            self.made += 1
+        return {"choices": [{"text": "tide " * len(ids), "finish_reason": "length"}]}
+
+
+def test_a_spec_agent_call_the_bus_gives_up_on_gives_the_model_back_to_the_reply(monkeypatch):
+    """Its model call is the turn's own work, so it ran in the foreground, and past its timeout the
+    bus stopped waiting while the call went on holding the model: the reply then waited for an
+    answer nobody would read. Once the bus gives up, the call stops at its next token, and the
+    broker does not ask again."""
+    import eli.cognition.agent_bus as AB
+    from eli.cognition import gguf_inference as gi
+    from eli.cognition import inference_broker as ib
+    from eli.kernel import request_context as rc
+
+    step = 0.02
+    llm = _Llama(tokens=150, step=step)
+    monkeypatch.setattr(gi, "_llm", llm)
+    broker = ib.InferenceBroker()
+    monkeypatch.setattr(ib, "get_inference_broker", lambda: broker)
+    agent = AB.SpecAgent(AgentSpec(
+        id="tide_helper", name="Tide Helper",
+        objective="Answer questions about tide times from the user's saved tables.",
+        system_prompt="You read tide tables and answer with the time of the next high or low tide.",
+        triggers=[Trigger(kind="keyword", value="tide")],
+        success_criteria=[SuccessCheck(kind="non_empty")], max_tokens=600, timeout_s=0.3, enabled=True))
+    bus = AB.AgentBus()
+    token = rc.turn_facts_var.set({"user_input": "when is high tide", "autonomous": False})
+    try:
+        results = bus._run_agents_orchestrated([agent], "when is high tide", {"action": "CHAT"}, "s1", "u1")
+        t0 = time.perf_counter()
+        assert gi._LLM_CALL_LOCK.acquire(timeout=10)       # the reply's turn at the model
+        lock_wait = time.perf_counter() - t0
+        gi._LLM_CALL_LOCK.release()
+    finally:
+        rc.turn_facts_var.reset(token)
+        bus._pool.shutdown(wait=False)
+    assert not results[0].ok and "exceeded" in str(results[0].error)
+    whole_call = llm.tokens * step
+    assert lock_wait < whole_call / 3, f"the reply waited {lock_wait:.2f}s for a call nobody was waiting for"
+    time.sleep(0.2)
+    assert llm.made < llm.tokens, "the given-up call ran to the end of its budget"

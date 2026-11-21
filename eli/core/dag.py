@@ -228,7 +228,8 @@ def build_dag(dependencies: Dict[str, Iterable[str]]) -> DAG:
 # Pure stdlib, no LLM or IO in here, that's the node callables' job.
 import time as _time
 import contextvars
-from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait as _wait_futures
+import threading as _threading
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, wait as _wait_futures
 from dataclasses import dataclass as _dc, field as _fld
 from typing import Callable as _Callable
 
@@ -239,11 +240,14 @@ Predicate = _Callable[["NodeContext"], bool]
 @_dc
 class NodeContext:
     """Passed to every node fn. `results` holds completed upstream outputs;
-    `shared` is a mutable bag visible to all nodes; `attempt` is 0-based."""
+    `shared` is a mutable bag visible to all nodes; `attempt` is 0-based.
+    `given_up` is set when the run stops waiting for this node (past its timeout): what the
+    node makes from then on reaches nobody through the run."""
     task_id: str
     results: Dict[str, Any] = _fld(default_factory=dict)
     shared: Dict[str, Any] = _fld(default_factory=dict)
     attempt: int = 0
+    given_up: _threading.Event = _fld(default_factory=_threading.Event)
 
 
 @_dc
@@ -273,6 +277,10 @@ class NodeOutcome:
     error: Optional[str] = None
     attempts: int = 0
     seconds: float = 0.0
+    # A timeout stops the wait, not the work: the node's fn keeps running on its thread. `late` is
+    # set on a timeout and resolves to the node's own outcome when that fn returns, for a caller
+    # whose node did something that must not go unseen.
+    late: Optional[Future] = _fld(default=None, repr=False, compare=False)
 
     @property
     def ok(self) -> bool:
@@ -336,8 +344,10 @@ class Orchestrator:
 
     # ── per-node execution (retries → fallback → cache), run inside a worker ──
     def _run_one(self, task: "Task", results_snapshot: Dict[str, Any],
-                 shared: Dict[str, Any]) -> "NodeOutcome":
+                 shared: Dict[str, Any],
+                 given_up: Optional[_threading.Event] = None) -> "NodeOutcome":
         t0 = _time.perf_counter()
+        given_up = given_up if given_up is not None else _threading.Event()
         if task.cache_key and self.cache is not None and task.cache_key in self.cache:
             return NodeOutcome(task.id, "cached", self.cache[task.cache_key],
                                attempts=0, seconds=_time.perf_counter() - t0)
@@ -347,8 +357,11 @@ class Orchestrator:
         last_err: Optional[BaseException] = None
         attempts = 0
         for attempt in range(task.retries + 1):
+            # A node the run has stopped waiting for is not tried again: nothing would see it.
+            if attempt and given_up.is_set():
+                break
             attempts = attempt + 1
-            ctx = NodeContext(task.id, dict(results_snapshot), shared, attempt)
+            ctx = NodeContext(task.id, dict(results_snapshot), shared, attempt, given_up=given_up)
             try:
                 res = task.run(ctx)
                 if task.cache_key and self.cache is not None:
@@ -359,9 +372,9 @@ class Orchestrator:
                 last_err = e
                 if attempt < task.retries and task.retry_backoff > 0:
                     _time.sleep(task.retry_backoff * (2 ** attempt))
-        if task.fallback is not None:
+        if task.fallback is not None and not given_up.is_set():
             try:
-                ctx = NodeContext(task.id, dict(results_snapshot), shared, attempts)
+                ctx = NodeContext(task.id, dict(results_snapshot), shared, attempts, given_up=given_up)
                 res = task.fallback(ctx)
                 return NodeOutcome(task.id, "ok", res, attempts=attempts,
                                    seconds=_time.perf_counter() - t0)
@@ -374,11 +387,13 @@ class Orchestrator:
                     shared: Dict[str, Any]) -> Iterable["NodeOutcome"]:
         """Run one layer's nodes on worker threads, `workers` at a time, and yield each outcome as
         soon as it is known. A node's timeout counts from its start. Past it the node is given up
-        on: it is recorded as a timeout without its result, nothing waits for its thread, and the
-        next queued node starts in its place. A node with no timeout is waited for."""
+        on: it is recorded as a timeout without its result, its `given_up` event is set, nothing
+        waits for its thread, and the next queued node starts in its place. The timeout outcome's
+        `late` future brings the node's own outcome when its fn returns. A node with no timeout is
+        waited for."""
         workers = max(1, int(workers or 1))
         queue = deque(runnable)
-        live: Dict[Any, tuple] = {}            # future -> (task, started, deadline or None)
+        live: Dict[Any, tuple] = {}            # future -> (task, started, deadline or None, given_up)
         # One thread per node: a node given up on keeps its thread until its fn returns, and the
         # nodes queued behind it must still get one at once.
         ex = ThreadPoolExecutor(max_workers=len(runnable))
@@ -386,30 +401,36 @@ class Orchestrator:
             while queue or live:
                 while queue and len(live) < workers:
                     task = queue.popleft()
+                    given_up = _threading.Event()
                     # Each task runs in a copy of the caller's context: a pool thread otherwise
                     # starts with an empty one, and an action run from here was missing from the
                     # turn's audit row and carried no user id.
-                    fut = ex.submit(contextvars.copy_context().run, self._run_one, task, snapshot, shared)
+                    fut = ex.submit(contextvars.copy_context().run, self._run_one, task, snapshot, shared,
+                                    given_up)
                     started = _time.perf_counter()
                     live[fut] = (task, started,
-                                 None if task.timeout is None else started + float(task.timeout))
-                deadlines = [d for _task, _started, d in live.values() if d is not None]
+                                 None if task.timeout is None else started + float(task.timeout), given_up)
+                deadlines = [d for _task, _started, d, _g in live.values() if d is not None]
                 wait_s = max(0.0, min(deadlines) - _time.perf_counter()) if deadlines else None
                 done, _ = _wait_futures(list(live), timeout=wait_s, return_when=FIRST_COMPLETED)
                 for fut in done:
-                    task, started, _deadline = live.pop(fut)
+                    task, started, _deadline, _given_up = live.pop(fut)
                     try:
                         yield fut.result()
                     except Exception as e:  # noqa: BLE001 — _run_one keeps the node's own errors
                         yield NodeOutcome(task.id, "failed", error=str(e), attempts=1,
                                           seconds=_time.perf_counter() - started)
                 now = _time.perf_counter()
-                for fut, (task, started, deadline) in list(live.items()):
+                for fut, (task, started, deadline, given_up) in list(live.items()):
                     if deadline is not None and now >= deadline and not fut.done():
                         del live[fut]
+                        given_up.set()
                         yield NodeOutcome(task.id, "timeout", error=f"exceeded {task.timeout}s",
-                                          attempts=1, seconds=now - started)
+                                          attempts=1, seconds=now - started, late=fut)
         finally:
+            # A run that ends before its nodes did (its caller stopped reading) waits for none of them.
+            for _task, _started, _deadline, given_up in live.values():
+                given_up.set()
             ex.shutdown(wait=False, cancel_futures=True)
 
     def run(self, tasks: Iterable["Task"],

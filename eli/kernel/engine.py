@@ -1290,6 +1290,14 @@ def _asks_the_user(result: Any) -> bool:
     return text.endswith("?") and len(text) <= 400
 
 
+def _still_running(result: Any) -> bool:
+    """The action has not failed and has not finished: the agent bus stopped waiting for it while
+    it ran, and it goes on as a background job whose end is reported (agent_bus._hand_over_to_job).
+    Not a failure to log or re-plan, never something to run again, and its text, which says so,
+    is shown as it is."""
+    return isinstance(result, dict) and bool(result.get("still_running"))
+
+
 def _route_once(text: Any) -> Dict[str, Any]:
     """The router's answer for a message, asked once per turn.
 
@@ -11196,6 +11204,10 @@ Answer:"""
         # news fetch can still fall back to WEB_SEARCH, so NEWS_FETCH isn't skip-listed.
         if failed_result.get("ok"):
             return failed_result
+        # An action still running as a job has not failed: another action for the same goal would do
+        # the thing twice.
+        if _still_running(failed_result):
+            return failed_result
         if _retry_count >= 2 or failed_action.upper() in _SKIP_REPLAN_ACTIONS:
             return failed_result
 
@@ -14600,7 +14612,8 @@ Answer:"""
 
             # An action whose handler returned the finished answer, or a question for the user:
             # that is the reply.
-            if (_shown_as_is(action, reasoning_mode) or _asks_the_user(_action_result)) and isinstance(_action_result, dict):
+            if (_shown_as_is(action, reasoning_mode) or _asks_the_user(_action_result)
+                    or _still_running(_action_result)) and isinstance(_action_result, dict):
                 _as_is = str(_action_result.get("response") or _action_result.get("content") or "").strip()
                 if _as_is:
                     try:
@@ -15061,8 +15074,9 @@ Answer:"""
             except Exception:
                 log.debug("suppressed exception", exc_info=True)
         # An action that asks the user for a detail has not failed. Logged as a failure and
-        # re-planned, "When is it?" was replaced by whatever a second model call came up with.
-        if not result.get("ok", False) and not _asks_the_user(result):
+        # re-planned, "When is it?" was replaced by whatever a second model call came up with. Nor
+        # has one still running as a job.
+        if not result.get("ok", False) and not _asks_the_user(result) and not _still_running(result):
             try:
                 si = get_self_improvement()
                 si.memory.log_failure(
@@ -15132,6 +15146,7 @@ Answer:"""
             and str(action).upper() not in _no_synthesis_actions
             and not _shown_as_is(action, reasoning_mode)
             and not _asks_the_user(result)
+            and not _still_running(result)
             and raw_response
         ):
             try:
@@ -16627,6 +16642,8 @@ Answer:"""
         action = str(intent.get("action") or "").upper()
         args = intent.get("args", {}) or {}
         ok = bool((result or {}).get("ok", True))
+        # Still running as a job: neither done nor failed yet (its job records how it ends).
+        outcome = "running" if _still_running(result) else ("ok" if ok else "failed")
         meta = intent.get("meta", {}) or {}
         # ELI's own automation (habit firing, scheduled tasks, ...) re-running an action must
         # not feed habit_events — detect_habits() mines that table for recurring USER routines,
@@ -16640,8 +16657,8 @@ Answer:"""
                 input_text=str(intent.get("user_input") or args.get("message") or args.get("query") or ""),
                 output_text=str((result or {}).get("content") or (result or {}).get("response") or ""),
                 action=action,
-                outcome="ok" if ok else "failed",
-                reward=1.0 if ok else -1.0,
+                outcome=outcome,
+                reward={"ok": 1.0, "failed": -1.0}.get(outcome, 0.0),
                 metadata={
                     "args": args,
                     "matched_by": meta.get("matched_by"),
@@ -16680,8 +16697,8 @@ Answer:"""
                     "matched_by": meta.get("matched_by"),
                     "result": result or {},
                 },
-                severity="info" if ok else "error",
-                outcome="ok" if ok else "failed",
+                severity="error" if outcome == "failed" else "info",
+                outcome=outcome,
                 confidence=float(intent.get("confidence") or 0.0) if isinstance(intent, dict) else None,
                 reusable=True,
                 session_id=str(getattr(self, "session_id", "") or ""),

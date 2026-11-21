@@ -749,6 +749,12 @@ class _BaseAgent:
             session_id: str, user_id: str) -> AgentResult:
         raise NotImplementedError
 
+    def runs_action(self, intent: Dict[str, Any]) -> bool:
+        """Whether this agent carries out the turn's action itself (rather than gathering evidence
+        for the reply). Work like that may have changed something before it ends, so the bus does
+        not drop it when it stops waiting: it goes on as a job whose end is reported."""
+        return False
+
 
 
 # ELI_MEMORY_RELEVANCE_GUARD_20260502
@@ -1199,6 +1205,10 @@ class SystemAgent(_BaseAgent):
         "ANALYZE_PDF", "ANALYZE_CSV", "ANALYZE_PDF_FOLDER",
     }
 
+    def runs_action(self, intent: Dict[str, Any]) -> bool:
+        action = str((intent or {}).get("action") or "CHAT").upper()
+        return action in self.SYSTEM_ACTIONS and action not in self.LLM_ACTIONS
+
     def run(self, user_input: str, intent: Dict[str, Any],
             session_id: str, user_id: str) -> AgentResult:
         action = (intent.get("action") or "CHAT").upper()
@@ -1230,8 +1240,12 @@ class SystemAgent(_BaseAgent):
         except Exception as e:
             elapsed = (time.perf_counter() - t0) * 1000
             log.debug(f"[AGENT:system] ERROR action={action}: {e}")
+            # The record of the run, so the engine reports this failure instead of running the
+            # action again (an empty record read as "not run").
             return AgentResult(agent=self.name, ok=False, confidence=0.0,
-                               data={}, elapsed_ms=elapsed, error=str(e))
+                               data={"action": action, "ok": False, "error": str(e),
+                                     "content": f"{action} did not complete: {e}"},
+                               elapsed_ms=elapsed, error=str(e))
 
 
 class HabitAgent(_BaseAgent):
@@ -1505,6 +1519,9 @@ class PluginAgent(_BaseAgent):
         "GET_WEATHER", "LIST_EVENTS", "ADD_EVENT", "REMOVE_EVENT",
     }
 
+    def runs_action(self, intent: Dict[str, Any]) -> bool:
+        return str((intent or {}).get("action") or "CHAT").upper() in self.PLUGIN_ACTIONS
+
     def run(self, user_input: str, intent: Dict[str, Any],
             session_id: str, user_id: str) -> AgentResult:
         action = (intent.get("action") or "CHAT").upper()
@@ -1531,7 +1548,9 @@ class PluginAgent(_BaseAgent):
             elapsed = (time.perf_counter() - t0) * 1000
             log.debug(f"[AGENT:plugin] ERROR action={action}: {e}")
             return AgentResult(agent=self.name, ok=False, confidence=0.0,
-                               data={}, elapsed_ms=elapsed, error=str(e))
+                               data={"action": action, "ok": False, "error": str(e),
+                                     "content": f"{action} did not complete: {e}"},
+                               elapsed_ms=elapsed, error=str(e))
 
 
 class CapabilityAgent(_BaseAgent):
@@ -1986,6 +2005,79 @@ class OrchestratorAgent(_BaseAgent):
 # The bus
 # ---------------------------------------------------------------------------
 
+def _runs_action(agent: Any, intent: Dict[str, Any]) -> bool:
+    """_BaseAgent.runs_action for any agent on the bus: one registered from outside need not
+    derive from _BaseAgent, and one that does not say gathers evidence."""
+    probe = getattr(agent, "runs_action", None)
+    try:
+        return bool(probe(intent)) if callable(probe) else False
+    except Exception:
+        log.debug("[AGENTBUS] %s could not say whether it runs the action", getattr(agent, "name", "?"),
+                  exc_info=True)
+        return False
+
+
+def _run_agent(agent: "_BaseAgent", user_input: str, intent: Dict[str, Any], session_id: str,
+               user_id: str, given_up: Optional[threading.Event], turn_intent: Dict[str, Any]) -> AgentResult:
+    """One agent's run on a bus thread. An agent gathering evidence for the reply runs with the
+    bus's give-up signal in its context: once the bus stops waiting for it, a model call it makes
+    stops at the next token and gives the model back to the reply (request_context.given_up).
+    An agent carrying out the turn's action does not: what it started goes on as a job."""
+    from eli.kernel import request_context as _rc
+    token = None
+    if given_up is not None and not _runs_action(agent, turn_intent):
+        token = _rc.given_up_var.set(given_up)
+    try:
+        return agent.run(user_input, intent, session_id, user_id)
+    except Exception as e:  # never raise out → downstream agents still run
+        return AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error=str(e))
+    finally:
+        if token is not None:
+            _rc.given_up_var.reset(token)
+
+
+def _hand_over_to_job(agent: "_BaseAgent", user_input: str, intent: Dict[str, Any], late: Any,
+                      waited_s: float, outcome_of: Any = None) -> AgentResult:
+    """The bus has stopped waiting for an action that was already running. It is not dropped and
+    not run again: it goes on as a background job (background_tasks), which tells the person how
+    it ended (a desktop notification and the Proactive tab, as for any job they asked for) and
+    keeps the record that CHECK_JOB and the job list read. `late` resolves when the action's run
+    returns; `outcome_of` maps what it resolves to onto the agent's AgentResult. The record the
+    turn gets says the action is still running, as job N, which is what is true."""
+    action = str((intent or {}).get("action") or "").upper()
+    from eli.runtime.background_tasks import get_background_tasks
+    jobs = get_background_tasks()
+    jid = jobs.adopt(action, kind="action",
+                     meta={"tell": True, "action": action, "request": str(user_input or "")[:200]})
+
+    def _ended(fut: Any) -> None:
+        try:
+            got = fut.result()
+            if outcome_of is not None:
+                got = outcome_of(got)
+            if isinstance(got, AgentResult):
+                res = dict(got.data or {})
+                if not res:
+                    res = {"ok": bool(got.ok), "error": got.error or "it ended with no result"}
+                res.setdefault("action", action)
+            else:
+                res = {"ok": False, "action": action, "error": str(getattr(got, "error", "") or "it ended with no result")}
+            jobs.finish(jid, res)
+        except Exception as exc:
+            log.debug("[AGENTBUS] late result of %s not read", action, exc_info=True)
+            jobs.finish(jid, error=f"{type(exc).__name__}: {exc}")
+
+    late.add_done_callback(_ended)
+    waited = f"{waited_s:.1f}" if waited_s < 10 else f"{waited_s:.0f}"
+    said = (f"{action} has not finished after {waited} s. It goes on as job {jid}, "
+            f"and how it ends will be reported when it does.")
+    log.debug(f"[AGENTBUS] {agent.name} still running {action} past its wait; now job {jid}")
+    return AgentResult(agent=agent.name, ok=False, confidence=0.0,
+                       data={"action": action, "ok": False, "still_running": True, "job": jid,
+                             "content": said, "response": said},
+                       error=f"still running as job {jid}")
+
+
 class AgentBus:
     """
     Dispatch a request to all relevant specialist agents concurrently, then
@@ -2267,10 +2359,7 @@ class AgentBus:
                 if up and isinstance(intent, dict):
                     li = dict(intent)
                     li["_upstream"] = up
-                try:
-                    return agent.run(user_input, li, session_id, user_id)
-                except Exception as e:  # never raise out → matches layered (downstream still runs)
-                    return AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error=str(e))
+                return _run_agent(agent, user_input, li, session_id, user_id, ctx.given_up, intent)
             return _run
 
         tasks = [
@@ -2290,6 +2379,10 @@ class AgentBus:
             o = report.outcomes.get(a.name)
             if o is not None and isinstance(o.result, AgentResult):
                 results.append(o.result)
+            elif o is not None and o.status == "timeout" and o.late is not None and _runs_action(a, intent):
+                results.append(_hand_over_to_job(
+                    a, user_input, intent, o.late, o.seconds,
+                    lambda done: done.result if isinstance(done.result, AgentResult) else done))
             else:
                 err = (o.error if o else "not run") or (o.status if o else "missing")
                 if o is not None and o.status == "timeout":
@@ -2329,9 +2422,11 @@ class AgentBus:
         # identity, request id and reasoning mode reach agent threads too (a
         # pool thread otherwise starts with an empty context). One copy per
         # agent: a Context can't be entered by two threads at once.
+        given_up = {a.name: threading.Event() for a in layer_agents}
+        started = time.perf_counter()
         futures = {
-            self._pool.submit(contextvars.copy_context().run, a.run,
-                              user_input, intent, session_id, user_id): a
+            self._pool.submit(contextvars.copy_context().run, _run_agent, a,
+                              user_input, intent, session_id, user_id, given_up[a.name], intent): a
             for a in layer_agents
         }
         max_timeout = max((_eff_to(a) for a in layer_agents), default=5.0)
@@ -2364,6 +2459,11 @@ class AgentBus:
                 except Exception as _late_err:
                     log.debug("[AGENTBUS] %s finished after the deadline with an error: %s",
                               agent.name, _late_err)
+            given_up[agent.name].set()
+            if not fut.done() and _runs_action(agent, intent):
+                results.append(_hand_over_to_job(agent, user_input, intent, fut,
+                                                 time.perf_counter() - started))
+                continue
             results.append(AgentResult(agent=agent.name, ok=False, confidence=0.0, data={}, error="timeout"))
         return results
 
