@@ -1132,8 +1132,9 @@ _DIRECT_RESULT_ACTIONS = frozenset({
     "LIST_DIR", "SPEAK",
     # Actions whose handlers already return a complete answer string (checked by reading each),
     # same as GPU_STATUS/MEMORY_STATUS. Left out, a small model re-narrated them, and READ_FILE
-    # had the file content rewritten instead of shown as it is on disk.
-    "READ_FILE", "HARDWARE_PROFILE", "AWARENESS_STATUS",
+    # had the file content rewritten instead of shown as it is on disk. SHOW_DIFF is a diff read
+    # from git or the two files, the same kind of content.
+    "READ_FILE", "SHOW_DIFF", "HARDWARE_PROFILE", "AWARENESS_STATUS",
     "FRONTIER_STATUS", "BACKGROUND_JOBS", "CHECK_JOB",
     "ORCHESTRATION_STATUS", "LORA_STATUS", "PROACTIVE_STATUS",
     "PERSONA_LOCK_STATUS", "POMODORO_STATUS", "HABIT_STATUS",

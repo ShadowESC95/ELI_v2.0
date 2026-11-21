@@ -181,12 +181,12 @@ on a worker thread is recorded on the turn and carries the user id.
 
 The routable actions (190 of the 231 in `capability_manifest.json`) were each checked against
 their executor handler's real return shape
-(not assumed from the name): raw file reads, shell output, MCP results, transcriptions and OCR
-text, confirmations and status reports are verbatim; `ANALYZE_IMAGE`, `ANALYZE_PDF[_FOLDER]`,
-`SCREEN_READ_ANALYZE`, `DATA_FABRICATOR`, `GENERATE_PROJECT`, `SEQUENCE` and `MULTI_COMMAND`
-already return finished text and are verbatim too. Excluded on purpose, each with a reason:
-`FIX_FILE` and `GENERATE_SCRIPT` (their `content` is a JSON event for the GUI), `RUN_TESTS`
-(meant to be summarised), `CHAT` (the model call itself), `SHOW_DIFF` (routes to `chat()`),
+(not assumed from the name): raw file reads and diffs (`SHOW_DIFF`), shell output, MCP results,
+transcriptions and OCR text, confirmations and status reports are verbatim; `ANALYZE_IMAGE`,
+`ANALYZE_PDF[_FOLDER]`, `SCREEN_READ_ANALYZE`, `DATA_FABRICATOR`, `GENERATE_PROJECT`, `SEQUENCE` and
+`MULTI_COMMAND` already return finished text and are verbatim too. Excluded on purpose, each with a
+reason: `FIX_FILE` and `GENERATE_SCRIPT` (their `content` is a JSON event for the GUI), `RUN_TESTS`
+(meant to be summarised), `CHAT` (the model call itself),
 `WEB_SEARCH` and `WEB_FETCH` (results and page text are evidence, not the answer), `CODE_SOLVE`
 (generative, goes to the coding agent), `EXECUTE_GOAL` (its handler only lists the typed plan's
 step names) and `NOOP` (no single handler to verify).

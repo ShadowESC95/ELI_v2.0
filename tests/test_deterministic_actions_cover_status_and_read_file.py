@@ -37,8 +37,7 @@ SEQUENCE and MULTI_COMMAND never call a model themselves, they mechanically
 join already-finished sub-step results. 8 more added. Genuinely still
 excluded after this closer look: CHAT (the model call itself), CODE_SOLVE
 and GENERATE_SCRIPT (both real code-generation actions whose primary
-success path returns a JSON event blob, same as FIX_FILE), SHOW_DIFF
-(routes straight to chat()), WEB_SEARCH (its own code comment: the results
+success path returns a JSON event blob, same as FIX_FILE), WEB_SEARCH (its own code comment: the results
 are evidence for the model to answer from, not the answer), EXECUTE_GOAL
 (its handler only lists the generic step names of an execution plan built
 for the goal and carries none of them out, so its text is no outcome to
@@ -122,21 +121,23 @@ AUDITED_2026_09_18_PASS4 = {
 # executor_enhanced lists the generic step names of an execution plan for the
 # goal (action_dispatch, context_assembly, final_response) and runs none of
 # them) or the action never reaches a verifiable single handler (CHAT is the
-# model call itself; SHOW_DIFF routes straight to chat(); WEB_SEARCH's own
-# comment says its results are evidence for the model, not the answer, and the
-# same holds for WEB_FETCH, a linked page's text (2026-10-19); NOOP has no
+# model call itself; WEB_SEARCH's own comment says its results are evidence
+# for the model, not the answer, and the same holds for WEB_FETCH, a linked page's
+# text (2026-10-19); NOOP has no
 # single handler in the dispatch ladder).
 AUDITED_2026_09_18_EXCLUDED = {
     "FIX_FILE", "RUN_TESTS", "CODE_SOLVE", "GENERATE_SCRIPT", "CHAT",
-    "SHOW_DIFF", "WEB_SEARCH", "WEB_FETCH", "EXECUTE_GOAL", "NOOP",
+    "WEB_SEARCH", "WEB_FETCH", "EXECUTE_GOAL", "NOOP",
 }
 
 # The highest-risk entries: raw content/tool output that must never be
 # paraphrased by an LLM synthesis pass, or the "answer" stops being
 # guaranteed to match what is actually on disk / what a command, tool, or
 # transcription/OCR engine actually produced.
+# SHOW_DIFF was excluded while it routed straight to chat(); it reads git (or the two files named)
+# and returns the diff now (2026-11-21), raw content like READ_FILE's.
 HIGH_RISK_RAW_CONTENT_ACTIONS = {
-    "READ_FILE", "SHELL_EXEC", "MCP_CALL", "TRANSCRIBE", "OCR_IMAGE",
+    "READ_FILE", "SHELL_EXEC", "MCP_CALL", "TRANSCRIBE", "OCR_IMAGE", "SHOW_DIFF",
 }
 
 
