@@ -774,14 +774,39 @@ def _without_courtesy(text: str) -> str:
 def _normalize_text(text: str) -> Tuple[str, str]:
     """
     Returns (raw_clean, low_clean)
-    Removes weird whitespace/control chars that can break regexes, and the mark that ends the
-    sentence when the sentence ends on a file (_without_end_mark).
+    Removes weird whitespace/control chars that can break regexes, the quotes round a file's name
+    (_without_quotes_round_files), and the mark that ends the sentence when the sentence ends on a
+    file (_without_end_mark).
     """
     raw = (text or "")
     raw = raw.replace("\u200b", " ").replace("\ufeff", " ")
     raw = re.sub(r"[\x00-\x08\x0b-\x1f\x7f]", " ", raw)  # strip control chars
-    raw = _without_end_mark(re.sub(r"\s+", " ", raw).strip())
+    raw = _without_end_mark(_without_quotes_round_files(re.sub(r"\s+", " ", raw).strip()))
     return raw, raw.lower()
+
+
+# A span in quotes: opened where no word comes before the mark, closed where none follows it, so the
+# apostrophe in "don't" is neither.
+_QUOTED_SPAN = re.compile(r"(?<!\w)([\"'`\u201c\u2018])(?P<inner>[^\"'`\u201c\u201d\u2018\u2019\n]+?)([\"'`\u201d\u2019])(?!\w)")
+
+
+def _quoted_file(m) -> str:
+    """The file's name a quoted span holds, or "": a name with an extension, or with a folder in it."""
+    inner = m.group("inner").strip()
+    return inner if inner and _names_a_file(inner.split()[-1]) else ""
+
+
+def quoted_file_names(text: str) -> List[str]:
+    """The files' names a message gives in quotes, as written: ["q3 sales.csv"]."""
+    return [name for name in map(_quoted_file, _QUOTED_SPAN.finditer(str(text or ""))) if name]
+
+
+def _without_quotes_round_files(raw: str) -> str:
+    """The text with the quotes taken off a file's name: summarise "q3 sales.csv" is the file q3
+    sales.csv. With its quotes on, the name ended in a quote mark, had no extension, and the request
+    went to memory recall (or took "sales.csv" for the file). A quoted name with an extension, or
+    with a folder in it, is a file's; other quoted text keeps its quotes."""
+    return _QUOTED_SPAN.sub(lambda m: _quoted_file(m) or m.group(0), raw)
 
 
 # The last word of a message and the mark that ends it, with a closing quote or bracket between.
@@ -5065,11 +5090,13 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             m = re.search(r"\.csv\b", raw, re.I)
             if m:
                 # The file is the longest stretch ending at ".csv" that exists (paths hold spaces), else
-                # the word itself: a class with a space in it took the verb, "analyse data.csv".
+                # the name given in quotes, else the word itself: a class with a space in it took the
+                # verb, "analyse data.csv".
                 words = raw[:m.end()].split(" ")
                 _csv = next((" ".join(words[k:]) for k in range(len(words))
                              if os.path.exists(os.path.expanduser(" ".join(words[k:])))),
-                            words[-1].lstrip("\"'`(["))
+                            next((q for q in quoted_file_names(text) if q.lower().endswith(".csv")),
+                                 words[-1].lstrip("\"'`([")))
                 return _mk("ANALYZE_CSV", {"path": _csv}, 0.95, matched_by="analyze.csv",
                            entities={"path": _csv})
 

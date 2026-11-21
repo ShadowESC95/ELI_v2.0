@@ -178,6 +178,31 @@ def test_the_mark_that_ends_a_sentence_is_not_part_of_the_file_it_ends_on(said, 
     assert os.path.basename(got["args"].get("path") or got["args"].get("source")) == name
 
 
+@pytest.mark.parametrize("said, action, name", [
+    ('summarise "q3 sales.csv"', "ANALYZE_CSV", "q3 sales.csv"),
+    ("summarise 'q3 sales.csv'", "ANALYZE_CSV", "q3 sales.csv"),
+    ("summarise “field notes.docx”", "SUMMARIZE_FILE", "field notes.docx"),
+    ('summarise "report.pdf".', "ANALYZE_PDF", "report.pdf"),
+    ('parse "q3 sales.csv"', "ANALYZE_CSV", "q3 sales.csv"),
+    ('read "notes.txt"', "READ_FILE", "notes.txt"),
+])
+def test_a_quoted_name_with_an_extension_is_a_file(said, action, name, monkeypatch):
+    """summarise "q3 sales.csv" recalled memories about "q3 sales.csv" (the quote mark hid the
+    extension), and analyse "q3 sales.csv" took sales.csv for the file."""
+    import os
+    from eli.execution import router_enhanced as R
+    monkeypatch.setattr(R, "_last_used_path", None)
+    got = route(said)
+    assert got["action"] == action, got
+    assert os.path.basename(got["args"].get("path") or "") == name
+
+
+def test_quoted_text_that_names_no_file_keeps_its_quotes():
+    from eli.execution.router_enhanced import _normalize_text
+    assert _normalize_text('summarise "the quarterly figures"')[0] == 'summarise "the quarterly figures"'
+    assert _normalize_text("don't open 'notes.txt' yet")[0] == "don't open notes.txt yet"
+
+
 def test_the_mark_stays_where_it_is_not_the_end_of_a_file(tmp_path):
     from eli.execution.router_enhanced import _normalize_text, paths_named
     assert _normalize_text("I live in the U.S.")[0] == "I live in the U.S."
