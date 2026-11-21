@@ -786,6 +786,25 @@ def _names_a_file(word: str) -> bool:
     return "." in word and word.rsplit(".", 1)[1].lower() in _FILE_EXTENSIONS
 
 
+_IMAGE_SUFFIXES = (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif")
+
+# "the text in image.jpg", "all the words on scan.png", "the writing in the photo sign.png": the
+# writing in a file, then the file it is in.
+_TEXT_IN_A_FILE = re.compile(
+    r"^(?:(?:the|any|all(?:\s+of)?(?:\s+the)?)\s+)?(?:text|words|writing|wording)\s+"
+    r"(?:(?:out\s+)?of|from|in|on|off|inside)\s+(?:the\s+|this\s+|that\s+|my\s+)?"
+    r"(?:(?:image|picture|photo|screenshot|scan|file)\s+(?:called\s+|named\s+)?)?(?P<file>\S.*)$", re.I)
+
+
+def _file_its_text_is_asked_of(phrase: str) -> Optional[str]:
+    """The file in "the text in image.jpg" (image.jpg), or None when the phrase does not ask for the
+    writing in a file it names."""
+    m = _TEXT_IN_A_FILE.match(str(phrase or "").strip())
+    if m and _names_a_file(m.group("file").split()[-1].strip("\"'`")):
+        return m.group("file").strip()
+    return None
+
+
 def _without_end_mark(raw: str) -> str:
     """The text without the mark that ends its sentence, when the sentence ends on a file or folder.
     "summarise sales.csv." looked for a file called "sales.csv.", found no extension on it and recalled
@@ -1826,6 +1845,9 @@ def _eli_meta_continuity_probe(text: str) -> bool:
     ))
 # === END ELI non-Quick/meta-continuity routing contract v1 ===
 
+_FROM_A_SENDER = re.compile(r"\b(?:reply|response|message|text)\s+(?:from|by)\s+(?P<source>\S+)", re.I)
+
+
 def _eli_react_to_content_prepass(original_text: str, raw: str, low: str):
     """Force CHAT when the user asks ELI to react to / give an opinion on text
     they have pasted or referenced.
@@ -1841,6 +1863,9 @@ def _eli_react_to_content_prepass(original_text: str, raw: str, low: str):
     """
     if not low:
         return None
+    # "the text from scan.png" names a file to read, not a message someone sent ("the reply from Sam"):
+    # "extract the text from image.jpg" was answered as a paste to react to, and nothing was read.
+    low = _FROM_A_SENDER.sub(lambda m: " " if _names_a_file(m.group("source").rstrip(".,;:!?")) else m.group(0), low)
     react_frame = re.search(
         r"\b(what(?:'s| is| do| are)?\s+(?:you|your)\s+(?:think|reckon|make|take|opinion|view|thoughts?)"
         r"|what do you (?:think|reckon|make) of"
@@ -4813,6 +4838,11 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             return _mk("CHAT", {"message": raw}, 0.97, matched_by="chat.supplied_text")
 
         target = m.group(1).strip()
+        # "read the text in image.jpg": the file is image.jpg, and what is asked of it is its writing.
+        # Taken whole, the target was a file called "text in image.jpg".
+        _text_of = _file_its_text_is_asked_of(target)
+        if _text_of:
+            target = _text_of
         # If target contains an absolute path, extract from the first / or ~/
         # This handles typos, extra verbs, and multi-word prefixes cleanly.
         _attached = _attachment_marker_path(raw)
@@ -4869,8 +4899,10 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             if abs_path.lower().endswith(".csv"):
                 return _mk("ANALYZE_CSV", {"path": abs_path},
                            0.95, matched_by="analyze.summarize_csv")
-            if abs_path.lower().endswith(
-                    (".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".tiff", ".tif")):
+            if abs_path.lower().endswith(_IMAGE_SUFFIXES):
+                if _text_of:
+                    return _mk("OCR_IMAGE", {"path": abs_path}, 0.95, matched_by="ocr.text_in_image",
+                               entities={"path": abs_path})
                 return _mk("ANALYZE_IMAGE", {"path": abs_path},
                            0.95, matched_by="analyze.image")
             return _mk("SUMMARIZE_FILE", {
@@ -5542,8 +5574,14 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     m = re.match(
         r"^(?:ocr|read\s+(?:text\s+(?:from|in|on)|image)|extract\s+text\s+(?:from|in))\s+(.+)$",
         raw, re.I)
-    if m:
-        path = m.group(1).strip()
+    path = m.group(1).strip() if m else ""
+    if not path:
+        # "extract the text from scan.png", "get all the words off photo.jpg": the writing in an image
+        m = re.match(r"^(?:please\s+)?(?:can\s+you\s+)?(?:read|extract|get|pull|copy|grab)\s+(?:out\s+)?(.+)$",
+                     raw, re.I)
+        _file = _file_its_text_is_asked_of(m.group(1)) if m else None
+        path = _file if _file and _file.lower().endswith(_IMAGE_SUFFIXES) else ""
+    if path:
         return _mk("OCR_IMAGE", {"path": os.path.abspath(os.path.expanduser(path))},
                    0.95, matched_by="ocr.extract", entities={"path": path})
 

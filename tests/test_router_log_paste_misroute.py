@@ -187,6 +187,26 @@ def test_the_mark_stays_where_it_is_not_the_end_of_a_file(tmp_path):
     assert [p for _, p in paths_named(f"summarise {one} and {two}.")] == [str(one), str(two)]
 
 
+@pytest.mark.parametrize("said", [
+    "read the text in image.jpg",
+    "read all the words on image.jpg",
+    "extract the text from image.jpg",
+    "get the text out of the photo image.jpg",
+])
+def test_the_text_in_an_image_is_read_from_that_image(said):
+    """"read the text in image.jpg" described a file called "text in image.jpg", and "extract the text
+    from image.jpg" was taken for a message from someone called image to react to."""
+    import os
+    got = route(said)
+    assert got["action"] == "OCR_IMAGE", got
+    assert os.path.basename(got["args"]["path"]) == "image.jpg"
+
+
+def test_a_message_from_someone_is_still_a_message_to_react_to():
+    assert route("what do you think of the reply from Sam")["meta"]["matched_by"] == "chat.react_to_pasted_content"
+    assert route("analyse image ~/Pictures/cat.jpg")["action"] == "ANALYZE_IMAGE"   # describing it is not reading it
+
+
 def test_a_csv_named_after_other_words_is_the_file_and_not_the_words():
     assert route("parse the csv data.csv")["args"]["path"] == "data.csv"
 
