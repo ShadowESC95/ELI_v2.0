@@ -25,6 +25,22 @@ def test_natural_language_click_routes_gaze_when_gaze_on(monkeypatch):
     assert _act("click that") == "GAZE_CLICK"
 
 
+def test_open_on_its_own_opens_what_is_looked_at_and_enter_is_the_key(monkeypatch):
+    """The capability list offered "open" and "hit enter" as gaze clicks: "open" was dropped as a
+    fragment, and "hit enter" presses the Enter key whether gaze is on or not."""
+    monkeypatch.setattr(ge, "is_gaze_running", lambda: True)
+    r = route("open") or {}
+    assert r.get("action") == "GAZE_CLICK" and r["args"].get("double") is True
+    monkeypatch.setattr(ge, "is_gaze_running", lambda: False)
+    assert _act("open") != "GAZE_CLICK"
+    for state in (True, False):
+        monkeypatch.setattr(ge, "is_gaze_running", lambda: state)
+        assert _act("hit enter") == "KEYBOARD"
+    from eli.tools.registry.capabilities_doc import _C
+    assert not any("hit enter" in p for p in _C["GAZE_CLICK"][2])
+    assert "“hit enter”" in _C["KEYBOARD"][2]
+
+
 def test_explicit_click_commands_always_gaze_click(monkeypatch):
     # Unambiguous click commands route regardless of gaze state.
     for state in (True, False):

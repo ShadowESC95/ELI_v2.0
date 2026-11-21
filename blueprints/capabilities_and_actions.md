@@ -68,7 +68,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | Action | What it does | Example activation phrase(s) | Source |
 |---|---|---|---|
 | `VOLUME` | Adjust/mute system volume | “volume up” · “mute” · “set volume to 30” | Core |
-| `KEYBOARD` | Send keystrokes / type text | “press enter” · “type hello world” | Core |
+| `KEYBOARD` | Send keystrokes / type text | “press enter” · “hit enter” · “type hello world” | Core |
 | `MOUSE_CONTROL` | Move/click the mouse | “move the mouse up” | Core |
 
 ## Media
@@ -109,7 +109,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `GAZE_DISABLE` | Disable gaze control | “disable gaze control” | Core |
 | `GAZE_CALIBRATE` | Calibrate gaze tracking | “calibrate gaze” | Core |
 | `GAZE_STATUS` | Show gaze tracker status | “gaze status” | Core |
-| `GAZE_CLICK` | Click where the eyes rest | “open” / “left click” / “hit enter” (while gaze is on) | Core |
+| `GAZE_CLICK` | Click where the eyes rest | “left click” · “double click” · “open” / “open it” / “click that” (while gaze is on) | Core |
 
 ## Voice
 

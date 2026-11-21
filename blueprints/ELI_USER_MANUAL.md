@@ -411,7 +411,8 @@ topic, not only reminders.
   is a file ELI does not read). Then "enable gaze" (or **🎯 Gaze** under the chat box, or
   **Settings → Gaze → Start**).
 - With it on, ELI clicks **where you're looking** when you say "click that" / "left click" /
-  "right click" / "double click", and "open that" double-clicks there — hands-free pointing.
+  "right click" / "double click", and "open that" (or just "open") double-clicks there — hands-free
+  pointing. "hit enter" is the Enter key, with gaze on or off.
 - **Fully hands-free *and* voice-free — dwell-click.** Say **"enable gaze clicking"** and ELI
   clicks wherever you **rest your gaze for about a second** — no mouse, no voice needed. This is
   built for people who can't use their hands *or* speak reliably. The hold time, wander radius

@@ -2918,7 +2918,9 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
     except Exception:
         _gaze_on = False
     if _gaze_on:
-        if re.search(r"\bopen\s+(?:that|it|this|here|there)\b", low):
+        # "open it", or "open" on its own: what is looked at. The bare word was dropped as a fragment
+        # while the capability list offered it as the way to open the thing in view.
+        if re.search(r"\bopen\s+(?:that|it|this|here|there)\b", low) or re.fullmatch(r"open[\s.!]*", low.strip()):
             return _mk("GAZE_CLICK", {"button": "left", "double": True}, 0.95, matched_by="gaze.click.double")
         if re.search(r"\bclick\s+(?:it|that|this|here|there)\b", low):
             return _mk("GAZE_CLICK", {"button": "left"}, 0.94, matched_by="gaze.click.left")

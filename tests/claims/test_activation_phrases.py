@@ -34,7 +34,6 @@ _EXEMPT = {
     "CONFIRM_PENDING_REMEDIATION": "pending-state yes reply",
     "CANCEL_PENDING_REMEDIATION": "pending-state no reply",
     "NOOP": "internal fragment guard",
-    "GAZE_CLICK": "gaze-context utterance",
     "MEDIA_CONTROL": "generic transport → specific media actions",
     "ROUTING_FAULT_EXPLAIN": "internal diagnostic surface",
     "LISTEN_FOR_COMMAND": "wake-word/voice runtime, not a routed phrase",

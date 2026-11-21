@@ -96,7 +96,7 @@ _add("App & window control", "CANCEL_PENDING_REMEDIATION", "Decline a pending fi
 
 # ── Input control ───────────────────────────────────────────────────────────
 _add("Input control", "VOLUME", "Adjust/mute system volume", "“volume up”", "“mute”", "“set volume to 30”")
-_add("Input control", "KEYBOARD", "Send keystrokes / type text", "“press enter”", "“type hello world”")
+_add("Input control", "KEYBOARD", "Send keystrokes / type text", "“press enter”", "“hit enter”", "“type hello world”")
 _add("Input control", "MOUSE_CONTROL", "Move/click the mouse", "“move the mouse up”")
 
 # ── Media ───────────────────────────────────────────────────────────────────
@@ -127,7 +127,7 @@ _add("Gaze (eye-tracking)", "GAZE_ENABLE", "Enable webcam gaze control", "“ena
 _add("Gaze (eye-tracking)", "GAZE_DISABLE", "Disable gaze control", "“disable gaze control”")
 _add("Gaze (eye-tracking)", "GAZE_CALIBRATE", "Calibrate gaze tracking", "“calibrate gaze”")
 _add("Gaze (eye-tracking)", "GAZE_STATUS", "Show gaze tracker status", "“gaze status”")
-_add("Gaze (eye-tracking)", "GAZE_CLICK", "Click where the eyes rest", "“open” / “left click” / “hit enter” (while gaze is on)")
+_add("Gaze (eye-tracking)", "GAZE_CLICK", "Click where the eyes rest", "“left click”", "“double click”", "“open” / “open it” / “click that” (while gaze is on)")
 
 # ── Voice ───────────────────────────────────────────────────────────────────
 _add("Voice", "DICTATE", "Start/stop dictation into the active field", "“start dictation”", "“stop dictating”")
