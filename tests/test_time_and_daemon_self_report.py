@@ -15,6 +15,7 @@ as a thread inside its own process, so no pid file is ever written. Disowning a
 capability you are actively using is the same class of fault as claiming one you lack.
 """
 import json
+import os
 import re
 import threading
 import time
@@ -168,7 +169,23 @@ def test_frontier_status_prefers_the_in_process_answer(monkeypatch):
     proactive = build_frontier_status_report("")["proactive"]
     assert proactive["running"] is True
     assert proactive["detected_via"] == "in_process"
-    assert proactive["pid"] == 0, "in-process daemons have no pid, and that is fine"
+
+
+def test_a_leftover_pid_file_does_not_make_the_daemon_running(monkeypatch, tmp_path):
+    # the daemon only runs in ELI's own process now; a daemon.pid an older version left behind named
+    # a process that had ended, and once the system gave that number to another program the status
+    # said the daemon was running when nothing ran it
+    import eli.planning.proactive_daemon as pd
+    import eli.runtime.frontier_status as fs
+
+    (tmp_path / "proactive").mkdir()
+    (tmp_path / "proactive" / "daemon.pid").write_text(str(os.getpid()), encoding="utf-8")
+    monkeypatch.setattr(fs, "_artifacts_dir", lambda: tmp_path)
+    monkeypatch.setattr(pd, "_daemon", None, raising=False)
+    monkeypatch.setattr(pd, "_daemon_thread", None, raising=False)
+    proactive = fs._proactive_status()
+    assert proactive["running"] is False
+    assert proactive["detected_via"] == "none"
 
 
 class _LoopDaemon:

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import json
 import importlib.util
-import os
 import sqlite3
 import time
 from pathlib import Path
@@ -129,41 +128,21 @@ def _awareness_status() -> Dict[str, Any]:
 
 
 def _proactive_status() -> Dict[str, Any]:
-    artifacts = _artifacts_dir()
-    pro_dir = artifacts / "proactive"
-    pid_file = pro_dir / "daemon.pid"
-    pid = 0
+    """The proactive daemon ELI runs: a thread in ELI's own process, which PROACTIVE_START /
+    PROACTIVE_STOP and the desktop app start and stop. No other process runs it and nothing writes
+    a pid file, so none is read: a daemon.pid left by an older version names a dead process, or one
+    whose number the system has since given to something else."""
+    pro_dir = _artifacts_dir() / "proactive"
     running = False
-    if pid_file.exists():
-        try:
-            pid = int(pid_file.read_text(encoding="utf-8").strip() or 0)
-        except Exception:
-            pid = 0
-    # In-process first. The GUI runs the daemon as a thread in its own process, so there's no pid
-    # file; checking only the file said "not running" for the normal desktop case, contradicting the
-    # startup log and the daemon's own output.
-    mode = "pid_file"
+    mode = "none"
     try:
         from eli.planning.proactive_daemon import is_running as _in_process
         live = _in_process()
-        if live.get("mode") == "in_process":
-            running = bool(live.get("running"))
-            mode = "in_process"
+        running = bool(live.get("running"))
+        mode = str(live.get("mode") or "none")
     except Exception:
         log.debug("in-process daemon check unavailable", exc_info=True)
-
-    if not running and pid > 0:
-        try:
-            import psutil as _psutil
-            running = _psutil.pid_exists(int(pid))
-        except Exception:
-            # signal-0 probe is POSIX-only; on Windows os.kill would TerminateProcess.
-            if os.name != "nt":
-                try:
-                    os.kill(pid, 0)
-                    running = True
-                except Exception:
-                    running = False
+        mode = "unavailable"
 
     summary: Dict[str, Any] = {}
     try:
@@ -178,10 +157,8 @@ def _proactive_status() -> Dict[str, Any]:
 
     return {
         "dir": str(pro_dir),
-        "pid_file": str(pid_file),
         "running": running,
         "detected_via": mode,
-        "pid": pid,
         "summary": summary,
     }
 
@@ -410,7 +387,7 @@ def format_frontier_status_report(report: Dict[str, Any]) -> str:
         "",
         "Proactive / Goals:",
         f"- proactive_daemon_running: {pro.get('running')}",
-        f"- proactive_pid: {pro.get('pid')}",
+        f"- proactive_detected_via: {pro.get('detected_via')}",
         f"- proposal_counts: {proposal_summary if proposal_summary else '{}'}",
         f"- goal_counts: {goal_summary if goal_summary else '{}'}",
         "",

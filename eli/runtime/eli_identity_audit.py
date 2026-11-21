@@ -252,7 +252,7 @@ def _capability_matrix(frontier: Dict[str, Any], contracts: Dict[str, Any], worl
         (
             "Proactive agency",
             _module_exists("eli.planning.proactive_daemon"),
-            f"daemon_running={pro.get('running')} pid={pro.get('pid')}",
+            f"daemon_running={pro.get('running')} detected_via={pro.get('detected_via')}",
             "background goals/proposals are implemented, running state may vary",
         ),
         (
