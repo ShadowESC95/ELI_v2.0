@@ -107,10 +107,10 @@ Documentation and marketing must match this:
    ordinary commands (`ls`, `git`, `curl` without `| sh`, etc.) run. **Full Control
    lifts the gate entirely.**
 
-2. **`SecurityManager.is_command_allowed`** (`eli/runtime/security.py`) and the
-   executor's `_run()` helper are an **allowlist / fail-closed** check
-   (`ELI_ALLOWED_CMDS`), but nothing on the runtime path calls them — only tests do.
-   They do not gate `RUN_CMD`.
+2. **There is no command allowlist.** `ELI_ALLOWED_CMDS` is read by nothing: the
+   allowlist that read it (`SecurityManager.is_command_allowed`, the executor's `_run()`)
+   was never on the runtime path and has been removed. `RUN_CMD` is gated by the
+   denylist above alone.
 
 3. **Programs ELI runs for its own features** do not pass through the command gate.
    Media and window control run fixed programs (`playerctl`, `wmctrl`, …) as

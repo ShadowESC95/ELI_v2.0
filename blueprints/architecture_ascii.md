@@ -245,7 +245,7 @@ artifacts/
 ├── conversations/
 ├── runtime/ · runtime_snapshot.json        live model/runtime truth
 ├── world/{snapshots,ledger,journal}/
-├── notebook/ (notes) · scratch/ (CREATE_FILE, relative paths)
+├── notes/ (every note) · scratch/ (CREATE_FILE, relative paths)
 ├── documents/ · scripts/ · analyze_image_*/
 │
 config/   settings.json (gitignored) · templates/settings.template.json ·

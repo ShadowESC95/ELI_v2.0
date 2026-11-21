@@ -335,9 +335,10 @@ first version (`eli-ai`), ELI Legal and ELI VR keep their own folders. Until 2.5
 installed v2 used the generic `eli` folders and the packaged app kept its cache in
 `~/.cache/eli`; some files had a generic or relative fallback (`artifacts/...` lands in
 whatever folder ELI was started from). Every writer now goes through `get_paths`. Notes
-(`WRITE_NOTE`) go to `notebook_dir()`, `<data dir>/notebook/<date>.md` (`ELI_NOTEBOOK_DIR`
-overrides), appended under a lock; until 2.5.36 they went to `./eli_notebook` in the folder ELI
-was started from, whatever `ELI_DATA_DIR` said. A file v2
+(`WRITE_NOTE`) go to `notes_dir()`, `<data dir>/notes/<date>.md` (`ELI_NOTES_DIR` overrides), the
+folder NEW_NOTE writes to and listing and searching read, appended under a lock; in 2.5.36 they
+went to `notebook_dir()` (`<data dir>/notebook`, still read), and before that to `./eli_notebook`
+in the folder ELI was started from, whatever `ELI_DATA_DIR` said. A file v2
 once kept in a generic place (the labs notebook and workspaces in `~/.eli/`,
 `~/.eli_user_id`) is copied into its own folders once by `adopt_legacy_file` (copied, not
 moved: another version may still use the old place). `tests/test_frozen_install_redistributability.py`

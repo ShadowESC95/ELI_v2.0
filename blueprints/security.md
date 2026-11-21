@@ -54,10 +54,11 @@ so a self-patch cannot strip it. The intent model is never offered RUN_CMD or SH
 tool or as the alternative to a failed action is not followed (`llm_intent.model_may_choose`),
 and ELI does not carry out a promise in its own reply that names one (`engine._followthrough_may_run`).
 
-**Not on the runtime path:** `SecurityManager.is_command_allowed` and `safe_subprocess`
-(`runtime/security.py`, an allowlist read from `ELI_ALLOWED_CMDS` that refuses everything when it
-is unset) and the executor's `_run` helper with its fallback `_shell_command_allowed_fallback`.
-Only the tests call them, so `ELI_ALLOWED_CMDS` does not change what RUN_CMD or SHELL_EXEC run.
+**No command allowlist.** `ELI_ALLOWED_CMDS` is read by nothing. The allowlist that read it
+(`SecurityManager.is_command_allowed` and `safe_subprocess` in `runtime/security.py`, the executor's
+`_run` helper with its fallback `_shell_command_allowed_fallback`) was called only by tests and has
+been removed, together with the log line it wrote each time one was built, "shell commands are BLOCKED",
+which was never true of this gate.
 
 > **ELI Full Control has no environment variable — deliberately.** The single
 > source of truth is the `full_control` setting flipped by the GUI toggle, read
@@ -71,9 +72,10 @@ Only the tests call them, so `ELI_ALLOWED_CMDS` does not change what RUN_CMD or 
 
 ## 2. Filesystem & app gates
 
-- **CREATE_FILE allow-roots** — `SecurityManager.is_path_allowed(path)`, the one part of
-  `runtime/security.py` on the runtime path. The target must resolve inside the project root
-  (`ELI_ROOT`, else the source tree), `$HOME`, an `ELI_ALLOW_ROOTS` entry (colon-separated) or
+- **CREATE_FILE allow-roots** — `SecurityManager.is_path_allowed(path)`, all that is left of
+  `runtime/security.py`, built once per setting (`get_security_manager`). The target must resolve
+  inside the project root (`ELI_ROOT`, else the source tree), `$HOME`, an `ELI_ALLOW_ROOTS` entry
+  (separated by the OS path separator: `:` on Linux and macOS, `;` on Windows) or
   the system temp folder. Uses `Path.resolve()` + `relative_to`, so `..` traversal and symlinks
   can't escape. A relative path is placed under `<data dir>/scratch/`. Anywhere else is refused
   unless Full Control is on.
@@ -83,10 +85,9 @@ Only the tests call them, so `ELI_ALLOWED_CMDS` does not change what RUN_CMD or 
   write over an existing file such as a shell profile.
 - Reading files and listing folders (`READ_FILE`, `LIST_DIR`) have no allow-roots. For an API
   member or viewer and for MCP clients they are owner-only (§7, §17).
-- **Apps:** `SecurityManager.is_app_allowed` (an `ELI_ALLOWED_APPS` list, else the
-  cross-platform default-safe set in `_is_default_safe_app`) and the executor's
-  `_allowed_apps_set` are not called at runtime, so `ELI_ALLOWED_APPS` does not restrict
-  OPEN_APP. When an app will not open, ELI checks whether it is installed and offers to install
+- **Apps:** there is no app allowlist; `ELI_ALLOWED_APPS` is read by nothing (its readers,
+  `SecurityManager.is_app_allowed` and the executor's `_allowed_apps_set`, were never called
+  and have been removed). When an app will not open, ELI checks whether it is installed and offers to install
   it (`runtime/grounded_remediation.py`): on Windows the name must be a plain program or package
   name (`_PACKAGE_NAME`) before it reaches `where`, winget or Chocolatey, and `where` runs without
   a shell; POSIX lookups quote it with `shlex.quote`.
@@ -214,8 +215,7 @@ checks what generation leaves behind:
   quarantined; self-patches must prove a fix on a copy of the tree first.
 - **Weak / watch:**
   1. The shell gate is a **denylist** — anything it does not name runs with the user's rights.
-     (`ELI_ALLOWED_CMDS` belongs to `SecurityManager.is_command_allowed`, which the live path does
-     not use.)
+     (`ELI_ALLOWED_CMDS` is read by nothing; there is no allowlist behind it.)
   2. The injection guard is **pattern-based** — it catches known prefixes, not
      novel/obfuscated injections (no model-side defence). Reasonable for a
      single-user local tool, insufficient if ever multi-tenant.

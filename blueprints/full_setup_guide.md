@@ -291,7 +291,7 @@ These are the promises the software makes, in plain terms:
   network access on with one toggle — and ELI announces when it goes online.
 - **Your data stays put.** Conversations, your profile, memories, the notes ELI writes for
   you — all in local files inside the ELI folder (`artifacts/`; notes in
-  `artifacts/notebook/`). The release packages keep the same things in the per-user `ELI_v2`
+  `artifacts/notes/`). The release packages keep the same things in the per-user `ELI_v2`
   folder instead. Delete them any time; ELI simply starts fresh.
 - **No account, no telemetry.** Nothing phones home. There's nothing to phone home *to*.
 - **One honest caveat:** ELI can run commands and read files on your computer — that's

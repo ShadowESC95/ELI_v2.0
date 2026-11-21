@@ -499,7 +499,8 @@ artifacts/
 ├── vectors/index.faiss            # semantic index
 ├── conversations/                 # conversation exports
 ├── documents/ , scripts/          # generated artifacts
-├── notebook/                      # notes (WRITE_NOTE), ELI_NOTEBOOK_DIR overrides
+├── notes/                         # every note (WRITE_NOTE, NEW_NOTE), ELI_NOTES_DIR overrides
+├── notebook/                      # WRITE_NOTE's pages up to 2.5.36 (still read)
 ├── scratch/                       # CREATE_FILE with a relative path
 ├── runtime/                       # runtime state and capability inventory
 ├── runtime_snapshot.json          # live model/runtime truth
@@ -519,8 +520,8 @@ tts_piper/  Piper voice settings (.onnx.json); the voices themselves are fetched
    action ladder with a high regression surface.
 2. **Internal state → spoken output.** The recurring failure class. The grounding gate and
    escalation defend it; they do not close it on the plain CHAT path.
-3. **Swallowed errors.** 4,498 handlers catch `Exception` and 3 are a bare `except:`; 164
-   handlers do nothing but `pass`, and 1,675 catch-all handlers only log, most at debug level.
+3. **Swallowed errors.** 4,498 handlers catch `Exception` and 3 are a bare `except:`; 163
+   handlers do nothing but `pass`, and 1,671 catch-all handlers only log, most at debug level.
    A ratchet test (`tests/claims/test_no_silent_swallow.py`) stops both counts rising.
 4. **Latency versus model size.** On an 8 GB GPU a 24B model at Q5 offloads few layers and
    answers in minutes; a 7–9B Q4 is the sweet spot. The startup dialog shows the real fit.

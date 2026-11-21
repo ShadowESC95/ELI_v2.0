@@ -210,7 +210,7 @@ expanded, friendly version of it.
 - **Start ELI:** `./RUN_ELI.sh`  (or just type `eli-v2`, or click the menu icon)
 - **Phone access:** `./scripts/eli_serve.sh --lan --https`
 - **Your data lives here** (created automatically on first run):
-  `artifacts/db/` (memories & conversations), `artifacts/notebook/` (the notes ELI writes for
+  `artifacts/db/` (memories & conversations), `artifacts/notes/` (the notes ELI writes for
   you), `artifacts/runtime/`, and `config/`.
   Because this is a *portable* copy, everything stays inside this folder — you can move or
   back up the whole `ELI_v2-<version>-linux-portable` folder and nothing is lost. After a

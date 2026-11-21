@@ -1263,7 +1263,7 @@ Not set by the launchers: `ELI_NOTEBOOK_DIR` (default `$ELI_DATA_DIR/notebook`),
 | `ELI_PORTABLE_WHEELHOUSE` / `ELI_FULL_WHEELHOUSE` / `ELI_BUNDLE_TORCH` / `ELI_STARTER_MODEL` | What the portable packages bundle (`package_desktop_app.sh`, `build_packages.sh`) |
 | `WHEELHOUSE_PYTHON_VERSIONS` | Python versions of the Windows wheelhouse (default `311 312`) |
 | `ELI_INSTALLER_UNATTENDED` | Windows install.bat skip pause |
-| `ELI_ALLOWED_CMDS` | Allowlist read only by `SecurityManager.is_command_allowed` and the executor's `_run`, which are not on the runtime path. The live shell gate (`eli/execution/shell_gate.py`) is a denylist that judges every command in a line, lifted only by Full Control |
+| `ELI_ALLOWED_CMDS` | Read by nothing: the allowlist that read it was never on the runtime path and has been removed. The live shell gate (`eli/execution/shell_gate.py`) is a denylist that judges every command in a line, lifted only by Full Control |
 | `ELI_BROWSER` | Preferred browser for media control |
 | `ELI_MODEL_CATALOG` | Override model download catalog JSON |
 | `ELI_CUSTOM_AGENTS_DIR` | Custom agent storage |

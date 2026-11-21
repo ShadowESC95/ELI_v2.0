@@ -71,7 +71,7 @@ deeply:
 - **Data isolation**: the shared conftest redirects every store into
   `artifacts/_pytest/`, and `tests/conftest.py::_assert_db_isolated` fails the run
   if the user, memory, agent, audit or capability-state database, the persona
-  overlay, the notebook or the world state resolves outside it — a test in the shared suite
+  overlay, the notes or notebook folder or the world state resolves outside it — a test in the shared suite
   cannot touch real user data. Lanes 2–4 run without that conftest and redirect only
   `ELI_ARTIFACTS_DIR`, which does not move the databases (they follow `ELI_DATA_DIR`
   and the per-store variables), so in a source checkout what those tests record in the

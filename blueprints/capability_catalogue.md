@@ -59,8 +59,8 @@ behaviours**. Alias families are grouped below so the real surface is visible.
 ## 2. OS & application control
 | Action(s) | What it does |
 |---|---|
-| `OPEN_APP` = `OPEN_APPLICATION` = `LAUNCH_APP` | Launch an app: `portable_app_control.open_app` resolves the name against the apps installed on this OS (desktop entries on Linux, `.app` bundles on macOS, the Start menu on Windows); "settings" opens the system settings. Only `OPEN_APP` goes further when that fails: a missing app gets a **remediation offer** (installed with the platform's package manager on a yes, §13), else the executor's own launcher (common-name map, web apps such as Gmail or YouTube opened in the browser, a launch counted only with a desktop entry or a known GUI program behind it). "Open/start" plus one of ELI's own features (dictation, a new chat, system settings) is routed to that feature instead. |
-| `CLOSE_APP` = `CLOSE_APPLICATION` = `EXIT_APP` = `QUIT_APP` | Close an app: `portable_app_control.close_app` closes its windows, then the program ELI resolved for it, on every OS. Only `CLOSE_APP` falls back further: `wmctrl -c` on Linux, then `process_guard.safe_pkill` (process name, then command line, dry-run first, protected processes refused); says why when nothing closed. |
+| `OPEN_APP` = `OPEN_APPLICATION` = `LAUNCH_APP` | Launch an app: `portable_app_control.open_app` resolves the name against the apps installed on this OS (desktop entries on Linux, `.app` bundles on macOS, the Start menu on Windows); "settings" opens the system settings. When that fails, all three go on as `OPEN_APP`: a missing app gets a **remediation offer** (installed with the platform's package manager on a yes, §13), else the executor's own launcher (common-name map, web apps such as Gmail or YouTube opened in the browser, a launch counted only with a desktop entry or a known GUI program behind it). "Open/start" plus one of ELI's own features (dictation, a new chat, system settings) is routed to that feature instead. |
+| `CLOSE_APP` = `CLOSE_APPLICATION` = `EXIT_APP` = `QUIT_APP` | Close an app: `portable_app_control.close_app` closes its windows, then the program ELI resolved for it, on every OS. When that fails, all four go on as `CLOSE_APP`: `wmctrl -c` on Linux, then `process_guard.safe_pkill` (process name, then command line, dry-run first, protected processes refused); says why when nothing closed. |
 | `FOCUS_APP` | Bring an app's window to the front; a browser tab only when it is the one showing in its window. |
 | `HIDE_APP` = `MINIMISE_APP` = `MINIMIZE_APP` = `MINIMISE_WINDOW` = `MINIMIZE_WINDOW`, `MAXIMISE_WINDOW` | Minimise a named app's window (UK/US spellings aliased); maximise a named window, or the active one when none is named. |
 | `MINIMISE_ALL`, `RESTORE_WINDOWS`, `TILE_WINDOWS`, `NEXT_WINDOW`, `PREVIOUS_WINDOW` | Desktop window management (`portable_app_control`). |
@@ -128,7 +128,7 @@ behaviours**. Alias families are grouped below so the real surface is visible.
 | `EXAMINE_CODE` | Tiered file scan (syntax/import → lint → gated LLM logic review) → offers a fix only for named files with real breakage; "list the errors you found" replays the saved audit. |
 | `FIX_FILE` | Fix (or with `mode=improve`, improve) a named file: protected guardrail files refused, a backup first, Python through the verified CodeAgent; a Python module that no longer imports or fails its targeted tests is restored. |
 | `CONFIRM_CODE_FIX`, `CANCEL_CODE_FIX` | Apply / drop `EXAMINE_CODE`'s pending fix: each patch syntax-checked and import-verified, auto-reverted if it breaks its module; logic (Tier-3) findings only when asked. |
-| `FILE_AUDIT`, `SHOW_DIFF`, `CODE_CHANGES` | File inventory of ELI's own package (files per directory under `eli/`); a model answer to "show me the recent changes or diff in the project" (no git diff is read); the code changes the awareness code monitor saw since its last check. |
+| `FILE_AUDIT`, `SHOW_DIFF`, `CODE_CHANGES` | File inventory of ELI's own package (files per directory under `eli/`); the project folder's own git history when it is a checkout (uncommitted changes with `git status` and `git diff HEAD`, or the latest commit's when there are none, and the latest commits), two named files compared line by line, else a plain "no change history"; the code changes the awareness code monitor saw since its last check. |
 
 ## 9. Self-management & self-improvement
 | Action(s) | What it does |
@@ -154,7 +154,7 @@ behaviours**. Alias families are grouped below so the real surface is visible.
 | `EXPLAIN_FAILURE_LOG`, `EXPLAIN_GGUF_DIAGNOSTICS` | The executor failure log (last 50) / GGUF load-compatibility and runtime diagnostics (`gguf_runtime_report`). |
 | `ORCHESTRATION_STATUS`, `CODEBASE_GRAPH` | The agent DAG (agents, execution layers, dependencies, last run) / questions about ELI's own architecture answered from the live import graph (`codebase_graph.explain`). |
 | `HARDWARE_PROFILE`, `GPU_STATUS`, `AWARENESS_STATUS` | Hardware benchmark and recommended model/layers/context/batch ("apply hardware recommendation" saves it, restart needed) / GPU state / the awareness briefing. |
-| `GET_STATUS` | A short status record (user name, default chat model, persona lock, Ollama's loaded models). Not routable: a bare "status" goes to `RUNTIME_STATUS`. |
+| `GET_STATUS` | A short status record (user name, default chat model, persona lock, and Ollama's loaded models only when Ollama is the chosen backend). Not routable: a bare "status" goes to `RUNTIME_STATUS`. |
 | `HELP`, `LIST_CAPABILITIES` | Every action in the code (`CapabilitySync.discover`), each marked as having worked on this machine, unable to run here (and why) or untried (`capability_updater.capability_status`); `HELP` also names plugins. |
 
 ## 11. Memory & identity
@@ -169,14 +169,14 @@ behaviours**. Alias families are grouped below so the real surface is visible.
 | `CLEAR_CHAT_HISTORY` | Empties the chat history in the executor's `state.json`; memories and the conversation log stay. |
 | `PERSONA_LOCK_SET`, `PERSONA_LOCK_CLEAR`, `PERSONA_LOCK_STATUS` | Record / clear / check the persona lock: the chat model name, an optional Modelfile's SHA-256 and Ollama's digest, verified by the executor's `chat()` before it answers. |
 | `PERSONA_REFRESH` | Purge the stale persona auto-overlay (`persona_hygiene.clean_auto_persona`) and rebuild the active profile; no memory or conversation rows are deleted. |
-| `SET_COMMUNICATION_STYLE`, `SET_TONE`, `CLEAR_TONE` | A free-text speaking style saved to the profile ("blunt, concise"; "reset your tone" clears it) / a named tone from the emotion palette for words, voice and face ("be comedic") / back to adaptive tone. |
+| `SET_COMMUNICATION_STYLE`, `SET_TONE`, `CLEAR_TONE` | A free-text speaking style saved to the profile ("blunt, concise"; "set your style to none" or the Settings field left blank clears it, "reset your tone" does not) / a named tone from the emotion palette for words, voice and face ("be comedic") / back to adaptive tone. |
 
 ## 12. Habits, proactivity & goals
 | Action(s) | What it does |
 |---|---|
 | `CONFIRM_HABIT`, `DECLINE_HABIT`, `HABIT_STATUS` | Approve the offered habit (run now if today's slot has passed, then at its time daily) / decline it (kept disabled, no longer suggested) / report detected patterns, the most-used actions and scheduled habit rules. |
 | `MORNING_REPORT` | A report named for the hour it is made: the last 24 hours' activity insights (`reflection.run_reflection`) plus news on the user's interests when the network is on. |
-| `PROACTIVE_START`, `PROACTIVE_STOP`, `PROACTIVE_STATUS` | Status: whether the proactive daemon runs (a PID file under `artifacts/proactive/`, or the in-process daemon thread the GUI starts). Start, when none is running, launches `python -m eli.proactive.proactive_daemon` — a module path that is not in the tree (the daemon is `eli/planning/proactive_daemon.py`), so that process exits at once while the reply says it started. Stop signals the PID-file process only. |
+| `PROACTIVE_START`, `PROACTIVE_STOP`, `PROACTIVE_STATUS` | They act on the daemon ELI runs as a thread in its own process (`proactive_daemon.start_daemon`, as the GUI and the engine start it). Status: whether that loop is live. Start: runs it again after a stop or a crash, or says it is already running. Stop: ends the loop at once when it is between steps, and says so when it is finishing one. |
 | `EXECUTE_GOAL` | Shows the step list `execution_planner.build_execution_plan` makes for a goal; nothing is run. |
 | `GET_PROPOSALS` | ELI's own proposals: proposal-only goals `goal_autogenesis` formed from its signals (world-model suggestions, recurring failures) and pending capability proposals. |
 | `RESUME_TASK` | Explicit "continue/resume the X project" — `goal_store.find_task()` bypasses the passive 14-day idle window, states real staleness, says plainly when nothing matches rather than guessing. |
@@ -217,7 +217,7 @@ These five pass the message to `grounded_remediation.try_handle_query`.
 ## 16. Plugins & MCP (management)
 | Action(s) | What it does |
 |---|---|
-| `PLUGIN_LIST`, `PLUGIN_SEARCH`, `PLUGIN_STATUS` | List installed or available / search registry / status: installed and available counts and an import check of each installed plugin (by the manager's module name `plugins.<id>.plugin`). |
+| `PLUGIN_LIST`, `PLUGIN_SEARCH`, `PLUGIN_STATUS` | List installed or available / search registry / status: installed and available counts and each installed plugin's health as the plugin manager's loader found it (OK, disabled, or the error it did not load with). |
 | `PLUGIN_INSTALL`, `PLUGIN_UNINSTALL`, `PLUGIN_ENABLE`, `PLUGIN_DISABLE` | Install (a community listing through the marketplace path: checksum, signature, static check, eleven scanners, consent; a bundled plugin through the manager; else a search) / remove / enable / disable a plugin. |
 | `MCP_LIST`, `MCP_STATUS`, `MCP_TOOLS`, `MCP_CALL` | Configured MCP servers (on/off, tool count, verified) / which are connected, with their tools / the tools live servers offer / call one. |
 | `MCP_DOCTOR`, `MCP_REMOVE`, `MCP_ADD` | Check each configured server / remove one / adding one is not done from chat: it runs a separate program, so it goes through Settings ▸ Marketplace ▸ MCP servers. |
@@ -232,13 +232,13 @@ for an action no built-in branch handles. "Plugin" is the plugin that declares t
 | `WEB_SEARCH` | web | Live results as grounding, never a browser window: the web plugin's search (SearXNG when configured, else DuckDuckGo), the local news store when that is empty; results that don't answer the query are withheld. Refused while the network toggle is off. |
 | `WEB_FETCH` | — (web plugin's `read_page`) | Read a linked page so ELI answers from it; network-gated. |
 | `GET_WEATHER` | weather | The plugin's `get_weather`: open-meteo geocoding + forecast (network-gated); current conditions or the forecast for the day asked about; the last place asked about in the session when none is named. |
-| `NEW_NOTE`, `LIST_NOTES`, `SEARCH_NOTES` | notes (not called) | Executor branch: `<title>.md` notes in `ELI_NOTES_DIR`, listed and substring-searched there. With `ELI_NOTES_DIR` unset this resolves to the current working directory (`Path("")` is truthy, so the intended `config_dir()/notes` is never used). |
-| `WRITE_NOTE` | — | Appends "- [HH:MM:SS] text" to today's page in `paths.notebook_dir()` (`<data dir>/notebook`, `ELI_NOTEBOOK_DIR` overrides), under a lock. |
+| `NEW_NOTE`, `LIST_NOTES`, `SEARCH_NOTES` | notes (its actions run this) | Executor branch: `<title>.md` notes in `paths.notes_dir()` (`<data dir>/notes`, `ELI_NOTES_DIR` overrides), a second note with the same title saved beside the first; listing and substring search cover every note there, WRITE_NOTE's daily pages too, and the pages older versions left in `paths.notebook_dir()`; a search shows the line that matched. |
+| `WRITE_NOTE` | — | Appends "- [HH:MM:SS] text" to today's page (`<date>.md`) in `paths.notes_dir()`, the folder the note actions read, under a lock. |
 | `ADD_EVENT`, `LIST_EVENTS`, `REMOVE_EVENT` | — (calendar plugin uses the same store) | ELI's own local calendar and reminders (`runtime/agenda.py`): add, move, list, remove. Mirrored to `calendar.ics`. |
-| `POMODORO_START`, `POMODORO_STOP`, `POMODORO_STATUS` | pomodoro (not called) | Executor branch: a focus timer kept in `pomodoro.json` (25 minutes by default) with elapsed and remaining time; nothing announces its end (the plugin's own timer and notification are not used). |
-| `CPU_USAGE`, `RAM_USAGE`, `SYSTEM_STATS` | system_stats (not called) | psutil readings: CPU load, cores, frequency, temperature / RAM used and total / OS, CPU, RAM, disk and battery. |
-| `SMART_HOME` | — (executor and device server) | A device, room or scene switched on/off through ELI's own MQTT device server (ESPHome / Tasmota / Zigbee2MQTT), which also runs saved automations; Bluetooth connect, disconnect, pair, trust or use-for-audio by name. Home Assistant removed. |
-| `SPEAK` | tts (not called) | Text-to-speech through `tts_router` (Piper, espeak fallback); the tts plugin (pyttsx3) is not used for it. |
+| `POMODORO_START`, `POMODORO_STOP`, `POMODORO_STATUS` | pomodoro (its actions run this) | Executor branch: a work (25 minutes by default) or break (5) session kept in `pomodoro.json`, whose end is an agenda reminder, announced like any reminder (desktop notification, alarm sound, the Proactive tab) and after a restart too; stop cancels it; status gives elapsed and remaining time, or when the last one ended. |
+| `CPU_USAGE`, `RAM_USAGE`, `SYSTEM_STATS` | system_stats (its actions run this) | psutil readings: CPU load, cores, frequency, temperature / RAM used and total / OS, CPU, RAM, disk and battery. |
+| `SMART_HOME` | — (executor and device server) | A device, room or scene switched on/off (or set to a brightness or value) through ELI's own MQTT device server; read from what was said (`device_server.resolve_spoken_target`: the name with the most of its words said, a kind of device narrowing a room or naming every one of that kind) (ESPHome / Tasmota / Zigbee2MQTT), which also runs saved automations; Bluetooth connect, disconnect, pair, trust or use-for-audio by name. Home Assistant removed. |
+| `SPEAK` | tts (its actions run this) | Text-to-speech through `tts_router` (Piper, espeak fallback). |
 | `NEWS_FETCH` | — (executor + news tool) | Fetch headlines and read them as a short briefing (`news_synthesis.synthesise_news_briefing`: a general ask mixes top stories with the user's interests, a topic ask keeps to the topic); also stored-news search, recent headlines (refetched after 6 hours) and store stats. The proactive daemon summarises each 3-hour window into `news_reflections`; only windows with real articles become memories. |
 
 *(Also reachable through the plugin manager: `web_automation` plugin — Playwright browser navigate/search/screenshot/close; `document_reader` plugin — PDF/DOCX/DOC/ODT/EPUB read + index, whose reader `READ_FILE` and `SUMMARIZE_FILE` use.)*
@@ -340,7 +340,7 @@ layer that wraps the probabilistic model. Grouped by function:
 ## Security
 | Module | LOC | Role |
 |---|---|---|
-| `security.py` | 210 | `SecurityManager` — path/command/app allowlists. On the live path only `is_path_allowed` is used (`CREATE_FILE`); its fail-closed command allowlist (`ELI_ALLOWED_CMDS`) is reached only through the executor's `_run` helper, which nothing calls. The live command gate is `execution/shell_gate.py`. |
+| `security.py` | 76 | `SecurityManager.is_path_allowed`: the folders `CREATE_FILE` may write in (the project, home, `ELI_ALLOW_ROOTS` split on the OS path separator), built once per setting by `get_security_manager()`. The live command gate is `execution/shell_gate.py`. |
 
 ---
 
@@ -419,7 +419,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 |---|---|---|
 | `runtime_settings.py` | 1235 | Canonical settings.json load/save, legacy-key migration, portable-path healing/sanitising. |
 | `hardware_profile.py` | 3257 | Auto-detect GPU/VRAM/RAM → fit ctx/gpu_layers/batch (KV-cache + compute-buffer reserve); model discovery (`discover_models`: `paths.models_dir()` and the program's own `models/`); hardware authority enforcement. |
-| `paths.py` | 822 | Single-source-of-truth path resolution (data/config/cache/db/models/voices…): `models_dir()` honours `ELI_MODELS_DIR`, `notebook_dir()` is `<data dir>/notebook` unless `ELI_NOTEBOOK_DIR` says otherwise. |
+| `paths.py` | 828 | Single-source-of-truth path resolution (data/config/cache/db/models/voices…): `models_dir()` honours `ELI_MODELS_DIR`, `notes_dir()` (every note) is `<data dir>/notes` unless `ELI_NOTES_DIR` says otherwise, `notebook_dir()` (where WRITE_NOTE's pages went up to 2.5.36, still read) `<data dir>/notebook` unless `ELI_NOTEBOOK_DIR` does. |
 | `startup_hardware_optimizer.py` | 237 | A model's trained context, the context free RAM holds, and the reasoning-mode budgets sized from the context that loaded; what loads where is `load_plan.py`'s job. |
 | `config.py` | 364 | Thin config shim over runtime_settings (canonical key mapping). |
 | `model_download.py` | 676 | Curated GGUF catalogue + VRAM-based recommend + download (install-time only; ELI loads whatever `.gguf` files it finds). |
@@ -459,7 +459,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `planning/` (autonomy, habits, proactive) — 4.4k lines
 | Module | LOC | Role |
 |---|---|---|
-| `proactive_daemon.py` | 1550 | Background 10-min loop: pattern/code analysis, habit detect+offer, morning report, error tracking. |
+| `proactive_daemon.py` | 1583 | Background 10-min loop: pattern/code analysis, habit detect+offer, morning report, error tracking. |
 | `autonomy_scheduler.py` | 334 | Policy-gated (observe/proposal/goal-driven) goal scheduler w/ cooldown + attention queue. |
 | `habits.py` | 370 | Habit detection (circular time-of-day clustering, shift and lapse notes), offer/pending state, disabled-by-default. |
 | `routine_stats.py` | 125 | Circular clustering, routine shift and lapse detection. |
@@ -521,7 +521,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 ## `plugins/` — 10 bundled plugins + manager
 | Module | Role |
 |---|---|
-| `manager.py` (660L) | Discover/install (pip dependencies; download, or the bundled copy of a built-in)/uninstall/enable/disable/search/dispatch; auto-load; registry (`registry/index.json`). |
+| `manager.py` (670L) | Discover/install (pip dependencies; download, or the bundled copy of a built-in)/uninstall/enable/disable/search/dispatch; auto-load; registry (`registry/index.json`). |
 | `web`, `web_automation`, `weather`, `calendar`, `notes`, `pomodoro`, `system_stats`, `media`, `tts`, `document_reader` | The 10 bundled plugins (see Part 1 §17: several declare actions the executor answers itself). |
 | `base/base.py` | Plugin base class + action validation + loader. |
 
@@ -555,7 +555,7 @@ is unique under `eli/`; recount the others with `wc -l`.
 | `deterministic_failure_patches.py` | 108 | Rule-based code patches for recurring executor failures without LLM guessing. |
 | `device_drivers.py` | 1121 | Pluggable local-control drivers for ELI's device server, for devices that don't speak MQTT (UPnP/DLNA renderers, Chromecast, Fire TV, AirPlay, Bluetooth), all on the LAN. |
 | `device_names.py` | 219 | User-chosen device names — stable keys for voice control across hardware/OS. |
-| `device_server.py` | 1450 | ELI's own device server — original, MQTT-first. No Home Assistant. |
+| `device_server.py` | 1566 | ELI's own device server — original, MQTT-first. No Home Assistant. |
 | `eval_review.py` | 117 | Eval + LLM-judge board, in the shape Labs ▸ Test & Review already renders. |
 | `evidence_planner.py` | 302 | Evidence planner + gatherer — the DAG/plan principle for generative & grounded tasks. |
 | `failure_taxonomy.py` | 251 | Classify a runtime failure by what actually went wrong, and where. |
@@ -637,13 +637,13 @@ is unique under `eli/`; recount the others with `wc -l`.
 | `command_sequence_log.py` | 102 | MULTI_COMMAND's durable per-step log — crash-survival and skip-already-done on resubmit. |
 | `effectors/system_helpers.py` | 179 | Cross-platform system helpers shared by executor and effectors (v3). |
 | `execution_planner.py` | 111 | Builds `RouteDecision` and the typed `ExecutionPlan`/`PlanStep` artifacts — `.agent_profile` (agent-name filter) is the only field anything reads; `.steps` is never executed, only rendered as decorative text by `EXECUTE_GOAL`. |
-| `executor_enhanced.py` | 15662 | The action executor. `execute()` checks `authority_gate`, runs a middleware table and a chain of wrappers (media, document/script contracts, direct app control, reasoning mode, personal memory, the generated-script guard), then the flat `if a == "ACTION":` dispatch in `_execute_impl`; a plugin is consulted last. |
+| `executor_enhanced.py` | 15712 | The action executor. `execute()` checks `authority_gate`, runs a middleware table and a chain of wrappers (media, document/script contracts, direct app control, reasoning mode, personal memory, the generated-script guard), then the flat `if a == "ACTION":` dispatch in `_execute_impl`; a plugin is consulted last. |
 | `media_runtime.py` | 659 | Media runtime control for ELI. |
 | `operator_actions.py` | 105 | Valid states and helpers for operator (proposal) actions: pending, approved, rejected, blocked, pending_confirmation. |
 | `operator_policy.py` | 65 | The valid operator policy modes: `proposal_only`, `operator_supervised`, `goal_driven`, `observe_only`. Only `observe_only` (silences the autonomy loop) and `goal_driven` (elevated + self-upgrade scheduling) have distinct behavior — `proposal_only`/`operator_supervised` are currently identical code paths. |
 | `portable_intent_contract.py` | 780 | Portable intent rules; hard-blocks document, code and analysis prompts from `PLAY_MEDIA`. The one reading of an "open ..." target that is a website (`web_open_target`) and of the window a command names (`window_target`); "open/start" plus one of ELI's own features is not an app; the language a script request asks for (`infer_script_language`). |
 | `route_contracts.py` | 245 | Small predicates that classify a request for the router; whether an action changes anything (`changes_something`) and whether a sentence tells ELI to do what was matched in it (`fits`). |
-| `router_enhanced.py` | 9328 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
+| `router_enhanced.py` | 9355 | The router: `route(text)` regex-first priority pipeline with LLM-intent fallback (see `architecture.md` §4). |
 | `shell_gate.py` | 240 | The live shell-command gate (`check_command`): destructive patterns and denylisted programs refused in every command of a line (`;` `&&` `\|\|` `\|` `&`, newlines, `$( )`, `<( )`, backticks, wrappers such as sudo/env/nice/timeout/xargs/busybox, `env -S`, `find -delete` / `-exec rm`); Full Control lifts it. Protected from self-patching. |
 
 ## `core/`
@@ -794,14 +794,14 @@ is unique under `eli/`; recount the others with `wc -l`.
 | `marketplace.py` | 793 | ELI's plugin marketplace client — federated, community-hosted, consent-gated. |
 | `mcp.py` | 481 | MCP servers: one config ELI owns, and an install that proves it works. |
 | `media/plugin.py` | 171 | Media control plugin: a thin wrapper over `integrations/mpris/playerctl_backend.py`. |
-| `notes/plugin.py` | 84 | Notes plugin: markdown notes under `artifacts/notes` (`new_note`, `list_notes`, `search_notes`); the executor answers NEW_NOTE / LIST_NOTES / SEARCH_NOTES itself, so it runs only when called through the plugin manager. |
+| `notes/plugin.py` | 35 | Notes plugin: its `new_note`, `list_notes`, `search_notes` run ELI's own NEW_NOTE / LIST_NOTES / SEARCH_NOTES. |
 | `permissions.py` | 395 | Android-style consent for plugins: allow always, allow once, reject. |
-| `pomodoro/plugin.py` | 92 | Pomodoro plugin: a focus timer that notifies when done; the executor's own POMODORO_* branches answer those actions. |
+| `pomodoro/plugin.py` | 36 | Pomodoro plugin: its `start`, `stop`, `status` run ELI's own POMODORO_* actions. |
 | `sandbox.py` | 283 | Runtime capability enforcement for loaded plugins: what a plugin may do once it runs, on top of the manifest, hash and scanner checks made before. |
 | `security_scan.py` | 547 | Multi-engine malware scanner for community plugins. |
 | `subprocess_sandbox.py` | 349 | Containment for child processes — the gap netguard structurally cannot cover. |
-| `system_stats/plugin.py` | 77 | System stats plugin: `CPU_USAGE`, `RAM_USAGE`, `SYSTEM_STATS` (the executor answers those actions itself). |
-| `tts/plugin.py` | 43 | TTS plugin using pyttsx3; `SPEAK` is answered by the executor through `tts_router`. |
+| `system_stats/plugin.py` | 35 | System stats plugin: its actions run ELI's own `CPU_USAGE`, `RAM_USAGE`, `SYSTEM_STATS`. |
+| `tts/plugin.py` | 20 | TTS plugin: its `speak`, `say`, `tts` run ELI's own `SPEAK` (through `tts_router`). |
 | `weather/plugin.py` | 187 | Weather plugin: `GET_WEATHER` (open-meteo geocoding plus forecast, toggle-gated). Current conditions, or the forecast for a named day; a day word is never the place. |
 | `web/plugin.py` | 645 | Web plugin: search (SearXNG when configured, else DuckDuckGo; safe search on by default) and `read_page`, which the executor's `WEB_SEARCH` and `WEB_FETCH` call (toggle-gated). |
 | `web_automation/plugin.py` | 92 | Web Automation plugin for ELI – lazy Playwright import, safe under broken installs. |

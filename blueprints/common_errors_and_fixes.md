@@ -1073,8 +1073,10 @@ not about something as an instruction, and the router's "note: X" rule wrote it 
 `./eli_notebook`, relative to wherever ELI had been started.
 **Fix (v2.5.36):** inside a longer message a sentence that opens on a short label and a colon
 ("Note:", "Context:", "Information supplied:") is material for the question, not an instruction
-(`labels_material`). "note: buy milk" on its own still writes a note. Notes go to the data folder's
-`notebook/` (`paths.notebook_dir()`, `ELI_NOTEBOOK_DIR` overrides), appended under a lock.
+(`labels_material`). "note: buy milk" on its own still writes a note. Notes went to the data folder's
+`notebook/` (`paths.notebook_dir()`, `ELI_NOTEBOOK_DIR` overrides), appended under a lock; they now
+go to its `notes/` (`paths.notes_dir()`, `ELI_NOTES_DIR` overrides), where listing and searching
+notes look.
 
 ---
 

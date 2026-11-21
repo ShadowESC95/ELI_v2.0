@@ -33,14 +33,16 @@ extra install; cloning is the accurate path for a specific timbre.
  user: "create a voice called vader from vader_clip.mp4"
    │        (or Settings ▸ Runtime ▸ "VOICE / TTS" ▸ drop-zone)
    ▼
- router_enhanced.py  (voice.create pattern, ~line 2644)
+ router_enhanced.py  (voice.create pattern, ~line 2673)
    regex: (voice|clone) + (creat|make|build|clone|generat|record)
         + a media extension OR "from/using/out of/with … recording/audio/clip/sample/file/voice"
           OR "my/this/the recording/audio/clip/sample/voice"
-   extracts: name ("called/named/name it/as X") + file (a .wav/.mp3/.mp4/.m4a/.ogg/.flac/.aac/.webm path)
+   extracts (_voice_clip_args): file = a .wav/.mp3/.mp4/.m4a/.ogg/.flac/.aac/.webm path, quoted, or from
+     a path root (~, /, ./, a drive) to its extension, spaces and all, or one word; name = what follows
+     called/named/call it/name it (or "as"), up to the next joining word (from, using, and …)
    ──► {action: CREATE_VOICE, args: {name, file}}
    ▼
- executor_enhanced.py  CREATE_VOICE handler (~line 11366)
+ executor_enhanced.py  CREATE_VOICE handler (~line 11379)
    resolves ~ in the path, checks the file exists; no name → the file's own name
    ──► tts_xtts.add_clone(name, path)
    ▼
@@ -74,8 +76,8 @@ extra install; cloning is the accurate path for a specific timbre.
 
 | File | Role |
 |---|---|
-| `eli/execution/router_enhanced.py` (~2644) | `voice.create` pattern → `CREATE_VOICE` |
-| `eli/execution/executor_enhanced.py` (~11366) | `CREATE_VOICE` handler → `add_clone` → sets active voice |
+| `eli/execution/router_enhanced.py` (~2673) | `voice.create` pattern → `CREATE_VOICE`, `_voice_clip_args` reads the file and the name |
+| `eli/execution/executor_enhanced.py` (~11379) | `CREATE_VOICE` handler → `add_clone` → sets active voice |
 | `eli/perception/tts_xtts.py` | registry (`add_clone`/`get_clone`/`list_clones`/`delete_clone`), synthesis (`synthesize_wav`, `synthesize_natural_wav`), availability (`xtts_available`, `natural_available`) |
 | `eli/perception/tts_router.py` | `synthesize_wav()` dispatches `clone:`/`natural:`/`char:`/plain Piper by prefix |
 | `eli/perception/voice_fx.py` | the *other* path — ffmpeg character presets, unrelated dependency-wise |

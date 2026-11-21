@@ -185,7 +185,7 @@ flowchart TD
 Everything ELI knows and downloads lives in **one per-user folder** that **survives upgrades**
 — like a save-game: `%LOCALAPPDATA%\ELI_v2` (Windows), `~/Library/Application Support/ELI_v2`
 (macOS), `~/.local/share/ELI_v2` (Linux, or `$XDG_DATA_HOME/ELI_v2`). Inside it, `artifacts/`
-holds your data (databases, notebook, calendar), `config/` your settings, `models/` the
+holds your data (databases, notes, calendar), `config/` your settings, `models/` the
 downloaded models and `runtime/` the GPU pack. A source checkout keeps `artifacts/`, `config/`
 and `models/` inside the checkout instead. Databases start as a **true blank slate** — no personal
 data ships in any installer.
@@ -329,9 +329,9 @@ and ELI opens or reports the right thing.
 - "list the files in ~/Documents" · "what's in my clipboard?" · "summarise report.docx" ·
   "convert report.md to pdf"
 - **Notes.** "write a note saying buy milk" (or just "note: buy milk") adds a line to today's
-  page in ELI's notebook (the `notebook` folder in its data folder). "new note buy milk" saves a
-  separate note, which "list my notes" and "search notes for budget" can find; those two don't
-  look in the notebook pages.
+  page in ELI's notes (the `notes` folder in its data folder). "new note buy milk" saves a
+  separate note there. "list my notes" and "search notes for budget" cover both, and the pages
+  older versions kept in the `notebook` folder; a search shows the line that matched.
 
 ### ✍️ Writing, documents & code
 - "write a report on renewable energy" · "generate a document about X"
@@ -394,7 +394,8 @@ topic, not only reminders.
   presentation?" is answered from the calendar and the clock, not from the web.
 - The calendar is also written to `calendar.ics` in ELI's data folder, which any calendar app can
   import. Repeating events are not supported.
-- "start a pomodoro"
+- "start a pomodoro" (25 minutes; ELI tells you when it ends, as it does a reminder) · "stop the
+  pomodoro" · "pomodoro status"
 - "research the best solar inverters overnight" · "build me a script at 2am" → **background jobs**
 - "show background jobs" · "check job 5"
 
@@ -802,8 +803,10 @@ ELI controls smart devices **directly over MQTT** (ESPHome / Tasmota / Zigbee2MQ
 no cloud:
 - **Find devices** on your network with one click (mDNS), or add one by its topics.
 - **Control** lights/switches, group them into **rooms**, and run room-wide on/off — from the Home tab.
-  Asking in chat ("turn on the desk lamp") reaches ELI's device server, but in this release it arrives
-  without the device's name and ELI only asks "Which device or room?", so use the Home tab for now.
+  Asking in chat works too: "turn on the desk lamp", "turn the lights off in the kitchen" (the
+  kitchen's lights, not its other devices), "dim the hall light to 30%", "smart home movie mode".
+  ELI finds the device, room or scene by the name you gave it, and asks which one when a name fits
+  more than one.
 - **Scenes** — save a set of device states as "Movie mode" and activate it from the Home tab.
 - **Automations** — *when* something happens (a time, **sunrise/sunset**, or a device turning on/off),
   *do* something (control a device or run a scene), optionally *only if* a condition holds.
