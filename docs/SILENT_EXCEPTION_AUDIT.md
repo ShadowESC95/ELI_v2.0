@@ -1,6 +1,6 @@
 # Silent `except: pass` audit
 
-**Remaining count: 164** (the ceiling tests/claims/test_no_silent_swallow.py holds the count to; it only goes down)
+**Remaining count: 163** (the ceiling tests/claims/test_no_silent_swallow.py holds the count to; it only goes down)
 
 v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was already in scope or safely added). This document lists **remaining** handlers still using bare `pass`.
 
@@ -83,7 +83,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
 | `eli/runtime/personal_memory_clean_response.py` | 1 |
 | `eli/runtime/reasoning_status.py` | 1 |
 | `eli/runtime/runtime_policy.py` | 1 |
-| `eli/runtime/security.py` | 1 |
 | `eli/runtime/stage_packet_store.py` | 1 |
 | `eli/tools/image_engine/image_engine/visual_core.py` | 1 |
 | `eli/tools/news/news_fetcher.py` | 1 |
@@ -2003,21 +2002,6 @@ v2.3.84 converted **469** handlers (where `log = get_logger(__name__)` was alrea
    36|             return data if isinstance(data, dict) else {}
    37|     except Exception:
    38|         pass
-```
-
-## `eli/runtime/security.py` (1)
-
-### Line 128 — `def is_command_allowed()`
-
-- **Except:** `Exception`
-- **Why it exists / risk:** Optional import or platform module — failure means feature degrades; should log at debug (converted where safe).
-- **Action:** Convert to `log.debug(..., exc_info=True)` when logger is in scope; never add new silent passes.
-
-```python
-  126|             if is_full_control():
-  127|                 return True
-  128|         except Exception:
-  129|             pass
 ```
 
 ## `eli/runtime/server_util.py` (2)

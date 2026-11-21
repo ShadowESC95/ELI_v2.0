@@ -19,7 +19,7 @@
 | GUI file open | **FIXED** | `eli/gui/tabs/experimental_tab.py` uses `platform_compat.open_file()` |
 | Crisis resources | **FIXED** | International options (988, 116 123, 112, findahelpline.com) |
 | Generated script DB path | **GONE** | v2.5.36 removed the pre-written scripts `generated_script_guard.py` used to return, the SQLite helper template among them; it now only validates and quarantines generated scripts |
-| Silent exceptions | **IMPROVED** | 646 → 164 (`tests/claims/test_no_silent_swallow.py`, ceiling 164) |
+| Silent exceptions | **IMPROVED** | 646 → 163 (`tests/claims/test_no_silent_swallow.py`, ceiling 163) |
 | Licences of what ships | **DOCUMENTED** | ELI's code is Apache-2.0; bundles also carry LGPL, GPL and non-commercial third-party parts — see [Licences of what is redistributed](#licences-of-what-is-redistributed-v2536) |
 
 ---
