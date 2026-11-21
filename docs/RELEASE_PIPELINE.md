@@ -29,6 +29,7 @@ produces on the Release page:
 | `ELI_v2-<v>-wheelhouse.tar.gz` | Offline Windows dependency wheels (cp311/cp312) |
 | `ELI_v2-<v>-wheelhouse-arm64.tar.gz` | The same for Windows on ARM (gaps expected) |
 | `WHEELHOUSE.txt` | Manifest of wheels inside the x64 wheelhouse archive |
+| `WHEELHOUSE-arm64.txt` | The same for the Windows on ARM wheelhouse (when it was built) |
 | `RELEASE_NOTES.md` | Release summary stub |
 | `SHA256SUMS.txt` | checksums for all of the above |
 

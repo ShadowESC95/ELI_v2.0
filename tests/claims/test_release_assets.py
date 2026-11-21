@@ -20,7 +20,7 @@ def test_release_workflow_publishes_wheel_and_deb():
     publish = RELEASE_YML.split("release:", 1)[1]
     assert "dist/*.whl" in publish
     assert "dist/*.deb" in publish
-    assert "dist/WHEELHOUSE.txt" in publish
+    assert "dist/WHEELHOUSE*.txt" in publish        # WHEELHOUSE.txt and WHEELHOUSE-arm64.txt
     assert "dist/RELEASE_NOTES.md" in publish
     assert "windows-portable-full" in publish
 
@@ -34,3 +34,32 @@ def test_release_workflow_builds_full_windows_portable():
 def test_gpu_packs_refresh_on_version_tags():
     gpu = (ROOT / ".github/workflows/gpu-packs.yml").read_text(encoding="utf-8")
     assert 'tags: ["v*"]' in gpu or "tags: ['v*']" in gpu
+
+
+def _upload_patterns():
+    publish = RELEASE_YML.split("\n  release:", 1)[1]
+    files = publish.split("files: |", 1)[1].split("fail_on_unmatched_files", 1)[0]
+    return [line.strip()[len("dist/"):] for line in files.splitlines() if line.strip().startswith("dist/")]
+
+
+def test_every_file_the_checksums_list_is_one_the_release_uploads():
+    """SHA256SUMS.txt listed WHEELHOUSE-arm64.txt, which the release never uploaded, so
+    `sha256sum -c SHA256SUMS.txt` failed for every download of the set."""
+    import fnmatch
+    import re
+    uploaded = _upload_patterns()
+    builds = RELEASE_YML.split("\n  release:", 1)[0]
+    summed = []
+    for patterns in re.findall(r'for f in ([^;\n]+); do\n(?:\s*\[ -e "\$f" \] \|\| continue\n)?\s*(?:sha256sum|shasum)', builds):
+        summed += patterns.split()
+    assert "WHEELHOUSE*.txt" in summed and "*.dmg" in summed, summed
+    for pattern in summed:
+        name = pattern.replace("*", "-arm64")          # a name this pattern picks up
+        assert any(fnmatch.fnmatchcase(name, up) for up in uploaded), f"{name} is in the checksums, not the release"
+
+
+def test_the_upload_retry_covers_what_the_release_uploads():
+    """The retry step re-uploads what the first upload missed; its list is the same as the upload's."""
+    publish = RELEASE_YML.split("\n  release:", 1)[1]
+    retry = publish.split("shopt -s nullglob", 1)[1].split("for f in ", 1)[1].split("; do", 1)[0].split()
+    assert sorted(retry) == sorted(_upload_patterns())

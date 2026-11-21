@@ -11,7 +11,7 @@
 #   macOS   : ELI_v2-<v>-macos-arm64.dmg (drag-to-Applications, ad-hoc signed)
 #   Linux   : ELI_v2-<v>-x86_64.AppImage + ELI_v2-<v>-linux-portable.tar.gz
 #   Source  : eli_v2_0-<v>.whl + sdist .tar.gz + .deb + windows-portable.zip
-#             + windows-portable-full.zip + wheelhouse.tar.gz + WHEELHOUSE.txt
+#             + windows-portable-full.zip + wheelhouse(-arm64).tar.gz + WHEELHOUSE(-arm64).txt
 # plus SHA256SUMS.txt + RELEASE_NOTES.md.
 #
 # Piper TTS voices ARE bundled (pulled from the project's local-assets-v2.1
@@ -685,7 +685,7 @@ jobs:
             dist/*.tar.gz
             dist/*.whl
             dist/*.deb
-            dist/WHEELHOUSE.txt
+            dist/WHEELHOUSE*.txt
             dist/RELEASE_NOTES.md
             dist/SHA256SUMS.txt
           fail_on_unmatched_files: true
@@ -709,7 +709,7 @@ jobs:
           have="$(gh release view "$TAG" --json assets -q '.assets[].name')"
           cd dist
           shopt -s nullglob
-          for f in *.zip *.exe *.dmg *.AppImage *.tar.gz *.whl *.deb WHEELHOUSE.txt RELEASE_NOTES.md SHA256SUMS.txt; do
+          for f in *.zip *.exe *.dmg *.AppImage *.tar.gz *.whl *.deb WHEELHOUSE*.txt RELEASE_NOTES.md SHA256SUMS.txt; do
             if grep -qxF "$f" <<<"$have"; then
               echo "already uploaded: $f"
               continue
