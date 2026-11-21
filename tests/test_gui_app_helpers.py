@@ -49,6 +49,33 @@ def test_auto_tune_of_an_unreadable_file_is_the_request_as_given(tmp_path, monke
 
 
 # --------------------------------------------------------------------------- #
+def test_the_terminal_setup_offers_chat_models_and_the_saved_one_wherever_it_is(tmp_path, monkeypatch):
+    """`--setup` (and a start with the startup picker turned off) listed every *.gguf under ./models,
+    the vision projector and the embedder among them, and stopped with "no models" when the saved
+    model was kept anywhere else."""
+    from tests.test_any_gguf import _gguf
+    from eli.core import paths
+    models, elsewhere = tmp_path / "models", tmp_path / "elsewhere"
+    models.mkdir()
+    elsewhere.mkdir()
+    talker = {"general.architecture": "llama", "tokenizer.ggml.model": "gpt2"}
+    chat = _gguf(models / "chat.gguf", talker)
+    _gguf(models / "mmproj-chat-f16.gguf", {"general.architecture": "clip"})
+    _gguf(models / "text-embedder.gguf", {"general.architecture": "bert", "tokenizer.ggml.model": "bert",
+                                          "bert.pooling_type": 1})
+    saved = _gguf(elsewhere / "kept-here.gguf", talker)
+    monkeypatch.setenv("ELI_MODELS_DIR", str(models))
+    monkeypatch.setattr(paths, "project_root", lambda: tmp_path / "program")   # its own models/: none
+    names = lambda saved_model: [p.name for p in app._setup_models(saved_model)]
+    assert names(None) == ["chat.gguf"]
+    assert names(saved) == ["kept-here.gguf", "chat.gguf"]
+    assert names(chat) == ["chat.gguf"]                          # found already: listed once
+    for f in list(models.iterdir()):
+        f.unlink()
+    assert names(saved) == ["kept-here.gguf"]                    # not "no models"
+
+
+# --------------------------------------------------------------------------- #
 def test_the_launcher_keeps_the_users_config_folder_and_replaces_another_installs(tmp_path, monkeypatch):
     """The console-script launcher pinned the data, config and models folders to its own checkout
     whenever ELI_PROJECT_ROOT was not already its root: a config folder the user had set was

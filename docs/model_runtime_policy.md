@@ -13,7 +13,8 @@ Only `.gguf` files are selectable. Each place that lists them searches its own f
   `discover_gguf_models` in `eli/gui/eli_pro_audio_gui_v2_0.py`): every `.gguf`, at any depth,
   under the program's own `models/` and `<config dir>/models`. Settings → Model's "Bundled GGUF"
   list shows the ones under `models/gguf/base/`.
-- Model discovery for the hardware recommendation and the first-run wizard
+- Model discovery for the hardware recommendation, the first-run wizard and the terminal setup
+  (`eli/gui/app.py --setup`, which also offers the saved model wherever it is)
   (`hardware_profile.discover_models`): every `.gguf`, at any depth, under `paths.models_dir()`
   (`ELI_MODELS_DIR`, else `models/` in a source checkout and `<data dir>/models` in an install,
   where `eli.core.model_download` saves) and the program's own `models/`. Until 2.5.36 it searched

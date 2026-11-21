@@ -20,7 +20,6 @@ from eli.utils.log import get_logger
 log = get_logger(__name__)
 
 BASE_DIR = project_root()
-MODELS_DIR = models_dir()
 CFG_PATH = _settings_file()
 
 
@@ -50,6 +49,29 @@ def _auto_tune(model_path: Path) -> dict:
 
 
 # ── UI helpers ────────────────────────────────────────────────────────────────
+
+def _model_folders() -> list[Path]:
+    """Where model discovery looks (hardware_profile.discover_models): the models folder
+    (ELI_MODELS_DIR, else the checkout's or the data folder's) and the program's own models/."""
+    folders: list[Path] = []
+    for folder in (Path(models_dir()), project_root() / "models"):
+        if folder.resolve() not in [f.resolve() for f in folders]:
+            folders.append(folder)
+    return folders
+
+
+def _setup_models(saved: Path | None) -> list[Path]:
+    """The models the terminal setup offers: every chat model discovery finds in _model_folders()
+    (embedders, vision projectors and draft heads left out), and the saved model wherever it is,
+    first when discovery did not find it. Every *.gguf under ./models used to be offered, projectors
+    and embedders among them, and a saved model kept elsewhere was not, so with none in ./models
+    the setup stopped with "no models" instead of loading it."""
+    from eli.core.hardware_profile import discover_models
+    found = [Path(m["path"]) for m in discover_models()]
+    if saved is not None and saved.is_file() and saved.resolve() not in [f.resolve() for f in found]:
+        found.insert(0, saved)
+    return found
+
 
 def _print_header():
     print("\n╔══════════════════════════════════════════════════════╗")
@@ -238,10 +260,9 @@ def main():
     force_setup = "--setup" in sys.argv
     silent      = (not first_run) and (not force_setup) and (saved_path is not None) and saved_path.exists()
 
-    # Search recursively so models in models/gguf/base/ are found
-    models = sorted(MODELS_DIR.rglob("*.gguf"))
+    models = _setup_models(saved_path)
     if not models:
-        print(f"❌  No GGUF models found in {MODELS_DIR}")
+        print(f"❌  No GGUF chat model found in {' or '.join(str(f) for f in _model_folders())}")
         sys.exit(1)
 
     # On silent (returning) launch: use the persisted config as the source of

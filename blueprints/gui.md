@@ -85,7 +85,10 @@ written (`init_data.store_blocker`), and activates the bundled GPU pack when the
 With the startup model picker
 enabled (the default) it hands over to `eli_pro_audio_gui_v2_0.main()`, whose startup dialog
 owns model choice, tuning and loading. `--setup` takes the terminal path instead:
-`_pick_model` and `_confirm_params`, with the values from `_auto_tune(model_path)`, which is
+`_pick_model` over `_setup_models` (the chat models `hardware_profile.discover_models` finds in
+the models folder, `ELI_MODELS_DIR` included, and the program's own `models/`, embedders, vision
+projectors and draft heads left out, plus the saved model wherever it is) and `_confirm_params`,
+with the values from `_auto_tune(model_path)`, which is
 the plan `gguf_inference.load_model` would use on this machine now (`eli/core/load_plan.py`,
 sized to each card's **free** memory — the display server takes VRAM before ELI launches,
 so free ≠ total). A returning launch with the picker turned off loads the saved model with
