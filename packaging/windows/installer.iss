@@ -7,11 +7,11 @@
 ; Build (version is REQUIRED and comes from pyproject.toml / the CI tag):
 ;   iscc packaging\windows\installer.iss /DMyAppVersion=2.1.0
 ;
-; Installs per-user to {localappdata}\Programs\ELI (no admin rights). The
-; bundle directory is user-writable, so the frozen runtime hook keeps all
-; settings/models/artifacts beside the app - and Inno's uninstaller only
-; removes files it installed, so downloaded models and user data survive
-; an uninstall.
+; Installs per-user to {localappdata}\Programs\ELI (no admin rights). Settings,
+; models and conversations are not kept beside the app: the frozen runtime hook
+; (packaging\pyinstaller\rthook_eli_frozen_paths.py) keeps them in
+; {localappdata}\ELI_v2, which Inno's uninstaller does not touch, so downloaded
+; models and user data survive an uninstall.
 
 #ifndef MyAppVersion
   #pragma error "MyAppVersion not defined - build with: iscc installer.iss /DMyAppVersion=<version from pyproject.toml>"

@@ -18,9 +18,11 @@ Design notes
 * The eli/ source tree ships as data as well as compiled modules: ELI
   self-inspects its own code (code examiner, truth report, plugin discovery,
   self-upgrade) and resolves its project root by locating that tree.
-* GGUF models, Piper voices and diffusion weights are runtime downloads —
-  never bundled (size + voice-license review; see
-  packaging/runtime_asset_manifest.json).
+* Chat GGUF models and diffusion weights are runtime downloads, never bundled
+  (size). The Piper voices of the project's local-assets-v2.1 release and the
+  nomic text embedder ARE bundled (below; ELI_REQUIRE_VOICES / ELI_REQUIRE_EMBEDDER
+  make a build without them fail), as are gpu-packs/*.whl when present. The
+  voices' licences: models/MODEL_LICENSES.md.
 * Mutable-state routing for frozen installs lives in
   packaging/pyinstaller/rthook_eli_frozen_paths.py.
 """

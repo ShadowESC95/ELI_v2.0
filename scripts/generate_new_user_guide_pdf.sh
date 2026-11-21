@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Regenerate blueprints/new_user_install_guide.pdf from the local markdown source.
-# Markdown is gitignored; only the PDF is committed.
+# Regenerate blueprints/new_user_install_guide.pdf from its markdown source.
+# Both the markdown and the PDF are tracked in git.
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MD="$ROOT/blueprints/new_user_install_guide.md"

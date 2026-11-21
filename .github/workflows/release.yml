@@ -64,11 +64,9 @@ env:
   REQUIRED_EXTRAS: "gui llm server docs analysis extras media"
   # Extras bundled when their wheels resolve on the runner; skipped (loudly)
   # otherwise — every optional import in ELI degrades cleanly by design.
-  # NOTE: this list is consumed by ALL THREE build jobs. The XTTS-v2 neural voice engine
-  # (`natural`) is deliberately NOT here — it is added as a job-level override on
-  # build-linux only, which is the one job that installs the CPU torch stack first and
-  # verifies no CUDA wheels crept in. Adding it globally makes windows/macos resolve
-  # torch from PyPI, and their bundles then fail the 2 GiB asset guard below.
+  # NOTE: this list is consumed by ALL THREE build jobs (build-linux, and the tests job, through
+  # packaging/ci_linux_deps.sh). The XTTS-v2 neural voice engine (`natural`) is deliberately
+  # not in it, and no build bundles it: build-linux's note says why.
   OPTIONAL_EXTRAS: "tts asr image vision web wakeword"
 
 jobs:
@@ -100,7 +98,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
             if [[ "$TAG" != "v$VERSION" ]]; then
-              echo "::error::Tag '$TAG' does not match pyproject.toml version '$VERSION'. Bump [project].version (and eli/kernel/self_upgrade.py + tests/test_pyproject_packaging.py) or re-tag as v$VERSION."
+              echo "::error::Tag '$TAG' does not match pyproject.toml version '$VERSION'. Bump [project].version in pyproject.toml and the default tag in eli/kernel/self_upgrade.py (tests/test_pyproject_packaging.py checks that they agree), or re-tag as v$VERSION."
               exit 1
             fi
           fi

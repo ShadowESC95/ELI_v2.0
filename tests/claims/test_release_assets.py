@@ -63,3 +63,45 @@ def test_the_upload_retry_covers_what_the_release_uploads():
     publish = RELEASE_YML.split("\n  release:", 1)[1]
     retry = publish.split("shopt -s nullglob", 1)[1].split("for f in ", 1)[1].split("; do", 1)[0].split()
     assert sorted(retry) == sorted(_upload_patterns())
+
+
+def test_no_build_script_calls_a_tracked_file_gitignored():
+    """build_packages.sh and package_desktop_app.sh said capability_manifest.json is gitignored, and
+    the PDF scripts that the blueprint markdown is; git tracks all of them."""
+    import subprocess
+    listed = subprocess.run(["git", "-C", str(ROOT), "ls-files", "capability_manifest.json", "blueprints/*.md"],
+                            capture_output=True, text=True, timeout=30)
+    if listed.returncode != 0:
+        import pytest
+        pytest.skip("not a git checkout")
+    tracked = listed.stdout.split()
+    assert "capability_manifest.json" in tracked and any(t.endswith(".md") for t in tracked)
+    for script in ("build_packages.sh", "scripts/package_desktop_app.sh",
+                   "scripts/generate_blueprint_pdfs.sh", "scripts/generate_new_user_guide_pdf.sh"):
+        for line in (ROOT / script).read_text(encoding="utf-8").splitlines():
+            if "gitignored" in line.lower():
+                assert not any(w in line.lower() for w in ("manifest", "markdown")), f"{script}: {line.strip()}"
+
+
+def test_packaging_comments_say_what_the_code_does():
+    import re
+    # the version guard names the files that hold the version, and the test only as the check
+    guard = RELEASE_YML.split("does not match pyproject.toml version", 1)[1].split("\n", 1)[0]
+    version = re.search(r'(?m)^version\s*=\s*"([^"]+)"', (ROOT / "pyproject.toml").read_text(encoding="utf-8")).group(1)
+    for path in ("pyproject.toml", "eli/kernel/self_upgrade.py"):
+        assert path in guard and version in (ROOT / path).read_text(encoding="utf-8"), path
+    assert "test_pyproject_packaging.py checks" in guard
+    # no job adds the XTTS extra, so no note may say one does
+    note = RELEASE_YML.split("REQUIRED_EXTRAS:", 1)[1].split("OPTIONAL_EXTRAS:", 1)[0]
+    assert "job-level override" not in note and not re.search(r"EXTRAS:[^\n]*natural", RELEASE_YML)
+    # the spec bundles the voices; its notes must not say it never does
+    spec = (ROOT / "ELI.spec").read_text(encoding="utf-8")
+    notes = spec.split('"""', 2)[1]
+    assert '"tts_piper/piper"' in spec and not re.search(r"Piper voices[^*]*never bundled", notes)
+    # the installed app keeps its data in the per-user ELI_v2 folder, which is where the header says
+    iss = (ROOT / "packaging" / "windows" / "installer.iss").read_text(encoding="utf-8")
+    header = iss.split("#ifndef MyAppVersion", 1)[0]
+    assert "{localappdata}\\ELI_v2" in header and "beside the app -" not in header
+    # the .deb's size is printed by the build, not claimed
+    deb = (ROOT / "packaging" / "debian" / "build-deb.sh").read_text(encoding="utf-8")
+    assert not re.search(r"~\s*\d+\s*MB", deb) and 'du -h "$DEB"' in deb

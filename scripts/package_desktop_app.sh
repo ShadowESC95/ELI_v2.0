@@ -125,8 +125,8 @@ if [ "$SKIP_WHEEL" -eq 0 ]; then
   rm -rf "$STAGING/build/lib" "$STAGING/build/bdist."* "$STAGING"/*.egg-info 2>/dev/null || true
 fi
 
-# Generate a fresh capability_manifest.json into the package (it's gitignored, so the
-# git-archive source doesn't carry one) — this is the installer's offline fallback copy.
+# Regenerate capability_manifest.json in the package from the staged code (git tracks one, which
+# can be older than the code) — this is the installer's offline fallback copy.
 ( cd "$STAGING" && PYTHONPATH="$STAGING" "$PYTHON" -c \
   "from eli.tools.registry.capability_updater import update_capability_manifest; update_capability_manifest()" ) \
   >/dev/null 2>&1 || echo "[package] (manifest pre-gen skipped — installer will regenerate)"

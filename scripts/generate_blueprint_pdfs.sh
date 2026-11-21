@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Regenerate the SHIPPED blueprint PDFs from their markdown sources.
 #
-# The git-tracked PDFs (allowlisted in .gitignore) are bundled into every
-# installer, so this is their single reproducible build path — markdown sources
-# stay local (gitignored), PDFs are committed. Requires pandoc + xelatex.
+# The PDFs and their markdown sources are both tracked (.gitignore allowlists
+# blueprints/*.md and *.pdf), and the PDFs are bundled into every installer, so
+# this is their single reproducible build path. Requires pandoc + xelatex.
 #
 # Every PDF is stamped with the version from pyproject.toml and today's date, so
 # "rebuild the manuals" is one command and no document can drift on its own.

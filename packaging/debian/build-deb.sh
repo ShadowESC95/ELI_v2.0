@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Build a lean ELI .deb: source + a first-run-installing /usr/bin/eli-v2 launcher.
 # The heavy Python venv + a model are set up on first launch (like the lean AppImage),
-# so the package stays small (~6 MB). Requires dpkg-deb.
+# so the package holds the tracked source only (the build prints its size). Requires dpkg-deb.
 #
 # Usage:  bash packaging/debian/build-deb.sh [version]     (or: build_packages.sh deb)
 set -euo pipefail
@@ -58,4 +58,4 @@ chmod 0755 "$STAGE/usr/bin/eli-v2"
 
 dpkg-deb --root-owner-group --build "$STAGE" "$DEB"
 rm -rf "$(dirname "$STAGE")"
-echo "[deb] built: $DEB"
+echo "[deb] built: $DEB ($(du -h "$DEB" | cut -f1))"
