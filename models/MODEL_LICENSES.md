@@ -122,7 +122,7 @@ unless `ELI_STARTER_MODEL` names another.
 |---|---|---|
 | **faster-whisper** `small.en` (STT weights) | [Systran/faster-whisper-small.en](https://huggingface.co/Systran/faster-whisper-small.en) | MIT |
 | **Piper** `en_US-amy-medium` (default TTS) | [rhasspy/piper-voices](https://huggingface.co/rhasspy/piper-voices) | See the voice table above |
-| **openWakeWord** models (inside the `openwakeword` package) | [dscripka/openWakeWord](https://github.com/dscripka/openWakeWord) | Code Apache-2.0; its pre-trained models CC BY-NC-SA 4.0 per its own licence note. ELI uses only the feature-extractor models and trains its own detector head; the release builds carry those two and none of the pre-trained wake-word models |
+| **openWakeWord** models (inside the `openwakeword` package) | [dscripka/openWakeWord](https://github.com/dscripka/openWakeWord) | Code Apache-2.0; its pre-trained models CC BY-NC-SA 4.0 per its own licence note. ELI uses only the feature-extractor models and trains its own detector head; the release builds carry those two and none of the pre-trained wake-word models. `embedding_model.onnx` is openWakeWord's re-implementation of Google's speech_embedding model, which Google publishes under Apache-2.0; openWakeWord's note does not say whether its CC BY-NC-SA terms cover that re-implementation |
 
 See `packaging/VOICE_LICENSE_REVIEW.md` for maintainer voice classifications.
 
