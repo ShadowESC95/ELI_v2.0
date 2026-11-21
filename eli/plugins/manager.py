@@ -133,6 +133,17 @@ def _save_state(state: Dict[str, Any]) -> None:
     _state_file().write_text(json.dumps(state, indent=2))
 
 
+def is_enabled(plugin_id: str, state: Optional[Dict[str, Any]] = None) -> bool:
+    """Whether a plugin is switched on: it is in the state's "enabled" list, where install()
+    and enable() (Marketplace ▸ Installed ▸ Enable, PLUGIN_ENABLE) put it and disable() and
+    uninstall() take it out. Nothing else switches one on: a marketplace install arrives
+    switched off, and a plugin folder on disk, ELI's own shipped plugins included, is not
+    consent to run its code. The one rule for loading a plugin (at start or later),
+    dispatching its actions and reporting it as enabled."""
+    state = _load_state() if state is None else state
+    return str(plugin_id) in set(state.get("enabled") or [])
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -238,13 +249,16 @@ class PluginManager:
         return list(found.values())
 
     def _auto_load(self) -> None:
-        """Load all enabled plugins from disk at startup. In safe mode (ELI_SAFE_MODE=1) none is: no
-        plugin code runs until one is enabled in the session."""
+        """Load the enabled plugins (is_enabled) from disk at startup. It loaded every plugin not
+        marked disabled, so a plugin nobody had switched on ran its code at start, though it could
+        not be called. In safe mode (ELI_SAFE_MODE=1) none is: no plugin code runs until one is
+        enabled in the session."""
         from eli.core.config import safe_mode
         if safe_mode():
             log.info("[PLUGIN] Safe mode (ELI_SAFE_MODE=1): no plugin is loaded at start")
             return
-        enabled = set(self._state.get("enabled", []))
+        # The state as it is on disk: the marketplace writes an install there itself.
+        self._state = _load_state()
         for pkg_dir in self._all_plugin_dirs():
             plugin_py = pkg_dir / "plugin.py"
             if not plugin_py.exists():
@@ -252,7 +266,7 @@ class PluginManager:
             pid = pkg_dir.name
             if pid in ("base", "registry", "__pycache__"):
                 continue
-            if self._state.get("disabled") and pid in self._state["disabled"]:
+            if not is_enabled(pid, self._state):
                 continue
             try:
                 self._load_plugin_from_file(pid, plugin_py)
@@ -288,8 +302,10 @@ class PluginManager:
         return None
 
     def list_installed(self) -> List[Dict]:
-        """Plugins with a local plugin.py file."""
+        """Plugins with a local plugin.py file, each reported enabled by the rule that loads and
+        dispatches it (is_enabled)."""
         result = []
+        state = _load_state()
         for pkg_dir in self._all_plugin_dirs():
             plugin_py = pkg_dir / "plugin.py"
             if not plugin_py.exists():
@@ -297,11 +313,10 @@ class PluginManager:
             pid = pkg_dir.name
             if pid in ("base", "registry", "__pycache__"):
                 continue
-            disabled = pid in self._state.get("disabled", [])
-            meta = self._state.get("installed", {}).get(pid, {})
+            meta = state.get("installed", {}).get(pid, {})
             result.append({
                 "id": pid,
-                "enabled": not disabled,
+                "enabled": is_enabled(pid, state),
                 "loaded": pid in self._loaded,
                 "load_error": self._load_errors.get(pid, ""),
                 "version": meta.get("version", "?"),
@@ -478,10 +493,10 @@ class PluginManager:
         if not name:
             return None
 
-        enabled = set(_load_state().get("enabled", []))
+        state = _load_state()
         candidates = []
         for pid, inst in list(self._loaded.items()):
-            if pid not in enabled:
+            if not is_enabled(pid, state):
                 continue
             for act in (getattr(inst, "actions", {}) or {}):
                 qualified = f"{str(getattr(inst, 'name', pid)).upper()}_{str(act).upper()}"

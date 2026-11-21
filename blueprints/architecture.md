@@ -337,8 +337,11 @@ The known weak seam is internal state leaking into spoken output on the plain CH
 
 Bundled: `calendar`, `document_reader`, `media`, `notes`, `pomodoro`, `system_stats`, `tts`,
 `weather`, `web`, `web_automation`. State is in `plugins_state.json` in the config folder
-(`config/` in a source checkout, gitignored). Custom agents and plugins are trust-gated
-(§ plugin table below).
+(`config/` in a source checkout, gitignored). A plugin runs only once it is switched on (its id
+in that file's `enabled` list, `manager.is_enabled`): only then is its code loaded, at start or
+when it is enabled, its actions dispatched and the Marketplace shows it enabled. That holds for
+the bundled ones too, and a marketplace install arrives switched off. Custom agents and plugins
+are trust-gated (§ plugin table below).
 
 ---
 

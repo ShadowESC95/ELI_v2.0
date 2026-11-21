@@ -108,6 +108,48 @@ def test_safe_mode_loads_no_plugin_at_start_and_one_enabled_in_the_session_still
     assert "greeter" in M.PluginManager()._loaded, "an ordinary start loads the enabled plugin"
 
 
+def test_only_a_plugin_that_was_switched_on_loads_and_every_view_of_it_agrees(tmp_path, monkeypatch):
+    """_auto_load built the enabled list and never used it: every plugin on disk not marked
+    disabled was imported at start, its module code run, while dispatch refused it and the
+    Marketplace said it was enabled. One rule now decides all three (manager.is_enabled): a
+    plugin folder found on disk, or one of ELI's own shipped plugins, runs only once enabled."""
+    import sys
+
+    import eli.plugins.manager as M
+
+    pdir = tmp_path / "plugins"
+    (pdir / "greeter").mkdir(parents=True)
+    (pdir / "greeter" / "plugin.py").write_text(PLUGIN_SRC, encoding="utf-8")
+    (pdir / "stray").mkdir()
+    (pdir / "stray" / "plugin.py").write_text(SECOND_SRC, encoding="utf-8")
+    for pid in ("greeter", "stray", "pomodoro"):          # loading a plugin's file creates its module
+        monkeypatch.delitem(sys.modules, f"plugins.{pid}.plugin", raising=False)
+    state = {"enabled": [], "disabled": [], "installed": {}}
+    monkeypatch.setattr(M, "_plugins_dir", lambda: pdir)
+    monkeypatch.setattr(M, "_load_state", lambda: dict(state))
+    monkeypatch.setattr(M, "_save_state", lambda s: state.update(s))
+    monkeypatch.setattr(M.PluginManager, "_all_plugin_dirs", staticmethod(
+        lambda: [pdir / "greeter", pdir / "stray", M._bundled_plugins_dir() / "pomodoro"]))
+
+    def _ran(pid):
+        return f"plugins.{pid}.plugin" in sys.modules
+
+    mgr = M.PluginManager()
+    assert mgr._loaded == {} and not any(map(_ran, ("greeter", "stray", "pomodoro"))), \
+        "a plugin nobody switched on ran its code at start"
+    assert {p["id"]: p["enabled"] for p in mgr.list_installed()} == {
+        "greeter": False, "stray": False, "pomodoro": False}
+    assert mgr.dispatch("GREETER_HELLO", {}) is None
+
+    assert mgr.enable("greeter")["ok"]
+    assert mgr.dispatch("GREETER_HELLO", {"who": "eli"})["content"] == "hello eli"
+    assert {p["id"]: p["enabled"] for p in mgr.list_installed()}["greeter"] is True
+    assert sorted(M.PluginManager()._loaded) == ["greeter"] and not _ran("stray")
+
+    assert mgr.disable("greeter")["ok"]
+    assert M.PluginManager()._loaded == {}
+
+
 def test_plugin_action_is_dispatchable(installed):
     mgr, _, _ = installed
     res = mgr.dispatch("GREETER_HELLO", {"who": "eli"})
@@ -248,10 +290,11 @@ def test_plugin_status_reports_each_plugin_as_its_loader_found_it(installed, mon
 
     import eli.plugins.manager as M
     from eli.execution.executor_enhanced import execute
-    mgr, pdir, _ = installed
+    mgr, pdir, state = installed
     (pdir / "broken").mkdir()
     (pdir / "broken" / "plugin.py").write_text(
         "raise RuntimeError('needs a library that is not installed')\n", encoding="utf-8")
+    state["enabled"] = ["greeter", "broken"]       # switched on, and it cannot load
     mgr._auto_load()
     monkeypatch.setattr(M, "get_manager", lambda: mgr)
     monkeypatch.setattr(mgr, "list_available", lambda: [])

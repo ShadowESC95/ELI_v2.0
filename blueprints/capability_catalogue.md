@@ -242,7 +242,7 @@ for an action no built-in branch handles. "Plugin" is the plugin that declares t
 | `SPEAK` | tts (its actions run this) | Text-to-speech through `tts_router` (Piper, espeak fallback). |
 | `NEWS_FETCH` | — (executor + news tool) | Fetch headlines and read them as a short briefing (`news_synthesis.synthesise_news_briefing`: a general ask mixes top stories with the user's interests, a topic ask keeps to the topic); also stored-news search, recent headlines (refetched after 6 hours) and store stats. The proactive daemon summarises each 3-hour window into `news_reflections`; only windows with real articles become memories. |
 
-*(Also reachable through the plugin manager: `web_automation` plugin — Playwright browser navigate/search/screenshot/close; `document_reader` plugin — PDF/DOCX/DOC/ODT/EPUB read + index, whose reader `READ_FILE` and `SUMMARIZE_FILE` use.)*
+*(Also reachable through the plugin manager, once switched on (Marketplace ▸ Installed ▸ Enable): `web_automation` plugin — Playwright browser navigate/search/screenshot/close; `document_reader` plugin — PDF/DOCX/DOC/ODT/EPUB read + index, whose reader `READ_FILE` and `SUMMARIZE_FILE` use.)*
 
 ---
 

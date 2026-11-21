@@ -1099,7 +1099,9 @@ clean that it didn't fully check.
 
 ### Permissions — like your phone
 
-A newly installed plugin arrives **switched off with no permissions at all**.
+A newly installed plugin arrives **switched off with no permissions at all**. The plugins that
+ship with ELI are listed under **Installed** switched off as well: none of a plugin's code runs
+until you enable it.
 
 When you enable it and it first wants to do something — reach the internet, read your
 files, use your microphone — ELI asks. The message names the plugin, says what it can
