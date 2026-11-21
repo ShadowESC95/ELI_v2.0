@@ -62,7 +62,7 @@ leaving your hardware.** Point your phone at it over your own Wi-Fi and it's the
 Under that simple surface it's a **local cognitive runtime**, not a chatbot bolted onto someone
 else's API: a 12-stage reasoning pipeline, a fleet of specialist agents on a DAG orchestrator,
 layered memory (SQLite + a FAISS vector index + a knowledge graph), local voice and vision, and its
-own smart-home server — all behind a single typed or spoken interface with **231 capabilities**.
+own smart-home server — all behind a single typed or spoken interface with **232 capabilities**.
 You bring your own GGUF model; ELI is model-, user-, and hardware-agnostic by design.
 
 I built it on one conviction: **your AI should belong to you — the person using it — not the
@@ -122,7 +122,7 @@ day:
 Asking *"what can you do?"* lists the full surface.
 
 <details>
-<summary><b>Full capability breadth — 231 capabilities across 17 areas</b></summary>
+<summary><b>Full capability breadth — 232 capabilities across 17 areas</b></summary>
 
 | Area | What's in it |
 |---|---|
@@ -350,7 +350,8 @@ you're looking — a genuine hands-free and accessibility capability. All local,
 
 **Image generation.** A from-scratch procedural renderer with seven scene types (landscape, space,
 cityscape, poster, emblem, abstract, product) — no model required. Plus optional SSD-1B diffusion
-with VRAM hot-swap, and matplotlib plotting from your data.
+with VRAM hot-swap, and matplotlib plotting from your data. Ask for a picture in chat ("draw me a
+lighthouse") in the desktop app, the web app, the API or MCP.
 
 **Documents and files.** Create, read, summarise, and analyse files (CSVs, PDFs, images — single
 or whole folders); **convert any document** to PDF, `.docx`, `.odt`, `.rtf`, HTML, Markdown,
