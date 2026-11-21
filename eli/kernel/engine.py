@@ -13765,9 +13765,11 @@ Answer:"""
                             kwargs.get("bypass_persona")
                             or intent.get("bypass_persona")
                             or _action_upper in _verbatim_always_actions
+                            # The rule every other path asks: in Quick any direct-result action, and in every
+                            # mode a confirmation with nothing to add (a timer, an alarm, the calendar). This
+                            # block returns before those paths, so a timer was re-worded outside Quick.
                             or (
-                                _direct_mode == "quick"
-                                and _action_upper in _deterministic_direct_payload_actions
+                                _shown_as_is(_action_upper, reasoning_mode)
                                 and not _self_report_depth_followup
                                 and not _explain_in_words
                             )

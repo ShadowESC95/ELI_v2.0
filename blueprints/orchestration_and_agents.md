@@ -163,18 +163,16 @@ on a worker thread is recorded on the turn and carries the user id.
   `_compact_grounded_synthesis()` (constrained to quote from evidence, validated against it,
   falling back to the raw evidence).
 - `_verbatim_always_actions` (16 entries): verbatim in every mode.
-- `_shown_as_is(action, reasoning_mode)` is the same decision for the two other places an
-  action result is returned (the agent-bus path and the general executor path). They used to
-  keep shorter lists of their own, so a calendar or timer result went through a full generation
-  there and came back reworded. `_ALWAYS_AS_IS` (calendar, alarm, timer, `MULTI_COMMAND`,
-  `SEQUENCE`) is verbatim in every mode on those paths, and so are results that ask the user
-  for a detail (`_asks_the_user`).
+- `_shown_as_is(action, reasoning_mode)` is the one decision for every place an action result
+  is returned (the control path below, the agent-bus path and the general executor path). They
+  used to keep shorter lists of their own, so a calendar or timer result went through a full
+  generation and came back reworded. `_ALWAYS_AS_IS` (calendar, alarm, timer, `MULTI_COMMAND`,
+  `SEQUENCE`) is verbatim in every mode, and so are results that ask the user for a detail
+  (`_asks_the_user`).
 - The control path runs first for actions in `_DIRECT_FINAL_ACTIONS` and the control
-  contracts, and it reads only `_verbatim_always_actions` and Quick mode. `SET_TIMER` and
-  `SET_ALARM` are in `_DIRECT_FINAL_ACTIONS`, so from Normal to Expert their confirmation is
-  re-worded there by `_compact_grounded_synthesis()` before `_ALWAYS_AS_IS` is reached.
-  `MULTI_COMMAND`, `SEQUENCE` and the calendar actions are not in it: their results are shown
-  as they are in every mode.
+  contracts. It returns the result as it is for `_verbatim_always_actions` and whenever
+  `_shown_as_is` says so, so `SET_TIMER` and `SET_ALARM`, which are in `_DIRECT_FINAL_ACTIONS`,
+  keep their confirmation word for word from Quick to Expert.
 - Deterministic controls never reach these blocks. The actions in
   `_PHASE45_DIRECT_FAST_ACTIONS`, plus every app, window, input and media control in the
   capability catalogue, go straight to the executor, and its result is the reply in every mode.

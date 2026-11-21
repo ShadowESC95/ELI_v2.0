@@ -372,6 +372,7 @@ def test_calendar_and_timer_results_are_never_handed_to_the_model_to_reword():
         assert action in E._DIRECT_RESULT_ACTIONS
     src = inspect.getsource(E.CognitiveEngine._process_impl)
     assert src.count("_shown_as_is(action, reasoning_mode)") >= 2          # both paths that return an action's result
+    assert "_shown_as_is(_action_upper, reasoning_mode)" in src            # and the bus path's direct-result block
     assert "_deterministic_direct_payload_actions = _DIRECT_RESULT_ACTIONS" in src
 
 
@@ -543,6 +544,31 @@ def test_a_compound_time_question_is_not_answered_with_the_clock_alone():
 def test_one_rule_decides_whether_a_result_is_shown_as_it_is(action, mode, as_is):
     from eli.kernel.engine import _shown_as_is
     assert _shown_as_is(action, mode) is as_is
+
+
+@pytest.mark.parametrize("text,action", [("set a timer for 10 minutes", "SET_TIMER"),
+                                         ("set an alarm for 7am", "SET_ALARM")])
+def test_a_timer_or_alarm_confirmation_reaches_the_user_word_for_word_in_every_mode(text, action, monkeypatch):
+    """Both are in _DIRECT_FINAL_ACTIONS, so the bus path's direct-result block returned them before
+    _shown_as_is was asked, and in every mode but Quick the model re-worded the confirmation."""
+    from eli.cognition import agent_bus as ab
+    from eli.kernel.engine import CognitiveEngine
+    said = f"{action} done: it goes off at 07:00."
+    result = {"ok": True, "action": action, "content": said, "response": said}
+
+    def _dispatch(self, user_input, intent, **kw):            # the bus ran the action; nothing real is set
+        return ab.DispatchResult(
+            intent_action=action, intent_confidence=0.95, action_result=dict(result),
+            agent_results=[ab.AgentResult(agent="system", ok=True, confidence=0.92, data=dict(result))],
+            aggregated_confidence=0.9, grounding_confidence=0.9, agents_used=["system"])
+
+    monkeypatch.setattr(ab.AgentBus, "dispatch", _dispatch)
+    monkeypatch.setattr(CognitiveEngine, "_compact_grounded_synthesis",
+                        lambda self, **kw: "Sure thing! Everything is sorted for you.")
+    eng = CognitiveEngine()
+    for mode in ("quick", "chain_of_thought", "tree_of_thoughts"):
+        out = eng.process(text, reasoning_mode=mode)
+        assert out.get("action") == action and out.get("content") == said, mode
 
 
 # ── old talk is not this conversation ────────────────────────────────────────
