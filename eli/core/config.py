@@ -352,15 +352,27 @@ def set_n_threads(n: int) -> None:
 
 # ---------- Network / offline policy ----------
 
+_OFFLINE_VALUES_UNREAD: dict = {}        # values said once (this module's set() is the setter)
+
+
 def network_allowed() -> bool:
     """Return True only if networked features are explicitly enabled.
 
-    Defaults OFF so ELI's 'fully offline' claim is true out of the box.
-    Opt-in via settings (network_enabled=true) or ELI_OFFLINE=0/false/no env var.
+    Defaults OFF so ELI's 'fully offline' claim is true out of the box. Opt-in via settings
+    (network_enabled=true) or ELI_OFFLINE set to an explicit false: 0, false, no or off.
+    ELI_OFFLINE=1 (true, yes, on) keeps ELI offline whatever the setting says. Any other value, an
+    empty one included, is read as unset. Every value but 1, true and yes used to turn the network
+    on, an empty ELI_OFFLINE= and a misspelt one among them.
     """
-    env = os.getenv("ELI_OFFLINE")
-    if env is not None:
-        return env.strip().lower() not in ("1", "true", "yes")
+    env = (os.getenv("ELI_OFFLINE") or "").strip().lower()
+    if env in ("0", "false", "no", "off"):
+        return True
+    if env in ("1", "true", "yes", "on"):
+        return False
+    if env and env not in _OFFLINE_VALUES_UNREAD:
+        _OFFLINE_VALUES_UNREAD[env] = True
+        log.warning("ELI_OFFLINE=%r is neither on (1, true, yes, on) nor off (0, false, no, off); "
+                    "the network setting decides", env)
     return bool(get("network_enabled", False))
 
 

@@ -331,9 +331,11 @@ the same shell gate and CREATE_FILE rules. The web surface adds:
   web dashboard (`GET /v1/net` token-gated read + `POST /v1/net` **admin-only**), persisted via
   `network_enabled`. **Both flips are written to the audit ledger** (`net_toggle`,
   warning-severity on enable) — the web *and* the desktop toggle. The `ELI_OFFLINE` environment
-  variable, when set, overrides the setting (`core/config.network_allowed`): `1`, `true` or `yes`
-  keeps ELI offline and any other value turns the network on. Full Control lifts the offline
-  barrier too.
+  variable overrides the setting (`core/config.network_allowed`): `1`, `true`, `yes` or `on`
+  keeps ELI offline and `0`, `false`, `no` or `off` turns the network on; any other value, an
+  empty one included, is read as unset (the setting decides, and the log says the value was not
+  understood). Before 2.5.37 every value but `1`, `true` and `yes` turned the network on. Full
+  Control lifts the offline barrier too.
 - **Egress is genuinely monitored, not a blind hole.** While network is on, the same socket
   chokepoint that enforces offline mode also **records every allowed non-loopback connection**
   (host:port + timestamp): into an **in-memory ring** (live tail; `GET /v1/net/egress` + the

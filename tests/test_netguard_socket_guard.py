@@ -19,6 +19,21 @@ def test_socket_guard_blocks_remote_connect_when_offline(monkeypatch):
         sock.close()
 
 
+@pytest.mark.parametrize("value, setting, allowed", [
+    ("0", False, True), ("false", False, True), ("No", False, True), ("off", False, True),  # explicit off
+    ("1", True, False), ("yes", True, False), ("on", True, False),                         # explicit on
+    ("", False, False), ("maybe", False, False), ("   ", False, False),                   # unset: the setting
+    ("", True, True), ("maybe", True, True),
+])
+def test_only_an_explicit_off_value_of_eli_offline_turns_the_network_on(monkeypatch, value, setting, allowed):
+    """Every ELI_OFFLINE value but 1, true and yes turned the network on: an empty ELI_OFFLINE=, a
+    misspelt value, even "on"."""
+    from eli.core import config
+    monkeypatch.setenv("ELI_OFFLINE", value)
+    monkeypatch.setattr(config, "get", lambda key, default=None: setting if key == "network_enabled" else default)
+    assert config.network_allowed() is allowed
+
+
 def test_socket_guard_allows_loopback_when_offline(monkeypatch):
     monkeypatch.setenv("ELI_OFFLINE", "1")
     install_socket_guard()
