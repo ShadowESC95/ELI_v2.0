@@ -400,6 +400,40 @@ def test_an_element_named_by_what_is_written_on_it_is_found_by_that(said, query,
     assert route("click the link")["args"]["query"] != "the"
 
 
+def test_a_numbered_workspace_is_that_workspace(monkeypatch):
+    """"switch workspace 2" stepped one workspace to the right and said it had switched; "switch to
+    workspace 3" looked for an app called "workspace 3"."""
+    import subprocess
+    for said, n in (("switch workspace 2", 2), ("switch to workspace 3", 3), ("go to desktop three", 3)):
+        r = route(said)
+        assert r["action"] == "SWITCH_WORKSPACE" and r["args"] == {"number": n}, r
+    assert route("switch workspace left")["args"] == {"direction": "left"}
+
+    showing, ran = {"now": 1}, []
+
+    def fake_run(argv, timeout=8.0):          # a desktop with four workspaces, as wmctrl -d lists them
+        ran.append(argv)
+        if argv[1:] == ["-d"]:
+            rows = "\n".join(f"{i}  {'*' if i + 1 == showing['now'] else '-'} DG: 1x1  VP: 0,0  WA: 0,0 1x1  W{i + 1}"
+                             for i in range(4))
+            return subprocess.CompletedProcess(argv, 0, rows, "")
+        if argv[1] == "-s":
+            showing["now"] = int(argv[2]) + 1
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        return subprocess.CompletedProcess(argv, 1, "", "")
+
+    monkeypatch.setattr(pac, "_system", lambda: "linux")
+    monkeypatch.setattr(pac.shutil, "which", lambda name: "/usr/bin/wmctrl" if name == "wmctrl" else None)
+    monkeypatch.setattr(pac, "_run", fake_run)
+    out = pac.switch_workspace(number=3)
+    assert out["ok"] and ["/usr/bin/wmctrl", "-s", "2"] in ran and showing["now"] == 3, out
+    out = pac.switch_workspace(number=5)
+    assert not out["ok"] and "4 workspaces" in out["content"], out
+    monkeypatch.setattr(pac, "_system", lambda: "windows")
+    out = pac.switch_workspace(number=2)
+    assert not out["ok"] and "left or right" in out["content"], out
+
+
 @pytest.mark.parametrize("said,action", [("left click", "GAZE_CLICK"), ("click play", "MEDIA_CONTROL"),
                                          ("press enter", "KEYBOARD"), ("find cheap flights to rome", "OPEN_BROWSER")])
 def test_mouse_media_keys_and_web_are_unchanged(said, action):

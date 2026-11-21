@@ -1080,8 +1080,73 @@ def previous_window() -> dict:
     return _linux_only("PREVIOUS_WINDOW", "Cycle windows backward")
 
 
-def switch_workspace(direction: str = "right") -> dict:
+# A window manager answers a request to change workspace in its own time, so the workspace showing is
+# read back for up to this long before the switch is called a failure.
+_WORKSPACE_SETTLE_S = 1.0
+
+
+def _linux_workspaces() -> Optional[tuple]:
+    """(how many workspaces there are, which one is showing counting from 1, or 0 when unknown), as the
+    desktop reports them through EWMH (wmctrl, else xdotool); None where neither can say."""
+    wmctrl = shutil.which("wmctrl")
+    if wmctrl:
+        cp = _run([wmctrl, "-d"])
+        rows = [r for r in (cp.stdout or "").splitlines() if r.strip()] if cp.returncode == 0 else []
+        if rows:
+            showing = next((i + 1 for i, r in enumerate(rows) if re.match(r"^\s*\d+\s+\*", r)), 0)
+            return len(rows), showing
+    xdotool = shutil.which("xdotool")
+    if xdotool:
+        count, showing = _run([xdotool, "get_num_desktops"]), _run([xdotool, "get_desktop"])
+        if count.returncode == 0 and (count.stdout or "").strip().isdigit():
+            now = (showing.stdout or "").strip()
+            return int(count.stdout.strip()), (int(now) + 1 if showing.returncode == 0 and now.isdigit() else 0)
+    return None
+
+
+def _switch_to_workspace(number: int, sysname: str) -> dict:
+    """Workspace `number`, counting from 1. On Linux the desktop can be asked for a workspace by its
+    number and says how many it has (EWMH). Elsewhere ELI can only step one workspace left or right,
+    and says so: "switch workspace 2" stepped one to the right and reported it as done."""
+    if sysname != "linux":
+        return _result(False, "SWITCH_WORKSPACE",
+                       f"Here I can only move one workspace left or right, not go to workspace {number} "
+                       f"by its number.", platform=sysname)
+    have = _linux_workspaces()
+    if have is None:
+        what = f"go to workspace {number}"
+        return _result(False, "SWITCH_WORKSPACE",
+                       _wayland_window_advice(what) if display_server() == "wayland"
+                       else f"Could not {what}: going to a workspace by its number needs wmctrl or xdotool.")
+    count, showing = have
+    if not 1 <= number <= count:
+        return _result(False, "SWITCH_WORKSPACE",
+                       f"There {'is' if count == 1 else 'are'} {count} workspace{'' if count == 1 else 's'} "
+                       f"here, so there is no workspace {number}.", workspaces=count)
+    if showing == number:
+        return _result(True, "SWITCH_WORKSPACE", f"Workspace {number} is already showing.", workspaces=count)
+    wmctrl, xdotool = shutil.which("wmctrl"), shutil.which("xdotool")
+    asked = ((wmctrl and _run([wmctrl, "-s", str(number - 1)]).returncode == 0)
+             or (xdotool and _run([xdotool, "set_desktop", str(number - 1)]).returncode == 0))
+    if asked:
+        import time as _t
+        deadline = _t.monotonic() + _WORKSPACE_SETTLE_S
+        while True:
+            now = _linux_workspaces()
+            if now and now[1] == number:
+                return _result(True, "SWITCH_WORKSPACE", f"Switched to workspace {number}.", workspaces=count)
+            if _t.monotonic() >= deadline:
+                break
+            _t.sleep(_WORKSPACE_SETTLE_S / 10)
+    return _result(False, "SWITCH_WORKSPACE",
+                   f"Asked for workspace {number}, but the desktop did not change to it.", workspaces=count)
+
+
+def switch_workspace(direction: str = "right", number: Optional[int] = None) -> dict:
+    """One workspace left or right, or, with `number`, that workspace (counting from 1)."""
     sysname = _system()
+    if number is not None:
+        return _switch_to_workspace(int(number), sysname)
     if sysname == "linux":
         key = "ctrl+alt+Right" if str(direction).lower() == "right" else "ctrl+alt+Left"
         if _xdotool_key(key):

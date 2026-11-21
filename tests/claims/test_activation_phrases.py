@@ -62,7 +62,6 @@ _EXEMPT = {
     "ANALYZE_IMAGE": "needs a concrete image path; bare phrase ambiguous",
     "ANALYZE_PDF_FOLDER": "needs a concrete folder; bare phrase ambiguous",
     "CODE_SOLVE": "composite coding task; phrasing variable",
-    "SWITCH_WORKSPACE": "overlaps window focus",
     "PLUGIN_SEARCH": "plugin-registry search; overlaps web search",
     "EXPLAIN_COGNITION_RUNTIME": "routes to CHAT → introspection gathers + persona summarises",
     "SHELL_EXEC": "security-gated; bare phrase → CHAT unless full-control enabled",

@@ -10259,7 +10259,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "SWITCH_WORKSPACE":
         from eli.system.portable_app_control import switch_workspace
         direction = str(args.get("direction") or "right").lower()
-        out = switch_workspace(direction)
+        _number = args.get("number")
+        out = switch_workspace(direction, number=int(_number) if str(_number or "").strip().isdigit() else None)
         out.setdefault("action", a)
         return out
 

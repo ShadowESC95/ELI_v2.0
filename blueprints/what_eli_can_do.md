@@ -143,7 +143,7 @@ multi-part questions answered as multiple answers; tone that adapts over time.
 
 ### 🖥️ Run your computer
 Open / close / focus / minimise / maximise apps and windows; tile windows;
-switch workspaces (next / previous); next/previous window; open the system, audio
+switch workspaces (next / previous, or by number on Linux); next/previous window; open the system, audio
 and power settings, the file manager and the communications hub; open your IDE
 (optionally at a file); open URLs and the browser. App-launch is backed by a live index of **your
 machine's executables** (thousands — indexed from your own system, so the exact

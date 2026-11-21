@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-11-20T23:32:41",
+  "generated_at": "2026-11-21T05:05:13",
   "total": 231,
   "capabilities": [
     {
@@ -1903,9 +1903,9 @@
     },
     {
       "action": "SWITCH_WORKSPACE",
-      "source": "executor",
+      "source": "executor+router",
       "plugin": null,
-      "routable": false,
+      "routable": true,
       "in_dispatch": true,
       "in_supported_list": true,
       "needs": []

@@ -64,7 +64,7 @@ behaviours**. Alias families are grouped below so the real surface is visible.
 | `FOCUS_APP` | Bring an app's window to the front; a browser tab only when it is the one showing in its window. |
 | `HIDE_APP` = `MINIMISE_APP` = `MINIMIZE_APP` = `MINIMISE_WINDOW` = `MINIMIZE_WINDOW`, `MAXIMISE_WINDOW` | Minimise a named app's window (UK/US spellings aliased); maximise a named window, or the active one when none is named. |
 | `MINIMISE_ALL`, `RESTORE_WINDOWS`, `TILE_WINDOWS`, `NEXT_WINDOW`, `PREVIOUS_WINDOW` | Desktop window management (`portable_app_control`). |
-| `SWITCH_WORKSPACE` | Switch virtual desktop/workspace (`direction`, right by default). |
+| `SWITCH_WORKSPACE` | Move one workspace left or right (`direction`, right by default), or go to a workspace by its number (`number`, from 1): on Linux through EWMH (wmctrl, else xdotool), checked against how many there are and read back after; on Windows and macOS it says it can only step left or right. |
 | `OPEN_SYSTEM_SETTINGS`, `OPEN_AUDIO_SETTINGS`, `OPEN_POWER_SETTINGS` | Open the OS's own settings panel (`platform_compat.open_role`: ms-settings: on Windows, System Settings panes on macOS, the desktop's panel on Linux). |
 | `OPEN_FILE_SYSTEM` | Open a folder in the file manager: home by default, the trash, or a named path under home, Desktop or Documents. |
 | `OPEN_COMMUNICATION_HUB`, `OPEN_MEDIA_HUB`, `OPEN_NETWORK_BROWSER` | This OS's mail app (else whatever opens `mailto:` links); Spotify when installed, else the OS's music player, else the Music folder; the browser at a URL (DuckDuckGo by default). |

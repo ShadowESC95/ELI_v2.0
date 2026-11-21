@@ -3995,6 +3995,16 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
          r"\bswitch\s+workspace\b|\bnext\s+desktop\b|\bprevious\s+desktop\b",
          "SWITCH_WORKSPACE"),
     )
+    # "switch workspace 2", "go to desktop three": that workspace by its number. It moved one workspace
+    # to the right, and "switch to workspace 3" looked for an app called "workspace 3".
+    _ws_m = re.fullmatch(
+        r"(?:please\s+)?(?:(?:switch|go|move|change|jump|flip)\s+(?:over\s+)?(?:to\s+)?|take\s+me\s+to\s+)?"
+        r"(?:the\s+)?(?:workspace|virtual\s+desktop|desktop)\s+(?:number\s+|no\.?\s+|#\s*)?"
+        r"(\d{1,2}|one|two|three|four|five|six|seven|eight)(?:\s+please)?[.!]*", low.strip())
+    if _ws_m and _eli_lrf_word_to_int(_ws_m.group(1)):
+        _ws_n = _eli_lrf_word_to_int(_ws_m.group(1))
+        return _mk("SWITCH_WORKSPACE", {"number": _ws_n}, 0.95, matched_by="window.switch_workspace_number",
+                   entities={"number": _ws_n})
     for _wre, _waction in _window_ops:
         if re.search(_wre, low):
             args_w: Dict[str, Any] = {}
