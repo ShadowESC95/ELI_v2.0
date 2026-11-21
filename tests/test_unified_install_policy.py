@@ -263,3 +263,11 @@ def test_safe_mode_reaches_eli_as_the_variable_it_reads(tmp_path):
     root, log = _startup_tree(tmp_path, with_venv=True)
     assert _run_startup(root, log, "--safe-mode", "--no-setup") == ["launch 1 DISABLE="]
     assert _run_startup(root, log, "--no-setup")[-1] == "launch  DISABLE="
+
+
+def test_assets_are_restored_after_the_setup_the_same_run_does(tmp_path):
+    """`./RUN_ELI.sh --with-github-assets` on a fresh extract ran setup and then skipped the restore,
+    because the restore was only done on runs without setup: the one run that needed it."""
+    root, log = _startup_tree(tmp_path, with_venv=False)
+    assert _run_startup(root, log, "--with-github-assets") == ["setup", "restore", "launch  DISABLE="]
+    assert _run_startup(root, log, "--with-github-assets", "--no-setup")[-2:] == ["restore", "launch  DISABLE="]

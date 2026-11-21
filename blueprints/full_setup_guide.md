@@ -170,8 +170,8 @@ the per-user `ELI_v2` folder instead.)
 
 **The starter pack:** the release page also has a tag called `local-assets-v2.1`
 containing a few small starter models, the memory embedder, and voice files. If you have the
-GitHub `gh` tool set up, `./RUN_ELI.sh --with-github-assets` (portable package, once it is set
-up) fetches it all in one go.
+GitHub `gh` tool set up, `./RUN_ELI.sh --with-github-assets` (portable package; on a fresh extract it sets ELI
+up first) fetches it all in one go.
 
 ---
 

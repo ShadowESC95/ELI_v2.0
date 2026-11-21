@@ -122,7 +122,8 @@ if ! "$PY" -c "from llama_cpp import llama_cpp as _lc; _lc.llama_backend_init()"
   fi
 fi
 
-if [ "$RESTORE_ASSETS" -eq 1 ] && [ "$need_setup" -eq 0 ]; then
+# After any setup this run did: on a fresh extract setup is what makes the Python the restore runs on.
+if [ "$RESTORE_ASSETS" -eq 1 ]; then
   echo "[startup] restoring GitHub model/voice assets from $REPO@$TAG"
   "$PY" "$ROOT/scripts/restore_github_asset_files.py" --repo "$REPO" --tag "$TAG"
 fi

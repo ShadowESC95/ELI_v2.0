@@ -194,8 +194,8 @@ GPU pack is prebuilt.
 | **Voice** (default amy) | `models/tts/piper/` + `tts_piper/piper/`; whisper in `models/whisper/` | ~60 MiB Piper + ~464 MiB whisper | `voice_assets` / asset pack |
 
 GitHub Release tag **`local-assets-v2.1`** mirrors embedder + starter chat GGUFs +
-cleared Piper voices. Restore: `./RUN_ELI.sh --with-github-assets` (on a set-up portable
-install; `./scripts/eli_startup.sh --with-github-assets` in a clone). Voices that are not
+cleared Piper voices. Restore: `./RUN_ELI.sh --with-github-assets` (portable install, set up first
+when it is not yet; `./scripts/eli_startup.sh --with-github-assets` in a clone). Voices that are not
 cleared for redistribution — ryan, lessac, cori — are not in that release and are skipped
 on restore; see `models/MODEL_LICENSES.md`.
 

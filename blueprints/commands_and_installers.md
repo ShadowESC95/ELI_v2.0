@@ -205,8 +205,8 @@ gh auth login
 python3 scripts/restore_github_asset_files.py --from-dir /path/to/downloaded/assets
 ```
 
-`--with-github-assets` restores only on an install that is already set up: when the same run
-has to install ELI first, the restore is skipped, so run it again after setup.
+`--with-github-assets` restores after setup when the same run has to install ELI first, then
+launches.
 
 ---
 

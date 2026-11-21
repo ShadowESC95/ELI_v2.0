@@ -353,7 +353,7 @@ Binds FastAPI server (`python -m api.server`). Default `127.0.0.1` (tokenless); 
 
 ### `scripts/eli_startup.sh` — Smart startup pipeline
 
-Install-if-needed (`--setup` forces `scripts/eli_setup.sh`), optional GitHub asset restore (`scripts/restore_github_asset_files.py`; skipped on a run that just installed), llama-cpp SIGILL repair via `install.sh --yes --cpu-only --auto-model`, optional trace, tee logs to `artifacts/startup/logs/`. Default auto-setup when `.venv` missing. Arguments it does not know (or after `--`) go to `python -m eli`.
+Install-if-needed (`--setup` forces `scripts/eli_setup.sh`), optional GitHub asset restore (`scripts/restore_github_asset_files.py`; after setup when the same run does one), llama-cpp SIGILL repair via `install.sh --yes --cpu-only --auto-model`, optional trace, tee logs to `artifacts/startup/logs/`. Default auto-setup when `.venv` missing. Arguments it does not know (or after `--`) go to `python -m eli`.
 
 **Flags:** `--setup`, `--no-setup`, `--with-github-assets`, `--repo`, `--tag`, `--trace` (`ELI_PIPELINE_TRACE=1`), `--safe-mode` (sets `ELI_SAFE_MODE=1`: ELI starts no proactive daemon and loads no plugin at start; a plugin enabled during the session still loads, and MCP servers start only when one of their tools is used, as always), `--no-log`.
 

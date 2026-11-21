@@ -49,7 +49,7 @@ that you should ignore.
 | `ELI_Setup.sh` says **PySide6 is not installed** | `bash install.sh --yes --auto-model` then `./RUN_ELI.sh` |
 | I want to install now and launch later, separately | `./INSTALL_ELI.sh` then `./RUN_ELI.sh` |
 | My computer has **no NVIDIA graphics card** | `./ELI_Setup.sh` — the hardware check picks the CPU build by itself; to force it: `ELI_INSTALL_CPU_ONLY=1 ./ELI_Setup.sh` |
-| I want ELI's starter models + voices too (big download) | `./RUN_ELI.sh --with-github-assets` (once ELI is set up) |
+| I want ELI's starter models + voices too (big download) | `./RUN_ELI.sh --with-github-assets` (sets ELI up first if it is not yet) |
 | I want to use ELI from my **phone or tablet** | `./scripts/eli_serve.sh --lan --https` |
 | I'm on **Windows** | `install.bat` (or the `Setup.exe` from GitHub Releases) |
 | I'm a developer building release packages | `build_packages.sh` — *not for normal use* |
@@ -69,7 +69,7 @@ think until one is present. Two ways to get one:
   gh auth login                       # one-time: log in to GitHub
   ./RUN_ELI.sh --with-github-assets   # downloads the model/voice pack, then launches
   ```
-  (On a run that first has to install ELI, the download is skipped; run it again afterwards.)
+  (On a run that first has to install ELI, the download follows the install.)
 - **Automatic model download** (guided), if you prefer just the model:
   ```bash
   .venv/bin/python -m eli.core.model_download --auto
@@ -115,8 +115,8 @@ it will install first if needed.
 engine starts on this CPU (reinstalling a CPU build if it does not), optionally restores the
 model/voice assets, then launches the app and keeps a log of the start under
 `artifacts/startup/logs/`.
-**Useful options:** `--with-github-assets` (fetch the model/voice pack before launching, on an
-install that is already set up), `--trace` (turns on the pipeline trace: each request's route
+**Useful options:** `--with-github-assets` (fetch the model/voice pack before launching, after
+the setup a fresh extract gets first), `--trace` (turns on the pipeline trace: each request's route
 and stages are logged at debug level),
 `--no-setup` (skip the install check), `--no-log` (no log file).
 **To you:** the "open ELI" button.
