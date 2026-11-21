@@ -258,8 +258,9 @@ def _get_model():
 
 
 def _select_device() -> str:
-    """cuda if free VRAM allows, else cpu. ``ELI_XTTS_DEVICE`` forces it — this is
-    how the startup picker pins the choice made BEFORE the main model grabs VRAM."""
+    """cuda when this torch build can use a GPU, else cpu; free VRAM is not checked. ``ELI_XTTS_DEVICE``
+    forces it (cuda only where torch has CUDA) — this is how the startup picker pins the choice made
+    BEFORE the main model grabs VRAM."""
     import os
     forced = os.environ.get("ELI_XTTS_DEVICE", "").strip().lower()
     if forced == "cpu":

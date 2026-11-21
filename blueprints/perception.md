@@ -396,10 +396,9 @@ as a personal memory and summarise from the first 17 documents.
      even the co-resident path runs CPU clip (~3.5s). Acceptable, not fast.
   2. `audio_stt.py` is a **2.5k-line** module mixing capture, ducking, echo
      suppression, command aliasing, and cleanup — wants splitting.
-  3. **Residual "7B" comments** in `ambient_vision.py` ("the 7B vision model
-     hot-swaps…") and in `vision.py`'s module docstring ("default: Qwen2.5-VL-7B", though no
-     model is built in) — cosmetic, but inconsistent with the model-agnostic line;
-     should read "the vision model". (Flagged for a future scrub.)
+  3. The "7B" comments in `ambient_vision.py` and in `vision.py`'s module docstring
+     ("default: Qwen2.5-VL-7B", though no model is built in) were taken out in 2.5.37: both
+     now say "the vision model", as the code is model-agnostic.
   4. `gaze_engine.py` is experimental and off by default — fine, but it's carried
      weight.
   5. Platform tools are detected at call time; a machine missing

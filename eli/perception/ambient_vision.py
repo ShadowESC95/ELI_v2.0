@@ -7,8 +7,8 @@ captures the screen every `ambient_vision_interval` seconds, runs the local
 vision model on it, and stores a short description as memory so ELI has a
 rolling sense of what the user is doing.
 
-Because the 7B vision model hot-swaps with the text model (see vision.py), each
-glance briefly unloads the text model. To avoid stealing the model mid-thought,
+Because the vision model hot-swaps with the text model by default (see vision.py),
+a glance may briefly unload the text model. To avoid stealing the model mid-thought,
 a glance is SKIPPED whenever the shared LLM lock is busy (i.e. ELI is generating
 a reply). The toggle and interval are re-read every cycle, so they take effect
 without restarting ELI.

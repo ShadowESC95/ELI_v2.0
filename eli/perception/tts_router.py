@@ -2,11 +2,14 @@
 """
 tts_router.py — TTS router for ELI.
 
-Priority:
-1. Piper (Python API, no binary required) — uses ONNX voices
-2. Piper CLI binary (fallback if Python API fails)
-3. pyttsx3
-4. espeak-ng / espeak
+What speaks a reply (_run_tts_impl):
+1. A character, cloned or natural voice (char:, clone:, natural:) is rendered by synthesize_wav (the
+   effect chain, or XTTS with Piper behind it) and played.
+2. A system voice (sys:) speaks through pyttsx3 (SAPI, NSS, espeak).
+3. Every other voice is Piper's (ONNX voices): the piper program first (ELI_PIPER_BINARY /
+   ELI_PIPER_BIN, the packaged one, ELI's own, then PATH), and Piper's Python library in this
+   process only where no program is found (the packaged app ships none).
+4. When Piper fails, a system voice only if ELI_TTS_FALLBACK asks for one; nothing otherwise.
 """
 from __future__ import annotations
 

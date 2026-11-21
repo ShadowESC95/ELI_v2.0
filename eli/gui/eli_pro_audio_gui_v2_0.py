@@ -2494,7 +2494,7 @@ class EliMainWindow(QMainWindow):
         """Deep-thinking toggle for models whose chat template enables reasoning.
         ON = the answer call may think (quality, slower); OFF = no thinking.
         Utility calls (routing/JSON/summary) never think regardless. Live: sets
-        ELI_MODEL_THINK now (read per-call by gguf_inference._no_think_prefill) — no
+        ELI_MODEL_THINK now (read per-call by gguf_inference._thinking_wanted) — no
         model reload — and persists the choice. No effect when the loaded model
         has no thinking channel."""
         try:

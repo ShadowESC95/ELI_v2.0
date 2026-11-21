@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
 """
 ELI local vision — true image understanding via a local GGUF vision-language
-model (default: Qwen2.5-VL-7B), run through llama-cpp-python's multimodal
-chat handler.
+model, run through llama-cpp-python's multimodal chat handler. No model is
+named here: ELI_VISION_MODEL / ELI_VISION_MMPROJ, the settings, or any GGUF
+in the models folder paired with a projector (see vision_settings).
 
-100% local, no network at inference time. Because a 7B VL model will not
-co-reside with the 7B text model on an 8GB GPU, this module HOT-SWAPS: it
-unloads the text model, loads the VL model, runs the vision call, then always
-restores the text model (even on failure). The whole swap holds the shared
-gguf_inference LLM lock so no text-generation call can race a half-loaded GPU.
+100% local, no network at inference time. A VL model and the text model may
+not fit in VRAM together, so by default this module HOT-SWAPS: it unloads the
+text model, loads the VL model, runs the vision call, then always restores the
+text model (even on failure). The fast model can instead stay resident beside
+the text model (vision_coresident / vision_fast_no_swap). The whole swap holds
+the shared gguf_inference LLM lock so no text-generation call can race a
+half-loaded GPU.
 
 Public API:
     vision_settings()                  -> dict of vision config

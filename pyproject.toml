@@ -189,8 +189,9 @@ clone = [
     # as its text encoder. transformers 5.15 no longer exports it, so an unpinned
     # resolve took 5.15.0 in CI and the frozen app died with "Could not import
     # module 'GPT2PreTrainedModel'" — three releases shipped an unusable engine
-    # before the packaged selftest surfaced it. 5.8.1 is verified working here
-    # end-to-end (register a clone, synthesise 24 kHz audio from it).
+    # before the packaged selftest surfaced it. In a source install 5.8.1 (the lock's version
+    # for the rest of ELI) does work end-to-end through ELI's runtime shim (register a clone,
+    # synthesise 24 kHz audio from it); a packaged build cannot use it, as follows.
     # MUST stay below 5. coqui-tts imports `isin_mps_friendly` from
     # transformers.pytorch_utils, which 5.x removed. ELI ships a runtime shim for
     # that, but PyInstaller's collect_submodules imports the package in an ISOLATED
@@ -211,8 +212,9 @@ natural = [
     # as its text encoder. transformers 5.15 no longer exports it, so an unpinned
     # resolve took 5.15.0 in CI and the frozen app died with "Could not import
     # module 'GPT2PreTrainedModel'" — three releases shipped an unusable engine
-    # before the packaged selftest surfaced it. 5.8.1 is verified working here
-    # end-to-end (register a clone, synthesise 24 kHz audio from it).
+    # before the packaged selftest surfaced it. In a source install 5.8.1 (the lock's version
+    # for the rest of ELI) does work end-to-end through ELI's runtime shim (register a clone,
+    # synthesise 24 kHz audio from it); a packaged build cannot use it, as follows.
     # MUST stay below 5. coqui-tts imports `isin_mps_friendly` from
     # transformers.pytorch_utils, which 5.x removed. ELI ships a runtime shim for
     # that, but PyInstaller's collect_submodules imports the package in an ISOLATED
@@ -232,8 +234,9 @@ voice = [
     # as its text encoder. transformers 5.15 no longer exports it, so an unpinned
     # resolve took 5.15.0 in CI and the frozen app died with "Could not import
     # module 'GPT2PreTrainedModel'" — three releases shipped an unusable engine
-    # before the packaged selftest surfaced it. 5.8.1 is verified working here
-    # end-to-end (register a clone, synthesise 24 kHz audio from it).
+    # before the packaged selftest surfaced it. In a source install 5.8.1 (the lock's version
+    # for the rest of ELI) does work end-to-end through ELI's runtime shim (register a clone,
+    # synthesise 24 kHz audio from it); a packaged build cannot use it, as follows.
     # MUST stay below 5. coqui-tts imports `isin_mps_friendly` from
     # transformers.pytorch_utils, which 5.x removed. ELI ships a runtime shim for
     # that, but PyInstaller's collect_submodules imports the package in an ISOLATED

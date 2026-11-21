@@ -937,7 +937,7 @@ The `eli/` package contains **451 Python modules**: 2 at the package root and th
 - `perception/tts_xtts.py` — Voice cloning backend (Coqui XTTS-v2).
 - `perception/ui_ground.py` — Optional UI grounding backends — 100% local by default.
 - `perception/ui_tree.py` — Accessibility-tree UI targeting (Linux / AT-SPI).
-- `perception/vision.py` — ELI local vision — true image understanding via a local GGUF vision-language model (default: Qwen2.5-VL-7B), run through llama-cpp-python's multimodal chat handler.
+- `perception/vision.py` — ELI local vision — true image understanding via a local GGUF vision-language model, run through llama-cpp-python's multimodal chat handler.
 - `perception/voice_fx.py` — Character-voice effects layer.
 - `perception/voice_profile.py` — Voice profile + prosody — the foundation for tone/emotion detection.
 - `perception/voice_worker_streaming.py` — Stream-aware voice worker for ELI.
