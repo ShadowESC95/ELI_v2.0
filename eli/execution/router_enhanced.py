@@ -4853,7 +4853,10 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         # care"). Must refer to the analysis just run, not a fresh "create a document about <topic>"
         # (GENERATE_DOCUMENT). So: no explicit path or topic ("about X", "on X"), and either a
         # back-reference (it/them/these/each) or a short elliptical reply.
-        _has_path_token = bool(re.search(r"[~/]", raw))
+        # A file named by its name is as much a path as one with a folder: after a folder was read,
+        # "convert report.md to pdf" and "summarise report.docx" were taken for "put it in a document".
+        _has_path_token = bool(re.search(r"[~/]", raw)) or any(
+            _names_a_file(w.strip("\"'`(),;:!?")) for w in raw.split())
         _fresh_topic = bool(re.search(r"\b(?:about|regarding|explaining|describing|on\s+the\s+(?:topic|subject)|on\s+\w)", low))
         _referential = bool(re.search(r"\b(?:it|them|these|those|the\s+summar\w+|each|per[\s-]?file|the\s+results?|the\s+docs?|the\s+files?)\b", low))
         _short_reply = len(low.split()) <= 7

@@ -283,3 +283,14 @@ def test_a_word_read_as_misspelt_keeps_the_mark_after_it():
     from eli.runtime.command_splitter import misspelt_commands
     assert all(reading.endswith("?") for reading, _ in misspelt_commands("can you generate images?"))
     assert route("vol don.")["action"] == "VOLUME"
+
+
+def test_a_file_named_after_a_folder_was_read_is_that_file(tmp_path, monkeypatch):
+    """With a folder of PDFs just analysed, "convert report.md to pdf" and "summarise report.docx" were
+    read as "put it in a document" for that folder: a file named by its name did not count as a path."""
+    from eli.execution import router_enhanced as R
+    (tmp_path / "paper.pdf").write_bytes(b"")
+    monkeypatch.setattr(R, "_last_used_path", str(tmp_path))
+    assert route("convert report.md to pdf")["action"] == "CONVERT_DOCUMENT"
+    assert route("summarise report.docx")["action"] == "SUMMARIZE_FILE"
+    assert route("put them in a docx")["action"] == "ANALYZE_PDF_FOLDER"       # the follow-up it is for
