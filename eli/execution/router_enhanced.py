@@ -873,7 +873,9 @@ def _eli_resolve_known_eli_file(low: str):
         candidates = []
         if re.search(r"persona\.?\s*auto|auto\.txt|persona overlay|auto[- ]persona", low):
             candidates.append(root / "eli" / "cognition" / "persona.auto.txt")
-        if "persona" in low and "auto" not in low:
+        # the persona file, not the persona lock ("check the persona lock" summarised persona.txt)
+        if "persona" in low and "auto" not in low and not re.search(
+                r"\bpersona\s+(?:un)?lock|\b(?:un)?lock(?:ed)?\s+(?:\w+\s+)?persona\b", low):
             candidates.append(root / "eli" / "cognition" / "persona.txt")
         if "settings.json" in low or re.search(r"\bsettings\s+(file|json)\b", low):
             candidates.append(root / "config" / "settings.json")
@@ -5090,13 +5092,14 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
         return _mk("CREATE_DOCUMENT", {"topic": topic, "format": "md", "use_advanced_generator": True, "use_gguf_only": True,
                    "forbid_ollama": True}, 0.9, matched_by="doc.generate_structured", entities={"topic": topic})
 
-    # Data fabricator alias
-    if re.search(
-            r"\b(?:fabricate|create|make)\s+data\s+(?:construct|fabricator)\b", raw, re.I):
-        topic_match = re.search(
-            r"fabricate data construct(?:\s+about\s+|\s+on\s+)?(.+)$", raw, re.I)
-        if topic_match:
-            topic = topic_match.group(1).strip()
+    # Data fabricator alias. The topic is read the same after each verb, with or without "a": "make a
+    # data construct about tides" opened a blank file, since only "fabricate data construct" took one.
+    topic_match = re.search(
+        r"\b(?:fabricate|create|make)\s+(?:a\s+|the\s+|me\s+a\s+)?data\s+(?:construct|fabricator)\b"
+        r"(?:\s+(?:about|on|for|of)\s+|\s+)?(.*)$", raw, re.I)
+    if topic_match:
+        topic = topic_match.group(1).strip(" .,!?")
+        if topic:
             return _mk("DATA_FABRICATOR", {
                        "topic": topic}, 0.98, matched_by="alias.data_fabricator", entities={"topic": topic})
         return _mk("DATA_FABRICATOR", {}, 0.98,
@@ -5872,19 +5875,29 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
 
     # ── Persona lock ──────────────────────────────────────────────────────────
     # STATUS must be checked first — "persona lock status" contains "persona lock"
-    # which would be caught by the SET regex if ordered after it.
-    if re.search(r"\bpersona\s+lock\s+status\b|\bcheck\s+persona\s+lock\b|\bis\s+persona\s+locked\b", low):
+    # which would be caught by the SET regex if ordered after it. Each takes "the"/"your" before
+    # "persona": "clear the persona lock" set the lock (the clear rule had no room for "the"), and
+    # "lock your persona" went to chat.
+    _pl = r"(?:(?:the|your|my|eli'?s|this|that)\s+)?"
+    if re.search(rf"\bpersona\s+lock\s+status\b|\b(?:check|show)\s+{_pl}persona\s+lock\b|\bis\s+{_pl}persona\s+locked\b",
+                 low):
         return _mk("PERSONA_LOCK_STATUS", {}, 0.92, matched_by="persona.lock_status")
 
-    if re.search(r"\bunlock\s+persona\b|\bclear\s+persona\s+lock\b|\bpersona\s+unlock\b|"
-                 r"\bremove\s+persona\s+lock\b|\breset\s+persona\s+lock\b", low):
+    if re.search(rf"\bunlock\s+{_pl}persona\b|\b(?:clear|remove|reset|release|drop|delete)\s+{_pl}persona\s+lock\b"
+                 r"|\bpersona\s+unlock\b", low):
         return _mk("PERSONA_LOCK_CLEAR", {}, 0.92, matched_by="persona.lock_clear")
 
-    if re.search(r"\bpersona\s+lock\b|\block\s+persona\b|\bset\s+persona\s+lock\b", low):
+    if re.search(rf"\bpersona\s+lock\b|\block\s+{_pl}persona\b|\bset\s+{_pl}persona\s+lock\b", low):
+        # The model it is locked to: a name or file ("to qwen2.5:7b", "to model.gguf"), as written. "to the
+        # current model" names none, and the handler takes the one running.
         _model_arg = {}
-        _m_model = re.search(r"\bto\s+([a-zA-Z0-9_:/-]+\.(?:gguf|bin|ggml))\b", low)
+        _m_model = re.search(r"\bto\s+(?:the\s+)?(?:model\s+)?([A-Za-z0-9~/][\w.:/+~-]*)(.*)$", raw, re.I)
         if _m_model:
-            _model_arg["model"] = _m_model.group(1)
+            _named = _m_model.group(1).rstrip(".,;:!?")
+            _rest = re.sub(r"\b(?:please|now|thanks|for\s+me)\b", "", _m_model.group(2), flags=re.I).strip(" .,!?")
+            if (_named.lower() not in {"current", "this", "that", "it", "default", "same", "one", "model", "whatever"}
+                    and (re.search(r"[0-9:./]", _named) or not _rest)):
+                _model_arg["model"] = _named
         return _mk("PERSONA_LOCK_SET", _model_arg, 0.92, matched_by="persona.lock_set")
 
     # ── Skip YouTube ad ───────────────────────────────────────────────────────

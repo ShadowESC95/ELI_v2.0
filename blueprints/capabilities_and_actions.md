@@ -18,9 +18,9 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `CHAT` | Open conversation / fallback; persona-bound reply | anything not matching a command · “how are you” · “tell me a story” | Core |
 | `EXPLAIN_LAST_RESPONSE` | Explain why ELI gave its previous answer | “which agents contributed to your last response” · “how long did that take” | Core |
 | `CLEAR_CHAT_HISTORY` | Clear the current chat history | “clear chat history” · “start a new chat” | Core |
-| `PERSONA_LOCK_SET` | Pin a persona/role for the session | “lock your persona to X” | Core |
-| `PERSONA_LOCK_CLEAR` | Release a pinned persona | “clear persona lock” | Core |
-| `PERSONA_LOCK_STATUS` | Show the current persona lock | “persona lock status” | Core |
+| `PERSONA_LOCK_SET` | Lock the Ollama chat model, not a role: record its name (the one running, or the one named), its Ollama digest and an optional Modelfile's SHA-256; replies through Ollama stop while they differ | “lock your persona” · “lock your persona to qwen2.5:7b” | Core |
+| `PERSONA_LOCK_CLEAR` | Remove the Ollama chat-model lock | “clear persona lock” · “clear the persona lock” | Core |
+| `PERSONA_LOCK_STATUS` | Check the Ollama chat-model lock against the model running now | “persona lock status” | Core |
 | `PERSONA_REFRESH` | Refresh/reload ELI's persona from the latest profile | “refresh your persona” | Core |
 | `HELP` | List what ELI can do | “help” · “what commands do you have” | Core |
 | `LIST_CAPABILITIES` | Enumerate ELI's capabilities | “what can you do” · “list your capabilities” | Core |
@@ -154,10 +154,10 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 |---|---|---|---|
 | `GENERATE_DOCUMENT` | Grounded document via the multi-stage pipeline (evidence → plan/outline → sections → review→revise) | “generate a document about X” · “write a report on Y” | Core |
 | `CREATE_DOCUMENT` | Multi-stage grounded document (plan→draft→review); single-pass fallback | “create a document on X” | Core |
-| `DATA_FABRICATOR` | Generate synthetic/test data | “fabricate a test dataset for X” | Core |
+| `DATA_FABRICATOR` | Write a document on a topic (through CREATE_DOCUMENT) and open it in the text editor; with no topic, a blank data-construct file. It writes no datasets | “fabricate data construct about tide tables” | Core |
 | `GENERATE_SCRIPT` | Write a script for the request (one model call, checked and quarantined if it is a template; not run) | “write a bash script to monitor the GPU” | Core |
 | `GENERATE_PROJECT` | Scaffold a multi-file project | “generate a project that does X” | Core |
-| `CODE_SOLVE` | Solve a coding task (plan→DAG→verify→repair) | “solve this: …” · “implement function X” | Core |
+| `CODE_SOLVE` | Solve a coding task (plan→DAG→verify→repair) | “write a script that renames files and test it” · “implement a function that reverses a string and test it” · “solve this coding problem: reverse a linked list” | Core |
 | `FIX_FILE` | Find and fix bugs in a file | “fix the bugs in foo.py” | Core |
 | `EXAMINE_CODE` | Tiered error scan of named files/codebase | “examine eli/memory/memory.py for errors” · “review the codebase for bugs” | Core |
 | `CONFIRM_CODE_FIX` | Apply the offered code fixes (pending-confirm) | “yes, fix it” (after a code-fix offer) · “fix the logic ones too” (after a code-fix offer) | Core |
@@ -298,7 +298,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `PROACTIVE_STOP` | Stop the proactive daemon | “stop proactive mode” | Core |
 | `PROACTIVE_STATUS` | Proactive daemon status | “proactive status” | Core |
 | `GET_PROPOSALS` | ELI's self-generated proposals/goals from observed signals | “do you have any proposals for me” | Core |
-| `MORNING_REPORT` | Daily briefing (news/weather/agenda) | “morning report” · “give me the morning report” | Core |
+| `MORNING_REPORT` | The last 24 hours of activity (apps, conversation topics, failures, repeated actions) and news on your interests when the network is on, titled for the time of day; no weather or agenda | “morning report” · “give me the morning report” | Core |
 
 ## Shell & advanced
 

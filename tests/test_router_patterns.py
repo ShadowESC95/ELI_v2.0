@@ -314,3 +314,20 @@ def test_hardcoded_provenance_routes_explain_last_response():
 def test_fix_recall_routes_examine_code():
     assert action("how did you fix that file/LOC?") == "EXAMINE_CODE"
     assert action("which line did you change?") == "EXAMINE_CODE"
+
+
+# "clear the persona lock" set the lock (the clear rule had no room for "the"), "lock your persona" and
+# "check the persona lock" did not reach the lock at all, and "make a data construct about tides" opened
+# a blank file: the capability list offered phrases of these shapes.
+@pytest.mark.parametrize("text,expected,args", [
+    ("clear the persona lock", "PERSONA_LOCK_CLEAR", {}),
+    ("unlock your persona", "PERSONA_LOCK_CLEAR", {}),
+    ("check the persona lock", "PERSONA_LOCK_STATUS", {}),
+    ("lock your persona", "PERSONA_LOCK_SET", {}),
+    ("lock the persona to llama3.1:8b", "PERSONA_LOCK_SET", {"model": "llama3.1:8b"}),
+    ("lock your persona to the current model", "PERSONA_LOCK_SET", {}),
+    ("make a data construct about tides", "DATA_FABRICATOR", {"topic": "tides"}),
+])
+def test_persona_lock_and_data_construct_phrases(text, expected, args):
+    got = route(text)
+    assert got["action"] == expected and got["args"] == args, got
