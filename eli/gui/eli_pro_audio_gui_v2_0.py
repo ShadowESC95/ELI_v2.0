@@ -11445,7 +11445,17 @@ class EliMainWindow(QMainWindow):
             idx = self.provider_combo.findData(provider)
             if idx >= 0:
                 self.provider_combo.setCurrentIndex(idx)
-            if provider == "custom_gguf":
+            # A model the operator exported (ELI_GGUF_MODEL_PATH / ELI_MODEL_PATH) is the one in force,
+            # so the box shows it; showing the saved custom model instead, the next save of any
+            # setting wrote that model over the export (runtime_settings, the order above apply_env).
+            try:
+                from eli.core.runtime_settings import exported_setting as _rs_exported_model
+                _exported_model = str(_rs_exported_model("model_path") or "")
+            except Exception:
+                _exported_model = ""
+            if _exported_model and provider != "ollama":
+                model_path = _exported_model
+            elif provider == "custom_gguf":
                 model_path = s.get("custom_model_path") or s.get("model_path") or DEFAULT_MODEL_PATH
             elif provider == "bundled_gguf":
                 model_path = s.get("bundled_model_path") or s.get("model_path") or DEFAULT_MODEL_PATH

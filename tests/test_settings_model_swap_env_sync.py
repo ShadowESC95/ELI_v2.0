@@ -240,6 +240,19 @@ def test_an_exported_model_outlasts_saves_until_a_model_is_picked_in_the_app(set
     assert Path(os.environ["ELI_GGUF_MODEL_PATH"]).name == new_model.name
 
 
+def test_the_window_shows_an_exported_model_as_the_one_in_force(settings_home, monkeypatch):
+    """The Settings model box showed the saved custom model while an exported one was in force, and
+    the window saves every box at once: the next save of any setting wrote the saved model over the
+    export. The box is filled from the export when there is one."""
+    from eli.core import runtime_settings as rs
+    monkeypatch.delenv("ELI_SETTINGS_PUBLISHED", raising=False)
+    assert rs.exported_setting("model_path") == "models/old-model.gguf"       # the fixture's export
+    src = (Path(__file__).resolve().parents[1] / "eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
+    fill = src[src.index("    def load_settings(self):"):src.index("    def save_settings(self, silent")]
+    assert '_rs_exported_model("model_path")' in fill
+    assert fill.index('_rs_exported_model("model_path")') < fill.index("self.model_path_input.setText(model_path")
+
+
 def test_the_think_switch_follows_a_change_made_through_the_settings(saved_auto_ctx, monkeypatch):
     """ELI_MODEL_THINK was written once and then never again: turning deep thinking off through the
     settings (the API, the dashboard) had no effect until a restart."""
