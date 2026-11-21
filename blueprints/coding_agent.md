@@ -97,15 +97,19 @@ if it names any, one more refinement is verified and kept only if it scores at l
   into one module — see `dag.md`. Gated by `ELI_CODING_DAG` (default on); cohesive
   tasks fall back to single-shot.
 - **Chat routing (added):** `CODE_SOLVE` is now reachable from chat for explicit
-  intents ("solve this coding problem", "implement X and test it", "use the coding
-  agent", "verified solution"). Generic "write a python function" still routes to
-  the lighter `GENERATE_SCRIPT`. Two router stages run before the code lane and claim
-  generation requests first: `generate_script_prepass` (a message that opens with a creation
-  verb — write, create, generate, make, build, code — and names code or a language, unless it
-  also mentions tests) and the portable intent contract (a creation verb plus script, code,
-  program, module, tool or app, when the message is not a question; it has no exception for
-  tests). So a request worded that way can land on `GENERATE_SCRIPT` even when it asks for
-  testing. The Coding tab always uses `CODE_SOLVE`.
+  intents ("solve this coding problem", "write a script that renames files and test it",
+  "implement X and test it", "use the coding agent", "verified solution"). Generic "write a
+  python function" still routes to the lighter `GENERATE_SCRIPT`. Two router stages run before
+  the code lane and claim generation requests first: `generate_script_prepass` (a message that
+  opens with a creation verb — write, create, generate, make, build, code — and names code or a
+  language) and the portable intent contract (a creation verb plus script, code, program,
+  module, tool or app, when the message is not a question). Code that is to be tested or
+  verified as well as written is `CODE_SOLVE` in both, by one test
+  (`portable_intent_contract.asks_for_tested_code`, which the code lane's own rule uses too):
+  `generate_script_prepass` routes it there before a message is divided into commands, so "and
+  test it" is not run as a second command, and the portable contract leaves it alone. Writing
+  the tests themselves ("write unit tests for the parser") stays `GENERATE_TESTS`. The Coding
+  tab always uses `CODE_SOLVE`.
 - **Not yet:** composition is single-module (ordered concat + import-dedupe), not
   true multi-file projects; test synthesis verifies against synthesized tests, not
   a user-supplied spec suite.
