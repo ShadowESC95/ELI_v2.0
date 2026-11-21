@@ -6330,10 +6330,6 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         return {"ok": True, "action": a, "content": msg, "response": msg,
                 "job_id": r["job_id"], "kind": r["kind"], "when_ts": r["when_ts"]}
 
-    if a == "OPEN_FILE_SYSTEM":
-        path = str(args.get("path") or "~")
-        return open_file_system(path)
-    
     if a == "OPEN_COMMUNICATION_HUB":
         # The mail app installed on this OS (Thunderbird/Evolution, Mail/Outlook, Outlook/Mail), else
         # whatever the OS opens mailto: links with. Until 2.5.17: three Linux apps, then Gmail.
@@ -7855,7 +7851,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     # ---- MCP_LIST / MCP_ADD / MCP_REMOVE / MCP_DOCTOR ----
     # MCP servers are separate processes ELI configures rather than code it loads, so
     # they get their own actions instead of being squeezed into the plugin ones.
-    if a in ("MCP_LIST", "MCP_STATUS"):
+    if a == "MCP_LIST":
         try:
             from eli.plugins.mcp import config_path, list_servers
             servers = list_servers()
@@ -11743,8 +11739,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
-    # ── DOC_GENERATE / GENERATE_DOCUMENT / CREATE_DOCUMENT ──────────────────
-    if a in ("DOC_GENERATE", "GENERATE_DOCUMENT", "CREATE_DOCUMENT"):
+    # ── DOC_GENERATE (CREATE_DOCUMENT and GENERATE_DOCUMENT are answered further up) ──────
+    if a == "DOC_GENERATE":
         try:
             import re as _dre, tempfile as _dtmp
             from pathlib import Path as _DPath

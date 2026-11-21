@@ -27,7 +27,7 @@ Markdown is present.
 |---|---|---|
 | `test_modules_compile.py` | every `eli/**/*.py` compiles and has no merge markers (one case per file for each), and the load-bearing core modules import | 3 |
 | `test_capability_manifest.py` | `capability_manifest.json` is exactly what the code discovers now (regenerate with `python -m eli.tools.registry.capability_updater`), its `in_supported_list` flags match the live `SUPPORTED_ACTIONS`, and it ships nothing measured on one machine (health, reachability, verification counts) | 3 |
-| `test_supported_actions.py` | every `SUPPORTED_ACTION` has an executor dispatch branch | 1 |
+| `test_supported_actions.py` | every `SUPPORTED_ACTION` has an executor dispatch branch, and no action's branch sits behind an earlier one that always answers that action (code that can never run) | 2 |
 | `test_documented_actions.py` | every action in the curated catalogue (`capabilities_doc._C`, rendered as `capabilities_and_actions.md`) is in the manifest and is routable, supported or plugin-backed (one case per action for each) | 2 |
 | `test_activation_phrases.py` | each router-routable documented action is reached by ≥1 of its documented phrases or a documented equivalent (one case per action), and every quoted phrase in the catalogue reaches its action through the router and the control contract | 2 |
 | `test_blueprint_refs.py` | every `*.py` path and `eli.x.y` module the blueprints name exists / resolves (one case per reference) | 2 |
