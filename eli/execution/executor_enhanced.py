@@ -5322,6 +5322,66 @@ def _h_mcp_call(a: str, args: Dict[str, Any]) -> Dict[str, Any]:
 _POMODORO_WORK_MIN = 25
 _POMODORO_BREAK_MIN = 5
 
+# How many lines of a diff SHOW_DIFF puts in its answer (the rest is counted and left to `git diff`),
+# and how many of the latest commits it lists.
+_DIFF_SHOWN_LINES = 400
+_DIFF_LOG_COMMITS = 10
+
+
+def _show_diff(args: Dict[str, Any]) -> Dict[str, Any]:
+    """SHOW_DIFF from what is on disk, reading only. Two files named (the Quick Actions form sends
+    them as "paths") are compared line by line; otherwise it is the project folder's own history
+    when that folder is a git checkout: uncommitted changes (git status, git diff HEAD), or the
+    latest commit's when there are none, and the latest commits (git log). Anywhere else it says
+    there is no history. It used to ask the chat model about "recent changes" with nothing read."""
+    def _reply(ok, text, **extra):
+        return {"ok": ok, "action": "SHOW_DIFF", "content": text, "response": text, **extra}
+
+    def _bounded(lines, where):
+        if len(lines) <= _DIFF_SHOWN_LINES:
+            return lines
+        rest = len(lines) - _DIFF_SHOWN_LINES
+        return lines[:_DIFF_SHOWN_LINES] + [f"… {rest} more line(s) not shown; {where} has all of it."]
+
+    named = args.get("paths") or args.get("files") or ""
+    files = shlex.split(named) if isinstance(named, str) else [str(x) for x in named]
+    if files:
+        if len(files) != 2:
+            return _reply(False, f"To compare files, name two of them; got {len(files)}: {', '.join(files)}.")
+        paths = [Path(os.path.expanduser(f)) for f in files]
+        missing = [str(p) for p in paths if not p.is_file()]
+        if missing:
+            return _reply(False, "Not a file: " + ", ".join(missing))
+        import difflib
+        texts = [p.read_text(encoding="utf-8", errors="replace").splitlines() for p in paths]
+        diff = list(difflib.unified_diff(texts[0], texts[1], str(paths[0]), str(paths[1]), lineterm=""))
+        if not diff:
+            return _reply(True, f"{paths[0]} and {paths[1]} are the same.", grounded=True)
+        return _reply(True, "\n".join(_bounded(diff, "diff on the two files")), grounded=True)
+
+    root = Path(_eli_self_project_root()).resolve()
+    top = _eli_self_run_git(root, ["rev-parse", "--show-toplevel"])
+    if not top.get("ok") or Path(top.get("stdout") or "").resolve() != root:
+        return _reply(True, f"There is no change history to show: {root} is not a git checkout "
+                            f"(an installed ELI has no repository).", grounded=True, no_history=True)
+    status = _eli_self_run_git(root, ["status", "--short"])
+    commits = _eli_self_run_git(root, ["log", "--oneline", f"-{_DIFF_LOG_COMMITS}"])
+    if (status.get("stdout") or "").strip():
+        stat = _eli_self_run_git(root, ["diff", "HEAD", "--stat"])
+        patch = _eli_self_run_git(root, ["diff", "HEAD"])
+        head = [f"Uncommitted changes in {root} (git status --short):", status["stdout"],
+                "", "git diff HEAD --stat:", stat.get("stdout") or stat.get("stderr") or "(none)"]
+        where = f"`git diff HEAD` in {root}"
+    else:
+        patch = _eli_self_run_git(root, ["show", "--stat", "--patch", "HEAD"])
+        head = [f"No uncommitted changes in {root}. The latest commit (git show HEAD):"]
+        where = f"`git show HEAD` in {root}"
+    if not patch.get("ok"):
+        return _reply(False, f"git could not read the changes in {root}: {patch.get('stderr') or 'no output'}")
+    body = _bounded((patch.get("stdout") or "").splitlines(), where)
+    tail = ["", f"Latest commits (git log --oneline -{_DIFF_LOG_COMMITS}):", commits.get("stdout") or "(none)"]
+    return _reply(True, "\n".join(head + [""] + body + tail), grounded=True, root=str(root))
+
 # Action synonyms: the model sometimes emits a name that means an existing handler (NEWS_SEARCH,
 # daily/weekly report). Normalised to the real action so it doesn't fall through to "Unsupported
 # executor action".
@@ -10195,7 +10255,7 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
         return {"ok": False, "action": a, "error": "No IDE found", "content": "No IDE found", "response": "No IDE found"}
 
     if a == "SHOW_DIFF":
-        return chat("Show me the recent changes or diff in the project.", skip_router=True)
+        return _show_diff(args)
 
     # ---- MEMORY_STATS ----
     if a == "MEMORY_STATS":

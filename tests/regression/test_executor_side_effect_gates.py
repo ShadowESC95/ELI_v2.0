@@ -261,6 +261,34 @@ def test_a_close_app_alias_is_handled_as_close_app(monkeypatch, alias):
     assert result["response"].startswith("Could not close zz-sketchpad (not running).")
 
 
+def test_show_diff_reads_the_real_history_and_says_when_there_is_none(monkeypatch, tmp_path):
+    """SHOW_DIFF asked the chat model about "the recent changes" with nothing read from disk."""
+    import subprocess
+    ex = _executor()
+    monkeypatch.setattr(ex, "chat", lambda *a, **k: {"ok": True, "content": "made up", "response": "made up"})
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "plan.txt").write_text("water the plants\n", encoding="utf-8")
+    subprocess.run(git + ["add", "plan.txt"], check=True)
+    subprocess.run(git + ["commit", "-q", "-m", "Add the watering plan"], check=True)
+    (repo / "plan.txt").write_text("water the plants on Tuesday\n", encoding="utf-8")
+    monkeypatch.setattr(ex, "_eli_self_project_root", lambda: repo)
+    text = ex.execute("SHOW_DIFF", {})["response"]
+    assert "+water the plants on Tuesday" in text and "Add the watering plan" in text
+
+    plain = tmp_path / "installed"
+    plain.mkdir()
+    monkeypatch.setattr(ex, "_eli_self_project_root", lambda: plain)
+    assert "no change history" in ex.execute("SHOW_DIFF", {})["response"]
+
+    other = tmp_path / "other.txt"
+    other.write_text("water the plants on Friday\n", encoding="utf-8")
+    two = ex.execute("SHOW_DIFF", {"paths": f"{repo / 'plan.txt'} {other}"})["response"]
+    assert "-water the plants on Tuesday" in two and "+water the plants on Friday" in two
+
+
 def test_open_url_uses_mocked_helper(monkeypatch):
     ex = _executor()
 
