@@ -11535,8 +11535,12 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a in ("LIST_NOTES", "NEW_NOTE", "SEARCH_NOTES"):
         try:
             from pathlib import Path as _P
-            from eli.core.paths import config_dir as _cd
-            notes_dir = _P(os.environ.get("ELI_NOTES_DIR", "")) or (_cd() / "notes")
+            from eli.core.paths import notes_dir as _notes_dir
+            # ELI_NOTES_DIR, else the data folder's notes/ (paths.notes_dir). An unset variable was
+            # Path(""), which is "." and truthy, so notes were kept in, and LIST_NOTES listed,
+            # whatever folder ELI had been started from.
+            _notes_env = os.environ.get("ELI_NOTES_DIR", "").strip()
+            notes_dir = _P(_notes_env).expanduser() if _notes_env else _P(_notes_dir())
             notes_dir.mkdir(parents=True, exist_ok=True)
 
             if a == "NEW_NOTE":

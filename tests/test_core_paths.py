@@ -358,6 +358,7 @@ def test_notes_go_to_the_data_folder_and_appending_keeps_every_line(tmp_path, mo
     monkeypatch.delenv("ELI_NOTEBOOK_DIR", raising=False)
     monkeypatch.setenv("ELI_DATA_DIR", str(tmp_path / "data"))
     monkeypatch.chdir(tmp_path)
+    paths.data_dir.cache_clear()        # resolved (and cached) while the executor was imported
     assert paths.notebook_dir() == tmp_path / "data" / "notebook"
     first = _eli_safe_write_note({"text": "buy oat milk"})
     _eli_safe_write_note({"text": "call the garage"})
@@ -365,3 +366,18 @@ def test_notes_go_to_the_data_folder_and_appending_keeps_every_line(tmp_path, mo
     assert page.parent == tmp_path / "data" / "notebook" and not (tmp_path / "eli_notebook").exists()
     lines = [l for l in page.read_text(encoding="utf-8").splitlines() if l.strip()]
     assert len(lines) == 2 and lines[0].endswith("buy oat milk") and lines[1].endswith("call the garage")
+
+
+def test_notes_are_kept_in_the_data_folder_not_where_eli_was_started(tmp_path, monkeypatch):
+    """With ELI_NOTES_DIR unset the notes folder was Path(""), the working directory, so listing
+    notes in a checkout listed README.md."""
+    from eli.core import paths
+    from eli.execution.executor_enhanced import execute
+    monkeypatch.delenv("ELI_NOTES_DIR", raising=False)
+    monkeypatch.setenv("ELI_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.chdir(tmp_path)
+    paths.data_dir.cache_clear()
+    (tmp_path / "README.md").write_text("not a note", encoding="utf-8")
+    execute("NEW_NOTE", {"title": "garage", "content": "call the garage on Monday"})
+    listed = str(execute("LIST_NOTES", {}))
+    assert "README.md" not in listed and (tmp_path / "data" / "notes").is_dir()

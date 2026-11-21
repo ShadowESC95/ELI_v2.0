@@ -160,7 +160,7 @@ _add("Files & notes", "SET_CLIPBOARD", "Write to the clipboard", "“copy this t
 _add("Generation (docs/code)", "GENERATE_DOCUMENT", "Grounded document via the multi-stage pipeline (evidence → plan/outline → sections → review→revise)", "“generate a document about X”", "“write a report on Y”")
 _add("Generation (docs/code)", "CREATE_DOCUMENT", "Multi-stage grounded document (plan→draft→review); single-pass fallback", "“create a document on X”")
 _add("Generation (docs/code)", "DATA_FABRICATOR", "Generate synthetic/test data", "“fabricate a test dataset for X”")
-_add("Generation (docs/code)", "GENERATE_SCRIPT", "Generate a runnable script via the coding agent", "“write a bash script to monitor the GPU”")
+_add("Generation (docs/code)", "GENERATE_SCRIPT", "Write a script for the request (one model call, checked and quarantined if it is a template; not run)", "“write a bash script to monitor the GPU”")
 _add("Generation (docs/code)", "GENERATE_PROJECT", "Scaffold a multi-file project", "“generate a project that does X”")
 _add("Generation (docs/code)", "CODE_SOLVE", "Solve a coding task (plan→DAG→verify→repair)", "“solve this: …”", "“implement function X”")
 _add("Generation (docs/code)", "FIX_FILE", "Find and fix bugs in a file", "“fix the bugs in foo.py”")
