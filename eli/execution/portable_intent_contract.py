@@ -456,7 +456,7 @@ def infer_script_language(text: str) -> str:
         return language
 
     if (
-        re.search(r"\b(?:generate|write|create|build|make|define)\b", norm)
+        re.search(r"\b(?:generate|write|create|build|make|define|implement|develop|code)\b", norm)
         and re.search(r"\b(?:script|code|program|class|function|module|object|constructor|inherit)\b", norm)
     ):
         return "python"

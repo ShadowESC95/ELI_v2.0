@@ -8875,6 +8875,9 @@ try:
                     "make", "mak", "makes",
                     "build", "buil", "builds",
                     "code", "cod", "codes",
+                    # "implement a function that reverses a string" is code to write (with test
+                    # wording it is CODE_SOLVE's, above); without them it went to chat
+                    "implement", "develop",
                 }
                 _first_tok = low2.split()[0] if low2.split() else ""
                 if _first_tok not in _CREATION_VERBS:
@@ -8909,9 +8912,14 @@ try:
                 if _NON_CODE_SCRIPT2.search(raw2) or _CREATIVE_SCRIPT2.search(raw2):
                     return None
                 # Code by what it is, or a language named as one ("make a list of places to go" is
-                # not Go: portable_intent_contract.named_language)
+                # not Go: portable_intent_contract.named_language). What only code has (a class, a
+                # method, an algorithm) is code when it is to be implemented or developed; "create a
+                # class schedule" is not.
                 from eli.execution.portable_intent_contract import named_language
-                if (_rgs.search(r"\b(?:script|function|program|module|code)\b", low2)
+                _code_things = r"script|function|program|module|code"
+                if _first_tok in ("implement", "develop", "code", "cod", "codes"):
+                    _code_things += r"|class|method|algorithm|parser|api|library|regex|snippet|data\s+structure"
+                if (_rgs.search(r"\b(?:" + _code_things + r")\b", low2)
                         or named_language(raw2)):
                     # "build me a script at 2am" asks for it then, not now.
                     return _eli_schedule_prepass(raw2) or {

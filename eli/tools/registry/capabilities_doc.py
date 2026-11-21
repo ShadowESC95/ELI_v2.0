@@ -161,7 +161,7 @@ _add("Files & notes", "SET_CLIPBOARD", "Write to the clipboard", "“copy this t
 _add("Generation (docs/code)", "GENERATE_DOCUMENT", "Grounded document via the multi-stage pipeline (evidence → plan/outline → sections → review→revise)", "“generate a document about X”", "“write a report on Y”")
 _add("Generation (docs/code)", "CREATE_DOCUMENT", "Multi-stage grounded document (plan→draft→review); single-pass fallback", "“create a document on X”")
 _add("Generation (docs/code)", "DATA_FABRICATOR", "Write a document on a topic (through CREATE_DOCUMENT) and open it in the text editor; with no topic, a blank data-construct file. It writes no datasets", "“fabricate data construct about tide tables”")
-_add("Generation (docs/code)", "GENERATE_SCRIPT", "Write a script for the request (one model call, checked and quarantined if it is a template; not run)", "“write a bash script to monitor the GPU”")
+_add("Generation (docs/code)", "GENERATE_SCRIPT", "Write a script for the request (one model call, checked and quarantined if it is a template; not run)", "“write a bash script to monitor the GPU”", "“implement a function that reverses a string”")
 _add("Generation (docs/code)", "GENERATE_PROJECT", "Scaffold a multi-file project", "“generate a project that does X”")
 _add("Generation (docs/code)", "CODE_SOLVE", "Solve a coding task (plan→DAG→verify→repair)", "“write a script that renames files and test it”", "“implement a function that reverses a string and test it”", "“solve this coding problem: reverse a linked list”")
 _add("Generation (docs/code)", "FIX_FILE", "Find and fix bugs in a file", "“fix the bugs in foo.py”")

@@ -208,6 +208,19 @@ def test_writing_tests_and_writing_a_plain_script_keep_their_own_actions():
     assert route("write a script that renames files")["action"] == "GENERATE_SCRIPT"
 
 
+@pytest.mark.parametrize("text", ["implement a function that reverses a string", "implement a class for a bank account",
+                                  "develop a parser for csv files"])
+def test_code_to_implement_without_test_wording_is_a_script_to_write(text):
+    """"implement a function that X" went to chat: CODE_SOLVE needs test wording, and the script rule
+    did not know "implement"."""
+    assert route(text)["action"] == "GENERATE_SCRIPT"
+
+
+@pytest.mark.parametrize("text", ["implement the plan we discussed", "create a class schedule"])
+def test_implementing_what_is_not_code_is_not_a_script(text):
+    assert route(text)["action"] not in ("GENERATE_SCRIPT", "CODE_SOLVE")
+
+
 @pytest.mark.parametrize("text", ["make a list of places to go", "write it down and go", "create a backup and go",
                                   "build the index and go"])
 def test_the_word_go_is_not_the_go_language(text):

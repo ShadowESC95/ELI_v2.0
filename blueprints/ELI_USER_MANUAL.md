@@ -438,7 +438,8 @@ topic, not only reminders.
 ### 🧩 Coding & building things
 - "implement a function that … and test it" (or "use the coding agent to …") → ELI plans it,
   writes it, then **verifies and repairs** it.
-- "generate a project that does X" (a full multi-file scaffold) · "write a bash script to …"
+- "generate a project that does X" (a full multi-file scaffold) · "write a bash script to …" ·
+  "implement a function that …" (written, not tested; add "and test it" to have it verified)
 - "examine eli/memory/memory.py for errors" → a tiered scan; it **offers** fixes and applies them
   only if you say "yes". · "show the diff" · "generate tests for your code" (it writes *and*
   sandbox-verifies them). The **Coding** tab and the built-in code editor (**Labs ▸ Sim / IDE**)
