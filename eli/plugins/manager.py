@@ -182,6 +182,8 @@ class PluginManager:
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self._loaded: Dict[str, Plugin] = {}
+        # Why a plugin did not load, by id, for PLUGIN_STATUS's health lines.
+        self._load_errors: Dict[str, str] = {}
         self._registry_cache: Optional[List[Dict]] = None
         self._state: Dict[str, Any] = _load_state()
         # Runtime capability enforcement goes in BEFORE the first plugin is
@@ -257,21 +259,27 @@ class PluginManager:
             f"plugins.{plugin_id}.plugin", path
         )
         if spec is None:
+            self._load_errors[plugin_id] = f"{path} cannot be loaded as a module"
             return None
         mod = importlib.util.module_from_spec(spec)
         sys.modules[f"plugins.{plugin_id}.plugin"] = mod
-        spec.loader.exec_module(mod)  # type: ignore[union-attr]
-
-        # Find Plugin subclass
         import inspect
-        for attr_name in dir(mod):
-            attr = getattr(mod, attr_name)
-            if inspect.isclass(attr) and issubclass(attr, Plugin) and attr is not Plugin:
-                instance = attr()
-                with self._lock:
-                    self._loaded[plugin_id] = instance
-                log.debug(f"[PLUGIN] Loaded: {plugin_id} — {instance.description}")
-                return instance
+        try:
+            spec.loader.exec_module(mod)  # type: ignore[union-attr]
+            # Find Plugin subclass
+            for attr_name in dir(mod):
+                attr = getattr(mod, attr_name)
+                if inspect.isclass(attr) and issubclass(attr, Plugin) and attr is not Plugin:
+                    instance = attr()
+                    with self._lock:
+                        self._loaded[plugin_id] = instance
+                    self._load_errors.pop(plugin_id, None)
+                    log.debug(f"[PLUGIN] Loaded: {plugin_id} — {instance.description}")
+                    return instance
+        except Exception as exc:
+            self._load_errors[plugin_id] = f"{type(exc).__name__}: {exc}"
+            raise
+        self._load_errors[plugin_id] = "its plugin.py defines no Plugin class"
         return None
 
     def list_installed(self) -> List[Dict]:
@@ -290,6 +298,7 @@ class PluginManager:
                 "id": pid,
                 "enabled": not disabled,
                 "loaded": pid in self._loaded,
+                "load_error": self._load_errors.get(pid, ""),
                 "version": meta.get("version", "?"),
                 "description": meta.get("description", ""),
             })
@@ -414,6 +423,7 @@ class PluginManager:
 
         with self._lock:
             self._loaded.pop(plugin_id, None)
+        self._load_errors.pop(plugin_id, None)
 
         # Remove from sys.modules
         for key in list(sys.modules.keys()):

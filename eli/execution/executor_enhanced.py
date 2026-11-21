@@ -7785,16 +7785,19 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                     lines.append(f"  {p['id']:20s} [{status}]  {p.get('description','')[:60]}")
             else:
                 lines.append("  No plugins installed.")
-            # Check each installed plugin imports cleanly
+            # Health is what the plugin manager's own loader made of each plugin. It was an
+            # __import__("plugins.<id>.plugin"), which needs a top-level `plugins` package that no
+            # install has, so every plugin read as an error.
             lines.append("")
             lines.append("Plugin health:")
             for p in installed:
-                try:
-                    mod_path = f"plugins.{p['id']}.plugin"
-                    __import__(mod_path)
-                    lines.append(f"  {p['id']:20s} OK")
-                except Exception as pe:
-                    lines.append(f"  {p['id']:20s} ERROR: {pe}")
+                if not p.get("enabled"):
+                    health = "disabled"
+                elif p.get("loaded"):
+                    health = "OK"
+                else:
+                    health = f"ERROR: {p.get('load_error') or 'not loaded'}"
+                lines.append(f"  {p['id']:20s} {health}")
             msg = "\n".join(lines)
             return {"ok": True, "action": a, "content": msg, "response": msg,
                     "installed": len(installed), "available": len(available)}

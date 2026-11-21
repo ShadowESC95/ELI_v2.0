@@ -215,3 +215,22 @@ def test_installing_a_built_in_uses_the_shipped_plugin_and_uninstalling_keeps_it
 
     assert mgr.uninstall("pomodoro")["ok"]
     assert shipped.read_bytes() == before
+
+
+def test_plugin_status_reports_each_plugin_as_its_loader_found_it(installed, monkeypatch):
+    """The health check imported plugins.<id>.plugin, a top-level package no install has, so a
+    plugin that loaded and runs read as an error, and a broken one never said what was wrong."""
+    import re
+
+    import eli.plugins.manager as M
+    from eli.execution.executor_enhanced import execute
+    mgr, pdir, _ = installed
+    (pdir / "broken").mkdir()
+    (pdir / "broken" / "plugin.py").write_text(
+        "raise RuntimeError('needs a library that is not installed')\n", encoding="utf-8")
+    mgr._auto_load()
+    monkeypatch.setattr(M, "get_manager", lambda: mgr)
+    monkeypatch.setattr(mgr, "list_available", lambda: [])
+    text = execute("PLUGIN_STATUS", {})["response"]
+    assert re.search(r"greeter\s+OK", text), text
+    assert re.search(r"broken\s+ERROR: RuntimeError: needs a library that is not installed", text), text
