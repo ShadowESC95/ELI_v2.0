@@ -8973,8 +8973,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             _dwell_on = bool(args.get("dwell"))
             if _dwell_on:
                 try:
-                    from eli.core.runtime_settings import update_settings as _us_dwell
-                    _us_dwell(gaze_dwell_click=True)
+                    from eli.perception.gaze_engine import set_dwell_click
+                    set_dwell_click(True)
                 except Exception:
                     log.debug("suppressed exception", exc_info=True)
             if result.get("already_running"):
@@ -8995,9 +8995,19 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     if a == "GAZE_DISABLE":
         try:
-            from eli.perception.gaze_engine import stop_gaze_engine
+            from eli.perception.gaze_engine import set_dwell_click, stop_gaze_engine
+            # Dwell-click is a saved setting the engine reads while it runs, so it is switched
+            # off here too: otherwise the next "enable gaze" would click on its own again.
+            _dwell_was_on = set_dwell_click(False)
+            if args.get("dwell"):
+                msg = ("Dwell-click is off; gaze tracking keeps running." if _dwell_was_on
+                       else "Dwell-click was already off.")
+                return {"ok": True, "action": a, "dwell": False, "content": msg, "response": msg}
             result = stop_gaze_engine()
             msg = result.get("message", "Gaze engine stopped.")
+            if _dwell_was_on:
+                msg += " Dwell-click is off too."
+            result["dwell"] = False
             result.setdefault("content", msg)
             result.setdefault("response", msg)
             result["action"] = a
@@ -9007,20 +9017,21 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
 
     if a == "GAZE_CALIBRATE":
         try:
-            from eli.perception.gaze_engine import get_calibration_path, needs_calibration
+            from eli.perception.gaze_engine import (calibration_command_line,
+                                                    get_calibration_path, needs_calibration)
             cal_path = get_calibration_path()
+            _cmd = calibration_command_line()
             if not needs_calibration():
                 msg = (
                     f"Calibration file exists at: {cal_path}\n"
                     "To recalibrate, run the calibration script directly:\n"
-                    "  python experimental/eli_ar_avatar_kit/scripts/eli_gaze_calibrate_plus.py --points 25"
+                    f"  {_cmd}"
                 )
             else:
                 msg = (
                     "No calibration file found. To calibrate the gaze engine:\n"
-                    "  1. Open a terminal in the ELI project root\n"
-                    f"  2. python experimental/eli_ar_avatar_kit/scripts/eli_gaze_calibrate_plus.py --points 25\n"
-                    f"  3. Follow the on-screen dot targets (takes ~2 minutes)\n"
+                    f"  1. In a terminal, run: {_cmd}\n"
+                    f"  2. Follow the on-screen dot targets (takes ~2 minutes)\n"
                     f"  Calibration will be saved to: {cal_path}"
                 )
             return {"ok": True, "action": a, "content": msg, "response": msg,

@@ -22,8 +22,12 @@ Public API
     is_gaze_running()                -> bool
     needs_calibration()              -> bool
     get_calibration_path()           -> pathlib.Path
+    calibration_command()            -> list[str]     (writes where this engine reads)
+    calibration_command_line()       -> str           (the same, quoted to show)
+    set_dwell_click(enabled)         -> bool          (the previous state)
 
-Settings key: "gaze_engine_enabled" (bool) in runtime_settings.
+Settings keys in runtime_settings: "gaze_engine_enabled" (bool) and "gaze_dwell_click"
+(bool, look-and-hold clicking while the engine runs).
 """
 from __future__ import annotations
 
@@ -41,10 +45,8 @@ log = get_logger(__name__)
 
 # ── gaze_core location ────────────────────────────────────────────────────────
 # The kit lives in experimental/; inject it once, lazily.
-_GAZE_CORE_CANDIDATES: list[Path] = [
-    Path(__file__).resolve().parents[2] / "experimental" / "eli_ar_avatar_kit" / "eli_gaze_core",
-    Path(__file__).resolve().parents[2] / "experimental" / "eli_ar_avatar_kit_v5_bad_calibration_backup_20260510_223039" / "eli_gaze_core",
-]
+_KIT_DIR = Path(__file__).resolve().parents[2] / "experimental" / "eli_ar_avatar_kit"
+_GAZE_CORE_CANDIDATES: list[Path] = [_KIT_DIR / "eli_gaze_core"]
 
 _gaze_core_injected = False
 
@@ -87,6 +89,38 @@ def get_calibration_path() -> Path:
 
 def needs_calibration() -> bool:
     return not get_calibration_path().exists()
+
+
+def calibration_command() -> list[str]:
+    """The kit's calibrator, told to write the file this engine reads.
+
+    Its own default is the kit's file under ~/.config, which ELI never reads, so the
+    output path is always passed. `python` is the interpreter whose environment has
+    OpenCV (ELI's own when it runs from source; a frozen ELI is not a Python).
+    """
+    python = "python" if getattr(sys, "frozen", False) else sys.executable
+    return [python, str(_KIT_DIR / "scripts" / "eli_gaze_calibrate_plus.py"),
+            "--out", str(get_calibration_path())]
+
+
+def calibration_command_line() -> str:
+    """calibration_command() quoted for this platform's shell, to show a person."""
+    cmd = calibration_command()
+    if os.name == "nt":
+        import subprocess
+        return subprocess.list2cmdline(cmd)
+    import shlex
+    return shlex.join(cmd)
+
+
+def set_dwell_click(enabled: bool) -> bool:
+    """Switch look-and-hold clicking on or off (saved; the running engine picks it up
+    within its config refresh). Returns whether it was on before."""
+    from eli.core.runtime_settings import load_settings, update_settings
+    was_on = bool((load_settings() or {}).get("gaze_dwell_click", False))
+    if was_on != bool(enabled):
+        update_settings(gaze_dwell_click=bool(enabled))
+    return was_on
 
 
 # ── Singleton daemon ──────────────────────────────────────────────────────────

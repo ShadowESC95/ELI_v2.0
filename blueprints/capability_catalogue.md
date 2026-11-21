@@ -83,8 +83,8 @@ behaviours**. Alias families are grouped below so the real surface is visible.
 ## 4. Gaze (webcam eye-tracking)
 | Action(s) | What it does |
 |---|---|
-| `GAZE_ENABLE`, `GAZE_DISABLE` | Start/stop the MediaPipe gaze engine (writes `latest_gaze.json` @10Hz). "Enable gaze clicking" also turns on dwell-click: rest the gaze on a target about a second to click it. |
-| `GAZE_CALIBRATE` | Says whether a calibration file exists and how to run the 25-point calibration script (`experimental/eli_ar_avatar_kit/scripts/eli_gaze_calibrate_plus.py`); it does not run it. |
+| `GAZE_ENABLE`, `GAZE_DISABLE` | Start/stop the MediaPipe gaze engine (writes `latest_gaze.json` @10Hz). "Enable gaze clicking" also turns on dwell-click: rest the gaze on a target about a second to click it; "disable gaze clicking" turns it off alone, and `GAZE_DISABLE` without it stops the engine and dwell-click both. |
+| `GAZE_CALIBRATE` | Says whether a calibration file exists and how to run the 25-point calibration script (`experimental/eli_ar_avatar_kit/scripts/eli_gaze_calibrate_plus.py`), with `--out` set to the file ELI reads; it does not run it. |
 | `GAZE_CLICK` | Move the cursor to where you're looking and click. |
 | `GAZE_STATUS` | Report gaze-engine state: running, calibration, camera, last gaze point and confidence. |
 

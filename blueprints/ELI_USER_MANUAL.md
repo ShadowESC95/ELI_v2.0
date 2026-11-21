@@ -405,8 +405,9 @@ topic, not only reminders.
 
 ### 👁️ Eye control (gaze)
 - **Calibrate once.** "calibrate gaze" tells you how: a two-minute script in a source checkout
-  (`python experimental/eli_ar_avatar_kit/scripts/eli_gaze_calibrate_plus.py --points 25`) that
-  shows dot targets to follow. Then "enable gaze" (or **🎯 Gaze** under the chat box, or
+  (`experimental/eli_ar_avatar_kit/scripts/eli_gaze_calibrate_plus.py`) that shows dot targets
+  to follow; the command ELI gives you passes `--out` with the file ELI reads (its own default
+  is a file ELI does not read). Then "enable gaze" (or **🎯 Gaze** under the chat box, or
   **Settings → Gaze → Start**).
 - With it on, ELI clicks **where you're looking** when you say "click that" / "left click" /
   "right click" / "double click", and "open that" double-clicks there — hands-free pointing.
@@ -415,10 +416,10 @@ topic, not only reminders.
   built for people who can't use their hands *or* speak reliably. The hold time, wander radius
   and confidence floor are the `gaze_dwell_seconds` (default 1.0), `gaze_dwell_radius` (60 px)
   and `gaze_dwell_min_confidence` settings in `settings.json` in ELI's `config` folder; there is
-  no on-screen control for them yet. "disable gaze" stops the tracker, and with it the clicking;
-  dwell-click stays switched on for the next time gaze starts until you set `gaze_dwell_click`
-  to false.
-- "gaze status" · "disable gaze"
+  no on-screen control for them yet. Dwell-click itself has one: the **Dwell-click** box on
+  **Settings → Gaze**. "disable gaze clicking" (or "turn off dwell click") switches it off and
+  keeps the tracker running; "disable gaze" stops the tracker and switches dwell-click off too.
+- "gaze status" · "disable gaze clicking" · "disable gaze"
 
 ### 🎨 Making images
 - "make an image of a red bike by the sea" · "draw an image of …" · "generate an image of …" —

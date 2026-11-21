@@ -9287,6 +9287,18 @@ class EliMainWindow(QMainWindow):
         self.gaze_enabled_checkbox.toggled.connect(self._on_gaze_toggle)
         form.addRow("", self.gaze_enabled_checkbox)
 
+        # Dwell-click: the on-screen switch for look-and-hold clicking (the same saved
+        # setting "enable gaze clicking" / "disable gaze clicking" set).
+        self.gaze_dwell_checkbox = QCheckBox("Dwell-click — hold your gaze on a target to click it")
+        try:
+            from eli.core.runtime_settings import load_settings as _ls_dwell
+            self.gaze_dwell_checkbox.setChecked(bool((_ls_dwell() or {}).get("gaze_dwell_click", False)))
+        except Exception:
+            log.debug("dwell-click setting unreadable", exc_info=True)
+        self.gaze_dwell_checkbox.setStyleSheet("color:#c8d0e0;")
+        self.gaze_dwell_checkbox.toggled.connect(self._on_gaze_dwell_toggle)
+        form.addRow("", self.gaze_dwell_checkbox)
+
         # Camera index
         gaze_cam_row = QWidget()
         gaze_cam_lay = QHBoxLayout(gaze_cam_row)
@@ -9392,6 +9404,13 @@ class EliMainWindow(QMainWindow):
         else:
             self._gaze_stop_clicked()
 
+    def _on_gaze_dwell_toggle(self, checked: bool):
+        try:
+            from eli.perception.gaze_engine import set_dwell_click
+            set_dwell_click(bool(checked))
+        except Exception as e:
+            QMessageBox.warning(self, "Gaze Engine", str(e))
+
     def _gaze_start_clicked(self):
         try:
             from eli.perception.gaze_engine import start_gaze_engine
@@ -9417,21 +9436,16 @@ class EliMainWindow(QMainWindow):
 
     def _gaze_calibrate_info(self):
         try:
-            import subprocess, sys as _sys
-            from eli.perception.gaze_engine import get_calibration_path, needs_calibration
+            from eli.perception.gaze_engine import (calibration_command_line,
+                                                    get_calibration_path, needs_calibration)
             cal_path = get_calibration_path()
-            script = str(
-                __import__("pathlib").Path(__file__).resolve().parents[2]
-                / "experimental" / "eli_ar_avatar_kit" / "scripts"
-                / "eli_gaze_calibrate_plus.py"
-            )
             exists_note = "✅ Calibration file exists." if not needs_calibration() else "⚠ No calibration file yet."
             QMessageBox.information(
                 self,
                 "Gaze Calibration",
                 f"{exists_note}\n\n"
                 f"To calibrate, run in a terminal:\n\n"
-                f"  python {script} --points 25\n\n"
+                f"  {calibration_command_line()}\n\n"
                 f"Saved to:\n  {cal_path}",
             )
         except Exception as e:
@@ -9450,6 +9464,13 @@ class EliMainWindow(QMainWindow):
                 else:
                     self._gaze_status_label.setText("● stopped")
                     self._gaze_status_label.setStyleSheet("color:#6b7a90;font-size:11px;")
+            if hasattr(self, "gaze_dwell_checkbox"):
+                # chat can switch dwell-click too; show the saved state
+                from eli.core.runtime_settings import load_settings as _ls_dwell
+                self.gaze_dwell_checkbox.blockSignals(True)
+                self.gaze_dwell_checkbox.setChecked(
+                    bool((_ls_dwell() or {}).get("gaze_dwell_click", False)))
+                self.gaze_dwell_checkbox.blockSignals(False)
             if hasattr(self, "_gaze_cal_label"):
                 if calibrated:
                     self._gaze_cal_label.setText(f"Calibration: ✅  {st.get('calibration_path','')}")

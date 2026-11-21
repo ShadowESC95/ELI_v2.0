@@ -49,3 +49,53 @@ def test_plain_enable_gaze_does_not_turn_on_dwell():
         r = route(q) or {}
         assert r.get("action") == "GAZE_ENABLE", q
         assert not (r.get("args") or {}).get("dwell"), q
+
+
+def test_dwell_click_can_be_switched_off_by_name():
+    """It had no phrase: "disable dwell click" went to PLUGIN_DISABLE and "turn off
+    dwell click" to chat. Switching dwell off alone leaves tracking running."""
+    for q in ("turn off dwell click", "disable dwell clicking", "disable gaze clicking",
+              "stop dwell clicking", "dwell click off"):
+        r = route(q) or {}
+        assert r.get("action") == "GAZE_DISABLE", q
+        assert (r.get("args") or {}).get("dwell") is True, q
+    r = route("disable gaze") or {}
+    assert r.get("action") == "GAZE_DISABLE" and not (r.get("args") or {}).get("dwell")
+
+
+def _dwell_setting():
+    from eli.core.runtime_settings import load_settings
+    return bool((load_settings() or {}).get("gaze_dwell_click", False))
+
+
+def test_disable_gaze_also_switches_dwell_click_off(monkeypatch):
+    """Dwell-click is a saved setting: stopping the engine without clearing it meant the
+    next plain "enable gaze" clicked on its own again."""
+    from eli.execution.executor_enhanced import execute
+    stopped = []
+    monkeypatch.setattr(ge, "stop_gaze_engine",
+                        lambda: stopped.append(1) or {"ok": True, "message": "stopped"})
+    ge.set_dwell_click(True)
+    res = execute("GAZE_DISABLE", {})
+    assert res["ok"] is True and stopped == [1]
+    assert _dwell_setting() is False
+
+    ge.set_dwell_click(True)
+    res = execute("GAZE_DISABLE", {"dwell": True})
+    assert res["ok"] is True and _dwell_setting() is False
+    assert stopped == [1], "switching dwell-click off must leave tracking running"
+
+
+def test_the_calibrator_is_told_to_write_where_the_engine_reads():
+    """Its own default is ~/.config, which ELI never reads; the instruction promised
+    ELI's config folder."""
+    cmd = ge.calibration_command()
+    assert cmd[cmd.index("--out") + 1] == str(ge.get_calibration_path())
+    assert cmd[1].endswith("eli_gaze_calibrate_plus.py") and __import__("os").path.isfile(cmd[1])
+    from eli.execution.executor_enhanced import execute
+    msg = execute("GAZE_CALIBRATE", {})["response"]
+    assert ge.calibration_command_line() in msg
+
+
+def test_the_gaze_core_is_looked_for_only_in_the_kit():
+    assert ge._GAZE_CORE_CANDIDATES == [ge._KIT_DIR / "eli_gaze_core"]

@@ -71,7 +71,8 @@ jitter-free tracking of noisy human input), and writes `latest_gaze.json` every 
 With no calibration it still runs, producing raw face-centre coordinates (useful for
 "is someone present" detection). Feeds a **dwell-click accessibility feature** — rest
 your gaze on a target for ~1s to click it, no mouse or voice needed (`GAZE_ENABLE`'s
-`dwell` argument). Settings key `gaze_engine_enabled`.
+`dwell` argument; `GAZE_DISABLE` with `dwell` switches it off alone, without it stops the
+engine and dwell-click both). Settings keys `gaze_engine_enabled` and `gaze_dwell_click`.
 
 ## Screen locate & click (`screen_locator.py` + `ui_ground.py`)
 
