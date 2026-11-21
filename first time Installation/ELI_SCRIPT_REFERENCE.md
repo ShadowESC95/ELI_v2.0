@@ -180,7 +180,7 @@ flowchart TD
 7. Install **llama-cpp-python** ≥0.3.35 with GPU-appropriate `CMAKE_ARGS` (NVIDIA: the CUDA wheel index only when it has ≥0.3.35 for this Python, else a CUDA source build with `nvcc`, else a CPU-safe source build); smoke-test `llama_backend_init()` and rebuild with CPU-safe flags on SIGILL.
 8. Verify GPU offload when not CPU-only (with `--install-cuda`: fetch `nvcc` and rebuild with CUDA).
 9. `pip install -e ".[full]"` (editable, constrained by the lock) or bundled wheel fallback.
-10. Install from `requirements.lock.txt` (`requirements-macos.txt` on macOS); on failure the ranges in `requirements-full.txt`, then one requirement at a time (`eli_env.py install-each`).
+10. Install from `requirements.lock.txt` (`requirements.txt` with `--latest`, `requirements-macos.txt` on macOS) over what is there (`--ignore-installed`), leaving out llama-cpp-python when the build from step 7 imports, so it is not replaced by a PyPI build without the GPU flags; on failure the ranges in `requirements-full.txt`, then one requirement at a time (`eli_env.py install-each`).
 11. Seed `config/settings.json` from template; mkdir `models/`; copy desktop icon.
 12. Install runtime OS tools (mpv, tesseract, ffmpeg, etc.) best-effort.
 13. Seed blank DB templates; run `python -m eli.core.init_data`.

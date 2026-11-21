@@ -999,13 +999,31 @@ fi
 # Install remaining runtime requirements.
 eli_progress eli 62 "Installing locked dependencies"
 echo "[..] Installing dependencies from $(basename "$REQ")$([ "$REQ" = "$SCRIPT_DIR/requirements.lock.txt" ] && echo ' (frozen, reproducible)')..."
+# The set below is installed over what is there (--ignore-installed). requirements.txt (--latest)
+# and requirements-macos.txt list the inference engine, and over the build made above for this
+# machine's GPU pip would put a plain one from PyPI, built again without the GPU flags. While that
+# build imports, the set is installed from a copy of the file without it, beside the file so that
+# any -r or -c line in it reads the same.
+_ENGINE_LINE='^[[:space:]]*llama[-_.]cpp[-_.]python([^-_.[:alnum:]]|$)'
+_requirements_but_the_installed_engine() {    # prints the requirements file to install from
+    local req="$1" copy
+    if ! grep -qiE "$_ENGINE_LINE" "$req" || ! ( cd / && "$PYTHON_VENV" -c "import llama_cpp" ) 2>/dev/null; then
+        printf '%s\n' "$req"
+        return 0
+    fi
+    copy="$(dirname "$req")/.eli-install-requirements.$$.txt"
+    grep -viE "$_ENGINE_LINE" "$req" > "$copy" || true
+    printf '%s\n' "$copy"
+}
+REQ_INSTALL="$(_requirements_but_the_installed_engine "$REQ")"
+[ "$REQ_INSTALL" = "$REQ" ] || echo "[OK] Keeping the inference engine built above (llama-cpp-python is left out of $(basename "$REQ"))."
 # ${_PIP_LINKS[@]} points pip at the bundled wheelhouse (--find-links) when the release
 # shipped one, so a full-wheelhouse build installs with zero network; otherwise it's empty.
 #
 # The lock pins versions captured on ONE python/distro. Where a pin has no build, or one
 # package fails to compile, pip installs none of the set (GUI toolkit included). The lock is
 # a nicety, not a requirement: fall back to the RANGES, as a set, then one at a time.
-if ! _pip install ${_PIP_LINKS[@]+"${_PIP_LINKS[@]}"} -r "$REQ" --quiet --ignore-installed; then
+if ! _pip install ${_PIP_LINKS[@]+"${_PIP_LINKS[@]}"} -r "$REQ_INSTALL" --quiet --ignore-installed; then
     RANGES="$SCRIPT_DIR/requirements-full.txt"
     { [ "$OS" != "Darwin" ] && [ -f "$RANGES" ]; } || RANGES="$REQ"
     warn "The dependency set did not install as a whole on $("$PYTHON_VENV" -V 2>&1)."
@@ -1016,6 +1034,7 @@ if ! _pip install ${_PIP_LINKS[@]+"${_PIP_LINKS[@]}"} -r "$REQ" --quiet --ignore
             || warn "Some packages could not be installed (named above). ELI runs without them; what uses them is unavailable."
     fi
 fi
+[ "$REQ_INSTALL" = "$REQ" ] || rm -f "$REQ_INSTALL"
 
 # Make launchers executable
 chmod +x "$SCRIPT_DIR/eli.sh" 2>/dev/null || true

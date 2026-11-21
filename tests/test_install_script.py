@@ -197,6 +197,36 @@ def test_both_installers_install_eli_within_the_lock_and_fall_back_the_same_way(
         assert "install-each" in installer and "one at a time" in installer
 
 
+@pytest.mark.skipif(sys.platform == "win32" or not shutil.which("bash"), reason="runs the installer's own shell function")
+def test_the_dependency_install_keeps_the_inference_engine_built_for_this_gpu(tmp_path):
+    """requirements.txt (--latest) and requirements-macos.txt list llama-cpp-python, and the set is
+    installed over what is there (--ignore-installed): pip put a plain PyPI build, made again without
+    the GPU flags, over the one the installer had just built for this machine's GPU."""
+    sh = (Path(__file__).resolve().parents[1] / "install.sh").read_text(encoding="utf-8")
+    start = sh.index("_ENGINE_LINE=")
+    end = sh.index("\n}\n", sh.index("_requirements_but_the_installed_engine() {")) + 3
+    req = tmp_path / "requirements.txt"
+    req.write_text("PySide6>=6.5\nllama-cpp-python>=0.3.35  # the engine\nLlama_CPP_Python==0.3.36\n"
+                   "llama-cpp-python-extras\nnumpy\n", encoding="utf-8")
+    pythons = {}
+    for name, code in (("with-engine", 0), ("without-engine", 1)):
+        pythons[name] = tmp_path / name
+        pythons[name].write_text("#!/bin/sh\nexit %d\n" % code, encoding="utf-8")
+        pythons[name].chmod(0o755)
+    script = 'set -euo pipefail\nPYTHON_VENV="$1"\n%s\n_requirements_but_the_installed_engine "$2"\n' % sh[start:end]
+
+    def install_from(python):
+        ran = subprocess.run(["bash", "-c", script, "_", str(python), str(req)], capture_output=True, text=True)
+        assert ran.returncode == 0, ran.stderr
+        return Path(ran.stdout.strip())
+
+    copy = install_from(pythons["with-engine"])
+    assert copy != req and copy.parent == req.parent              # beside it: its -r/-c lines still read
+    assert copy.read_text(encoding="utf-8").splitlines() == ["PySide6>=6.5", "llama-cpp-python-extras", "numpy"]
+    assert install_from(pythons["without-engine"]) == req          # no engine yet: the file as it is
+    assert '-r "$REQ_INSTALL" --quiet --ignore-installed' in sh and 'rm -f "$REQ_INSTALL"' in sh
+
+
 # ── the Windows GPU path ───────────────────────────────────────────────────
 def _ps1_text() -> str:
     return (Path(__file__).resolve().parents[1] / "install.ps1").read_text(encoding="utf-8-sig")
