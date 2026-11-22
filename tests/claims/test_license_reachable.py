@@ -97,6 +97,21 @@ def test_every_command_that_starts_eli_reads_its_flags():
     assert '"--mcp-server" in argv' in frozen and 'mode == "mcp"' in frozen
 
 
+
+def test_an_option_this_program_does_not_take_starts_nothing(tmp_path):
+    """`eli --bundle legal` (another ELI's option) opened ELI v2's own window as if nothing had been
+    asked. An unknown --option is refused before anything starts; the known ones still work."""
+    import os
+    import subprocess
+    import sys
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", ELI_DATA_DIR=str(tmp_path))
+    run = lambda *args: subprocess.run([sys.executable, "-m", "eli", *args], cwd=REPO, env=env,
+                                       capture_output=True, text=True, timeout=120)
+    refused = run("--bundle", "legal")
+    assert refused.returncode == 2 and "does not take --bundle" in refused.stderr
+    assert run("--help").returncode == 0 and "--headless" in run("--help").stdout
+    assert run("--license").returncode == 0
+
 def test_the_frozen_builds_carry_only_the_wake_word_files_eli_loads():
     """ELI.spec collected all of openwakeword's data, so its pre-trained wake-word models (CC BY-NC-SA
     4.0, non-commercial) went into every bundle, though ELI runs only the feature extractor."""

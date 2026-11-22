@@ -12,13 +12,32 @@ Flags:
   --license, --licence
                    Print the Apache-2.0 terms ELI ships under, then exit. Same
                    command in every download.
+  --setup          Open the GUI with the model setup first.
+  --help, -h       Print this, then exit.
+
+Any other --option is refused and nothing starts: `eli --bundle legal` is another
+ELI's command, and this program opened its own window as if nothing had been asked.
 """
 from __future__ import annotations
 import sys
 
 
+# Every --option this program takes (Qt reads single-dash ones such as -platform itself).
+_OPTIONS = frozenset({"--license", "--licence", "--mcp-server", "--mcp-config", "--allow-control",
+                      "--trust-agent", "--force", "--headless", "--setup", "--help"})
+
+
 def main() -> int:
     args = sys.argv[1:]
+
+    if "--help" in args or "-h" in args:
+        print(__doc__)
+        return 0
+    unknown = [a for a in args if a.startswith("--") and a.split("=", 1)[0] not in _OPTIONS]
+    if unknown:
+        print(f"ELI v2 does not take {', '.join(unknown)}; nothing was started. "
+              f"Its options are listed by --help.", file=sys.stderr)
+        return 2
 
     # ── Licence ───────────────────────────────────────────────────────────────
     # Before anything is imported or initialised: asking for the terms must work
