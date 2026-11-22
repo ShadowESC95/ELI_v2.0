@@ -311,6 +311,25 @@ def test_show_diff_reads_the_real_history_and_says_when_there_is_none(monkeypatc
     assert "-water the plants on Tuesday" in two and "+water the plants on Friday" in two
 
 
+def test_show_diff_keeps_the_status_line_as_git_wrote_it(monkeypatch, tmp_path):
+    """Its git output was stripped whole, so the first `git status --short` line lost its leading
+    space: " M plan.txt" (changed, not staged) read "M plan.txt" (staged)."""
+    import subprocess
+    ex = _executor()
+    repo = tmp_path / "proj"
+    repo.mkdir()
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "plan.txt").write_text("water the plants\n", encoding="utf-8")
+    subprocess.run(git + ["add", "plan.txt"], check=True)
+    subprocess.run(git + ["commit", "-q", "-m", "Add the watering plan"], check=True)
+    (repo / "plan.txt").write_text("water the plants on Tuesday\n", encoding="utf-8")
+    monkeypatch.setattr(ex, "_eli_self_project_root", lambda: repo)
+    lines = ex.execute("SHOW_DIFF", {})["response"].splitlines()
+    assert " M plan.txt" in lines, lines[:4]
+    assert not (repo / ".git" / "index.lock").exists()
+
+
 def test_open_url_uses_mocked_helper(monkeypatch):
     ex = _executor()
 

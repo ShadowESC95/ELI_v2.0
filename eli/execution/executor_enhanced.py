@@ -14859,25 +14859,22 @@ try:
             return _eli_self_Path.cwd()
 
     def _eli_self_run_git(root, git_args, timeout=4):
+        """git run in `root`, reading only: --no-optional-locks keeps status and diff from rewriting
+        the index. Its output keeps the spaces each line starts with ("git status --short" puts
+        " M" for a change not staged); only the newline at the end goes. Stripped whole, the first
+        line lost its space and read as a staged change."""
         try:
             proc = _eli_self_subprocess.run(
-                ["git", "-C", str(root), *git_args],
+                ["git", "--no-optional-locks", "-C", str(root), *git_args],
                 text=True,
                 capture_output=True,
                 timeout=timeout,
                 check=False,
             )
-            if proc.returncode != 0:
-                return {
-                    "ok": False,
-                    "stdout": proc.stdout.strip(),
-                    "stderr": proc.stderr.strip(),
-                    "returncode": proc.returncode,
-                }
             return {
-                "ok": True,
-                "stdout": proc.stdout.strip(),
-                "stderr": proc.stderr.strip(),
+                "ok": proc.returncode == 0,
+                "stdout": (proc.stdout or "").rstrip("\r\n"),
+                "stderr": (proc.stderr or "").strip(),
                 "returncode": proc.returncode,
             }
         except Exception as e:
