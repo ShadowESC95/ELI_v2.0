@@ -81,8 +81,9 @@ def license_text() -> str:
 
 
 def made_by() -> str:
-    """Who holds the copyright, as the NOTICE this build ships with names them (the Apache LICENSE
-    itself names nobody): who made ELI. "" when neither names anyone."""
+    """Who holds the copyright, as the NOTICE this build ships with names them, else the licence: who
+    made ELI, the name alone (the handle and email after it are not part of it). "" when neither
+    names anyone."""
     texts = []
     path = license_path()
     if path is not None:
@@ -92,7 +93,7 @@ def made_by() -> str:
             texts.append("")            # no NOTICE beside this build: the licence alone is read
     texts.append(license_text())
     for text in texts:
-        m = re.search(r"Copyright\s*(?:©|\(c\))\s*(?:\d{4}(?:\s*[-–]\s*\d{4})?\s+)?([^.\n]+)", text, re.I)
+        m = re.search(r"Copyright\s*(?:©|\(c\))\s*(?:\d{4}(?:\s*[-–]\s*\d{4})?\s+)?([^.(<\n]+)", text, re.I)
         if m:
             return m.group(1).strip()
     return ""

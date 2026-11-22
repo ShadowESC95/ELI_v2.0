@@ -84,6 +84,7 @@ def test_who_made_eli_is_read_from_the_licence_it_ships_with():
     from eli.runtime.license_info import made_by
     maker = made_by()
     assert maker and maker in (REPO / "NOTICE").read_text(encoding="utf-8") and "rights" not in maker.lower()
+    assert maker == "Jason Fitzgibbon Bridgeman", maker   # the name, never the handle or a cut-off email
 
 
 def test_every_command_that_starts_eli_reads_its_flags():
