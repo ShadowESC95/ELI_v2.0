@@ -81,11 +81,14 @@ def _adapters_dir() -> Path:
 
 def _builtin(name: str) -> dict[str, Any]:
     """Built-in target `name` with its files' full paths, by _BUILTIN_PLACES."""
+    from eli.core.paths import project_root
     cfg = dict(BUILTIN_TARGETS[name])
     for key, (folder, older, read_older) in _BUILTIN_PLACES.items():
         now = folder() / str(cfg[key])
-        before = _resolve(f"{older}/{cfg[key]}")
-        keep_older = read_older and not now.exists() and before is not None and before.exists()
+        # the program folder itself, where older builds put it (_resolve now reads "training/..." as
+        # the training folder in force, which is where `now` already is)
+        before = (Path(project_root()) / older / str(cfg[key])).resolve()
+        keep_older = read_older and not now.exists() and before.exists()
         cfg[key] = str(before if keep_older else now)
     return cfg
 
