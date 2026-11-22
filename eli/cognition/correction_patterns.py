@@ -144,12 +144,22 @@ def is_news_fetch_complaint(text: str) -> bool:
 
 FACT_CORRECTION_RE = re.compile(r"(?:^|[.!?]\s+)(?:no|nope|nah)[,.!]?\s+(?:the|that|it|those|this|i)\b", re.I)
 
+# "that's not right", "thats wrong", "you got that wrong", "that is incorrect": the last answer disputed.
+# Without the apostrophe ("thats not right, there must be an error with your memory database") none of
+# the patterns above saw it, and the memory-runtime lock answered with the subsystem's internals.
+DISPUTE_RE = re.compile(
+    r"\b(?:that|it|this)(?:['’]?s|\s+is|\s+was)\s+(?:(?:just|simply|totally|completely|all)\s+)?"
+    r"(?:not\s+(?:right|correct|true|accurate)|wrong|incorrect|false|inaccurate|made\s+up)\b"
+    r"|\byou(?:['’]?re|\s+are|\s+were)\s+(?:wrong|mistaken|incorrect)\b"
+    r"|\byou\s+got\s+(?:it|that|this|them)\s+(?:all\s+)?wrong\b|\bwrong\s+answer\b",
+    re.I)
+
 
 def is_answer_correction(text: str) -> bool:
     """The user is telling ELI its last answer was wrong (not a complaint about the app itself)."""
     s = str(text or "")
     return bool(CORRECTION_QUERY_RE.search(s) or RUNTIME_RECHECK_CORRECTION_RE.search(s)
-                or is_biographical_dispute(s) or FACT_CORRECTION_RE.search(s))
+                or is_biographical_dispute(s) or FACT_CORRECTION_RE.search(s) or DISPUTE_RE.search(s))
 
 
 def is_correction_query(text: str) -> bool:

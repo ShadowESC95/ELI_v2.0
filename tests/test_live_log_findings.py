@@ -245,3 +245,19 @@ def test_creating_a_file_does_not_replace_one_unless_asked(tmp_path):
     # and a word inside what the file holds is not that instruction
     held = route(f"write a file called {target} containing find and replace tips")["args"]
     assert held["content"] == "find and replace tips" and held.get("overwrite") is None
+
+
+@pytest.mark.parametrize("disputed", [
+    "Thats not right, there must be an error with your memory database",
+    "that is not right, your memory tables must be broken",
+    "you got that wrong, your memory database must be messed up",
+])
+def test_disputing_the_last_answer_is_not_a_question_about_the_memory_machinery(disputed):
+    """Live: "Thats not right, there must be an error with your memory database" got the memory subsystem's
+    internals with a stale name at the top. It disputes the last answer; it goes to chat, which re-checks."""
+    from eli.cognition.correction_patterns import is_answer_correction
+    assert is_answer_correction(disputed)
+    assert route(disputed)["action"] != "EXPLAIN_MEMORY_RUNTIME"
+    assert route("how does your memory database work?")["action"] == "EXPLAIN_MEMORY_RUNTIME"
+    for not_a_dispute in ("turn right at the lights", "the right answer is four", "that is right"):
+        assert not is_answer_correction(not_a_dispute)
