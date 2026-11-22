@@ -226,6 +226,22 @@ def asks_about_the_past(text: str) -> bool:
     return "?" in t or bool(_RECALL_CUE.search(t))
 
 
+# "what is the last thing you remember / we talked about", "when was our last conversation", "what did
+# we talk about last time": the period is the conversation before this one, which only the log knows
+# (Memory.previous_conversation_window). Without it the busiest old day won over the last one.
+_LAST_CONVERSATION = re.compile(
+    r"\b(?:last|previous|prior|most\s+recent)\s+(?:conversation|chat|talk|session)\b"
+    r"|\blast\s+time\s+(?:we|i|you)\s+(?:spoke|talked|chatted)\b"
+    r"|\blast\s+thing\s+(?:you\s+(?:remember|recall)|we\s+(?:talked|spoke|chatted)\s+about)\b"
+    r"|\b(?:talk(?:ed)?|chat(?:ted)?|spoke|speak)\s+about\s+last\s+time\b",
+    re.I)
+
+
+def asks_about_last_conversation(text: str) -> bool:
+    """Whether a recall question is about the conversation before this one."""
+    return asks_about_the_past(text) and bool(_LAST_CONVERSATION.search(str(text or "")))
+
+
 def plan_window(text: str, now: Optional[float] = None) -> Optional[Window]:
     """The period a recall question is about. A plain statement gets no window, so it cannot narrow retrieval."""
     return parse_window(text, now) if asks_about_the_past(text) else None

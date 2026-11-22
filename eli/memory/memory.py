@@ -5608,6 +5608,25 @@ class Memory(metaclass=_MemoryMeta):
         finally:
             conn.close()
 
+    def previous_conversation_window(self, current_session_id=None):
+        """(start, end) of the conversation before this one: the latest session in the log other than
+        `current_session_id`, from its first turn to its last. None when there is none."""
+        conn = self._get_connection()
+        try:
+            row = conn.execute(
+                "SELECT session_id FROM conversation_turns WHERE COALESCE(session_id, '') != ? "
+                "ORDER BY COALESCE(timestamp, ts, 0) DESC LIMIT 1", (str(current_session_id or ""),)).fetchone()
+            if not row:
+                return None
+            span = conn.execute(
+                "SELECT MIN(COALESCE(timestamp, ts, 0)), MAX(COALESCE(timestamp, ts, 0)) FROM conversation_turns "
+                "WHERE COALESCE(session_id, '') = COALESCE(?, '')", (row[0],)).fetchone()
+            if not span or not span[0]:
+                return None
+            return float(span[0]), float(span[1]) + 1.0
+        finally:
+            conn.close()
+
     def get_recent_failures(self, limit=20):
         conn = self._get_connection()
         try:

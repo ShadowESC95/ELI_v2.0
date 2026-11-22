@@ -101,3 +101,43 @@ def test_a_month_in_supplied_facts_is_not_a_window_on_history():
     assert parse_window("Information supplied: Project Q-7 started in May. What is the passphrase for Project Q-7? "
                         "If the answer is not provided, say UNKNOWN only.") is None
     assert parse_window("what did I work on in May?") is not None
+
+
+@pytest.mark.parametrize("text,about_it", [
+    ("What is the last thing you remember/what we talked about?", True),
+    ("so when was our last conversation before this?", True),
+    ("what did we talk about last time?", True),
+    ("what did we talk about yesterday?", False),        # a period of its own
+    ("the last conversation was great.", False),         # a statement, not a question
+    ("play the last song", False),
+])
+def test_a_question_about_the_last_conversation_is_known(text, about_it):
+    from eli.cognition.query_planner import asks_about_last_conversation
+    assert asks_about_last_conversation(text) is about_it
+
+
+def test_the_last_conversation_is_the_one_before_this_one_in_the_log(memory_instance):
+    """Live: asked "what is the last thing you remember / what we talked about?", ELI answered from the
+    busiest old day (21 October, 298 turns) and said nothing had happened since, with three later
+    conversations in the log. The period is the conversation before this one, read from the log."""
+    import sqlite3
+    from types import SimpleNamespace
+    from eli.cognition.orchestrator import _previous_conversation
+    mem = memory_instance
+    mem.add_conversation_turn("user", "a first message so the tables exist", session_id="s-now")
+    day = 86400.0
+    t0 = time.time() - 20 * day
+    rows = [("s-busy", t0 + i) for i in range(40)] + [("s-last", t0 + 8 * day), ("s-last", t0 + 8 * day + 600)]
+    con = sqlite3.connect(str(mem.db_path))
+    try:
+        for session, ts in rows:
+            con.execute("INSERT INTO conversation_turns (session_id, user_id, role, content, ts, timestamp) "
+                        "VALUES (?, 'u', 'user', 'something said', ?, ?)", (session, ts, ts))
+        con.commit()
+    finally:
+        con.close()
+    window = mem.previous_conversation_window("s-now")
+    assert window == (t0 + 8 * day, t0 + 8 * day + 601)
+    engine = SimpleNamespace(memory=mem, session_id="s-now")
+    assert _previous_conversation(engine, "so when was our last conversation before this?") == window
+    assert _previous_conversation(engine, "what did we talk about yesterday?") is None
