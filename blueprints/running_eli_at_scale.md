@@ -87,7 +87,9 @@ Nothing here requires code changes; it's all configuration.
 - **Load knobs (env vars)**, read by the loader (`gguf_inference.load_request`: the environment
   first, then the settings; in the desktop app the startup window's own boxes are the request).
   An exported value stays in force through every settings save until that setting is changed in
-  the app (`runtime_settings`, the order above `apply_env`):
+  the app (`runtime_settings`, the order above `apply_env`), and no save writes it into
+  settings.json: the desktop window saves only what was changed in its Settings tab, and its
+  tuner only the values it decides:
   - `ELI_GGUF_N_CTX` / `ELI_N_CTX` — context window
   - `ELI_GGUF_N_GPU_LAYERS` / `ELI_N_GPU_LAYERS` / `ELI_GPU_LAYERS` — a cap on the layers put on the
     GPUs, for whichever model loads; leave unset and every layer that fits goes there (`-1` is every

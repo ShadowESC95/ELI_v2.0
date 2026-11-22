@@ -1,6 +1,6 @@
 """Checks that need the real Qt, run in a child process (conftest stubs PySide6 for the tests).
 
-    python -m tests._gui_runtime_checks names|methods|window <window module>
+    python -m tests._gui_runtime_checks names|methods|window|settings <window module>
 
 Prints one JSON line starting with RESULT; {"skip": reason} when Qt cannot load here.
 """
@@ -128,6 +128,82 @@ def build_window(window_module: str) -> dict:
     return {"tabs": [window.tabs.tabText(i) for i in range(window.tabs.count())], "failed": failed}
 
 
+def settings_saves(window_module: str) -> dict:
+    """The Settings tab saved after one other box changed (or after the tuner ran), case by case:
+    what the tab showed, what settings.json and the exported variables hold after the save, and
+    what loads once the exports are gone. The window is built once; each case starts from its own
+    settings file and exports, shown as the window shows them when it opens (_show_saved_settings).
+    ELI_TEST_SETTINGS_CASES names the folder the cases keep their models in."""
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])  # noqa: F841
+    try:
+        import eli.perception.audio_stt as _stt
+        _stt._get_recognizer = lambda *a, **k: None
+    except Exception:
+        pass
+    root = pathlib.Path(os.environ["ELI_TEST_SETTINGS_CASES"])
+    bundled = root / "models" / "gguf" / "base"
+    bundled.mkdir(parents=True, exist_ok=True)
+    (root / "elsewhere").mkdir(exist_ok=True)
+    alpha, beta, gamma = bundled / "alpha.gguf", bundled / "beta.gguf", root / "elsewhere" / "gamma.gguf"
+    for model in (alpha, beta, gamma):
+        model.write_bytes(b"GGUF" + b"\0" * 64)
+    mod = importlib.import_module(window_module)
+    mod.BUNDLED_MODEL_DIR = root / "models"              # the program's own models folder, here
+    from eli.core import hardware_profile as hp, runtime_settings as rs
+    settings_file = pathlib.Path(os.environ["ELI_SETTINGS_FILE"])
+    load_vars = set(rs.ENV_TO_KEY) | {"ELI_SETTINGS_PUBLISHED"}
+    window = mod.EliMainWindow()
+
+    def temperature_up():
+        window.temperature_input.setValue(window.temperature_input.value() + 0.1)
+
+    def run_tuner():
+        rec = hp.ModelRecommendation(model_path=str(alpha), model_name=alpha.name, n_gpu_layers=-1,
+                                     n_ctx=8192, batch_size=256, n_threads=0)
+        real = hp.detect_hardware, hp.recommend
+        hp.detect_hardware = lambda *a, **k: hp.HardwareProfile()
+        hp.recommend = lambda *a, **k: rec
+        try:
+            window._apply_hardware_recommendation_for_model(str(alpha))
+        finally:
+            hp.detect_hardware, hp.recommend = real
+
+    def case(saved, exported, change=temperature_up):
+        for name in load_vars:
+            os.environ.pop(name, None)
+        os.environ.update(exported)
+        settings_file.write_text(json.dumps({"ollama_host": "http://127.0.0.1:9", **saved}), encoding="utf-8")
+        window._show_saved_settings()
+        shown = {"layers": window.n_gpu_layers_input.value(), "layers_text": window.n_gpu_layers_input.text(),
+                 "bundled": str(window.bundled_model_combo.currentData() or "")}
+        change()
+        shown_after = {"layers": window.n_gpu_layers_input.value(),
+                       "layers_text": window.n_gpu_layers_input.text()}
+        window.save_settings(silent=True)
+        env = {name: os.environ.get(name) for name in exported}
+        written = json.loads(settings_file.read_text(encoding="utf-8"))
+        for name in exported:
+            os.environ.pop(name, None)
+        after = rs.load_settings()
+        return {"shown": shown, "shown_after": shown_after, "env": env, "file": written,
+                "loaded": {k: after.get(k) for k in ("n_ctx", "batch_size", "model_path", "temperature",
+                                                     "n_gpu_layers", "provider")}}
+
+    custom = {"provider": "custom_gguf", "model_path": str(alpha), "custom_model_path": str(alpha)}
+    on_bundled = {"provider": "bundled_gguf", "model_path": str(alpha), "bundled_model_path": str(alpha)}
+    return {
+        "models": {"alpha": str(alpha), "beta": str(beta), "gamma": str(gamma)},
+        "exported_context": case({**custom, "n_ctx": 0, "batch_size": 512, "temperature": 0.5},
+                                 {"ELI_N_CTX": "16384", "ELI_GGUF_N_BATCH": "1024"}),
+        "exported_every_layer": case({**custom, "n_gpu_layers": 0}, {"ELI_N_GPU_LAYERS": "-1"}),
+        "bundled_exported": case(on_bundled, {"ELI_GGUF_MODEL_PATH": str(beta)}),
+        "bundled_exported_elsewhere": case(on_bundled, {"ELI_GGUF_MODEL_PATH": str(gamma)}),
+        "tuner": case({**on_bundled, "n_gpu_layers": 0, "batch_size": 512, "temperature": 0.3},
+                      {"ELI_N_CTX": "16384", "ELI_GGUF_N_BATCH": "1024"}, run_tuner),
+    }
+
+
 def main(argv: list) -> None:
     what, window_module = argv[0], (argv[1] if len(argv) > 1 else "")
     try:
@@ -139,6 +215,8 @@ def main(argv: list) -> None:
             result = {"missing": unresolved_names()}
         elif what == "methods":
             result = {"missing": missing_methods(window_module)}
+        elif what == "settings":
+            result = settings_saves(window_module)
         else:
             result = build_window(window_module)
     print("RESULT " + json.dumps(result), flush=True)

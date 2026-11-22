@@ -253,6 +253,101 @@ def test_the_window_shows_an_exported_model_as_the_one_in_force(settings_home, m
     assert fill.index('_rs_exported_model("model_path")') < fill.index("self.model_path_input.setText(model_path")
 
 
+# ── the window's Settings tab, built offscreen in a child process (tests/_gui_runtime_checks.py) ──
+@pytest.fixture(scope="module")
+def window_saves(tmp_path_factory):
+    """What the real window's saves leave behind, case by case (_gui_runtime_checks.settings_saves)."""
+    import json
+    import subprocess
+    import sys
+    tmp = tmp_path_factory.mktemp("window_saves")
+    env = dict(os.environ)
+    for key in ("HOME", "USERPROFILE", "XDG_DATA_HOME", "XDG_CONFIG_HOME", "XDG_CACHE_HOME"):
+        env[key] = str(tmp / "home")
+    env.update(ELI_DATA_DIR=str(tmp / "data"), ELI_CONFIG_DIR=str(tmp / "config"),
+               ELI_SETTINGS_FILE=str(tmp / "settings.json"), ELI_MODELS_DIR=str(tmp / "cases" / "models"),
+               ELI_TEST_SETTINGS_CASES=str(tmp / "cases"), ELI_PERSONA_AUTO_PATH=str(tmp / "persona.auto.txt"),
+               ELI_WORLD_DIR=str(tmp / "world"), ELI_NOTEBOOK_DIR=str(tmp / "notebook"),
+               ELI_OFFLINE="1", ELI_FORCE_CPU="1", QT_QPA_PLATFORM="offscreen")
+    proc = subprocess.run([sys.executable, "-m", "tests._gui_runtime_checks", "settings",
+                           "eli.gui.eli_pro_audio_gui_v2_0"], cwd=Path(__file__).resolve().parents[1],
+                          env=env, capture_output=True, text=True, timeout=600)
+    lines = [ln for ln in proc.stdout.splitlines() if ln.startswith("RESULT ")]
+    assert lines, f"exit {proc.returncode}\n{proc.stdout[-3000:]}\n{proc.stderr[-3000:]}"
+    result = json.loads(lines[-1][len("RESULT "):])
+    if "skip" in result:
+        pytest.skip(result["skip"])
+    return result
+
+
+def test_a_window_save_keeps_an_exported_context_out_of_the_settings_file(window_saves):
+    """The window saved every box at once: a save of any setting wrote the context and batch the
+    operator had exported into settings.json, where they stayed once the export was gone."""
+    case = window_saves["exported_context"]
+    assert case["env"] == {"ELI_N_CTX": "16384", "ELI_GGUF_N_BATCH": "1024"}     # still in force
+    assert (case["file"]["n_ctx"], case["file"]["batch_size"]) == (0, 512)
+    assert case["file"]["temperature"] == pytest.approx(0.6)                    # what was changed
+    assert (case["loaded"]["n_ctx"], case["loaded"]["batch_size"]) == (0, 512)
+    assert case["loaded"]["temperature"] == pytest.approx(0.6)
+
+
+def test_the_window_shows_every_layer_and_a_save_keeps_an_exported_one(window_saves):
+    """The GPU-layer box started at 0, so an exported (or saved) -1, every layer, showed as auto
+    and the next save of any setting wrote 0 over it."""
+    case = window_saves["exported_every_layer"]
+    assert (case["shown"]["layers"], case["shown"]["layers_text"]) == (-1, "every layer")
+    assert case["env"]["ELI_N_GPU_LAYERS"] == "-1"
+    assert case["file"]["n_gpu_layers"] == 0
+
+
+def test_with_the_bundled_provider_an_exported_model_is_shown_and_kept(window_saves):
+    """With bundled_gguf the model box showed the saved bundled model, so the next save of any
+    setting wrote it over the exported model; one kept outside the models folder is listed too."""
+    models = window_saves["models"]
+    for name, model in (("bundled_exported", models["beta"]), ("bundled_exported_elsewhere", models["gamma"])):
+        case = window_saves[name]
+        assert case["shown"]["bundled"] == model, name
+        assert case["env"]["ELI_GGUF_MODEL_PATH"] == model, name
+        assert case["file"]["model_path"] == case["file"]["bundled_model_path"] == models["alpha"], name
+        assert case["loaded"]["model_path"] == models["alpha"], name
+
+
+def test_the_windows_tuner_saves_its_own_values_and_no_export(window_saves):
+    """The tuner saved the whole loaded settings back: the exported context and batch went into the
+    file, the legacy gpu_layers copy in them wrote the old layer count over the tuner's, and the
+    recommendation it then applied put its provider and temperature over the user's."""
+    case = window_saves["tuner"]
+    saved = case["file"]
+    assert (saved["n_gpu_layers"], saved["n_gpu_layers_source"]) == (-1, "tuner")
+    assert case["shown_after"]["layers_text"] == "every layer"
+    assert saved.get("n_ctx", 0) == 0 and saved["batch_size"] == 512
+    assert (saved["temperature"], saved["provider"]) == (0.3, "bundled_gguf")
+    assert (case["loaded"]["n_ctx"], case["loaded"]["batch_size"]) == (0, 512)
+
+
+def test_applying_a_hardware_recommendation_keeps_the_users_settings_and_no_export(tmp_path, monkeypatch):
+    """apply_recommendation saved the whole loaded settings back (an exported context went into the
+    file) and put temperature 0.7, max_tokens -1 and its provider over the user's."""
+    import json
+    from eli.core import hardware_profile as hp
+    from eli.core import runtime_settings as rs
+    f = tmp_path / "settings.json"
+    f.write_text(json.dumps({"provider": "bundled_gguf", "temperature": 0.3, "max_tokens": 900, "n_ctx": 0}),
+                 encoding="utf-8")
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(f))
+    for var in set(rs._PUBLISHED_VARS + ("ELI_SETTINGS_PUBLISHED", "ELI_N_CTX", "ELI_MODEL_PATH")):
+        monkeypatch.setenv(var, "")
+        monkeypatch.delenv(var)
+    monkeypatch.setenv("ELI_N_CTX", "16384")
+    assert hp.apply_recommendation(hp.ModelRecommendation(model_path="/m/a.gguf", n_ctx=8192))["ok"]
+    saved = json.loads(f.read_text(encoding="utf-8"))
+    assert saved["n_ctx"] == 0 and saved["hw_profile_n_ctx"] == 8192 and saved["model_path"] == "/m/a.gguf"
+    assert (saved["temperature"], saved["max_tokens"], saved["provider"]) == (0.3, 900, "bundled_gguf")
+    f.write_text(json.dumps({"provider": "ollama"}), encoding="utf-8")
+    hp.apply_recommendation(hp.ModelRecommendation(model_path="/m/a.gguf"))
+    assert json.loads(f.read_text(encoding="utf-8"))["provider"] == "custom_gguf"   # Ollama loads no GGUF
+
+
 def test_the_think_switch_follows_a_change_made_through_the_settings(saved_auto_ctx, monkeypatch):
     """ELI_MODEL_THINK was written once and then never again: turning deep thinking off through the
     settings (the API, the dashboard) had no effect until a restart."""

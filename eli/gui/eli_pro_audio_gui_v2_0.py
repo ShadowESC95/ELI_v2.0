@@ -786,7 +786,8 @@ class LocalModelManager:
         use_mlock: bool = False,
     ) -> bool:
         """Load through gguf_inference.load_model: the plan for this machine now (eli/core/load_plan.py),
-        the window's boxes as the request. 0 context is auto; the layer count is a ceiling."""
+        the window's boxes as the request. 0 context is auto; a layer count is a ceiling, -1 every
+        layer and 0 auto (the request then carries none: an explicit 0 is a load on the processor)."""
         try:
             try:
                 from eli.core.gpu_pack_runtime import try_activate_gpu_pack
@@ -821,7 +822,7 @@ class LocalModelManager:
             request = _gg.load_request(
                 path_obj,
                 n_ctx=max(0, int(n_ctx or 0)),
-                n_gpu_layers=None if n_gpu_layers is None else max(0, int(n_gpu_layers)),
+                n_gpu_layers=None if not n_gpu_layers else max(ALL_GPU_LAYERS, int(n_gpu_layers)),
                 n_batch=max(1, int(n_batch or 512)),
                 n_threads=max(0, int(n_threads or 0)),
                 cache_type_k=str(cache_type_k or ""),
@@ -1024,6 +1025,37 @@ class OllamaModelManager:
         self.is_loaded = False
 
 model_manager = LocalModelManager()
+
+from eli.core.runtime_settings import ALL_GPU_LAYERS
+
+
+class _GpuLayersBox(QSpinBox):
+    """The GPU-layer box: -1 is every layer (llama.cpp's own value, which the load plan fits), 0 is
+    auto (as many as fit, measured for the model), a number caps it. A spin box from 0 held -1 as
+    0, so a save wrote auto over a saved or exported -1, and a load asked for no layer on the GPU."""
+    _WORDS = {ALL_GPU_LAYERS: "every layer", 0: "auto"}
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setRange(min(self._WORDS), 2_147_483_647)
+
+    def textFromValue(self, value):
+        return self._WORDS.get(int(value), super().textFromValue(value))
+
+    def valueFromText(self, text):
+        typed = str(text).strip().lower()
+        for value, word in self._WORDS.items():
+            if typed == word:
+                return value
+        return super().valueFromText(text)
+
+    def validate(self, text, pos):
+        typed = str(text).strip().lower()
+        if typed and any(word.startswith(typed) for word in self._WORDS.values()):
+            state = (QValidator.State.Acceptable if typed in self._WORDS.values()
+                     else QValidator.State.Intermediate)
+            return state, text, pos
+        return super().validate(text, pos)
 
 # ============================================================
 # EXECUTOR INTEGRATION (unchanged)
@@ -2221,8 +2253,7 @@ class EliMainWindow(QMainWindow):
         self._ensure_hardware_tuning_dock()
         self._start_runtime_monitoring()
         self._start_live_data_monitoring()
-        self.load_settings()
-        self.refresh_model_sources()
+        self._show_saved_settings()
         self.apply_theme()
         # A model the terminal launcher loaded (eli/gui/app.py, through gguf_inference.load_model, which
         # wrote its runtime report) is taken on as it is: nothing is loaded twice or republished.
@@ -7117,11 +7148,10 @@ class EliMainWindow(QMainWindow):
         self.n_threads_input.setValue(0)
         form.addRow(self._field_label("CPU threads"), self.n_threads_input)
 
-        self.n_gpu_layers_input = QSpinBox()
-        self.n_gpu_layers_input.setRange(0, 2_147_483_647)
-        self.n_gpu_layers_input.setSpecialValueText("auto")
+        self.n_gpu_layers_input = _GpuLayersBox()
         self.n_gpu_layers_input.setValue(0)
-        self.n_gpu_layers_input.setToolTip("auto: as many layers as fit on the GPU. A number caps it for this model. "
+        self.n_gpu_layers_input.setToolTip("auto: as many layers as fit on the GPU, measured for this model. every layer: "
+                                           "all of them, as many as fit. A number caps it for this model. "
                                            "To run on the processor only, choose CPU under Compute mode in the startup window.")
         form.addRow(self._field_label("GPU-layer parameter"), self.n_gpu_layers_input)
 
@@ -9501,10 +9531,25 @@ class EliMainWindow(QMainWindow):
         self.system_recommendation_label.setText(f"Detected: {format_gb(float(ram))} RAM, {cpu} CPU threads visible.")
         pending = getattr(self, '_pending_bundled_model_path', '')
         if pending:
-            idx = self.bundled_model_combo.findData(pending)
+            idx = self._bundled_index(pending)
+            if idx < 0 and resolve_model_path(pending).is_file():
+                # the model in force from elsewhere (an export, a model kept outside models/) is
+                # listed by its name and folder, so the box shows what loads
+                where = resolve_model_path(pending)
+                self.bundled_model_combo.addItem(f"{where.name}  ({where.parent})", str(where))
+                idx = self.bundled_model_combo.count() - 1
             if idx >= 0:
                 self.bundled_model_combo.setCurrentIndex(idx)
         self.on_provider_changed()
+
+    def _bundled_index(self, path: str) -> int:
+        """The bundled-model box's entry for `path`, however the path is written, or -1."""
+        wanted = resolve_model_path(path).resolve()
+        for i in range(self.bundled_model_combo.count()):
+            data = self.bundled_model_combo.itemData(i)
+            if data and resolve_model_path(str(data)).resolve() == wanted:
+                return i
+        return -1
 
     def refresh_ollama_models(self, quiet: bool = False):
         if not hasattr(self, 'ollama_model_combo'):
@@ -9834,20 +9879,32 @@ class EliMainWindow(QMainWindow):
 
             # Persist the calculated values as the canonical runtime settings AND
             # the hw_profile_* mirror, so both the load path and any settings
-            # readers see the recalculated, model-specific profile.
+            # readers see the recalculated, model-specific profile. Only what the tuner decides is
+            # saved, and of the context, layer count and batch only a value other than the one the
+            # tab showed: the whole loaded settings saved back put the operator's exports in the
+            # file, and its legacy gpu_layers copy wrote the old count over the new one.
             try:
-                from eli.core.runtime_settings import load_settings as _rs_load, save_settings as _rs_save
-                _s = dict(_rs_load() or {})
-                # the operator's own ctx, or auto; the tuner's figure goes in hw_profile_n_ctx only
-                _s["n_ctx"] = int(_user_pinned_ctx or 0)
-                _s["n_gpu_layers"] = _canonical_layers
-                # Only a value the operator pinned counts as theirs; the tuner's own number must not
-                # come back next launch as a pin.
-                _s["n_gpu_layers_source"] = "user" if _user_pinned_layers else "tuner"
-                # Record the model and ctx this pin was measured at, so a swap or ctx change can invalidate it.
-                _s["n_gpu_layers_model"] = _this_model
-                _s["n_gpu_layers_ctx"] = _canonical_ctx
-                _s["batch_size"] = _canonical_batch   # user's choice, preserved
+                from eli.core.runtime_settings import save_settings as _rs_save
+                _shown = getattr(self, "_settings_shown", None) or {}
+
+                def _new(key, value):
+                    return key not in _shown or _shown[key] != value
+
+                _s = {}
+                if _new("n_ctx", int(_user_pinned_ctx or 0)):
+                    # the operator's own ctx, or auto; the tuner's figure goes in hw_profile_n_ctx only
+                    _s["n_ctx"] = int(_user_pinned_ctx or 0)
+                    _s["n_ctx_model"] = Path(str(model_path)).name if _user_pinned_ctx else ""
+                if _new("n_gpu_layers", _canonical_layers):
+                    _s["n_gpu_layers"] = _canonical_layers
+                    # Only a value the operator pinned counts as theirs; the tuner's own number must not
+                    # come back next launch as a pin.
+                    _s["n_gpu_layers_source"] = "user" if _user_pinned_layers else "tuner"
+                    # Record the model and ctx this pin was measured at, so a swap or ctx change can invalidate it.
+                    _s["n_gpu_layers_model"] = _this_model
+                    _s["n_gpu_layers_ctx"] = _canonical_ctx
+                if _new("batch_size", _canonical_batch):
+                    _s["batch_size"] = _canonical_batch   # user's choice, preserved
                 if int(rec.n_threads) > 0:
                     _s["n_threads"] = int(rec.n_threads)
                 _s["hw_profile_n_ctx"] = int(rec.n_ctx)   # effective (VRAM-reduced) value
@@ -9855,7 +9912,13 @@ class EliMainWindow(QMainWindow):
                 _s["hw_profile_batch_size"] = int(rec.batch_size)
                 _s["cache_type_k"] = _ck
                 _s["cache_type_v"] = _cv
+                # the reasoning-mode budgets for this context (resized to the context that loads
+                # after the load); apply_recommendation also put the recommendation's provider,
+                # model, temperature and max_tokens over the user's settings on every load
+                _s["mode_presets"] = dict(getattr(rec, "mode_presets", None) or {})
                 _rs_save(_s)
+                self._note_settings_shown(("n_ctx", "n_gpu_layers", "batch_size", "cache_type_k",
+                                           "cache_type_v"))
                 # Say what was applied and what was NOT. The previous line claimed
                 # the whole profile had been applied as canonical, directly under a
                 # printed "n_ctx set 10384 → 4096" — and n_ctx is the one value this
@@ -9889,12 +9952,6 @@ class EliMainWindow(QMainWindow):
                     )
             except Exception as _save_err:
                 self._hardware_tuning_log(f"Warning: hw_profile save failed: {_save_err}")
-
-            try:
-                from eli.core.hardware_profile import apply_recommendation as _hp_apply
-                _hp_apply(rec)
-            except Exception as _json_err:
-                log.debug("[SETTINGS] runtime_hardware_profile.json sync failed", exc_info=True)
 
             result.update({"ok": True, "recommendation": rec.to_dict() if hasattr(rec, "to_dict") else {}})
             return result
@@ -10071,6 +10128,10 @@ class EliMainWindow(QMainWindow):
         self._run_startup_model_picker()
 
     def load_model(self):
+        # What was changed in the Settings tab is saved before the load (the model chosen among it),
+        # so the load and the next start use it: the tuner's apply_recommendation used to save the
+        # model, over the user's provider, temperature and max_tokens.
+        self.save_settings(silent=True)
         provider = self.current_provider()
         if provider != "ollama":
             selected_path = self.resolve_selected_model_path()
@@ -11407,7 +11468,7 @@ class EliMainWindow(QMainWindow):
             # 0 is auto; whether a saved number is still yours is decided per model when tuning
             self.n_ctx_input.setValue(int(s.get("n_ctx") or 0))
             self.n_threads_input.setValue(int(s.get("n_threads") or 0))
-            self.n_gpu_layers_input.setValue(max(0, int(s.get("n_gpu_layers") or 0)))   # -1 (every layer) is auto
+            self.n_gpu_layers_input.setValue(int(s.get("n_gpu_layers") or 0))   # -1 every layer, 0 auto
             self.max_tokens_input.setValue(int(s.get("max_tokens", 4096)))
             self.temperature_input.setValue(float(s.get("temperature", 0.7)))
             _batch = s.get("batch_size") or s.get("n_batch")
@@ -11451,7 +11512,10 @@ class EliMainWindow(QMainWindow):
             else:
                 model_path = s.get("model_path") or DEFAULT_MODEL_PATH
             self.model_path_input.setText(model_path or "")
-            bundled_path = s.get("bundled_model_path", "")
+            # The bundled-model box selects the model in force as well, the exported one first
+            # (refresh_model_sources lists it when it is not a bundled model): showing the saved one,
+            # a save of any other setting wrote it over the export.
+            bundled_path = (_exported_model if provider != "ollama" else "") or s.get("bundled_model_path", "")
             if bundled_path:
                 self._pending_bundled_model_path = bundled_path
             self.ollama_host_input.setText(s.get("ollama_host", "http://localhost:11434"))
@@ -11606,43 +11670,44 @@ class EliMainWindow(QMainWindow):
             except Exception:
                 log.debug("screen settings load failed", exc_info=True)
 
-    def save_settings(self, silent: bool = False):
-        """Save settings via runtime_settings — single canonical merge-write."""
+    def _show_saved_settings(self):
+        """Fill the Settings tab from the settings in force and the models found, and note what it
+        shows: a save then writes only what is changed in the tab (save_settings)."""
+        self.load_settings()
+        self.refresh_model_sources()
+        self._note_settings_shown()
+
+    def _note_settings_shown(self, keys=None):
+        """Note what the tab shows now as saved: all of it, or the settings `keys`."""
+        now = self._settings_in_boxes()
+        if keys is None or getattr(self, "_settings_shown", None) is None:
+            self._settings_shown = now
+            return
+        for key in keys:
+            if key in now:
+                self._settings_shown[key] = now[key]
+            else:
+                self._settings_shown.pop(key, None)
+
+    def _settings_in_boxes(self) -> Dict[str, Any]:
+        """Every setting the Settings tab holds, as its boxes hold it now."""
         provider = self.current_provider()
         model_path = self.resolve_selected_model_path() if provider != "ollama" else self.model_path_input.text()
         bundled_path = str(self.bundled_model_combo.currentData() or "")
-        existing = {}
-        try:
-            from eli.core.runtime_settings import load_settings as _rs_load
-            existing = _rs_load() or {}
-        except Exception:
-            existing = {}
-
-        updates = {
+        boxes = {
             "provider": provider,
             # Store the canonical active model path for the selected provider.
             # Without this, custom_model_path / bundled_model_path can diverge
             # from model_path and get_model_path() keeps the stale primary key.
             "model_path": model_path,
-            "custom_model_path": (
-                self.model_path_input.text().strip()
-                if provider == "custom_gguf"
-                else str(existing.get("custom_model_path") or self.model_path_input.text() or "")
-            ),
-            "bundled_model_path": bundled_path or str(existing.get("bundled_model_path") or ""),
             # Store the canonical form, so "localhost:11434" or a bare IP typed
             # here is persisted as a URL every consumer can actually use.
             "ollama_host": self.ollama_manager._normalize_host(
                 self.ollama_host_input.text().strip()),
             "ollama_model": self.ollama_model_combo.currentText().strip(),
             "n_ctx": int(self.n_ctx_input.value()),
-            "n_ctx_model": (Path(str(self.resolve_selected_model_path() or "")).name
-                            if int(self.n_ctx_input.value()) > 0 else ""),
             "n_threads": int(self.n_threads_input.value()),
             "n_gpu_layers": int(self.n_gpu_layers_input.value()),
-            "n_gpu_layers_source": (
-                "user" if int(self.n_gpu_layers_input.value()) != int(existing.get("n_gpu_layers") or 0)
-                else str(existing.get("n_gpu_layers_source") or "")),
             "batch_size": int(self.batch_size_input.value()),
             "max_tokens": int(self.max_tokens_input.value()),
             "temperature": float(self.temperature_input.value()),
@@ -11683,8 +11748,12 @@ class EliMainWindow(QMainWindow):
             "gaze_engine_enabled": bool(getattr(self, "gaze_enabled_checkbox", None) and self.gaze_enabled_checkbox.isChecked()),
             "gaze_camera": str(self.gaze_camera_input.text().strip() if hasattr(self, "gaze_camera_input") else "auto"),
         }
+        if provider == "custom_gguf":
+            boxes["custom_model_path"] = self.model_path_input.text().strip()
+        if bundled_path:
+            boxes["bundled_model_path"] = bundled_path
         if hasattr(self, "_sc_depth_combo"):
-            updates.update({
+            boxes.update({
                 "screen_analysis_depth": self._sc_depth_combo.currentData() or "standard",
                 "screen_analysis_use_memory": bool(self._sc_use_memory_cb.isChecked()),
                 "screen_analysis_use_research": bool(self._sc_use_research_cb.isChecked()),
@@ -11693,32 +11762,53 @@ class EliMainWindow(QMainWindow):
                 "ambient_vision_enabled": bool(self._sc_ambient_cb.isChecked()),
                 "ambient_vision_interval": int(self._sc_interval_spin.value()),
             })
+        return boxes
 
-        try:
-            from eli.core.runtime_settings import save_settings as _rs_save
-            _rs_save(updates)
-        except Exception as e:
-            if not silent:
-                QMessageBox.critical(self, "Error", f"Failed to save settings: {e}")
-            else:
-                log.debug(f"[SETTINGS] Save failed: {e}")
+    def save_settings(self, silent: bool = False):
+        """Save what was changed in the Settings tab since it was shown or last saved, through
+        runtime_settings. Saving every box wrote the values in force into settings.json, an
+        operator's exports among them, and those stayed after the export was gone."""
+        now = self._settings_in_boxes()
+        shown = getattr(self, "_settings_shown", None)
+        if shown is None:                   # nothing shown yet, so nothing changed in the tab
+            self._settings_shown = now
             return
+        updates = {k: v for k, v in now.items() if k not in shown or shown[k] != v}
+        if "n_gpu_layers" in updates:
+            updates["n_gpu_layers_source"] = "user"     # set here; runtime_settings records its model
+        if {"n_ctx", "model_path"} & set(updates):
+            updates["n_ctx_model"] = (Path(str(self.resolve_selected_model_path() or "")).name
+                                      if now["n_ctx"] > 0 else "")
+        if updates:
+            try:
+                from eli.core.runtime_settings import save_settings as _rs_save
+                _rs_save(updates)
+            except Exception as e:
+                if not silent:
+                    QMessageBox.critical(self, "Error", f"Failed to save settings: {e}")
+                else:
+                    log.debug(f"[SETTINGS] Save failed: {e}")
+                return
+        self._settings_shown = now
         # Propagate the tone preference to user_profile.json + the persona overlay — the
         # persona brief reads communication_style from the profile, not settings.json.
-        try:
-            from eli.kernel.state import set_communication_style as _scs
-            _scs(str(updates.get("communication_style", "")))
-        except Exception:
-            log.debug("[SETTINGS] communication_style propagate failed", exc_info=True)
+        if "communication_style" in updates:
+            try:
+                from eli.kernel.state import set_communication_style as _scs
+                _scs(str(updates.get("communication_style", "")))
+            except Exception:
+                log.debug("[SETTINGS] communication_style propagate failed", exc_info=True)
 
         try:
             from eli.kernel.state import set_user_name as _set_user_name, update_user_profile as _update_profile
-            _set_user_name(updates.get("user_name", ""))
-            _update_profile(
-                image_style=updates.get("image_style_profile", "auto"),
-                image_palette=updates.get("image_palette_profile", "auto"),
-                image_visual_notes=updates.get("image_profile_notes", ""),
-            )
+            if "user_name" in updates:
+                _set_user_name(updates.get("user_name", ""))
+            if {"image_style_profile", "image_palette_profile", "image_profile_notes"} & set(updates):
+                _update_profile(
+                    image_style=now.get("image_style_profile", "auto"),
+                    image_palette=now.get("image_palette_profile", "auto"),
+                    image_visual_notes=now.get("image_profile_notes", ""),
+                )
         except Exception as e:
             log.debug(f"[SETTINGS] User profile sync skipped: {e}")
 
@@ -11733,7 +11823,7 @@ class EliMainWindow(QMainWindow):
             "cache_type_k", "cache_type_v",
             "use_mmap", "use_mlock",
         }
-        requires_reload = any(existing.get(k) != updates.get(k) for k in reload_keys)
+        requires_reload = bool(reload_keys & set(updates))
 
         # On explicit user save with reload-required keys changed, kick
         # off a proactive reload in a background thread so the new
@@ -11743,10 +11833,7 @@ class EliMainWindow(QMainWindow):
         # wiring) skip this — they shouldn't disturb the loaded model.
         try:
             if requires_reload and not silent and gguf_inference:
-                changed_keys = sorted(
-                    k for k in reload_keys
-                    if existing.get(k) != updates.get(k)
-                )
+                changed_keys = sorted(reload_keys & set(updates))
                 log.debug(f"[SETTINGS] Reload-required keys changed: {changed_keys}")
                 import threading as _settings_reload_thr
 

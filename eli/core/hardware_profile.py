@@ -2975,12 +2975,17 @@ def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
 
     Hardware-computed runtime-tune values (n_ctx, n_gpu_layers, batch_size)
     are written to hw_profile_* keys only — the canonical keys are the user's
-    domain and must not be auto-overwritten.  All other fields (model_path,
-    n_threads, cache_type_k/v, mode_presets, etc.) are safe to write.
+    domain and must not be auto-overwritten, temperature and max_tokens among
+    them (max_tokens is sized from the context that loads, after the load). The
+    model, the memory flags, the cache types and the mode presets are written, and
+    the provider only when the one in force cannot load a GGUF model (Ollama). Only
+    these keys are saved: the whole loaded settings saved back put the values the
+    operator had exported into the file, where they stayed after the export, and
+    the window's save of every box was all that put the user's temperature back.
     """
     try:
         from eli.core.runtime_settings import load_settings, save_settings
-        settings = load_settings()
+        settings: Dict[str, Any] = {}
         settings["model_path"] = rec.model_path
         settings["bundled_model_path"] = rec.model_path
         settings["custom_model_path"] = rec.model_path
@@ -2989,11 +2994,10 @@ def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
         settings["hw_profile_n_gpu_layers"] = rec.n_gpu_layers
         settings["hw_profile_n_ctx"] = rec.n_ctx
         settings["hw_profile_batch_size"] = rec.batch_size
-        settings["max_tokens"] = rec.max_tokens
-        settings["temperature"] = rec.temperature
         settings["use_mmap"] = rec.use_mmap
         settings["use_mlock"] = rec.use_mlock
-        settings["provider"] = rec.provider
+        if not str((load_settings() or {}).get("provider") or "").endswith("_gguf"):
+            settings["provider"] = rec.provider          # a provider that loads no GGUF model
         settings["cache_type_k"] = rec.cache_type_k
         settings["cache_type_v"] = rec.cache_type_v
         settings["mode_presets"] = dict(rec.mode_presets)

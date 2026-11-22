@@ -167,11 +167,10 @@ def resize_budgets_to_effective_ctx(effective_ctx: int) -> Dict[str, Any]:
     if not delta:
         return {}
 
-    settings.update(delta)
-    # Record what the budgets were sized against, so a later reader can tell
-    # whether they still match the running context without recomputing.
-    settings["mode_presets_ctx"] = ctx
-    _save(settings)
+    # Only what changed is saved, with what the budgets were sized against, so a later reader can
+    # tell whether they still match the running context without recomputing: the whole loaded
+    # settings saved back put the values the operator had exported into the file.
+    _save({**delta, "mode_presets_ctx": ctx})
     return delta
 
 

@@ -86,6 +86,24 @@ def test_a_smaller_effective_ctx_shrinks_the_budgets_too(settings_sized_for_the_
     assert store["mode_presets_ctx"] == 2048
 
 
+def test_the_resize_saves_the_budgets_and_nothing_the_operator_exported(tmp_path, monkeypatch):
+    """It saved the whole loaded settings back, and with them a context the operator had exported,
+    which then stayed in settings.json after the export was gone."""
+    import json
+    import eli.core.runtime_settings as rs
+    f = tmp_path / "settings.json"
+    f.write_text(json.dumps({"n_ctx": 0, "temperature": 0.3}), encoding="utf-8")
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(f))
+    for var in set(rs._PUBLISHED_VARS + ("ELI_SETTINGS_PUBLISHED", "ELI_N_CTX")):
+        monkeypatch.setenv(var, "")
+        monkeypatch.delenv(var)
+    monkeypatch.setenv("ELI_N_CTX", "16384")
+    assert resize_budgets_to_effective_ctx(EFFECTIVE_CTX)
+    saved = json.loads(f.read_text())
+    assert saved["n_ctx"] == 0 and saved["temperature"] == 0.3
+    assert saved["mode_presets_ctx"] == EFFECTIVE_CTX and saved["max_tokens"] == max_tokens_from_ctx(EFFECTIVE_CTX)
+
+
 @pytest.mark.parametrize("bad", [0, -1, None])
 def test_an_unknown_context_changes_nothing(settings_sized_for_the_tuner, bad):
     """Called before a successful load, this must be a no-op, not a reset."""

@@ -231,6 +231,31 @@ def test_labs_asks_eli_about_the_code_in_its_own_language(qapp, tmp_path, name, 
         assert fence == "python" or "python" not in asked[-1].lower(), asked[-1]
 
 
+def test_the_windows_load_asks_for_what_the_gpu_layer_box_says(qapp, tmp_path, monkeypatch):
+    """The box held -1 (every layer) as 0 and the load asked for 0 layers, which the load plan reads
+    as a load on the processor: a model that fits the GPU whole loaded on the CPU from the window.
+    Every layer asks for -1, auto for no count (the plan's own), a number for that number."""
+    import eli.gui.eli_pro_audio_gui_v2_0 as gui
+    from eli.cognition import gguf_inference
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(tmp_path / "settings.json"))
+    model = tmp_path / "tiny.gguf"
+    model.write_bytes(b"GGUF" + b"\0" * 64)
+    asked = []
+
+    def stop_before_loading(force_reload=False, request=None):
+        asked.append(request.n_gpu_layers)
+        raise RuntimeError("no model is loaded in the offscreen GUI tests")
+    monkeypatch.setattr(gguf_inference, "load_model", stop_before_loading)
+    monkeypatch.setattr("eli.memory.vector_store.get_vector_store", lambda *a, **k: None)
+    monkeypatch.setattr("eli.core.gpu_pack_runtime.try_activate_gpu_pack", lambda *a, **k: None)
+    box = gui._GpuLayersBox()
+    for value, text in ((-1, "every layer"), (0, "auto"), (12, "12")):
+        box.setValue(value)
+        assert (box.value(), box.text()) == (value, text)
+        assert gui.LocalModelManager().load_model(str(model), n_gpu_layers=box.value()) is False
+    assert asked == [-1, None, 12]
+
+
 def test_calculator_tab_has_inputs(qapp):
     # A concrete sub-tab built its interactive surface (not just an empty frame).
     import eli.gui.labs_tab as lt
