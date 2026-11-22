@@ -109,13 +109,19 @@ def _starters(monkeypatch, safe):
     import eli.gui.app as launcher
     import eli.gui.eli_pro_audio_gui_v2_0 as gui
     import eli.perception.ambient_vision as av
+    import eli.planning.habits_scheduler as habits_scheduler
     import eli.planning.proactive_daemon as pd
     import eli.runtime.agenda as agenda
     import eli.runtime.scheduled_tasks as scheduled
+    import eli.runtime.self_improvement as self_improvement
     from eli.kernel import engine as engine_mod
     from eli.memory.memory import Memory
 
     threads, calls = [], []
+    # Both are process-wide: one an earlier test made starts no thread of its own here.
+    monkeypatch.setattr(habits_scheduler, "get_scheduler", lambda: calls.append("habit scheduler"))
+    monkeypatch.setattr(self_improvement, "get_self_improvement", lambda: types.SimpleNamespace(
+        start_self_improvement_loop=lambda **k: calls.append("self-improvement loop")))
     monkeypatch.setattr(threading.Thread, "start", lambda self: threads.append(self.name))
     monkeypatch.setattr(atexit, "register", lambda f, *a, **k: f)
     monkeypatch.setattr(signal, "signal", lambda *a, **k: None)
@@ -124,6 +130,7 @@ def _starters(monkeypatch, safe):
     monkeypatch.delenv("ELI_PROACTIVE", raising=False)
     monkeypatch.delenv("ELI_PROACTIVE_STARTED", raising=False)
     monkeypatch.setattr(Memory, "upkeep_due", lambda self: True)
+    monkeypatch.setattr(Memory, "_upkeep_lock", threading.Lock())   # the recorded run never releases it
     monkeypatch.setattr(pd, "start_daemon", lambda: calls.append("proactive daemon"))
     monkeypatch.setattr(scheduled, "restore_scheduled_tasks", lambda: calls.append("scheduled tasks") or 0)
     monkeypatch.setattr(agenda, "restore", lambda: calls.append("reminders") or 0)
@@ -147,9 +154,8 @@ def test_safe_mode_starts_no_background_work_at_all(monkeypatch):
     starter now asks config.background_start_allowed."""
     threads, calls = _starters(monkeypatch, safe=False)
     assert {"eli-memory-upkeep", "eli-reflection", "eli-habits", "embed-prewarm"} <= set(threads), threads
-    assert len(threads) >= 6, threads                    # and the habit scheduler's and the self-improvement loop's
-    assert sorted(calls) == ["ambient vision", "proactive daemon", "proactive daemon",
-                             "reminders", "scheduled tasks"], calls
+    assert sorted(calls) == ["ambient vision", "habit scheduler", "proactive daemon", "proactive daemon",
+                             "reminders", "scheduled tasks", "self-improvement loop"], calls
 
     threads, calls = _starters(monkeypatch, safe=True)
     assert threads == [] and calls == [], f"safe mode started {threads} and {calls}"
