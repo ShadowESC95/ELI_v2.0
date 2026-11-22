@@ -2873,7 +2873,9 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             re.search(r"\.(wav|mp3|mp4|m4a|ogg|flac|aac|webm)\b", low)
             or re.search(r"\b(from|using|out of|with)\b.*\b(recording|audio|clip|sample|file|voice)\b", low)
             or re.search(r"\b(my|this|the)\s+(recording|audio|clip|sample|voice)\b", low)):
-        _args = {"query": raw, **_voice_clip_args(raw)}
+        # Read with its quotes on: the normalised text has them taken off a file's name, and a quoted
+        # name with a space ("my clip.mp4") is one file only while they are there.
+        _args = {"query": raw, **_voice_clip_args(re.sub(r"\s+", " ", str(text or "")).strip())}
         return _mk("CREATE_VOICE", _args, 0.9, matched_by="voice.create")
 
     # DESIGN_VOICE — build your own voice from a base + pitch/speed (no audio clip needed).
