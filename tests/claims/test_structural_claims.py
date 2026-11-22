@@ -67,7 +67,33 @@ _DBS = ["user.sqlite3", "agent.sqlite3", "system_index.sqlite3", "coding_memory.
 
 @pytest.mark.parametrize("db", _DBS, ids=_DBS)
 def test_sqlite_store_present(db):
-    assert (H.REPO / "artifacts" / "db" / db).exists(), f"{db} missing"
+    """In the database folder in force (paths.db_dir()), which the claims bootstrap seeds: the test
+    session's sandbox here, not the checkout's own artifacts/db."""
+    from pathlib import Path
+    from eli.core.paths import db_dir
+    assert (Path(db_dir()) / db).exists(), f"{db} missing from {db_dir()}"
+
+
+def test_the_bootstrap_seeds_each_missing_store_whatever_else_is_in_the_folder(tmp_path, monkeypatch):
+    """It seeded the templates only into an empty folder, so one stray .sqlite3 there left all four
+    stores unseeded, and the bootstrap failure errored every claims test."""
+    import importlib.util
+
+    from eli.core import init_data, paths
+
+    spec = importlib.util.spec_from_file_location("bootstrap_claims", H.REPO / "tools" / "bootstrap_claims_artifacts.py")
+    bootstrap = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(bootstrap)
+    monkeypatch.setenv("ELI_DATA_DIR", str(tmp_path))
+    paths.data_dir.cache_clear()
+    monkeypatch.setattr(init_data, "init_all_data", lambda *a, **k: None)   # the seeding is the subject
+    (tmp_path / "db").mkdir()
+    (tmp_path / "db" / "scratch.sqlite3").write_bytes(b"")
+    try:
+        assert bootstrap._ensure_db_stores() is True
+        assert {p.name for p in (tmp_path / "db").glob("*.sqlite3")} >= set(_DBS)
+    finally:
+        paths.data_dir.cache_clear()
 
 
 # ── load-bearing callables the blueprints describe ───────────────────────────

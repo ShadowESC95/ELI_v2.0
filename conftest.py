@@ -25,9 +25,13 @@ def pytest_configure(config):
     # Must be INSIDE the project root: _eli_runtime_clear_stale_env_paths()
     # strips ELI_ARTIFACTS_DIR if it points outside the install (portability
     # guard), which would silently send writes back to the real artifacts/scripts.
-    _test_root = _os.path.join(_os.path.dirname(__file__), ".pytest_artifacts")
-    _os.makedirs(_test_root, exist_ok=True)
-    _os.environ["ELI_ARTIFACTS_DIR"] = _test_root
+    # tests/conftest.py, loaded first, has already pointed it at the session's sandbox
+    # (artifacts/_pytest, emptied at the start of each session); this hook ran after it and sent
+    # every write, the vector index included, to a .pytest_artifacts that outlived the session.
+    if not _os.environ.get("ELI_ARTIFACTS_DIR"):
+        _test_root = _os.path.join(_os.path.dirname(__file__), ".pytest_artifacts")
+        _os.makedirs(_test_root, exist_ok=True)
+        _os.environ["ELI_ARTIFACTS_DIR"] = _test_root
     # Deterministic network baseline: tests must not depend on the user's live
     # Net toggle (config/settings.json network_enabled). Force offline so e.g.
     # search routing is stable (offline → OPEN_BROWSER); tests that need network

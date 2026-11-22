@@ -37,8 +37,8 @@ the real web server could not be imported, a model could not be loaded and the G
 could not be built, so those three files skip themselves when such an import fails and
 were measured on lanes of their own. Since v2.5.22 the suite loads the real libraries
 and is sandboxed instead: CPU only (`CUDA_VISIBLE_DEVICES=""`, `ELI_FORCE_CPU=1`),
-offscreen Qt, no display, desktop session bus, sound server or network, and every store
-redirected under `artifacts/_pytest/`. Lane 1 therefore runs those files as well — the
+offscreen Qt, no display, desktop session bus, sound server or network, and every store and
+ELI's data folder redirected under `artifacts/_pytest/`, which each session starts empty. Lane 1 therefore runs those files as well — the
 live-engine tests whenever a chat GGUF is in `models/` (the smallest one, or
 `ELI_MODEL_PATH`). Lanes 2–4 run them again in that same sandbox (they used to skip the
 shared conftest, which left the stores and the audit chain pointing at the checkout's
@@ -69,10 +69,12 @@ deeply:
   and the executor's entry check) in `tests/test_mcp_server.py`.
 - **Offline-by-default enforcement** (`eli/core/netguard`): the socket failsafe
   and egress recording are unit-tested.
-- **Data isolation**: the shared conftest redirects every store into
-  `artifacts/_pytest/`, and `tests/conftest.py::_assert_db_isolated` fails the run
-  if the user, memory, agent, audit or capability-state database, the persona
-  overlay, the notes or notebook folder or the world state resolves outside it — a test in the shared suite
+- **Data isolation**: the shared conftest redirects every store and ELI's data folder
+  (`ELI_DATA_DIR`) into `artifacts/_pytest/`, empties it at the start of each session
+  (a session still running in the same checkout keeps it), and
+  `tests/conftest.py::_assert_db_isolated` fails the run if the data folder, the user,
+  memory, agent, audit or capability-state database, the persona overlay, the notes or
+  notebook folder or the world state resolves outside it — a test in the shared suite
   cannot touch real user data. Lanes 2–4 run without that conftest and redirect only
   `ELI_ARTIFACTS_DIR`, which does not move the databases (they follow `ELI_DATA_DIR`
   and the per-store variables), so in a source checkout what those tests record in the

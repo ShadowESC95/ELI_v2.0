@@ -48,6 +48,7 @@ def test_frozen_project_root_rejects_read_only_explicit_env(tmp_path, monkeypatc
     read_only.mkdir()
     monkeypatch.setattr(sys, "frozen", True, raising=False)
     monkeypatch.setenv("ELI_PROJECT_ROOT", str(read_only))
+    monkeypatch.delenv("ELI_DATA_DIR", raising=False)       # the data folder an install gets by itself
     os.chmod(read_only, 0o555)
 
     from eli.core import paths

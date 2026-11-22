@@ -1,6 +1,6 @@
 # Claims-verification suite (`tests/claims/`)
 
-A dedicated suite (15 files, 63 test functions, most of them parametrized per item) that
+A dedicated suite (15 files, 74 test functions, most of them parametrized per item) that
 examines the **project against its claims** — the capability manifest, the executor's
 action surface, the blueprint documents, the README, the release pipeline and the module
 tree — and asserts they actually line up. Everything is *generated from real artifacts*,
@@ -10,8 +10,9 @@ invented.
 Run: `pytest tests/claims/ -q`
 
 A session bootstrap in `conftest.py` runs `tools/bootstrap_claims_artifacts.py`: it seeds
-blank DB stores (copied from `config/templates/db/` when `artifacts/db/` is empty, then
-`init_all_data`) and regenerates `capability_manifest.json` only when it is missing or
+blank DB stores (each store missing from the database folder in force, `paths.db_dir()`, is
+copied from `config/templates/db/`, then `init_all_data`; under pytest that folder is the
+session's sandbox, `artifacts/_pytest/db`, which each session starts empty) and regenerates `capability_manifest.json` only when it is missing or
 lists fewer than 200 capabilities, so a run never rewrites a valid tracked manifest — no
 manual step needed on a fresh clone.
 
@@ -31,13 +32,13 @@ Markdown is present.
 | `test_documented_actions.py` | every action in the curated catalogue (`capabilities_doc._C`, rendered as `capabilities_and_actions.md`) is in the manifest and is routable, supported or plugin-backed (one case per action for each) | 2 |
 | `test_activation_phrases.py` | each router-routable documented action is reached by ≥1 of its documented phrases or a documented equivalent (one case per action), and every quoted phrase in the catalogue reaches its action through the router and the control contract | 2 |
 | `test_blueprint_refs.py` | every `*.py` path and `eli.x.y` module the blueprints name exists / resolves (one case per reference) | 2 |
-| `test_license_reachable.py` | the Apache-2.0 licence and its NOTICE are reachable from every download — `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md` present, `LICENSE` is the Apache-2.0 text and `NOTICE` names it, ELI.spec ships them, dmg/AppImage stage them, Inno shows a licence pane, `--license` works on both entry points and resolves at runtime, and who made ELI is read from `NOTICE` | 8 |
-| `test_structural_claims.py` | 15 bus agents (one case per agent, plus a floor), 5 reasoning modes, 13 main tabs, 4 SQLite stores, and the load-bearing callables exist + key behavioural claims (netguard fail-closed, evidence channels, pipeline enabled) | 9 |
+| `test_license_reachable.py` | the Apache-2.0 licence and its NOTICE are reachable from every download — `LICENSE`, `NOTICE`, `THIRD_PARTY_NOTICES.md` present, `LICENSE` is the Apache-2.0 text and `NOTICE` names it, ELI.spec ships them, dmg/AppImage stage them, Inno shows a licence pane, `--license` works on both entry points and resolves at runtime, and who made ELI is read from `NOTICE` | 13 |
+| `test_structural_claims.py` | 15 bus agents (one case per agent, plus a floor), 5 reasoning modes, 13 main tabs, 4 SQLite stores (and that the bootstrap seeds each missing one), and the load-bearing callables exist + key behavioural claims (netguard fail-closed, evidence channels, pipeline enabled) | 10 |
 | `test_public_marketing_claims.py` | README/persona mechanism claims: 15 agents (and the persona's count matches), 12-stage pipeline, 5 reasoning modes, shell denylist, netguard socket guard, port 8081, no pynvml, Piper 166/45 anchor, wake-word training, gender-matched TTS fallback, custom agents, HyDE, LoRA, no Quick-orchestrator bypass prose, no "12-stage retrieval" prose, the document formats README names are dispatched | 17 |
 | `test_readme_counts.py` | README's capability count equals the manifest total and is stated consistently, its "N+" floors still hold, and it names no document format the reader cannot open | 4 |
 | `test_symbol_inventory.py` | every public function, class and method in every safely importable `eli` module is callable with a usable signature (one case per symbol; GUI, image-engine and other side-effecting modules skipped), and the inventory has not collapsed | 2 |
 | `test_agents_contract.py` | every bus agent has a name and a callable `run()`, and on an irrelevant input returns an `AgentResult` that self-gates rather than inventing evidence (one case per agent for each) | 2 |
-| `test_release_assets.py` | the release workflow builds and publishes the source artifacts (wheel, deb, wheelhouse, release notes, the full Windows portable), and GPU packs refresh on version tags | 4 |
+| `test_release_assets.py` | the release workflow builds and publishes the source artifacts (wheel, deb, wheelhouse, release notes, the full Windows portable), and GPU packs refresh on version tags | 8 |
 | `test_repo_parity.py` | `tools/repo_parity.py` exists and, when a v3 checkout is on the machine, finds no unexplained v2/v3 divergence and no prompt guard missing from v3 (skips otherwise) | 3 |
 | `test_no_silent_swallow.py` | Ratchet: the silent `except: pass` count (`CEILING`) and the log-only catch-all count (`LOG_ONLY_CEILING`) in `eli/` must not grow (observability) | 1 |
 

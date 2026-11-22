@@ -96,17 +96,19 @@ def test_plugin_registry_index_valid_json():
     assert isinstance(data, (dict, list))
 
 
-def test_user_sqlite_exists():
-    # Canonical user DB is <project_root>/artifacts/db/user.sqlite3 (see
-    # eli.core.paths.user_db_path, which EXPLICITLY deprecates the legacy
-    # eli/artifacts/user.sqlite3 location).
-    path = os.path.join(PROJECT_ROOT, "artifacts", "db", "user.sqlite3")
-    assert os.path.isfile(path), f"user.sqlite3 not found at {path}"
+def test_user_sqlite_ships_blank():
+    # The checkout ships the blank user store that setup copies into the data folder's db/
+    # (eli.core.paths.user_db_path). The copy in artifacts/db is made by an install, so a check
+    # for it passed or failed by whether this checkout had been set up or tested before.
+    path = os.path.join(PROJECT_ROOT, "config", "templates", "db", "user.sqlite3")
+    assert os.path.isfile(path), f"blank user.sqlite3 not found at {path}"
 
 
-def test_persona_txt_and_auto_txt_present():
+def test_persona_txt_and_auto_template_present():
+    # persona.auto.txt is written at run time from its template (gitignored); the checkout ships
+    # persona.txt and the template.
     cognition = os.path.join(ELI_ROOT, "cognition")
     assert os.path.isfile(os.path.join(cognition, "persona.txt")), \
         "cognition/persona.txt missing"
-    assert os.path.isfile(os.path.join(cognition, "persona.auto.txt")), \
-        "cognition/persona.auto.txt missing"
+    template = os.path.join(PROJECT_ROOT, "config", "templates", "persona.auto.template.txt")
+    assert os.path.isfile(template), "config/templates/persona.auto.template.txt missing"

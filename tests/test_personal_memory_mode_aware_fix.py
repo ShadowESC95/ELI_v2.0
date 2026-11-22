@@ -31,7 +31,7 @@ def test_executor_personal_memory_deep_response_shape():
     assert "Personal memory evidence report" in text
     assert "memory_truth_evidence" not in text[:120]
 
-def test_nonquick_personal_memory_uses_cognition_pipeline(monkeypatch):
+def test_nonquick_personal_memory_uses_cognition_pipeline(monkeypatch, known_user_no_interview):
     from eli.kernel.engine import CognitiveEngine
 
     eng = CognitiveEngine()

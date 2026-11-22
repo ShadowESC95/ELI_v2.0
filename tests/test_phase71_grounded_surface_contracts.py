@@ -77,6 +77,11 @@ def phase71_engine():
     return CognitiveEngine()
 
 
+@pytest.fixture(autouse=True)
+def _a_known_user(known_user_no_interview):
+    """The surfaces are answered for a user ELI already knows (conftest.known_user_no_interview)."""
+
+
 @pytest.mark.parametrize("case", SURFACES, ids=[c["name"] for c in SURFACES])
 def test_phase71_route_contracts(case):
     routed = route(case["prompt"])

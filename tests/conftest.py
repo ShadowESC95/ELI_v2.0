@@ -11,15 +11,59 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")  # the real GPU libraries load
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
+# Every state root of the session lives in one sandbox, and each session starts it empty. It used to
+# persist: what earlier runs left in its databases (a user profile, an interview in progress, the
+# vector index) decided later results, and the same test passed or failed by the run before it.
+SANDBOX = ROOT / "artifacts" / "_pytest"
+_SESSION_MARK = SANDBOX / ".session"
+
+
+def _session_alive(pid: int) -> bool:
+    """Whether the pytest session that left its mark on the sandbox is still running."""
+    try:
+        import psutil
+        return psutil.pid_exists(pid) and "pytest" in " ".join(psutil.Process(pid).cmdline())
+    except ImportError:
+        if os.name != "nt":            # os.kill(pid, 0) only asks on POSIX; on Windows it ends the process
+            try:
+                os.kill(pid, 0)
+            except ProcessLookupError:
+                return False
+            except OSError:
+                return True
+            return True
+        return True                    # cannot tell: keep the other session's state
+    except Exception:
+        return False                   # psutil.NoSuchProcess and the like: it has ended
+
+
+def _fresh_sandbox() -> None:
+    """Empty the sandbox for this session. A session still running in this checkout keeps it (its
+    stores are open), and this one then shares it, as every session did before."""
+    try:
+        holder = int(_SESSION_MARK.read_text().strip())
+    except (OSError, ValueError):
+        holder = 0
+    if holder and holder != os.getpid() and _session_alive(holder):
+        print(f"[conftest] another pytest session (pid {holder}) is using {SANDBOX}; sharing it")
+    else:
+        import shutil
+        shutil.rmtree(SANDBOX, ignore_errors=True)
+    SANDBOX.mkdir(parents=True, exist_ok=True)
+    _SESSION_MARK.write_text(str(os.getpid()))
+
+
+_fresh_sandbox()
+
 # Tests never reach this machine's desktop, as on a CI runner: no session bus (media players,
 # notifications) and no display for an app a test launches. A test run once started the real
 # Spotify and played a song.
 for _desktop_var in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_SESSION_TYPE"):
     os.environ.pop(_desktop_var, None)
-os.environ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + str(ROOT / "artifacts" / "_pytest" / "no-session-bus")
+os.environ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + str(SANDBOX / "no-session-bus")
 # Nor is a file opened on it: with no display xdg-open still started LibreOffice on a summary and it
 # stayed running after the tests. These launchers do nothing here; a test of one stubs its own.
-_no_launchers = ROOT / "artifacts" / "_pytest" / "no-launchers"
+_no_launchers = SANDBOX / "no-launchers"
 _no_launchers.mkdir(parents=True, exist_ok=True)
 for _launcher in ("xdg-open", "gio", "gtk-launch", "open"):
     (_no_launchers / _launcher).write_text("#!/bin/sh\nexit 0\n")
@@ -27,11 +71,11 @@ for _launcher in ("xdg-open", "gio", "gtk-launch", "open"):
 os.environ["PATH"] = str(_no_launchers) + os.pathsep + os.environ.get("PATH", "")
 # Nor its sound or mixer: the real audio libraries load in tests, so the sound servers are out of
 # reach and ALSA knows only a null device (as on a CI runner, PortAudio then does not start). Nor the internet: a request that is not stubbed fails at once.
-(ROOT / "artifacts" / "_pytest").mkdir(parents=True, exist_ok=True)
-(ROOT / "artifacts" / "_pytest" / "asound.conf").write_text("pcm.!default { type null }\n")
-os.environ["ALSA_CONFIG_PATH"] = str(ROOT / "artifacts" / "_pytest" / "asound.conf")
-os.environ["PULSE_SERVER"] = "unix:" + str(ROOT / "artifacts" / "_pytest" / "no-sound-server")
-os.environ["PIPEWIRE_REMOTE"] = str(ROOT / "artifacts" / "_pytest" / "no-sound-server")
+SANDBOX.mkdir(parents=True, exist_ok=True)
+(SANDBOX / "asound.conf").write_text("pcm.!default { type null }\n")
+os.environ["ALSA_CONFIG_PATH"] = str(SANDBOX / "asound.conf")
+os.environ["PULSE_SERVER"] = "unix:" + str(SANDBOX / "no-sound-server")
+os.environ["PIPEWIRE_REMOTE"] = str(SANDBOX / "no-sound-server")
 os.environ["JACK_NO_START_SERVER"] = "1"
 for _proxy in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
     os.environ[_proxy] = "http://127.0.0.1:9"
@@ -44,56 +88,60 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 # never pollute the real artifacts/ or wipe the user's standing scheduled jobs. This
 # is plain config (an in-project path runtime_settings won't strip) — NOT a
 # monkeypatch. _artifacts_dir() and _store_path() both honour ELI_ARTIFACTS_DIR.
-os.environ["ELI_ARTIFACTS_DIR"] = str(ROOT / "artifacts" / "_pytest")
+os.environ["ELI_ARTIFACTS_DIR"] = str(SANDBOX)
+# And ELI's data folder (paths.data_dir()): conversations, proactive state, runtime files, the
+# onboarding interview's state. It stayed the checkout's own artifacts/, so tests wrote there and
+# an interview one session began met the next session's "what do you know about me". A test about
+# where the data folder is sets or drops ELI_DATA_DIR itself.
+os.environ["ELI_DATA_DIR"] = str(SANDBOX)
 os.environ.setdefault("ELI_CPU_PREFLIGHT", "0")  # no smoke subprocess in tests
 # ELI_ARTIFACTS_DIR alone did NOT isolate the SQLite stores — the user DB path is resolved
 # by eli.core.paths.user_db_path(), which honours ELI_USER_DB/ELI_MEMORY_DB FIRST (before
 # any dev-tree fallback). So tests that called store_memory()/awareness reflection were
 # writing into the REAL artifacts/db/user.sqlite3 and injecting rows ("test store", auto
 # reflections) into the user's memory. Pin the user + memory DB to the throwaway _pytest
-# tree via the highest-priority override so NO test can pollute the real database — and
-# without touching artifacts_dir()/data_dir() (ELI_DATA_DIR would, breaking path tests).
-_PYTEST_DB = ROOT / "artifacts" / "_pytest" / "db" / "user.sqlite3"
+# tree via the highest-priority override so NO test can pollute the real database.
+_PYTEST_DB = SANDBOX / "db" / "user.sqlite3"
 _PYTEST_DB.parent.mkdir(parents=True, exist_ok=True)
 os.environ["ELI_USER_DB"]   = str(_PYTEST_DB)
 os.environ["ELI_MEMORY_DB"] = str(_PYTEST_DB)
-os.environ["ELI_DB_DIR"]    = str(ROOT / "artifacts" / "_pytest" / "db")
+os.environ["ELI_DB_DIR"]    = str(SANDBOX / "db")
 # agent.sqlite3 resolves via ELI_AGENT_DB FIRST (paths.agent_db_path); without it,
 # tests that touched the agent bus (dispatch/metrics/observations) were writing into
 # the REAL artifacts/db/agent.sqlite3. Pin it to the throwaway tree too so NO test can
 # change ANY of ELI's stores — the DB must stay a clean slate for a fresh download.
-os.environ["ELI_AGENT_DB"]  = str(ROOT / "artifacts" / "_pytest" / "db" / "agent.sqlite3")
+os.environ["ELI_AGENT_DB"]  = str(SANDBOX / "db" / "agent.sqlite3")
 
 # persona_auto_path()/notebook_dir() had no override at all — a full test run once
 # replaced the real persona.auto.txt with fixture content. Pin both to the sandbox.
-os.environ["ELI_PERSONA_AUTO_PATH"] = str(ROOT / "artifacts" / "_pytest" / "persona.auto.txt")
-os.environ["ELI_NOTEBOOK_DIR"]      = str(ROOT / "artifacts" / "_pytest" / "eli_notebook")
+os.environ["ELI_PERSONA_AUTO_PATH"] = str(SANDBOX / "persona.auto.txt")
+os.environ["ELI_NOTEBOOK_DIR"]      = str(SANDBOX / "eli_notebook")
 # Every note (WRITE_NOTE's daily pages too) is written to notes_dir().
-os.environ["ELI_NOTES_DIR"]         = str(ROOT / "artifacts" / "_pytest" / "eli_notes")
+os.environ["ELI_NOTES_DIR"]         = str(SANDBOX / "eli_notes")
 
 # storage.WORLD_DIR is frozen at import time, so this must be set before that module
 # ever loads — a full-suite run once wrote real events into the actual world state.
-os.environ["ELI_WORLD_DIR"] = str(ROOT / "artifacts" / "_pytest" / "world")
-os.environ["ELI_LAST_TRACE_PATH"] = str(ROOT / "artifacts" / "_pytest" / "last_trace.json")
+os.environ["ELI_WORLD_DIR"] = str(SANDBOX / "world")
+os.environ["ELI_LAST_TRACE_PATH"] = str(SANDBOX / "last_trace.json")
 
 # Both resolve through db_dir() -> data_dir(), which ELI_DB_DIR doesn't touch, so every
 # test turn was appending to the REAL audit chain (fixture rows from a dev run sat in it).
 # The HMAC key likewise came from (or was created in) the real config dir.
-os.environ["ELI_ORCHESTRATOR_AUDIT_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "orchestrator_audit.sqlite3")
-os.environ["ELI_CAPABILITY_STATE_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "capability_state.sqlite3")
+os.environ["ELI_ORCHESTRATOR_AUDIT_DB"] = str(SANDBOX / "db" / "orchestrator_audit.sqlite3")
+os.environ["ELI_CAPABILITY_STATE_DB"] = str(SANDBOX / "db" / "capability_state.sqlite3")
 os.environ["ELI_AUDIT_HMAC_KEY"] = "eli-pytest-audit-key-not-a-real-secret"
 # The document index stores whatever a turn reads and embeds it on a worker thread. Off by
 # default here; the tests for it build their own on a tmp path.
-os.environ["ELI_DOCUMENT_INDEX_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "documents.sqlite3")
+os.environ["ELI_DOCUMENT_INDEX_DB"] = str(SANDBOX / "db" / "documents.sqlite3")
 os.environ.setdefault("ELI_DOCUMENT_INDEX", "0")
 # The agenda (calendar and reminders) writes a DB and an .ics file and fires desktop notifications.
-os.environ["ELI_AGENDA_DB"] = str(ROOT / "artifacts" / "_pytest" / "db" / "agenda.sqlite3")
-os.environ["ELI_CALENDAR_FILE"] = str(ROOT / "artifacts" / "_pytest" / "calendar.ics")
+os.environ["ELI_AGENDA_DB"] = str(SANDBOX / "db" / "agenda.sqlite3")
+os.environ["ELI_CALENDAR_FILE"] = str(SANDBOX / "calendar.ics")
 os.environ["ELI_AGENDA_NOTIFY"] = "0"
 # Nor this machine's settings. Tests read the developer's own config/settings.json (Net toggle, Full
 # Control, model paths) and some wrote to it; with Full Control on, a test's "offline" connect went
 # out to the network. Each run starts with no settings file, as a fresh install and CI do.
-_PYTEST_SETTINGS = ROOT / "artifacts" / "_pytest" / "settings.json"
+_PYTEST_SETTINGS = SANDBOX / "settings.json"
 _PYTEST_SETTINGS.unlink(missing_ok=True)
 os.environ["ELI_SETTINGS_FILE"] = str(_PYTEST_SETTINGS)
 # Nor the checkout's training/ folder: a LoRA dry run builds its target's dataset and writes its run
@@ -105,7 +153,11 @@ os.environ["ELI_LEARNING_DIR"] = str(ROOT / "artifacts" / "_pytest" / "training"
 # invariant, not just configuration that a future refactor could silently break.
 def _assert_db_isolated() -> None:
     from eli.core import paths as _p
-    _safe = (ROOT / "artifacts" / "_pytest").resolve()
+    _safe = SANDBOX.resolve()
+    if _safe not in (Path(_p.data_dir()).resolve(), *Path(_p.data_dir()).resolve().parents):
+        raise RuntimeError(
+            f"TEST ISOLATION BREACH: data_dir() resolves to {Path(_p.data_dir()).resolve()}, outside "
+            f"the throwaway {_safe}. Tests would write ELI's conversations and state into it.")
     for _name, _fn in (("user", _p.user_db_path), ("memory", _p.memory_db_path),
                        ("agent", _p.agent_db_path),
                        ("orchestrator audit", _p.orchestrator_audit_db_path),
@@ -165,6 +217,17 @@ def _tests_never_launch_apps(monkeypatch, request):
     monkeypatch.setattr("eli.execution.effectors.system_helpers.open_app_with_timeout",
                         lambda argv, timeout=30: {"ok": False, "error": "tests never launch apps", "argv": argv})
     monkeypatch.setattr("eli.system.portable_app_control._popen", lambda args: False)
+
+
+@pytest.fixture
+def known_user_no_interview(monkeypatch, tmp_path):
+    """A user ELI already knows, with no first-run interview in progress. On a blank slate "what do
+    you know about me" starts the interview instead (eli/onboarding/interview.py, by design), so a
+    test of the answer that relied on what earlier runs had left in the stores, a profile or an
+    interview begun, passed or failed by the run before it."""
+    from eli.onboarding import interview
+    monkeypatch.setattr(interview, "_profile_missing", lambda db_path=None: False)
+    monkeypatch.setattr(interview, "_state_file", lambda: tmp_path / "onboarding_state.json")
 
 
 @pytest.fixture
@@ -332,6 +395,11 @@ def measurements_stay_on_this_machine(monkeypatch, tmp_path):
 # Every pytest run (re)writes artifacts/test_report.md with the live results, so
 # the report is dynamic — never stale. ELI's RUN_TESTS action reads/summarises it.
 def pytest_sessionfinish(session, exitstatus):
+    try:
+        if _SESSION_MARK.read_text().strip() == str(os.getpid()):
+            _SESSION_MARK.unlink()
+    except OSError:
+        pass
     if _SNAPSHOT_TOUCHED:
         print("\n[conftest] tests that modified the REAL runtime_snapshot.json (restored):", *_SNAPSHOT_TOUCHED[:10], sep="\n  ")
     try:

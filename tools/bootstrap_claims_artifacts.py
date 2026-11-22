@@ -23,15 +23,24 @@ _EXPECTED_DBS = (
 )
 
 
+def store_dir() -> Path:
+    """The database folder in force (paths.db_dir()): artifacts/db in a source checkout, the test
+    session's sandbox under pytest, where the claims suite runs this."""
+    from eli.core.paths import db_dir
+    return Path(db_dir())
+
+
 def _ensure_db_stores() -> bool:
-    """Mirror install.sh: seed blank templates, then init full schema for claims."""
-    artifact_dir = ROOT / "artifacts" / "db"
+    """Seed each missing store from its blank template, then init the full schema for claims.
+    Store by store: seeding only into an empty folder meant one stray file there left every
+    store unseeded, and every claims test then errored."""
+    artifact_dir = store_dir()
     template_dir = ROOT / "config" / "templates" / "db"
     try:
         if template_dir.is_dir():
             artifact_dir.mkdir(parents=True, exist_ok=True)
-            if not any(artifact_dir.glob("*.sqlite3")):
-                for src in template_dir.glob("*.sqlite3"):
+            for src in template_dir.glob("*.sqlite3"):
+                if not (artifact_dir / src.name).exists():
                     shutil.copy2(src, artifact_dir / src.name)
         from eli.core.init_data import init_all_data
 

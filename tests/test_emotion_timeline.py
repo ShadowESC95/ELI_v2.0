@@ -1,7 +1,8 @@
 """Emotion timeline — persistence, baseline, and the proactive check-in gates.
 
-Isolation: conftest points ELI_ARTIFACTS_DIR at the in-project .pytest_artifacts
-tree, so these write to a throwaway user.sqlite3 and never touch the live store.
+Isolation: conftest points ELI_ARTIFACTS_DIR at the session's in-project sandbox
+(artifacts/_pytest, emptied at the start of each session), so these write to a
+throwaway user.sqlite3 and never touch the live store.
 Each test clears the table first — run-length and baseline maths are counts, so
 leftover rows from a sibling test would silently change the answer.
 """

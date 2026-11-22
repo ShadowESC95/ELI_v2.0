@@ -169,7 +169,8 @@ are still searched for older agents (`agent_bus._custom_agent_dirs`).
   cut off is the machine: an offscreen Qt platform, no display or session bus, stub
   `xdg-open`/`gio`/`open` launchers, a null audio device, proxies pointed at a closed
   local port so an unstubbed request fails at once, and every artifact and database
-  write redirected to `artifacts/_pytest/`.
+  write, ELI's data folder included, redirected to `artifacts/_pytest/`, which each
+  session starts empty.
 - **Version lives in two places:** `pyproject.toml` and
   `eli/kernel/self_upgrade.py`. Releases are tag-triggered CI.
 - **Several agent sessions share this checkout.** Never `git add -A`; stage by
