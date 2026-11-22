@@ -683,14 +683,15 @@ def detail_of(reply: str, needs: str) -> str:
     said = _PATH_LEAD.sub("", said).strip().strip("\"'`“”‘’").rstrip(".!,;")
     if not said:
         return ""
+    # "summarise report.docx" and "analyse image ~/Pictures/cat.jpg" name a file, and are new requests,
+    # not the answer: the second has a slash, and was taken whole as the folder before this was asked
+    from eli.runtime.command_splitter import starts_with_command
+    if starts_with_command(said, after_lead=True):
+        return ""
     whole = os.path.abspath(os.path.expanduser(said))
     if (os.path.exists(os.path.expanduser(said)) or said.startswith(("~", "/", "./", "../"))
             or "/" in said or "\\" in said or _re.match(r"[A-Za-z]:[\\/]", said)):
         return whole
-    # "summarise report.docx" names a file, and is a new request, not the answer
-    from eli.runtime.command_splitter import starts_with_command
-    if starts_with_command(said, after_lead=True):
-        return ""
     from eli.execution.portable_intent_contract import _FILE_EXTENSIONS
     last = said.split()[-1]
     if "." in last and last.rsplit(".", 1)[1].lower() in _FILE_EXTENSIONS:

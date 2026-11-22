@@ -439,7 +439,8 @@ def test_the_answer_to_which_folder_runs_the_request_with_that_folder(proposals,
                                          ("my downloads", True), ("the folder is ~/x", True),
                                          ("no thanks", False), ("what do you mean", False), ("play some jazz", False),
                                          ("the blue one", False), ("summarise report.docx", False),
-                                         ("convert report.md to pdf", False)])
+                                         ("convert report.md to pdf", False),
+                                         ("analyse image ~/Pictures/cat.jpg", False)])   # a new request, slash and all
 def test_a_reply_that_is_only_a_path_is_the_detail_asked_for(reply, is_it):
     assert pp.is_the_detail(reply, "path") is is_it
 
