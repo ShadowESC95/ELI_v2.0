@@ -24,27 +24,40 @@ import time
 from pathlib import Path
 from typing import Any, Optional
 
-# Shipped defaults. These stay as built-ins so an existing install keeps working
-# byte-for-byte; they are no longer the *only* thing that can be trained.
+# Shipped defaults. These stay as built-ins so an existing install keeps working; they are
+# no longer the *only* thing that can be trained. Their dataset, adapter and output entries
+# are names inside the folders _BUILTIN_PLACES gives (load_registry fills the full paths in).
 BUILTIN_TARGETS: dict[str, dict[str, Any]] = {
     "eli_phi": {
         "description": "ELI Phi profile / Phi-3-compatible adapter target",
         "base_family": "phi3",
         "base_model_path": "./phi-3-mini-base",
-        "adapter_path": "models/lora/adapters/eli-lora-adapter-phi3",
-        "dataset_path": "training/datasets/eli_supervised_v0.eli_phi.trainable.jsonl",
-        "output_dir": "models/lora/adapters/eli-lora-adapter-phi3-next",
+        "adapter_path": "eli-lora-adapter-phi3",
+        "dataset_path": "eli_supervised_v0.eli_phi.trainable.jsonl",
+        "output_dir": "eli-lora-adapter-phi3-next",
         "builtin": True,
     },
     "eli_phi_ultra": {
         "description": "ELI Phi Ultra profile / Phi-3-compatible ultra adapter target",
         "base_family": "phi3",
         "base_model_path": "./phi-3-mini-base",
-        "adapter_path": "models/lora/adapters/eli-lora-adapter-phi3-ultra",
-        "dataset_path": "training/datasets/eli_supervised_v0.eli_phi_ultra.trainable.jsonl",
-        "output_dir": "models/lora/adapters/eli-lora-adapter-phi3-ultra-next",
+        "adapter_path": "eli-lora-adapter-phi3-ultra",
+        "dataset_path": "eli_supervised_v0.eli_phi_ultra.trainable.jsonl",
+        "output_dir": "eli-lora-adapter-phi3-ultra-next",
         "builtin": True,
     },
+}
+
+# Where a built-in target's files are: its dataset in learning_dir()/datasets and its adapters
+# in the models folder (paths.lora_adapters_dir()), as an operator target's are. On a packaged
+# install both are the user's own folders; the program folder is read-only there, and older
+# builds named these paths relative to it, so the dataset build failed. Each entry: the folder
+# now, the folder older builds used (relative to the program folder), and whether a file a user
+# already has there is still read from there (a new adapter, output_dir, never goes there).
+_BUILTIN_PLACES = {
+    "dataset_path": (lambda: _learning_dir() / "datasets", "training/datasets", True),
+    "adapter_path": (lambda: _adapters_dir(), "models/lora/adapters", True),
+    "output_dir": (lambda: _adapters_dir(), "models/lora/adapters", False),
 }
 
 _NAME_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,47}$")
@@ -61,9 +74,20 @@ def registry_path() -> Path:
     return _learning_dir() / "targets.json"
 
 
-def _models_root() -> Path:
-    from eli.core.paths import models_dir
-    return Path(models_dir())
+def _adapters_dir() -> Path:
+    from eli.core.paths import lora_adapters_dir
+    return Path(lora_adapters_dir())
+
+
+def _builtin(name: str) -> dict[str, Any]:
+    """Built-in target `name` with its files' full paths, by _BUILTIN_PLACES."""
+    cfg = dict(BUILTIN_TARGETS[name])
+    for key, (folder, older, read_older) in _BUILTIN_PLACES.items():
+        now = folder() / str(cfg[key])
+        before = _resolve(f"{older}/{cfg[key]}")
+        keep_older = read_older and not now.exists() and before is not None and before.exists()
+        cfg[key] = str(before if keep_older else now)
+    return cfg
 
 
 # ── family detection ───────────────────────────────────────────────────────────
@@ -129,7 +153,7 @@ def _write_user_registry(targets: dict[str, dict[str, Any]]) -> Path:
 
 def load_registry() -> dict[str, dict[str, Any]]:
     """Built-ins overlaid with operator targets. Operator entries win on name clash."""
-    merged: dict[str, dict[str, Any]] = {k: dict(v) for k, v in BUILTIN_TARGETS.items()}
+    merged: dict[str, dict[str, Any]] = {k: _builtin(k) for k in BUILTIN_TARGETS}
     for name, cfg in _read_user_registry().items():
         base = dict(merged.get(name) or {})
         base.update(cfg)
@@ -226,7 +250,7 @@ def create_target(
 
     family = str(base_family or "").strip().lower() or (detect_family(base["path"]) or "")
     learn = _learning_dir()
-    adapters = _models_root() / "lora" / "adapters"
+    adapters = _adapters_dir()
 
     cfg = {
         "description": str(description or f"Operator target for {name}"),

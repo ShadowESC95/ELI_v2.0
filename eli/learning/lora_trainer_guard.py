@@ -39,22 +39,8 @@ def allowed_targets() -> set[str]:
     except Exception:
         return set(ALLOWED_TARGETS)
 
-DEFAULTS = {
-    "eli_phi": {
-        "base_family": "phi3",
-        "base_model_path": "./phi-3-mini-base",
-        "adapter_path": "models/lora/adapters/eli-lora-adapter-phi3",
-        "dataset_path": "training/datasets/eli_supervised_v0.eli_phi.trainable.jsonl",
-        "output_dir": "models/lora/adapters/eli-lora-adapter-phi3-next",
-    },
-    "eli_phi_ultra": {
-        "base_family": "phi3",
-        "base_model_path": "./phi-3-mini-base",
-        "adapter_path": "models/lora/adapters/eli-lora-adapter-phi3-ultra",
-        "dataset_path": "training/datasets/eli_supervised_v0.eli_phi_ultra.trainable.jsonl",
-        "output_dir": "models/lora/adapters/eli-lora-adapter-phi3-ultra-next",
-    },
-}
+# A target's settings, built-in or the operator's, and where its files are, come from
+# eli.learning.target_registry alone.
 
 FORBIDDEN_TARGET_TERMS = {
     "openhermes",
@@ -121,13 +107,8 @@ def resolve_target(
             f"Refusing target={target!r}. Allowed targets: {sorted(known)}"
         )
 
-    cfg = dict(DEFAULTS.get(target) or {})
-    try:
-        from eli.learning.target_registry import get_target
-        cfg.update(get_target(target) or {})
-    except Exception:
-        log.debug("[lora] target registry unavailable; built-in defaults only",
-                  exc_info=True)
+    from eli.learning.target_registry import get_target
+    cfg = dict(get_target(target) or {})
     reg = _load_registry(registry_path)
     cfg.update(_target_from_registry(reg, target))
 
@@ -139,24 +120,16 @@ def resolve_target(
         cfg.get("base_model_path")
         or cfg.get("base_model")
         or cfg.get("base")
-        or DEFAULTS.get(target, {}).get("base_model_path", "")
+        or ""
     )
-    adapter_path = (
-        cfg.get("adapter_path")
-        or cfg.get("adapter")
-        or DEFAULTS.get(target, {}).get("adapter_path", "")
-    )
+    adapter_path = cfg.get("adapter_path") or cfg.get("adapter") or ""
     trainable_dataset = (
         cfg.get("dataset_path")
         or cfg.get("trainable_dataset")
         or cfg.get("dataset")
-        or DEFAULTS.get(target, {}).get("dataset_path", "")
+        or ""
     )
-    output_dir = (
-        cfg.get("output_dir")
-        or cfg.get("output_adapter")
-        or DEFAULTS.get(target, {}).get("output_dir", "")
-    )
+    output_dir = cfg.get("output_dir") or cfg.get("output_adapter") or ""
 
     return TrainerTarget(
         target=target,

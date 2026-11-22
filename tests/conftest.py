@@ -96,6 +96,9 @@ os.environ["ELI_AGENDA_NOTIFY"] = "0"
 _PYTEST_SETTINGS = ROOT / "artifacts" / "_pytest" / "settings.json"
 _PYTEST_SETTINGS.unlink(missing_ok=True)
 os.environ["ELI_SETTINGS_FILE"] = str(_PYTEST_SETTINGS)
+# Nor the checkout's training/ folder: a LoRA dry run builds its target's dataset and writes its run
+# plan in learning_dir(), which is training/ in a source tree.
+os.environ["ELI_LEARNING_DIR"] = str(ROOT / "artifacts" / "_pytest" / "training")
 
 # Hard isolation guard: fail LOUDLY at collection if any canonical store still resolves
 # to the real artifacts/db tree. This makes "no test can change memory" an enforced
@@ -120,7 +123,8 @@ def _assert_db_isolated() -> None:
             f"{_persona_resolved}, outside the throwaway {_safe}. A test could "
             f"overwrite the real persona overlay. Check eli.core.paths overrides "
             f"in conftest.")
-    for _name, _fn in (("notebook_dir", _p.notebook_dir), ("notes_dir", _p.notes_dir)):
+    for _name, _fn in (("notebook_dir", _p.notebook_dir), ("notes_dir", _p.notes_dir),
+                       ("learning_dir", _p.learning_dir)):
         _notes_resolved = Path(_fn()).resolve()
         if _safe not in _notes_resolved.parents:
             raise RuntimeError(

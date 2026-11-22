@@ -39,6 +39,38 @@ def test_builtin_targets_survive(learning_dir):
     assert {"eli_phi", "eli_phi_ultra"} <= tr.allowed_target_names()
 
 
+def test_builtin_targets_keep_their_files_in_the_users_folders(learning_dir, tmp_path, monkeypatch):
+    """The built-in targets named their dataset and adapters relative to the program folder, which a
+    packaged install cannot write, so the dataset build failed there and only logged it. Their
+    datasets are in learning_dir() and their adapters in the models folder, as an operator target's
+    are; a dataset or adapter an older build left in the program folder is still found there."""
+    from pathlib import Path
+    from eli.core import paths
+    from eli.learning.lora_trainer_guard import build_training_plan
+    models, program = tmp_path / "models", tmp_path / "program"
+    monkeypatch.setenv("ELI_MODELS_DIR", str(models))
+    monkeypatch.setattr(paths, "project_root", lambda: program)
+    adapters = models / "lora" / "adapters"
+    for name in ("eli_phi", "eli_phi_ultra"):
+        target = tr.get_target(name)
+        assert Path(target["dataset_path"]).parent == learning_dir / "datasets", target
+        assert Path(target["adapter_path"]).parent == adapters and Path(target["output_dir"]).parent == adapters
+        assert not str(target["dataset_path"]).startswith(str(program))
+    plan = build_training_plan("eli_phi")["resolved_paths"]
+    assert Path(plan["dataset_path"]) == Path(tr.get_target("eli_phi")["dataset_path"])
+    assert Path(plan["adapter_path"]).parent == adapters
+
+    old_dataset = program / "training" / "datasets" / Path(tr.get_target("eli_phi")["dataset_path"]).name
+    old_adapter = program / "models" / "lora" / "adapters" / Path(tr.get_target("eli_phi")["adapter_path"]).name
+    old_dataset.parent.mkdir(parents=True)
+    old_dataset.write_text("", encoding="utf-8")
+    old_adapter.mkdir(parents=True)
+    target = tr.get_target("eli_phi")
+    assert (Path(target["dataset_path"]), Path(target["adapter_path"])) == (old_dataset, old_adapter)
+    assert Path(target["output_dir"]).parent == adapters               # a new adapter goes where it can be written
+    assert Path(tr.get_target("eli_phi_ultra")["dataset_path"]).parent == learning_dir / "datasets"
+
+
 def test_non_phi_family_can_be_declared(learning_dir, tmp_path):
     base = _hf_model(tmp_path / "qwen-base", "qwen3")
     res = tr.create_target("my_qwen", base)

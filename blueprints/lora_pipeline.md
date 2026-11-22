@@ -97,9 +97,11 @@ a dry-run readiness check, and cancel. See `gui.md`.
 ### 6. Paths
 
 Runs (the guard's, the trainer's and the eval's plans and reports, all in
-`learning_dir()/runs` through `lora_trainer_guard.runs_dir()`), operator datasets and the
-registry follow `paths.learning_dir()` (source tree in dev, user data dir on a packaged
-install) instead of writing into a read-only mount.
+`learning_dir()/runs` through `lora_trainer_guard.runs_dir()`), the registry and the
+targets' datasets, the built-ins' as well as the operator's, follow `paths.learning_dir()`
+(source tree in dev, user data dir on a packaged install), and the targets' adapters the
+models folder (`paths.lora_adapters_dir()`), instead of writing into a read-only mount. A
+dataset that cannot be built is named in the job's problems.
 
 ### Still manual
 

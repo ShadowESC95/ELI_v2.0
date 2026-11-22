@@ -38,8 +38,8 @@ The stages, roughly in order:
 1. **Build** (`dataset_builder.py`): mines ELI's own conversation/correction
    history into `SupervisedExample`s. Crucially includes `clean_text` +
    **`redact_text` (PII redaction)** and an exclusion set so sensitive/garbage
-   content never becomes a training example. Writes
-   `training/datasets/eli_supervised_v0.jsonl` + a report.
+   content never becomes a training example. Writes `eli_supervised_v0.jsonl` and
+   its report in `learning_dir()/datasets` (`training/datasets/` in a source checkout).
 2. **Gate** (`dataset_filters.py`): `is_bad_response` and `row_is_reviewed`
    enforce quality + a **human review flag**.
 3. **Export / merge**: reviewed rows → `*.trainable.jsonl`.
@@ -87,11 +87,14 @@ CUDA on a Radeon.
 
 `eli.core.paths.learning_dir()` follows the `models_dir()` pattern: the source tree
 in dev so the existing `training/` layout keeps working, the **user data dir** on a
-packaged install (`ELI_LEARNING_DIR` overrides). Guard plans, the target registry,
-the review queue's candidates and an operator target's dataset follow it. The built-in
-targets' paths, the dataset builder's own output and the trainer CLI's run plans
-resolve against `project_root()`, which on a packaged install is the per-user root as
-well, so a frozen build does not write into its own installation.
+packaged install (`ELI_LEARNING_DIR` overrides). Run plans, the target registry, the
+review queue's candidates, the dataset builder's output and the targets' datasets follow
+it, the built-in targets' as well as the operator's; the targets' adapters are in the
+models folder (`paths.lora_adapters_dir()`), the user's own on a packaged install too,
+whose program folder is read-only. A built-in target's dataset or adapter that an older
+build left under the program folder (`training/datasets/`, `models/lora/adapters/`) is
+still read from there until there is one in its new place; a new adapter is always
+written in the new place.
 
 ### Targets (`target_registry.py` + `lora_trainer_guard.py`)
 

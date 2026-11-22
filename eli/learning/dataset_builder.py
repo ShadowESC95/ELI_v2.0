@@ -48,8 +48,16 @@ try:
 except Exception:
     CONV_DIR = PROJECT_ROOT / "artifacts" / "conversations"
 
-DEFAULT_OUT = PROJECT_ROOT / "training" / "datasets" / "eli_supervised_v0.jsonl"
-DEFAULT_REPORT = PROJECT_ROOT / "training" / "datasets" / "eli_supervised_v0.report.json"
+# The dataset and its report are written in learning_dir()/datasets (training/ in a source
+# tree, the user's own folder on a packaged install, whose program folder is read-only); a
+# report goes beside its dataset unless asked for elsewhere.
+DEFAULT_NAME = "eli_supervised_v0.jsonl"
+REPORT_NAME = "eli_supervised_v0.report.json"
+
+
+def datasets_dir() -> Path:
+    from eli.core.paths import learning_dir
+    return Path(learning_dir()) / "datasets"
 
 
 SECRET_PATTERNS = [
@@ -480,9 +488,11 @@ def _normalise_db_paths(db_paths: Any) -> list[Path]:
 
 def build_dataset(
     db_paths: list[Path] | None = None,
-    out_path: Path = DEFAULT_OUT,
-    report_path: Path = DEFAULT_REPORT,
+    out_path: Path | None = None,
+    report_path: Path | None = None,
 ) -> dict[str, Any]:
+    out_path = Path(out_path) if out_path else datasets_dir() / DEFAULT_NAME
+    report_path = Path(report_path) if report_path else out_path.parent / REPORT_NAME
     stats = BuildStats()
     examples: list[SupervisedExample] = []
 
@@ -537,13 +547,14 @@ def build_dataset(
 
 def main() -> int:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--out", default=str(DEFAULT_OUT))
-    ap.add_argument("--report", default=str(DEFAULT_REPORT))
+    ap.add_argument("--out", default="", help=f"default: learning_dir()/datasets/{DEFAULT_NAME}")
+    ap.add_argument("--report", default="", help=f"default: {REPORT_NAME} beside --out")
     ap.add_argument("--db", action="append", default=[])
     args = ap.parse_args()
 
     dbs = [Path(x) for x in args.db] if args.db else None
-    result = build_dataset(dbs, Path(args.out), Path(args.report))
+    result = build_dataset(dbs, Path(args.out) if args.out else None,
+                           Path(args.report) if args.report else None)
     print(json.dumps(result, indent=2))
     return 0 if result.get("ok") else 1
 

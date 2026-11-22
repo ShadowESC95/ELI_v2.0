@@ -116,17 +116,41 @@ def test_execute_blocks_active_adapter_overwrite(monkeypatch, tmp_path):
     assert any("must not equal active adapter_path" in p for p in job["problems"])
 
 
-def test_cli_dry_run_does_not_train():
+def test_cli_dry_run_does_not_train(tmp_path):
+    """Run in the test's own learning folder: the dry run builds the target's dataset and writes its
+    plan, and both went into the checkout's training/ folder."""
+    import os
+    learning = tmp_path / "learning"
+    env = dict(os.environ, ELI_LEARNING_DIR=str(learning), ELI_MODELS_DIR=str(tmp_path / "models"))
     proc = subprocess.run(
         [sys.executable, "-m", "eli.learning.lora_trainer", "--target", "eli_phi"],
         text=True,
         capture_output=True,
-        check=True,
+        env=env,
     )
+    assert proc.returncode in (0, 1), proc.stderr[-2000:]
     payload = json.loads(proc.stdout)
     assert payload["execute"] is False
     assert payload["will_train"] is False
     assert payload["result"]["skipped"] is True
+    written = [payload["plan_path"], payload["dataset_path"]]
+    assert all(Path(p).is_relative_to(learning) for p in written), written
+    assert (learning / "datasets").is_dir() and not any(
+        "could not build" in p for p in payload["problems"]), payload["problems"]
+
+
+def test_a_dataset_that_cannot_be_built_says_why(monkeypatch, tmp_path):
+    """The build's failure was only logged, and the job said the dataset did not exist."""
+    from eli.learning import dataset_builder
+    learning = tmp_path / "learning"
+    monkeypatch.setenv("ELI_LEARNING_DIR", str(learning))
+    monkeypatch.setenv("ELI_MODELS_DIR", str(tmp_path / "models"))
+
+    def refused(*_a, **_k):
+        raise PermissionError("read-only file system")
+    monkeypatch.setattr(dataset_builder, "build_dataset", refused)
+    job = lora_trainer.build_training_job("eli_phi")
+    assert any("could not build" in p and "read-only file system" in p for p in job["problems"]), job["problems"]
 
 def test_phi3_rope_scaling_normalizer_adds_legacy_type():
     rope = {

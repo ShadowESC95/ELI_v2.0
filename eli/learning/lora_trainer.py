@@ -387,12 +387,16 @@ def build_training_job(
     # The LoRA is human-gated, so an unbuilt/empty dataset just means "no curated
     # training data yet", not an error — but without building it the build_job stage
     # reported "dataset path does not exist" forever (a recurring proactive-log error).
+    # A build that fails (a folder that cannot be written) is a problem the job names.
+    build_failed = ""
     if dataset_path and not dataset_path.exists():
         try:
             from eli.learning.dataset_builder import build_dataset
             build_dataset(out_path=dataset_path)
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
+        except Exception as exc:
+            log.warning("[lora] the dataset for %s could not be built at %s", target, dataset_path,
+                        exc_info=True)
+            build_failed = f"could not build the dataset at {dataset_path}: {exc}"
     dataset = _dataset_report(dataset_path, target) if dataset_path else {
         "ok": False,
         "problems": ["dataset path missing from guard plan"],
@@ -401,7 +405,7 @@ def build_training_job(
     device_plan = _pick_device(
         device, base_model_path=base_model_path, seq_len=seq_len, batch_size=batch_size)
 
-    problems: list[str] = []
+    problems: list[str] = [build_failed] if build_failed else []
     warnings: list[str] = []
 
     if not preflight.get("can_train"):

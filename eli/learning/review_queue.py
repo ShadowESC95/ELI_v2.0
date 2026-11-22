@@ -42,16 +42,14 @@ LONG_RESPONSE_CHARS = 4000
 
 def candidates_path() -> Path:
     """Where dataset_builder drops raw candidates."""
-    from eli.core.paths import learning_dir
-    return Path(learning_dir()) / "datasets" / "eli_supervised_v0.jsonl"
+    from eli.learning.dataset_builder import DEFAULT_NAME, datasets_dir
+    return datasets_dir() / DEFAULT_NAME
 
 
 def build_candidates(db_paths: Optional[list[Path]] = None) -> dict[str, Any]:
     """Re-mine the SQLite stores for candidate pairs. Returns the builder's report."""
     from eli.learning.dataset_builder import build_dataset
-    out = candidates_path()
-    report = out.parent / "eli_supervised_v0.report.json"
-    return build_dataset(db_paths, out, report)
+    return build_dataset(db_paths, candidates_path())
 
 
 def _triage_row(row: dict[str, Any], seen: set) -> tuple[str, str]:
