@@ -111,6 +111,30 @@ def test_inventory_is_rewritten_when_a_capability_disappears(sync):
     assert "GONE" not in sync.inventory_path.read_text(encoding="utf-8")
 
 
+# ── blueprints/capabilities_and_actions.md ──────────────────────────────────
+def test_the_capabilities_table_is_not_rewritten_for_a_new_day_alone(tmp_path, monkeypatch):
+    """The third tracked file written at every start: the table carries the day it was generated,
+    so the first start of each day (the app's, or an engine a test builds) rewrote it unchanged."""
+    from eli.tools.registry import capabilities_doc as doc
+
+    out = tmp_path / "capabilities_and_actions.md"
+    monkeypatch.setattr(doc, "OUT", out)
+    caps = [{"action": "TIME", "routable": True}, {"action": "DATE", "routable": True}]
+    monkeypatch.setattr(doc, "_load_manifest", lambda: (caps, {"TIME", "DATE"}, set()))
+    doc.generate_capabilities_doc()
+    yesterday = out.read_text(encoding="utf-8").replace(
+        f"*Auto-generated {time.strftime('%Y-%m-%d')} ", "*Auto-generated 2026-01-01 ", 1)
+    out.write_text(yesterday, encoding="utf-8")
+
+    doc.generate_capabilities_doc()
+    assert out.read_text(encoding="utf-8") == yesterday, "rewritten with nothing changed but the date"
+
+    caps.append({"action": "VOLUME", "routable": True})
+    monkeypatch.setattr(doc, "_load_manifest", lambda: (caps, {"TIME", "DATE", "VOLUME"}, set()))
+    doc.generate_capabilities_doc()
+    assert "2026-01-01" not in out.read_text(encoding="utf-8"), "a real change was not written"
+
+
 def test_first_write_always_happens(sync):
     assert not sync.inventory_path.exists()
     sync._write_inventory({"A": {"source": "executor", "routable": True}})

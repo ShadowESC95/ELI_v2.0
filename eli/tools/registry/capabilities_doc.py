@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import datetime
 import json
+import re
 import textwrap
 from collections import OrderedDict
 from pathlib import Path
@@ -320,6 +321,11 @@ def _load_manifest() -> Tuple[List[dict], set, set]:
     return caps, routable, plugin
 
 
+def _without_date(text: str) -> str:
+    """The table as it reads apart from the day it was generated on."""
+    return re.sub(r"^\*Auto-generated \d{4}-\d{2}-\d{2} ", "*Auto-generated ", text, count=1, flags=re.M)
+
+
 def generate_capabilities_doc() -> Dict:
     """Render blueprints/capabilities_and_actions.md from the manifest + curated map.
     Returns {ok, total, documented, routable, needs_phrase}."""
@@ -376,8 +382,16 @@ def generate_capabilities_doc() -> Dict:
         out.append(f"- ⚠️ New/undocumented (need a curated phrase): {', '.join(needs_phrase)}")
     out.append("")
 
-    OUT.parent.mkdir(parents=True, exist_ok=True)
-    OUT.write_text("\n".join(out), encoding="utf-8")
+    text = "\n".join(out)
+    # Only when the table changed. A new day's date alone is no change: this file is tracked, and the
+    # first start of each day (the app's, or an engine a test builds) left it modified in git.
+    try:
+        before = OUT.read_text(encoding="utf-8")
+    except OSError:
+        before = None
+    if before is None or _without_date(before) != _without_date(text):
+        OUT.parent.mkdir(parents=True, exist_ok=True)
+        OUT.write_text(text, encoding="utf-8")
     return {
         "ok": True,
         "total": len(all_actions),
