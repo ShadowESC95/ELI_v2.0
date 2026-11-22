@@ -35,6 +35,13 @@ def test_load_policy_is_well_formed():
     assert "path" in pol
 
 
+def test_the_policy_lives_in_the_artifacts_folder_in_force():
+    """It was always <program folder>/artifacts/runtime: read-only on a packaged install, and outside every
+    redirection, so a fresh checkout's test run made artifacts/runtime/ in the checkout."""
+    from eli.core.paths import artifacts_dir
+    assert op.policy_path() == artifacts_dir() / "runtime" / "operator_policy.json"
+
+
 def test_set_valid_mode_persists():
     rec = op.set_policy_mode("observe_only", actor="tester", reason="unit test")
     assert rec["ok"] is True and rec["mode"] == "observe_only"

@@ -42,8 +42,7 @@ def _model_dir() -> Path:
         d = models_dir() / "wakeword"
     except Exception:
         d = Path(__file__).resolve().parents[2] / "models" / "wakeword"
-    d.mkdir(parents=True, exist_ok=True)
-    return d
+    return d                            # made by what writes into it, never by a read
 
 
 def _config_path() -> Path:
@@ -55,11 +54,7 @@ def get_wake_phrases() -> List[str]:
     sets ("change the wake word to athena") is persisted here and used by both the
     acoustic model (trained on it) and the transcription matcher."""
     path = _config_path()
-    if not path.is_file():
-        try:
-            path.write_text(json.dumps({"phrases": _DEFAULT_PHRASES}, indent=2))
-        except Exception:
-            log.debug("wakeword: could not seed default config", exc_info=True)
+    if not path.is_file():              # nothing set: the defaults, and reading writes nothing
         return list(_DEFAULT_PHRASES)
     try:
         ph = json.loads(path.read_text()).get("phrases")
@@ -76,7 +71,9 @@ def set_wake_phrases(phrases: List[str]) -> List[str]:
     cleaned = [str(p).strip().lower() for p in (phrases or []) if str(p).strip()]
     if not cleaned:
         cleaned = list(_DEFAULT_PHRASES)
-    _config_path().write_text(json.dumps({"phrases": cleaned}, indent=2))
+    path = _config_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({"phrases": cleaned}, indent=2))
     return cleaned
 
 
@@ -385,6 +382,7 @@ def train_model(phrases: Optional[List[str]] = None, *, per_voice_speeds=(0.85, 
     n_hi = float(np.percentile(scores[y == 0], 95))
     thr = float(min(0.9, max(0.5, (p_lo + n_hi) / 2)))
 
+    _head_path().parent.mkdir(parents=True, exist_ok=True)
     torch.save({"state_dict": head.state_dict(), "in_dim": flat.shape[1],
                 "emb_shape": list(emb.shape[1:])}, _head_path())
     _meta_path().write_text(json.dumps({

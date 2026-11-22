@@ -12,15 +12,12 @@ VALID_POLICY_MODES = {
     "observe_only",
 }
 
-def _project_root() -> Path:
-    try:
-        from eli.core.paths import get_paths
-        return get_paths().project_root
-    except Exception:
-        return Path(__file__).resolve().parents[2]
-
 def policy_path() -> Path:
-    return _project_root() / "artifacts" / "runtime" / "operator_policy.json"
+    """The policy file in the artifacts folder in force: <project_root>/artifacts in a source checkout,
+    the user data folder on a packaged install (whose program folder is read-only), ELI_ARTIFACTS_DIR
+    when set. It was always the program folder, so a packaged install could not keep a mode."""
+    from eli.core.paths import artifacts_dir
+    return artifacts_dir() / "runtime" / "operator_policy.json"
 
 def load_policy() -> Dict[str, Any]:
     p = policy_path()

@@ -51,8 +51,16 @@ def test_artifacts_dir_wins_over_data_dir(tmp_path, monkeypatch):
 
 def test_dev_tree_default_is_unchanged(monkeypatch):
     """The whole point of using artifacts_dir(): a source checkout must land in
-    exactly the directory it always did, so nobody's index moves."""
-    p = _paths(monkeypatch)
+    exactly the directory it always did, so nobody's index moves. Finding the path makes its folder;
+    one this test made is taken away again, so a fresh checkout is left as it was found."""
+    vdir = project_root() / "artifacts" / "vectors"
+    made = [d for d in (vdir.parent, vdir) if not d.exists()]
+    try:
+        p = _paths(monkeypatch)
+    finally:
+        for d in reversed(made):
+            if d.is_dir() and not any(d.iterdir()):
+                d.rmdir()
     assert p == (project_root() / "artifacts" / "vectors" / "index.faiss").resolve()
 
 
@@ -76,12 +84,13 @@ def test_migration_does_not_clobber_an_existing_index(tmp_path, monkeypatch):
 
 def test_paths_never_raise_when_the_target_is_unwritable(tmp_path, monkeypatch):
     """A read-only target must degrade to the user data dir, not take VectorStore
-    construction down with it."""
+    construction down with it. The data dir is a temporary one: left unset it is the checkout's own
+    artifacts/, and a fresh checkout's test run made artifacts/vectors/ in it."""
     blocked = tmp_path / "ro"
     blocked.mkdir()
     blocked.chmod(0o500)
     try:
-        p = _paths(monkeypatch, ELI_ARTIFACTS_DIR=str(blocked))
-        assert p.name == "index.faiss"
+        p = _paths(monkeypatch, ELI_ARTIFACTS_DIR=str(blocked), ELI_DATA_DIR=str(tmp_path / "data"))
+        assert p.name == "index.faiss" and (tmp_path / "data").resolve() in p.parents
     finally:
         blocked.chmod(0o700)
