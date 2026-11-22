@@ -129,7 +129,7 @@ behaviours**. Alias families are grouped below so the real surface is visible.
 | `EXAMINE_CODE` | Tiered file scan (syntax/import → lint → gated LLM logic review) → offers a fix only for named files with real breakage; "list the errors you found" replays the saved audit. |
 | `FIX_FILE` | Fix (or with `mode=improve`, improve) a named file: protected guardrail files refused, a backup first, Python through the verified CodeAgent; a Python module that no longer imports or fails its targeted tests is restored. |
 | `CONFIRM_CODE_FIX`, `CANCEL_CODE_FIX` | Apply / drop `EXAMINE_CODE`'s pending fix: each patch syntax-checked and import-verified, auto-reverted if it breaks its module; logic (Tier-3) findings only when asked. |
-| `FILE_AUDIT`, `SHOW_DIFF`, `CODE_CHANGES` | File inventory of ELI's own package (files per directory under `eli/`); the project folder's own git history when it is a checkout (uncommitted changes with `git status` and `git diff HEAD`, or the latest commit's when there are none, and the latest commits), two named files compared line by line, else a plain "no change history"; the code changes the awareness code monitor saw since its last check. |
+| `FILE_AUDIT`, `SHOW_DIFF`, `CODE_CHANGES` | File inventory of ELI's own package (files per directory under `eli/`); the project folder's own git history when it is a checkout (uncommitted changes with `git status` and `git diff HEAD`, or the latest commit's when there are none, and the latest commits), two named files compared line by line, else a plain "no change history"; the code changes the awareness code monitor saw since its last check (committed changes, by `git diff` between the two checks), or that it cannot look when the folder is not a git checkout or git is missing. |
 
 ## 9. Self-management & self-improvement
 | Action(s) | What it does |
@@ -695,7 +695,7 @@ is unique under `eli/`; recount the others with `wc -l`.
 | `insight_synthesis.py` | 136 | Cached, background-synthesised reflection insight. |
 | `jobqueue.py` | 184 | Durable SQLite-backed job queue for external subprocess jobs; files under `<data>/jobs`. |
 | `jobqueue_cli.py` | 59 | Durable background jobs that run as separate processes and survive a restart. |
-| `proposal_adapters.py` | 165 | Adapters that make proposal execution results look like `subprocess.CompletedProcess`. |
+| `proposal_adapters.py` | 150 | Adapters that make proposal execution results look like `subprocess.CompletedProcess`; `safe_git_completed` runs read-only git (diff, status, log, show, rev-parse, ls-files, with `--no-optional-locks`) and nothing that writes. |
 | `proposal_memory_bridge.py` | 64 | Bridge that records proposal outcomes into memory through safe calls. |
 | `proposal_models.py` | 48 | `ProposalRecord`: kind, payload, source, priority. |
 

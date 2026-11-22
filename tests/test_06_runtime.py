@@ -142,3 +142,37 @@ def test_runtime_stage_packets_loadable():
 
 def test_runtime_stage_packet_store_loadable():
     assert _load("eli.runtime.stage_packet_store") is not None
+
+
+def test_the_code_monitor_sees_what_changed_between_checks(tmp_path):
+    """Its git diff never ran, so every check found nothing and CODE_CHANGES said so."""
+    import subprocess
+    from eli.runtime.code_monitor import CodeMonitor
+    repo = tmp_path / "proj"
+    (repo / "eli" / "memory").mkdir(parents=True)
+    git = ["git", "-C", str(repo), "-c", "user.name=t", "-c", "user.email=t@example.invalid"]
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    (repo / "eli" / "memory" / "store.py").write_text("A = 1\n", encoding="utf-8")
+    subprocess.run(git + ["add", "-A"], check=True)
+    subprocess.run(git + ["commit", "-q", "-m", "first"], check=True)
+    mon = CodeMonitor(repo)
+    assert mon.use_git
+    mon.check()
+    (repo / "eli" / "memory" / "store.py").write_text("A = 1\nB = 2\nC = 3\n", encoding="utf-8")
+    subprocess.run(git + ["commit", "-q", "-am", "second"], check=True)
+    report = mon.check()
+    assert [(c.path, c.change_type, c.lines_added) for c in report.changes] == [("eli/memory/store.py", "modified", 2)]
+    assert report.has_changes and "memory system" in report.summary()
+
+
+def test_code_changes_says_when_it_could_not_look(monkeypatch, tmp_path):
+    from eli.execution.executor_enhanced import execute
+    from eli.runtime import awareness_boot
+    import types
+    plain = tmp_path / "installed"
+    plain.mkdir()
+    state = awareness_boot.AwarenessState()
+    state._code_mon = types.SimpleNamespace(use_git=False, repo_root=plain)   # what CodeMonitor is there
+    monkeypatch.setattr(awareness_boot, "_awareness", state)
+    text = execute("CODE_CHANGES", {})["response"]
+    assert "can't see code changes" in text and str(plain) in text

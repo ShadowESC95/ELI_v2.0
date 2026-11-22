@@ -8086,8 +8086,14 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             state = get_awareness()
             if state is None:
                 state = boot_awareness(quiet=True)
+            _mon = getattr(state, "_code_mon", None)
             if state.code_report_has_changes:
                 msg = state.code_report_briefing
+            elif _mon is None or not getattr(_mon, "use_git", False):
+                # Nothing was looked at: "no changes" would be a claim about code it could not read.
+                _where = getattr(_mon, "repo_root", None) or _eli_self_project_root()
+                msg = (f"I can't see code changes: {_where} is not a git checkout I can read "
+                       f"(or git is not installed), so there is no history to compare.")
             else:
                 msg = "No code changes detected since last check."
             return {"ok": True, "action": a, "content": msg, "response": msg}
