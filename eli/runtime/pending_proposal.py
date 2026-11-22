@@ -687,6 +687,10 @@ def detail_of(reply: str, needs: str) -> str:
     if (os.path.exists(os.path.expanduser(said)) or said.startswith(("~", "/", "./", "../"))
             or "/" in said or "\\" in said or _re.match(r"[A-Za-z]:[\\/]", said)):
         return whole
+    # "summarise report.docx" names a file, and is a new request, not the answer
+    from eli.runtime.command_splitter import starts_with_command
+    if starts_with_command(said, after_lead=True):
+        return ""
     from eli.execution.portable_intent_contract import _FILE_EXTENSIONS
     last = said.split()[-1]
     if "." in last and last.rsplit(".", 1)[1].lower() in _FILE_EXTENSIONS:

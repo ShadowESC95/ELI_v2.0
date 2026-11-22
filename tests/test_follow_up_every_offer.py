@@ -438,7 +438,8 @@ def test_the_answer_to_which_folder_runs_the_request_with_that_folder(proposals,
 @pytest.mark.parametrize("reply,is_it", [("~/papers", True), ("/data/scans", True), ("report.pdf", True),
                                          ("my downloads", True), ("the folder is ~/x", True),
                                          ("no thanks", False), ("what do you mean", False), ("play some jazz", False),
-                                         ("the blue one", False)])
+                                         ("the blue one", False), ("summarise report.docx", False),
+                                         ("convert report.md to pdf", False)])
 def test_a_reply_that_is_only_a_path_is_the_detail_asked_for(reply, is_it):
     assert pp.is_the_detail(reply, "path") is is_it
 
