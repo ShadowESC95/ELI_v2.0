@@ -1336,6 +1336,21 @@ _FT_COMMON = frozenset("""that this with from have what when where which will wo
 you're please just some more very check let's lets going want need like know think make sure okay yeah""".split())
 
 
+def _stored_suggestion_text(stored: Any) -> str:
+    """The words of an improvements row's suggestion: some writers store a JSON object with a
+    "suggestion" field, others the plain sentence. Every plain one was parsed as JSON and printed a
+    traceback, three to a turn."""
+    text = str(stored or "")
+    if text.lstrip().startswith("{"):
+        try:
+            parsed = json.loads(text)
+        except ValueError:
+            parsed = None
+        if isinstance(parsed, dict) and parsed.get("suggestion"):
+            return str(parsed["suggestion"])
+    return text
+
+
 def _followthrough_may_run(action: str, user_input: Any, clause: Any) -> bool:
     """Whether a promise in ELI's reply is carried out without asking."""
     act = str(action or "").upper()
@@ -8871,12 +8886,7 @@ Answer:"""
                     ).fetchall()
                     for _i in _imps:
                         _its = _time.strftime("%Y-%m-%d %H:%M:%S", _time.localtime(float(_i[0] or 0)))
-                        _suggestion = str(_i[3] or "")
-                        try:
-                            _sug_obj = _json.loads(_suggestion)
-                            _suggestion = _sug_obj.get("suggestion", _suggestion)
-                        except Exception:
-                            log.debug("suppressed exception", exc_info=True)
+                        _suggestion = _stored_suggestion_text(_i[3])
                         _log_lines.append(f"  [{_its}] [{_i[1]}:{_i[2]}] {_suggestion[:100]}")
 
                 # error_tracking table

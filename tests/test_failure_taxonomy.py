@@ -93,3 +93,15 @@ def test_every_category_has_a_severity():
         if name.isupper() and isinstance(getattr(T, name), str) and "_" not in name:
             cat = getattr(T, name)
             assert T._SEVERITY.get(cat), f"{name} has no severity"
+
+
+def test_a_stored_suggestion_is_read_as_its_writer_stored_it():
+    """The improvements table holds a JSON object from some writers and the plain sentence from others.
+    The grounded-evidence block parsed every row as JSON and printed a traceback for each plain one,
+    three to a turn."""
+    from eli.kernel.engine import _stored_suggestion_text as read
+    assert read('{"suggestion": "cache the folder listing", "area": "tools"}') == "cache the folder listing"
+    assert read("cache the folder listing") == "cache the folder listing"
+    assert read("{not json at all") == "{not json at all"
+    assert read('{"area": "tools"}') == '{"area": "tools"}'
+    assert read(None) == ""
