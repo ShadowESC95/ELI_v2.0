@@ -163,3 +163,80 @@ def test_a_voice_command_said_during_a_reply_is_sent_after_it(monkeypatch):
     win.is_generating = False
     later.pop()()
     assert sent == ["one more"] and win._voice_waiting == []
+
+
+# ── the voice profile learns the owner's speech, not the room's music ─────────
+def _scripted_listener(monkeypatch, said, *, threshold=1200.0, base=1200.0, media_playing=False):
+    """The real listen loop with the microphone and Whisper stood in: each capture in `said` is
+    (transcript, rms); nothing is heard, played or transcribed for real."""
+    import threading
+    import numpy as np
+    from eli.perception import local_whisper_stt
+    sr = audio_stt.sr
+    monkeypatch.setenv("ELI_VOICE_TONE", "0")
+    monkeypatch.setenv("ELI_WAKE_ACOUSTIC", "0")
+    monkeypatch.setattr(audio_stt, "_eli_media_probably_audible", lambda: media_playing)
+    monkeypatch.setattr(audio_stt, "_eli_duck_output", lambda: None)
+    monkeypatch.setattr(audio_stt, "media_player_duck_pause", lambda: None)
+    monkeypatch.setattr(local_whisper_stt, "heard_clearly", lambda text: True)
+    stt = audio_stt.ELIAudioSTT.__new__(audio_stt.ELIAudioSTT)
+    script = list(said)
+    transcripts = {}
+
+    class _Mic:
+        def __enter__(self):
+            return types.SimpleNamespace(stream=None, CHUNK=1024, SAMPLE_RATE=16000, SAMPLE_WIDTH=2)
+
+        def __exit__(self, *a):
+            return False
+
+    def _capture(*_a, **_k):
+        if not script:
+            stt._stop_event.set()
+            raise sr.WaitTimeoutError("done")
+        text, level = script.pop(0)
+        pcm = (np.sin(np.arange(16000) / 3.0) * level * np.sqrt(2)).astype("<i2").tobytes()
+        audio = sr.AudioData(pcm, 16000, 2)
+        transcripts[id(audio)] = text
+        return audio
+
+    stt.recognizer = types.SimpleNamespace(energy_threshold=threshold, pause_threshold=1.2, non_speaking_duration=0.35,
+                                           listen=_capture)
+    stt._listen_adaptive_pause = _capture
+    stt._recognize = lambda audio: transcripts.get(id(audio), "")
+    stt.microphone = _Mic()
+    stt.is_listening, stt._stop_event, stt._state_lock = True, threading.Event(), threading.Lock()
+    stt._thread, stt.callback, stt.audio_queue = None, None, __import__("queue").Queue()
+    stt._voice_gate = audio_stt.VoiceGate()
+    stt._eli_duck_snapshot, stt._eli_ignore_until, stt._eli_ignore_reason = None, 0.0, ""
+    stt._threshold_base, stt._noise_stuck_streak = base, 0
+    stt._voice_profile = {"count": 0, "energy_mean": 0.0}
+    stt._save_voice_profile = lambda: None
+    return stt
+
+
+_SONG = [("i think i lost my mind", 9500), ("thanks for watching", 9300), ("this is the life that i chose", 9700),
+         ("don't play it off", 9400), ("i love you", 9600), ("welcome to the ground", 9500)]
+
+
+def test_the_voice_profile_learns_the_owners_speech_not_the_songs(monkeypatch):
+    """Every capture went into the profile before the wake-word gate, so its 'voice' samples
+    were mostly song lyrics the mic transcribed and dropped. Only what the gate takes as the owner's
+    (the wake word, a command it sends on) is learnt now."""
+    stt = _scripted_listener(monkeypatch, _SONG + [("computer", 2100), ("what time is it", 1900)])
+    stt._listen_loop()
+    prof = stt._voice_profile
+    assert prof["count"] == 2, f"learnt from {prof['count']} captures, the songs among them"
+    assert prof["energy_mean"] < 3000
+
+
+def test_the_voice_profile_does_not_learn_while_the_music_or_the_room_is_louder():
+    for kw in ({"media_playing": True}, {"threshold": 11453.0}):
+        mp = pytest.MonkeyPatch()
+        try:
+            stt = _scripted_listener(mp, [("computer", 9800), ("what time is it", 9900)], **kw)
+            stt._listen_loop()
+            assert stt._voice_profile["count"] == 0, kw
+        finally:
+            mp.undo()
+

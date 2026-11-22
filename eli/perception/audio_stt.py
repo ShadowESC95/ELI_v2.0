@@ -1637,8 +1637,24 @@ class ELIAudioSTT:
         log.debug(f"[AUDIO_ADAPT] room quiet again — threshold {cur:.0f} → {nxt:.0f} (base {base:.0f})")
         return True
 
+    def _learn_voice(self, audio) -> None:
+        """An utterance the gate took as the owner's (the wake word, a command it sent on) goes into
+        the voice profile, unless what the mic heard was more than the voice: ELI's media playing, or
+        a room loud enough that the noise self-heal holds the gate above its base. Its level then
+        measures the music, which is what a profile learnt from every capture measured."""
+        if audio is None:
+            return
+        base = float(getattr(self, "_threshold_base", 0.0) or 0.0)
+        if base > 0 and float(self.recognizer.energy_threshold) > base * 1.05:
+            log.debug("[AUDIO] voice profile not updated: the room is louder than the gate's base")
+            return
+        if _eli_media_probably_audible():
+            log.debug("[AUDIO] voice profile not updated: media is playing")
+            return
+        self._record_voice_sample(audio)
+
     def _record_voice_sample(self, audio) -> None:
-        """Update voice profile statistics from a confirmed user utterance."""
+        """Update voice profile statistics from a confirmed user utterance (_learn_voice decides)."""
         try:
             import audioop
             raw = audio.get_raw_data()
@@ -2222,9 +2238,9 @@ class ELIAudioSTT:
                         except Exception:
                             log.debug("suppressed exception", exc_info=True)
 
-                    # Update user voice profile for next time's threshold bias.
-                    self._record_voice_sample(audio)
-
+                    # The voice profile learns from what the gate takes as the owner's (_learn_voice, at the
+                    # wake word and a command sent on), not from every capture: here, it learnt the songs
+                    # the mic transcribed.
                     transcript_display = _eli_fast_command_alias(transcript)
                     transcript_route = _collapse_repeated_phrase(transcript_display, strip_punctuation=True)
                     # Speaker-bleed filter: when media is audible and the transcript
@@ -2290,6 +2306,7 @@ class ELIAudioSTT:
                     if action == "arm":
                         print(f"🔊 [AUDIO] Wake word detected: '{wake}'")
                         print("🎧 [AUDIO] Guarded command window armed")
+                        self._learn_voice(audio)
                         try:
                             # Only snapshot+duck if not already ducked.
                             # Re-arm (user says wake word twice) must NOT overwrite
@@ -2359,6 +2376,7 @@ class ELIAudioSTT:
                                 except RuntimeError:      # the window it reports to has closed
                                     log.warning("[AUDIO] the unclear-command notice had nowhere to go", exc_info=True)
                             continue
+                        self._learn_voice(audio)
                         self._emit(transcript_display)
                         continue
         finally:

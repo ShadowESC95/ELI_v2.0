@@ -23,7 +23,7 @@ import tempfile
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from eli.utils.platform_compat import play_wav_blocking as _platform_play_wav_blocking
+from eli.utils.platform_compat import play_wav_with_player as _platform_play_wav
 
 from eli.utils.log import get_logger
 log = get_logger(__name__)
@@ -174,15 +174,100 @@ def _has_piper_config(model: Path) -> bool:
     )
 
 
-def _play_wav_blocking(wav_path, *, post_play_tail: float | None = None) -> bool:
-    """Blocking WAV playback; feeds expression_state amplitude when sounddevice is available."""
+class Playback:
+    """What playing one WAV did: true when it played, `via` saying where (a PortAudio device that
+    goes through the sound server, or the system player that played it), `detail` why not."""
+    __slots__ = ("ok", "via", "detail")
+
+    def __init__(self, ok: bool, via: str = "", detail: str = ""):
+        self.ok, self.via, self.detail = bool(ok), str(via or ""), str(detail or "")
+
+    def __bool__(self) -> bool:
+        return self.ok
+
+    def __repr__(self) -> str:
+        return f"Playback(ok={self.ok}, via={self.via!r}, detail={self.detail!r})"
+
+
+_LAST_PLAYBACK: Dict[str, Any] = {}
+
+# PortAudio's ALSA devices that are the sound server itself (its ALSA plugin). "default" and
+# "sysdefault" reach the server only through that plugin, which lists itself under these names; a
+# "default" without them is the card's own mixing, on the hardware the server holds.
+_SERVER_PCM_NAMES = ("pipewire", "pulse")
+# Lip-sync reads the voice's loudness this often (seconds): about a video frame and a half.
+_AMPLITUDE_BLOCK_S = 0.04
+
+
+def last_playback() -> Dict[str, Any]:
+    """The last speech playback: {"ok", "via", "detail", "ts"}; {} before any."""
+    return dict(_LAST_PLAYBACK)
+
+
+def _portaudio_output(sd) -> Optional[tuple]:
+    """(device, name) of the PortAudio output that plays through the desktop's sound server; device
+    None is PortAudio's own default. None when no listed device does: then the system's player
+    (platform_compat) plays, through the server. A raw ALSA card the server holds is never chosen:
+    it refused to open while music played ("Device unavailable") and took the voice silently
+    otherwise, in a build whose PortAudio listed only the cards."""
+    from eli.utils.platform_compat import sound_server
+    server = sound_server()
+    if server == "macos":
+        return (None, "the system output")                 # Core Audio: every device is mixed
+    if not server:
+        return (None, "PortAudio's default output")      # nothing holds the cards
+    devices = list(sd.query_devices())
+    if server == "windows":
+        default = sd.query_devices(kind="output")
+        apis = list(sd.query_hostapis())
+        api = apis[int(default.get("hostapi", 0))]["name"] if apis else ""
+        if "WDM-KS" not in api:                           # kernel streaming is the only route past the mixer
+            return (None, f"'{default.get('name', '')}' ({api})")
+        for a in apis:
+            if "WDM-KS" not in a["name"] and int(a.get("default_output_device", -1)) >= 0:
+                idx = int(a["default_output_device"])
+                return (idx, f"'{devices[idx]['name']}' ({a['name']})")
+        return None
+    for name in _SERVER_PCM_NAMES:
+        for idx, dev in enumerate(devices):
+            if dev.get("name") == name and int(dev.get("max_output_channels", 0)) > 0:
+                return (idx, f"PortAudio '{name}' ({server})")
+    return None
+
+
+def _loudness(chunk) -> float:
+    import numpy as _np
+    return min(1.0, float(_np.sqrt(_np.mean(chunk ** 2))) * 4.0) if len(chunk) else 0.0
+
+
+def _amplitude_from_samples(data, sr: int, es, stop) -> None:
+    """Lip-sync without a callback stream: the voice's loudness block by block, on the clock of
+    the player that plays it, until `stop` is set or the samples end."""
+    import time as _time
+    block = max(1, int(sr * _AMPLITUDE_BLOCK_S))
+    start = _time.monotonic()
+    for i, pos in enumerate(range(0, len(data), block)):
+        if stop.is_set():
+            break
+        es.set_amplitude(_loudness(data[pos:pos + block]))
+        wait = start + (i + 1) * _AMPLITUDE_BLOCK_S - _time.monotonic()
+        if wait > 0 and stop.wait(wait):
+            break
+    es.set_amplitude(0.0)
+
+
+def _play_wav_blocking(wav_path, *, post_play_tail: float | None = None) -> Playback:
+    """Blocking WAV playback through the desktop's sound server, with expression_state amplitude
+    for lip-sync: a PortAudio stream on the server's own device when one is listed, the system's
+    player otherwise. Returns a Playback, true only when it played, saying where."""
     import os as _os
+    import threading as _threading
     import time as _time
     from pathlib import Path as _Path
 
     path = _Path(wav_path)
     if not path.is_file() or path.stat().st_size < 100:
-        return False
+        return _record_playback(Playback(False, detail="no audio to play"))
 
     _es = None
     try:
@@ -191,73 +276,126 @@ def _play_wav_blocking(wav_path, *, post_play_tail: float | None = None) -> bool
     except Exception:
         log.debug("[TTS] expression_state unavailable for amplitude lip-sync", exc_info=True)
 
+    data, sr, why = None, 0, ""
     try:
-        import numpy as _np
-        import sounddevice as _sd
         from eli.perception.audio_samples import read_mono as _read_mono
-
         data, sr = _read_mono(path)
         if data.size == 0:
-            raise ValueError("empty wav")
+            data, why = None, "the voice's audio was empty"
+    except Exception as exc:
+        why = f"its samples could not be read ({exc})"
+        log.debug("[TTS] samples unreadable for the PortAudio stream and lip-sync", exc_info=True)
 
-        pos = 0
-        block = max(512, int(sr * 0.04))
+    if data is not None:
+        try:
+            import sounddevice as _sd
+            route = _portaudio_output(_sd)
+        except Exception as exc:
+            route, why = None, f"PortAudio unavailable ({exc})"
+            log.debug("[TTS] PortAudio unavailable", exc_info=True)
+        if route is None and not why:
+            why = "no PortAudio device goes through the sound server"
+        if route is not None:
+            device, label = route
+            try:
+                pos = 0
+                out = data
 
-        def _callback(outdata, frames, _time_info, status):
-            nonlocal pos
-            if status:
-                log.debug(f"[TTS] sounddevice status: {status}")
-            end = min(pos + frames, data.size)
-            chunk = data[pos:end]
-            if chunk.size == 0:
-                outdata.fill(0)
-                raise _sd.CallbackStop()
-            outdata[:chunk.size, 0] = chunk
-            if chunk.size < frames:
-                outdata[chunk.size:, 0] = 0
-                pos = data.size
-                raise _sd.CallbackStop()
-            pos = end
-            if _es is not None:
-                rms = float(_np.sqrt(_np.mean(chunk ** 2)))
-                _es.set_amplitude(min(1.0, rms * 4.0))
+                def _callback(outdata, frames, _time_info, status):
+                    nonlocal pos
+                    if status:
+                        log.debug(f"[TTS] sounddevice status: {status}")
+                    end = min(pos + frames, out.size)
+                    chunk = out[pos:end]
+                    if chunk.size == 0:
+                        outdata.fill(0)
+                        raise _sd.CallbackStop()
+                    outdata[:chunk.size, 0] = chunk
+                    if chunk.size < frames:
+                        outdata[chunk.size:, 0] = 0
+                        pos = out.size
+                        raise _sd.CallbackStop()
+                    pos = end
+                    if _es is not None:
+                        _es.set_amplitude(_loudness(chunk))
 
-        # The device's own rate from the start: a device that takes only that (a USB headset's ALSA
-        # device refused 22,050 Hz) failed first on every reply, three ALSA errors each time.
-        _dev_sr = int(_sd.query_devices(kind="output")["default_samplerate"] or 0)
-        if _dev_sr > 0 and _dev_sr != int(sr):
-            from eli.perception.audio_samples import resample as _resample
-            data = _resample(data, int(sr), _dev_sr)
-            sr = _dev_sr
-        _stream = _sd.OutputStream(samplerate=int(sr), channels=1, callback=_callback)
-        with _stream:
-            _sd.sleep(int((data.size / float(sr)) * 1000) + 80)
-        if _es is not None:
-            _es.set_amplitude(0.0)
-        tail = post_play_tail
-        if tail is None:
-            tail = float(_os.environ.get("ELI_TTS_POST_PLAY_TAIL_SEC", "0.35"))
-        if tail > 0:
-            _time.sleep(tail)
-        return True
-    except Exception:
-        log.debug("[TTS] amplitude-aware playback unavailable; falling back to platform player", exc_info=True)
+                # The device's own rate from the start: a device that takes only that (a USB headset's ALSA
+                # device refused 22,050 Hz) failed first on every reply, three ALSA errors each time.
+                info = _sd.query_devices(device) if device is not None else _sd.query_devices(kind="output")
+                _dev_sr = int(info["default_samplerate"] or 0)
+                rate = int(sr)
+                if _dev_sr > 0 and _dev_sr != rate:
+                    from eli.perception.audio_samples import resample as _resample
+                    out = _resample(data, rate, _dev_sr)
+                    rate = _dev_sr
+                _stream = _sd.OutputStream(samplerate=rate, channels=1, callback=_callback, device=device)
+                with _stream:
+                    _sd.sleep(int((out.size / float(rate)) * 1000) + 80)
+                if _es is not None:
+                    _es.set_amplitude(0.0)
+                tail = post_play_tail
+                if tail is None:
+                    tail = float(_os.environ.get("ELI_TTS_POST_PLAY_TAIL_SEC", "0.35"))
+                if tail > 0:
+                    _time.sleep(tail)
+                return _record_playback(Playback(True, label))
+            except Exception as exc:
+                why = f"{label} failed ({exc})"
+                log.debug("[TTS] PortAudio playback failed; the system player plays instead", exc_info=True)
 
-    return _platform_play_wav_blocking(path, post_play_tail=post_play_tail)
+    stop = _threading.Event()
+    feeder = None
+    if _es is not None and data is not None:
+        feeder = _threading.Thread(target=_amplitude_from_samples, args=(data, int(sr), _es, stop),
+                                   daemon=True, name="eli-tts-lipsync")
+        feeder.start()
+    try:
+        player = _platform_play_wav(path, post_play_tail=post_play_tail)
+    finally:
+        stop.set()
+        if feeder is not None:
+            feeder.join(timeout=1.0)
+    if player:
+        return _record_playback(Playback(True, f"the system player {player}", why))
+    return _record_playback(Playback(False, detail=(why + "; " if why else "") + "no system player could play it"))
 
 
-def _play_wav_bytes(wav_bytes: bytes) -> bool:
+def _record_playback(result: Playback) -> Playback:
+    global _LAST_PLAYBACK
+    import time as _time
+    _LAST_PLAYBACK = {"ok": result.ok, "via": result.via, "detail": result.detail, "ts": _time.time()}
+    return result
+
+
+def _play_wav_bytes(wav_bytes: bytes) -> Playback:
     """Play WAV bytes on any supported OS without requiring Linux audio CLIs."""
     if not wav_bytes:
-        return False
-    suffix = ".wav"
+        return Playback(False, detail="no audio to play")
+    path = ""
     try:
-        with tempfile.NamedTemporaryFile(prefix="eli_tts_", suffix=suffix, delete=False) as f:
+        with tempfile.NamedTemporaryFile(prefix="eli_tts_", suffix=".wav", delete=False) as f:
             f.write(wav_bytes)
             path = f.name
-        return _play_wav_blocking(path)
-    except Exception:
-        return False
+        played = _play_wav_blocking(path)
+        _log_played("[TTS] voice audio", len(wav_bytes), played)
+        return played
+    except Exception as exc:
+        log.warning("[TTS] speech not played: %s", exc, exc_info=True)
+        return Playback(False, detail=str(exc))
+    finally:
+        if path:
+            try:
+                os.unlink(path)
+            except OSError:
+                log.debug("[TTS] temporary voice file not removed: %s", path, exc_info=True)
+
+
+def _log_played(what: str, size: int, played) -> None:
+    """One line per played reply part: where it played, or that it did not and why."""
+    if played:
+        log.debug(f"{what} bytes={size} played through {getattr(played, 'via', '') or 'an unnamed route'}")
+    else:
+        log.warning(f"{what} bytes={size} NOT played: {getattr(played, 'detail', '') or 'playback failed'}")
 
 
 def _raw_pcm_to_wav(raw_bytes: bytes, sample_rate: int = 22050) -> bytes:
@@ -677,6 +815,7 @@ def available_backends() -> dict:
         "pyttsx3": True,
         "espeak_ng": shutil.which("espeak-ng") is not None,
         "espeak": shutil.which("espeak") is not None,
+        "last_playback": last_playback(),
     }
 
 
@@ -887,14 +1026,9 @@ def _speak_piper_cli(text, voice_name=None):
             log.debug(f"[TTS_FINAL_PIPER_ONLY] wav missing/empty: {wav}")
             return False
 
-        log.debug(
-            f"[TTS_FINAL_PIPER_ONLY] voice={active} model={_Path(model).name} bytes={wav.stat().st_size}",
-        )
-
-        if _play_wav_blocking(wav):
-            return True
-
-        return False
+        played = _play_wav_blocking(wav)
+        _log_played(f"[TTS_FINAL_PIPER_ONLY] voice={active} model={_Path(model).name}", wav.stat().st_size, played)
+        return played
 
     finally:
         try:
@@ -1051,6 +1185,7 @@ def _run_tts_impl(text: str, voice_name: str | None = None) -> bool:
         chunks = chunks[:max_chunks]
 
     ok_all = True
+    played = Playback(False, detail="nothing was spoken")
     for i, chunk in enumerate(chunks, 1):
         log.debug(f"[TTS_FINAL_PIPER_ONLY_CHUNK] {i}/{len(chunks)} voice={active} chars={len(chunk)}")
         ok = _speak_piper_cli(chunk, active)
@@ -1060,7 +1195,9 @@ def _run_tts_impl(text: str, voice_name: str | None = None) -> bool:
             sys_voices = _list_system_voices()
             if sys_voices:
                 log.debug("[TTS] Piper failed; falling back to system voice.")
-                ok = _speak_pyttsx3(chunk, sys_voices[0])
+                ok = _speak_pyttsx3(chunk, sys_voices[0]) and Playback(True, "the system's own voice")
+        # _speak_piper_cli says False alone when no audio was made (no voice model, piper failed)
+        played = ok if isinstance(ok, Playback) else Playback(bool(ok), detail="" if ok else "the voice could not be synthesised")
         if not ok:
             log.debug("[TTS_FINAL_PIPER_ONLY] failed; no further fallback.")
             ok_all = False
@@ -1074,7 +1211,8 @@ def _run_tts_impl(text: str, voice_name: str | None = None) -> bool:
             action="SPEAK",
             subject=active,
             content=str(text or "")[:1000],
-            payload={"chunks": len(chunks), "ok": ok_all},
+            payload={"chunks": len(chunks), "ok": ok_all,
+                     "played_through": played.via if ok_all else "", "detail": played.detail},
             severity="info" if ok_all else "error",
             outcome="ok" if ok_all else "failed",
             reusable=True,
@@ -1082,7 +1220,7 @@ def _run_tts_impl(text: str, voice_name: str | None = None) -> bool:
     except Exception:
         log.debug("suppressed exception", exc_info=True)
 
-    return ok_all
+    return played if ok_all else Playback(False, detail=played.detail or "playback failed")
 
 
 def speak(text: str, voice_name: str | None = None) -> bool:
@@ -1122,7 +1260,10 @@ def speak_text(text: str, *, piper_path: str | None = None, model_path: str | No
         from pathlib import Path as _Path
         voice_name = _Path(model_path).stem
     ok = _run_tts(str(text or ""), voice_name=voice_name)
-    return {"ok": bool(ok), "backend": "piper_cli_final" if ok else None}
+    # where it was heard, or why it was not: what a status line about the voice may say
+    return {"ok": bool(ok), "backend": "piper_cli_final" if ok else None,
+            "played_through": getattr(ok, "via", "") if ok else "",
+            "error": "" if ok else (getattr(ok, "detail", "") or "the reply was not played")}
 
 
 # ── Synthesise to WAV bytes (no host playback) — powers browser voice ───────

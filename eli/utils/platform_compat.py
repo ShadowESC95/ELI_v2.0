@@ -1416,8 +1416,51 @@ def play_alarm_sound() -> bool:
         return False
 
 
+def _socket_at(path: str) -> bool:
+    import stat
+    try:
+        return stat.S_ISSOCK(os.stat(path).st_mode)
+    except OSError:
+        return False
+
+
+def sound_server() -> str:
+    """The desktop sound server that owns this machine's sound cards, or "" when none runs.
+
+    "pipewire" or "pulseaudio" on Linux, found by the socket a client would connect to (the
+    PIPEWIRE_REMOTE / PULSE_SERVER a session names, else the one in XDG_RUNTIME_DIR); a variable
+    that names a socket which is not there is no server. "windows" and "macos": every program's
+    sound goes through the system's mixer there. A raw ALSA device that a running server holds
+    either refuses to open ("Device unavailable") or plays where nothing listens, so playback must
+    go through the server whenever this is not ""."""
+    if WINDOWS:
+        return "windows"
+    if MACOS:
+        return "macos"
+    if not LINUX:
+        return ""
+    runtime = os.environ.get("XDG_RUNTIME_DIR", "").strip()
+    remote = os.environ.get("PIPEWIRE_REMOTE", "").strip()
+    if remote:
+        if _socket_at(remote if os.path.isabs(remote) else os.path.join(runtime, remote)):
+            return "pipewire"
+    elif runtime and _socket_at(os.path.join(runtime, "pipewire-0")):
+        return "pipewire"
+    pulse = os.environ.get("PULSE_SERVER", "").strip()
+    if pulse:
+        if not pulse.startswith(("unix:", "/")):
+            return "pulseaudio"                        # a network server: it is there or the session is broken
+        if _socket_at(pulse[len("unix:"):] if pulse.startswith("unix:") else pulse):
+            return "pulseaudio"
+    elif runtime and _socket_at(os.path.join(runtime, "pulse", "native")):
+        return "pulseaudio"
+    return ""
+
+
 def wav_player_candidates() -> list[str]:
-    """Blocking WAV player executables for this platform, in preference order."""
+    """Blocking WAV player executables for this platform, in preference order: on Linux with a
+    sound server, its own player first (pw-play for PipeWire, paplay for PulseAudio and PipeWire's
+    Pulse layer), then aplay, whose ALSA "default" the server's plugin routes."""
     found: list[str] = []
     if ANDROID:
         p = shutil.which("termux-media-player")
@@ -1436,7 +1479,10 @@ def wav_player_candidates() -> list[str]:
         if p:
             found.append(p)
         return found
-    for name in ("aplay", "paplay"):
+    server = sound_server()
+    order = {"pipewire": ("pw-play", "paplay", "aplay"),
+             "pulseaudio": ("paplay", "aplay")}.get(server, ("aplay", "paplay"))
+    for name in order:
         p = shutil.which(name)
         if p:
             found.append(p)
@@ -1468,14 +1514,20 @@ def play_wav_blocking(path: str | Path, *, post_play_tail: float | None = None) 
     synchronous playback so chunk order, STT echo-guard locks, and post-play
     tails are honoured on every OS.
     """
+    return bool(play_wav_with_player(path, post_play_tail=post_play_tail))
+
+
+def play_wav_with_player(path: str | Path, *, post_play_tail: float | None = None) -> str:
+    """play_wav_blocking, saying what played it: the player's name ("pw-play", "winsound", ...),
+    or "" when nothing could."""
     import time
 
     wav = Path(path).expanduser()
     try:
         if not wav.is_file() or wav.stat().st_size < 100:
-            return False
+            return ""
     except OSError:
-        return False
+        return ""
 
     if post_play_tail is None:
         try:
@@ -1490,7 +1542,7 @@ def play_wav_blocking(path: str | Path, *, post_play_tail: float | None = None) 
             winsound.PlaySound(str(wav), winsound.SND_FILENAME | winsound.SND_SYNC)
             if post_play_tail > 0:
                 time.sleep(post_play_tail)
-            return True
+            return "winsound"
         except Exception:
             log.debug("winsound blocking playback failed", exc_info=True)
 
@@ -1507,10 +1559,11 @@ def play_wav_blocking(path: str | Path, *, post_play_tail: float | None = None) 
             if proc.returncode == 0:
                 if post_play_tail > 0:
                     time.sleep(post_play_tail)
-                return True
+                return Path(player).name
+            log.debug("WAV player %s exited %s: %s", player, proc.returncode, (proc.stderr or "")[-300:])
         except Exception:
             log.debug("WAV player %s failed", player, exc_info=True)
-    return False
+    return ""
 
 
 def find_executable(name: str, extra_paths: list[str] | None = None) -> str | None:
