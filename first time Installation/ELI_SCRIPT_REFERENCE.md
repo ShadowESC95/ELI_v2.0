@@ -355,7 +355,7 @@ Binds FastAPI server (`python -m api.server`). Default `127.0.0.1` (tokenless); 
 
 Install-if-needed (`--setup` forces `scripts/eli_setup.sh`), optional GitHub asset restore (`scripts/restore_github_asset_files.py`; after setup when the same run does one), llama-cpp SIGILL repair via `install.sh --yes --cpu-only --auto-model`, optional trace, tee logs to `artifacts/startup/logs/`. Default auto-setup when `.venv` missing. Arguments it does not know (or after `--`) go to `python -m eli`.
 
-**Flags:** `--setup`, `--no-setup`, `--with-github-assets`, `--repo`, `--tag`, `--trace` (`ELI_PIPELINE_TRACE=1`), `--safe-mode` (sets `ELI_SAFE_MODE=1`: ELI starts no proactive daemon and loads no plugin at start; a plugin enabled during the session still loads, and MCP servers start only when one of their tools is used, as always), `--no-log`.
+**Flags:** `--setup`, `--no-setup`, `--with-github-assets`, `--repo`, `--tag`, `--trace` (`ELI_PIPELINE_TRACE=1`), `--safe-mode` (sets `ELI_SAFE_MODE=1`: ELI starts nothing that runs on its own, no daemon, loop or scheduler, no plugin code, no job or reminder from an earlier session; what is started during the session still runs, a plugin enabled then still loads, and MCP servers start only when one of their tools is used, as always), `--no-log`.
 
 **Exit code `132`:** llama-cpp still broken after repair.
 
@@ -1264,7 +1264,7 @@ Not set by the launchers: `ELI_NOTEBOOK_DIR` (default `$ELI_DATA_DIR/notebook`),
 | `ELI_ASSET_RELEASE_TAG` | GitHub assets tag (default `local-assets-v2.1`) |
 | `GITHUB_REPOSITORY` | Asset repo (default `ShadowESC95/ELI_v2.0`) |
 | `ELI_PIPELINE_TRACE` | Enable pipeline tracing (route and stage lines at debug level) |
-| `ELI_SAFE_MODE` | `1` (set by `eli_startup.sh --safe-mode`): no proactive daemon and no plugin loaded at start (`eli.core.config.safe_mode()`) |
+| `ELI_SAFE_MODE` | `1` (set by `eli_startup.sh --safe-mode`): nothing that runs on its own is started, no daemon, loop, scheduler, plugin code or restored job or reminder (`eli.core.config.background_start_allowed()`) |
 | `SKIP_TESTS` / `SKIP_COMPILE` | Release build pre-flight skips |
 | `ELI_PORTABLE_WHEELHOUSE` / `ELI_FULL_WHEELHOUSE` / `ELI_BUNDLE_TORCH` / `ELI_STARTER_MODEL` | What the portable packages bundle (`package_desktop_app.sh`, `build_packages.sh`) |
 | `WHEELHOUSE_PYTHON_VERSIONS` | Python versions of the Windows wheelhouse (default `311 312`) |

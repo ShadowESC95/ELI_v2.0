@@ -99,6 +99,62 @@ def test_safe_mode_starts_no_proactive_daemon(monkeypatch):
     assert started == [True] and engine.proactive_daemon == "daemon"
 
 
+def _starters(monkeypatch, safe):
+    """Everything engine start-up, the window's start-up and the launcher start in the background,
+    recorded instead of run: the threads started, and the restores and daemon starts called."""
+    import atexit
+    import signal
+    import types
+
+    import eli.gui.app as launcher
+    import eli.gui.eli_pro_audio_gui_v2_0 as gui
+    import eli.perception.ambient_vision as av
+    import eli.planning.proactive_daemon as pd
+    import eli.runtime.agenda as agenda
+    import eli.runtime.scheduled_tasks as scheduled
+    from eli.kernel import engine as engine_mod
+    from eli.memory.memory import Memory
+
+    threads, calls = [], []
+    monkeypatch.setattr(threading.Thread, "start", lambda self: threads.append(self.name))
+    monkeypatch.setattr(atexit, "register", lambda f, *a, **k: f)
+    monkeypatch.setattr(signal, "signal", lambda *a, **k: None)
+    monkeypatch.setattr(engine_mod, "_eli_test_mode", lambda: False)    # start-up as in the app
+    monkeypatch.delenv("ELI_TEST_MODE", raising=False)
+    monkeypatch.delenv("ELI_PROACTIVE", raising=False)
+    monkeypatch.delenv("ELI_PROACTIVE_STARTED", raising=False)
+    monkeypatch.setattr(Memory, "upkeep_due", lambda self: True)
+    monkeypatch.setattr(pd, "start_daemon", lambda: calls.append("proactive daemon"))
+    monkeypatch.setattr(scheduled, "restore_scheduled_tasks", lambda: calls.append("scheduled tasks") or 0)
+    monkeypatch.setattr(agenda, "restore", lambda: calls.append("reminders") or 0)
+    monkeypatch.setattr(av, "start_ambient_vision", lambda: calls.append("ambient vision"))
+    if safe:
+        monkeypatch.setenv("ELI_SAFE_MODE", "1")
+    else:
+        monkeypatch.delenv("ELI_SAFE_MODE", raising=False)
+
+    engine_mod.CognitiveEngine(auto_init_gguf=False, enforce_hardware_authority=False)
+    gui.EliMainWindow._start_background_work(types.SimpleNamespace(_proactive_daemon=None))
+    launcher._start_background_work()
+    return threads, calls
+
+
+def test_safe_mode_starts_no_background_work_at_all(monkeypatch):
+    """Safe mode held back the proactive daemon (only where the engine started it) and plugin
+    loading; the habit scheduler, which fires habits, the self-improvement loop, the reflection and
+    habit loops, memory upkeep, the jobs and reminders of earlier sessions, the window's own start
+    of the daemon, ambient vision and the launcher's warm-up all started as on any other run. Each
+    starter now asks config.background_start_allowed."""
+    threads, calls = _starters(monkeypatch, safe=False)
+    assert {"eli-memory-upkeep", "eli-reflection", "eli-habits", "embed-prewarm"} <= set(threads), threads
+    assert len(threads) >= 6, threads                    # and the habit scheduler's and the self-improvement loop's
+    assert sorted(calls) == ["ambient vision", "proactive daemon", "proactive daemon",
+                             "reminders", "scheduled tasks"], calls
+
+    threads, calls = _starters(monkeypatch, safe=True)
+    assert threads == [] and calls == [], f"safe mode started {threads} and {calls}"
+
+
 def test_is_running_does_not_construct_a_daemon():
     """A status check that creates the thing it reports on is not a status check."""
     import eli.planning.proactive_daemon as pd

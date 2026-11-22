@@ -319,6 +319,17 @@ def main():
     _report = _gi.get_effective_runtime_report()
     print(f"✅  {model_path.name} loaded: {(_report.get('load_plan') or {}).get('text', '')}\n")
 
+    _start_background_work()
+
+    import eli.gui.eli_pro_audio_gui_v2_0 as _gui_mod
+    _gui_mod.main()
+
+
+def _start_background_work() -> None:
+    """The launcher's background starters, each asking config.background_start_allowed (safe mode
+    holds them all back): the embedder warm-up, and the user-info updater (not under pytest)."""
+    from eli.core import config as _cfg
+
     # Pre-warm the nomic-embed model in a background thread so the first
     # user request doesn't pay the ~90s cold-load penalty.
     def _prewarm_embed():
@@ -333,15 +344,14 @@ def main():
         except Exception as _pe:
             print(f"⚠️  embed pre-warm: {_pe}")
 
-    import threading as _thr
-    _thr.Thread(target=_prewarm_embed, daemon=True, name="embed-prewarm").start()
-
-    import eli.gui.eli_pro_audio_gui_v2_0 as _gui_mod
+    if _cfg.background_start_allowed("embedder warm-up"):
+        import threading as _thr
+        _thr.Thread(target=_prewarm_embed, daemon=True, name="embed-prewarm").start()
 
     # User-info background updater (inlined from former bottom-of-file
     # User-info startup refresh. Skipped under pytest so test
     # isolation isn't broken.
-    if "PYTEST_CURRENT_TEST" not in os.environ:
+    if "PYTEST_CURRENT_TEST" not in os.environ and _cfg.background_start_allowed("user-info updater"):
         try:
             from eli.cognition.user_info_builder import (
                 ensure_user_info_background_updater,
@@ -351,8 +361,6 @@ def main():
             ensure_user_info_background_updater(1800)
         except Exception as _ui_e:
             log.debug(f"[GUI] user-info background updater not started: {_ui_e}")
-
-    _gui_mod.main()
 
 
 if __name__ == "__main__":

@@ -380,7 +380,27 @@ def network_allowed() -> bool:
 
 def safe_mode() -> bool:
     """True when ELI was started in safe mode: ELI_SAFE_MODE=1, which `scripts/eli_startup.sh
-    --safe-mode` (RUN_ELI.sh --safe-mode) sets. The proactive daemon does not start and no plugin code
-    is loaded at start, so a fault in either can be told apart from ELI itself. A plugin enabled during
-    the session still loads, and MCP servers start only when one of their tools is used, as always."""
+    --safe-mode` (RUN_ELI.sh --safe-mode) sets. Nothing starts on its own (background_start_allowed):
+    no daemon, loop or scheduler, no plugin code, and no job or reminder restored from an earlier
+    session, so a fault in that work can be told apart from ELI itself. What the user starts in the
+    session still runs: a plugin enabled, the daemon started, a job or reminder set; MCP servers
+    start only when one of their tools is used, as always."""
     return (os.getenv("ELI_SAFE_MODE") or "").strip().lower() in ("1", "true", "yes", "on")
+
+
+# What safe mode has held back so far, by name: each is logged once. (This module's own set() is
+# the settings setter, so it is a dict.)
+_HELD_BACK: dict = {}
+
+
+def background_start_allowed(what: str) -> bool:
+    """Whether ELI may start `what` at start-up: work that then runs on its own (a daemon, a loop,
+    a scheduler, a warm-up, plugin code, the jobs and reminders restored from an earlier session).
+    Every such starter asks here, so safe mode holds all of them back from this one place; each
+    one held back is logged once, by name."""
+    if not safe_mode():
+        return True
+    if what not in _HELD_BACK:
+        _HELD_BACK[what] = True
+        log.info("Safe mode (ELI_SAFE_MODE=1): %s not started", what)
+    return False

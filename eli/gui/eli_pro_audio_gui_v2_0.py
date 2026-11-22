@@ -2273,7 +2273,32 @@ class EliMainWindow(QMainWindow):
         self._proactive_dock = None
         self._operator_console_dock = None
         self._proactive_event_count = 0
-        if start_daemon:
+        self._start_background_work()
+
+        # ---------- COGNITIVE ENGINE SINGLETON ----------
+        self._cognitive_engine = None
+        try:
+            from eli.kernel.engine import CognitiveEngine, set_engine
+            self._cognitive_engine = CognitiveEngine(
+                auto_init_gguf=False,
+                enforce_hardware_authority=False,
+            )
+            # Register it as THE engine. This block was already called the
+            # singleton, but nothing published the instance, so the first
+            # background caller of get_engine() built a second one — with
+            # auto_init_gguf defaulting to True, so it loaded the model again
+            # and started a duplicate habit scheduler and self-improvement loop.
+            set_engine(self._cognitive_engine)
+            log.debug("[GUI] CognitiveEngine singleton ready (reflection/habit/awareness active)")
+        except Exception as _ce_init_err:
+            log.debug(f"[GUI] CognitiveEngine init skipped (non-fatal): {_ce_init_err}")
+
+    def _start_background_work(self):
+        """The window's own background starters: the proactive daemon (with its docks and the
+        thread that carries its queue to the Proactive tab) and the ambient-vision loop. Each asks
+        config.background_start_allowed, so safe mode holds them back with the engine's."""
+        from eli.core import config as _cfg
+        if start_daemon and _cfg.background_start_allowed("proactive daemon"):
             try:
                 from eli.planning.proactive_daemon import start_daemon as _start_pd
                 self._proactive_daemon = _start_pd()
@@ -2306,35 +2331,18 @@ class EliMainWindow(QMainWindow):
                 QTimer.singleShot(200, self._update_proactive_status_label)
             except Exception as e:
                 log.debug(f"[GUI] Failed to start proactive daemon: {e}")
-        else:
+        elif not start_daemon:
             log.debug("[GUI] Proactive daemon not available (import failed)")
 
         # Ambient vision daemon — self-gates on the `ambient_vision_enabled`
         # toggle (OFF by default), so starting it unconditionally is cheap.
-        try:
-            from eli.perception.ambient_vision import start_ambient_vision
-            start_ambient_vision()
-            log.debug("[GUI] Ambient vision daemon started (gated on ambient_vision_enabled)")
-        except Exception as _av_err:
-            log.debug(f"[GUI] Ambient vision daemon unavailable (non-fatal): {_av_err}")
-
-        # ---------- COGNITIVE ENGINE SINGLETON ----------
-        self._cognitive_engine = None
-        try:
-            from eli.kernel.engine import CognitiveEngine, set_engine
-            self._cognitive_engine = CognitiveEngine(
-                auto_init_gguf=False,
-                enforce_hardware_authority=False,
-            )
-            # Register it as THE engine. This block was already called the
-            # singleton, but nothing published the instance, so the first
-            # background caller of get_engine() built a second one — with
-            # auto_init_gguf defaulting to True, so it loaded the model again
-            # and started a duplicate habit scheduler and self-improvement loop.
-            set_engine(self._cognitive_engine)
-            log.debug("[GUI] CognitiveEngine singleton ready (reflection/habit/awareness active)")
-        except Exception as _ce_init_err:
-            log.debug(f"[GUI] CognitiveEngine init skipped (non-fatal): {_ce_init_err}")
+        if _cfg.background_start_allowed("ambient vision"):
+            try:
+                from eli.perception.ambient_vision import start_ambient_vision
+                start_ambient_vision()
+                log.debug("[GUI] Ambient vision daemon started (gated on ambient_vision_enabled)")
+            except Exception as _av_err:
+                log.debug(f"[GUI] Ambient vision daemon unavailable (non-fatal): {_av_err}")
 
     # ── Daemon queue consumer ──────────────────────────────────────────────
     def _daemon_queue_consumer(self):
@@ -11576,7 +11584,8 @@ class EliMainWindow(QMainWindow):
                 self.gaze_camera_input.blockSignals(True)
                 self.gaze_camera_input.setText(_gaze_cam)
                 self.gaze_camera_input.blockSignals(False)
-            if _gaze_on:
+            from eli.core import config as _cfg_gaze
+            if _gaze_on and _cfg_gaze.background_start_allowed("gaze engine (switched on in the settings)"):
                 try:
                     from eli.perception.gaze_engine import start_gaze_engine
                     start_gaze_engine(camera=_gaze_cam if _gaze_cam == "auto" else int(_gaze_cam) if _gaze_cam.isdigit() else "auto")

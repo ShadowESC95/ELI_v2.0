@@ -253,9 +253,8 @@ class PluginManager:
         marked disabled, so a plugin nobody had switched on ran its code at start, though it could
         not be called. In safe mode (ELI_SAFE_MODE=1) none is: no plugin code runs until one is
         enabled in the session."""
-        from eli.core.config import safe_mode
-        if safe_mode():
-            log.info("[PLUGIN] Safe mode (ELI_SAFE_MODE=1): no plugin is loaded at start")
+        from eli.core.config import background_start_allowed
+        if not background_start_allowed("plugins (none is loaded at start)"):
             return
         # The state as it is on disk: the marketplace writes an install there itself.
         self._state = _load_state()

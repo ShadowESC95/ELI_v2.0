@@ -4524,17 +4524,20 @@ class CognitiveEngine:
             self._gguf_load_error = "GGUF init deferred until explicit model load"
             log.debug("[COGNITIVE] GGUF init deferred (waiting for explicit model load)")
         if not self._test_mode:
+            # Each background starter asks config.background_start_allowed, which holds them all
+            # back in safe mode.
             self._start_reflection_loop()
             self._start_habit_loop()
             self._start_habit_scheduler()
             self._start_self_improvement_loop()
             # Re-arm any persisted scheduled/overnight tasks (durable across
             # restarts); missed-while-off tasks run as catch-up shortly after boot.
-            try:
-                from eli.runtime.scheduled_tasks import restore_scheduled_tasks
-                restore_scheduled_tasks()
-            except Exception as _rst_err:
-                log.debug(f"[COGNITIVE] scheduled-task restore skipped: {_rst_err}")
+            if config.background_start_allowed("scheduled tasks from earlier sessions"):
+                try:
+                    from eli.runtime.scheduled_tasks import restore_scheduled_tasks
+                    restore_scheduled_tasks()
+                except Exception as _rst_err:
+                    log.debug(f"[COGNITIVE] scheduled-task restore skipped: {_rst_err}")
             # Profile rows that are ELI's own troubleshooting, stored as facts about the user by
             # earlier versions, are taken out before anything is built from them.
             try:
@@ -4542,12 +4545,14 @@ class CognitiveEngine:
                 purge_software_talk()
             except Exception as _purge_err:
                 log.debug(f"[COGNITIVE] profile purge skipped: {_purge_err}")
-            # Reminders and calendar events: deliver what came due while ELI was shut, re-arm the rest.
-            try:
-                from eli.runtime import agenda as _agenda_boot
-                _agenda_boot.restore()
-            except Exception as _ag_err:
-                log.debug(f"[COGNITIVE] agenda restore skipped: {_ag_err}")
+            # Reminders and calendar events: deliver what came due while ELI was shut, re-arm the
+            # rest. One set in the session arms the notifier itself (agenda._arm).
+            if config.background_start_allowed("reminders from earlier sessions"):
+                try:
+                    from eli.runtime import agenda as _agenda_boot
+                    _agenda_boot.restore()
+                except Exception as _ag_err:
+                    log.debug(f"[COGNITIVE] agenda restore skipped: {_ag_err}")
         log.debug("[COGNITIVE] active == canonical ✓")  # Fix 6b: startup path log
         if not self._test_mode:
             self._start_proactive_listener()
@@ -16726,6 +16731,9 @@ Answer:"""
                 self.memory.log_habit_event(action.lower(), {"path": path, "success": True})
 
     def _start_reflection_loop(self) -> None:
+        if not config.background_start_allowed("reflection loop"):
+            return
+
         def loop() -> None:
             initial_delay = int(
     os.environ.get(
@@ -16802,6 +16810,9 @@ Answer:"""
             log.debug(f"[COGNITIVE] Persona overlay update failed: {e}")
 
     def _start_habit_loop(self) -> None:
+        if not config.background_start_allowed("habit detection loop"):
+            return
+
         def loop() -> None:
             self._detect_habits()
             while self.running:
@@ -16834,6 +16845,8 @@ Answer:"""
 
     def _start_habit_scheduler(self) -> None:
         """Start the habit rule execution scheduler (fires detected habits on schedule)."""
+        if not config.background_start_allowed("habit scheduler"):
+            return
         try:
             from eli.planning.habits_scheduler import get_scheduler
             get_scheduler()
@@ -16843,6 +16856,8 @@ Answer:"""
 
     def _start_self_improvement_loop(self) -> None:
         """Start the background self-improvement analysis loop (24h interval)."""
+        if not config.background_start_allowed("self-improvement loop"):
+            return
         try:
             from eli.runtime.self_improvement import get_self_improvement
             get_self_improvement().start_self_improvement_loop(interval_hours=24)
@@ -16859,8 +16874,7 @@ Answer:"""
             log.debug("[COGNITIVE] Proactive daemon disabled by ELI_PROACTIVE=0")
             self.proactive_daemon = None
             return
-        if config.safe_mode():
-            log.info("[COGNITIVE] Safe mode (ELI_SAFE_MODE=1): the proactive daemon is not started")
+        if not config.background_start_allowed("proactive daemon"):
             self.proactive_daemon = None
             return
         if os.environ.get("ELI_PROACTIVE_STARTED") == "1":

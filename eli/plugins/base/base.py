@@ -89,9 +89,8 @@ def get_plugin(name: str) -> Optional[Plugin]:
 def register_all_plugins():
     """Register all plugin actions with the capability registry. Not in safe mode (ELI_SAFE_MODE=1),
     where no plugin code is loaded at start."""
-    from eli.core.config import safe_mode
-    if safe_mode():
-        log.info("[PLUGIN] Safe mode (ELI_SAFE_MODE=1): plugins are not registered at start")
+    from eli.core.config import background_start_allowed
+    if not background_start_allowed("plugins (none is registered at start)"):
         return
     for plugin in load_plugins().values():
         plugin.register({})

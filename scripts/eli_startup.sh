@@ -29,8 +29,10 @@ Options:
   --repo OWNER/REPO       Asset repo. Default: $REPO
   --tag TAG               Asset release tag. Default: $TAG
   --trace                 Enable ELI_PIPELINE_TRACE=1.
-  --safe-mode             Start without the proactive daemon and without loading plugins
-                          (ELI_SAFE_MODE=1). MCP servers start only when a tool is used.
+  --safe-mode             Start with nothing running on its own (ELI_SAFE_MODE=1): no daemon,
+                          loop or scheduler, no plugin code, no jobs or reminders from
+                          earlier sessions. What you start in the session still runs; MCP
+                          servers start only when a tool is used.
   --no-log                Do not tee startup output to artifacts/startup/logs.
   -h, --help              Show help.
 
@@ -77,7 +79,7 @@ if [ "$TRACE" -eq 1 ]; then
   export ELI_PIPELINE_TRACE=1
 fi
 if [ "$SAFE_MODE" -eq 1 ]; then
-  # Read by eli.core.config.safe_mode(): the engine starts no proactive daemon, no plugin loads.
+  # Read by eli.core.config.safe_mode(): every background starter asks background_start_allowed().
   export ELI_SAFE_MODE=1
 fi
 # Paths already pinned by eli_isolate_env — reaffirm after option parsing.

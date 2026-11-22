@@ -3834,9 +3834,11 @@ class Memory(metaclass=_MemoryMeta):
     _upkeep_lock = threading.Lock()
 
     def upkeep_async(self) -> bool:
-        """Start today's upkeep in the background if it is due and not already running."""
-        if os.environ.get("ELI_TEST_MODE") == "1" or not self.upkeep_due() \
-                or not Memory._upkeep_lock.acquire(blocking=False):
+        """Start today's upkeep in the background if it is due and not already running. ELI's own
+        work, so not in safe mode (config.background_start_allowed)."""
+        from eli.core.config import background_start_allowed
+        if os.environ.get("ELI_TEST_MODE") == "1" or not background_start_allowed("memory upkeep") \
+                or not self.upkeep_due() or not Memory._upkeep_lock.acquire(blocking=False):
             return False
 
         def _run():
