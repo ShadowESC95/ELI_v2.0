@@ -1111,36 +1111,45 @@ def _extract_pdf_paths(raw: str) -> list[str]:
     #   [PDF content — Exergetic_Coherence_Revoloution.pdf]
     # Only used to help route; executor still verifies existence.
     name_re = re.compile(r'(?P<name>[A-Za-z0-9_. -]+\.pdf)\b', re.IGNORECASE)
-    roots = [
-        Path.cwd(),
-        Path.home(),
-        Path.home() / "Desktop",
-        Path.home() / "Desktop/Physics",
-        Path.home() / "Desktop/Physics/Theory_MATHEMATICS",
-    ]
+    # Where a bare name is looked for: the working folder, the home folder, the user's own document
+    # folders and ELI's documents folder; below that, only inside the user's document folders. Two
+    # folders of one machine's owner were named here, and the whole home folder was searched while routing.
+    user_folders = [Path.home() / d for d in ("Desktop", "Documents", "Downloads")]
+    roots = [Path.cwd(), Path.home(), *user_folders]
+    try:
+        from eli.core.paths import documents_dir as _documents_dir
+        roots.append(Path(_documents_dir()))
+    except Exception:
+        log.debug("documents folder unavailable for a PDF name", exc_info=True)
 
-    for m in name_re.finditer(text):
-        name = m.group("name").strip().strip(" ,.;:)]}>")
-        if any(Path(x).name == name for x in found):
-            continue
-
-        # If user supplied only a basename, try known local roots.
+    def _look_for(name: str) -> Optional[str]:
         for root in roots:
             if not root.exists():
                 continue
             try:
                 direct = root / name
                 if direct.exists():
-                    found.append(str(direct.resolve()))
-                    break
-
-                # Keep this bounded to likely user document locations.
-                matches = list(root.rglob(name))
-                if matches:
-                    found.append(str(matches[0].resolve()))
-                    break
+                    return str(direct.resolve())
+                if root in user_folders:
+                    matches = list(root.rglob(name))
+                    if matches:
+                        return str(matches[0].resolve())
             except Exception:
                 continue
+        return None
+
+    for m in name_re.finditer(text):
+        name = m.group("name").strip().strip(" ,.;:)]}>")
+        if any(Path(x).name == name for x in found):
+            continue
+        # The name may have spaces, so the words before it come with it ("summarise orbit_paper.pdf"):
+        # the longest run of the words that names a file is the name.
+        words = name.split(" ")
+        for start in range(len(words)):
+            hit = _look_for(" ".join(words[start:]))
+            if hit:
+                found.append(hit)
+                break
 
     deduped: list[str] = []
     seen: set[str] = set()

@@ -160,3 +160,21 @@ def test_a_failed_reload_does_not_destroy_a_loaded_model(no_configured_model, mo
     with pytest.raises(FileNotFoundError):
         gi.load_model(force_reload=True)
     assert gi._llm is sentinel, "a working model was destroyed by a reload that could not run"
+
+
+def test_a_pdf_named_alone_is_found_in_the_users_own_folders_and_nowhere_else(tmp_path, monkeypatch):
+    """The router named two folders of one machine's owner as places to look, and searched the whole home
+    folder while routing a message. A bare PDF name is looked for in the working folder, home, and the
+    user's Desktop, Documents and Downloads (with their subfolders), and no deeper elsewhere."""
+    from eli.execution import router_enhanced as R
+    home = tmp_path / "home"
+    nested = home / "Desktop" / "Projects" / "Reading"
+    nested.mkdir(parents=True)
+    (nested / "orbit_paper.pdf").write_bytes(b"%PDF-1.4\n")
+    elsewhere = home / "work" / "archive"
+    elsewhere.mkdir(parents=True)
+    (elsewhere / "harbour_notes.pdf").write_bytes(b"%PDF-1.4\n")
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.chdir(tmp_path)
+    assert R._extract_pdf_paths("summarise orbit_paper.pdf") == [str((nested / "orbit_paper.pdf").resolve())]
+    assert R._extract_pdf_paths("summarise harbour_notes.pdf") == []
