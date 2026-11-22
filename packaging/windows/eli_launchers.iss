@@ -2,7 +2,7 @@
   then RemoveEliLaunchers(<the folder ELI runs from>) once Setup's own files are uninstalled.
 
   What ELI adds outside the folders Setup installs (eli.runtime.desktop_launchers, which a source
-  install runs, and which the installed app ran on every start up to 2.5.37): Start Menu shortcuts
+  install runs, and which the installed app ran on every start up to 2.5.36): Start Menu shortcuts
   that start %LOCALAPPDATA%\ELI_v2\eli-run.cmd, that launcher, and the install pointer it reads,
   %LOCALAPPDATA%\ELI_v2\runtime\install_root. Every ELI v2 install writes the same ones, so they
   belong to the install the pointer names: with it naming Root (or a folder that is gone, or with no

@@ -7,8 +7,8 @@ test suite against the real libraries, and attaches everything to the GitHub
 Release for that tag once all of it has passed.
 
 ```
-git tag v2.5.37
-git push origin v2.5.37
+git tag v2.5.38
+git push origin v2.5.38
 ```
 
 produces on the Release page:
@@ -45,7 +45,7 @@ The bundles and the packs are built from one llama-cpp-python source,
 version in `packaging/llama_cpp_constraints.txt`. To change it, change those two
 files, run the `gpu-packs` workflow, and tag once the packs are published. An app
 only takes a pack of its own version, so apps already installed keep the packs
-they have and the old assets stay on the release. At v2.5.37 that version is
+they have and the old assets stay on the release. At v2.5.38 that version is
 0.3.36.1. Installs from source (`install.sh`, `install.ps1`) still take upstream's
 release from PyPI, 0.3.35 or newer.
 

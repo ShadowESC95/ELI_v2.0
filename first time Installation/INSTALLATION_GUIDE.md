@@ -1,7 +1,7 @@
 # ELI v2 — Installation Guide (every OS / machine / user)
 
 **Version:** 2.5.36 · **Updated:** 2026-11-20  
-**Release:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.5.37
+**Release:** https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.5.38
 
 This guide answers: **which download, which first click, and what the wizard actually installs.**
 

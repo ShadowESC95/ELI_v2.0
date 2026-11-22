@@ -11,8 +11,8 @@ source tree on 2026-11-20; where something is only true at runtime it is marked 
 > ELI is a **local-first, offline-by-default, model-agnostic** cognitive runtime and
 > assistant GUI, and also a self-hosted web app (`api/server.py`, described in
 > `ELI_USER_MANUAL.md`). No cloud on the inference path, no hardcoded model.
-> **208,046 lines across 451 Python files in `eli/`**, plus `api/server.py` (2,390 lines).
-> 232 capabilities in `capability_manifest.json`, 192 of them routable and 208 in the
+> **209,211 lines across 451 Python files in `eli/`**, plus `api/server.py` (2,400 lines).
+> 232 capabilities in `capability_manifest.json`, 193 of them routable and 208 in the
 > executor's supported list.
 
 ---
@@ -34,38 +34,38 @@ source tree on 2026-11-20; where something is only true at runtime it is marked 
 ## 1. Repository map
 
 *Files and lines per package under `eli/` (git-tracked `.py` files, `wc -l`), measured
-2026-11-21.*
+2026-11-22.*
 
 | Package | Lines | Files | Role |
 |---|---:|---:|---|
-| `eli/runtime` | 40,059 | 101 | Grounding spine, evidence, response and introspection surfaces, daemons, self-improvement |
-| `eli/execution` | 28,025 | 14 | Router and executor: intent → action → side effects; the shell gate |
-| `eli/gui` | 26,592 | 28 | PySide6 desktop app, panels, tabs, startup and first-boot wizard, animated face |
-| `eli/cognition` | 23,662 | 52 | Agent bus, 12-stage orchestrator, inference, persona, reasoning modes, tone and emotion |
-| `eli/kernel` | 19,281 | 10 | `CognitiveEngine`, pipeline tracing, request context, scheduler, self-upgrade, world model |
-| `eli/core` | 12,682 | 33 | netguard, paths, settings, hardware profile, load plan, model download, full control |
+| `eli/runtime` | 40,189 | 101 | Grounding spine, evidence, response and introspection surfaces, daemons, self-improvement |
+| `eli/execution` | 28,260 | 14 | Router and executor: intent → action → side effects; the shell gate |
+| `eli/gui` | 26,711 | 28 | PySide6 desktop app, panels, tabs, startup and first-boot wizard, animated face |
+| `eli/cognition` | 23,979 | 52 | Agent bus, 12-stage orchestrator, inference, persona, reasoning modes, tone and emotion |
+| `eli/kernel` | 19,360 | 10 | `CognitiveEngine`, pipeline tracing, request context, scheduler, self-upgrade, world model |
+| `eli/core` | 12,783 | 33 | netguard, paths, settings, hardware profile, load plan, model download, full control |
 | `eli/perception` | 10,848 | 24 | Vision, STT, TTS, wake word, voice tone, OS control, gaze |
-| `eli/memory` | 10,584 | 12 | SQLite, FTS5, FAISS, knowledge graph, claims, document index, storage policy |
-| `eli/tools` | 6,074 | 25 | Image engine, news, capability registry, code-mode `api`, mic diagnostics |
-| `eli/plugins` | 5,997 | 34 | Plugin manager, marketplace client, sandboxes, bundled plugins |
-| `eli/planning` | 4,387 | 20 | Proactive daemon, habit scheduler, job, proposal and attention queues |
-| `eli/learning` | 4,259 | 14 | LoRA self-training pipeline |
+| `eli/memory` | 10,605 | 12 | SQLite, FTS5, FAISS, knowledge graph, claims, document index, storage policy |
+| `eli/tools` | 6,135 | 25 | Image engine, news, capability registry, code-mode `api`, mic diagnostics |
+| `eli/plugins` | 6,038 | 34 | Plugin manager, marketplace client, sandboxes, bundled plugins |
+| `eli/planning` | 4,372 | 20 | Proactive daemon, habit scheduler, job, proposal and attention queues |
+| `eli/learning` | 4,304 | 14 | LoRA self-training pipeline |
 | `eli/integrations` | 3,875 | 19 | Ollama client, MCP client and server, cross-platform media, MPRIS |
 | `eli/utils` | 2,127 | 5 | Logging, platform compatibility |
-| `eli/coding` | 2,113 | 12 | `CodeAgent`: plan → search → verify → repair |
+| `eli/coding` | 2,125 | 12 | `CodeAgent`: plan → search → verify → repair |
 | `eli/setup` | 1,970 | 9 | Installer, hardware policy, first-run wizard |
 | `eli/world` | 1,867 | 26 | World event bus, local world bridge, avatar and ontology |
 | `eli/system` | 1,639 | 3 | Portable app control, process guard |
 | `eli/contracts` | 824 | 3 | Typed runtime-status contracts |
 | `eli/onboarding` | 756 | 2 | Onboarding interview |
-| `eli/cli`, `eli/scripts`, top level | 425 | 5 | Headless REPL, package entry, vector-index rebuild script |
-| **total** | **208,046** | **451** | |
+| `eli/cli`, `eli/scripts`, top level | 444 | 5 | Headless REPL, package entry, vector-index rebuild script |
+| **total** | **209,211** | **451** | |
 
-The largest files: `eli/kernel/engine.py` (17,443 lines), `eli/execution/executor_enhanced.py`
-(15,700), `eli/gui/eli_pro_audio_gui_v2_0.py` (12,338), `eli/execution/router_enhanced.py`
-(9,544), `eli/memory/memory.py` (6,008), `eli/gui/labs_tab.py` (5,761),
-`eli/cognition/agent_bus.py` (3,584), `eli/runtime/deterministic_grounding_gate.py` (3,303),
-`eli/core/hardware_profile.py` (3,257), `eli/cognition/gguf_inference.py` (2,758).
+The largest files: `eli/kernel/engine.py` (17,507 lines), `eli/execution/executor_enhanced.py`
+(15,750), `eli/gui/eli_pro_audio_gui_v2_0.py` (12,434), `eli/execution/router_enhanced.py`
+(9,680), `eli/memory/memory.py` (6,029), `eli/gui/labs_tab.py` (5,776),
+`eli/cognition/agent_bus.py` (3,684), `eli/runtime/deterministic_grounding_gate.py` (3,303),
+`eli/core/hardware_profile.py` (3,261), `eli/cognition/gguf_inference.py` (2,810).
 
 ---
 
@@ -309,7 +309,7 @@ The known weak seam is internal state leaking into spoken output on the plain CH
 ## 10. Execution layer (`eli/execution/executor_enhanced.py`)
 
 - `execute(action, args) -> dict`. The executor's supported list holds **208 actions**; the
-  manifest declares **232 capabilities**, of which **192 are routable**, 208 are in the
+  manifest declares **232 capabilities**, of which **193 are routable**, 208 are in the
   supported list and 215 are one or the other.
 - **Fast path** (`engine.py`): deterministic OS, media, status and job actions (`VOLUME`,
   `MEDIA_CONTROL`, `NEXT_MEDIA`, `OPEN_APP`, `DATE`, `SHELL_EXEC`, `ANALYZE_IMAGE`,
@@ -519,12 +519,12 @@ tts_piper/  Piper voice settings (.onnx.json); the voices themselves are fetched
 ## 20. Known seams and weak points
 
 1. **Large files.** `engine.py`, `executor_enhanced.py`, the main GUI file and the router
-   hold about a quarter of the code in `eli/` (55,025 of 208,046 lines). The executor is an
+   hold about a quarter of the code in `eli/` (55,371 of 209,211 lines). The executor is an
    action ladder with a high regression surface.
 2. **Internal state → spoken output.** The recurring failure class. The grounding gate and
    escalation defend it; they do not close it on the plain CHAT path.
-3. **Swallowed errors.** 4,498 handlers catch `Exception` and 3 are a bare `except:`; 163
-   handlers do nothing but `pass`, and 1,671 catch-all handlers only log, most at debug level.
+3. **Swallowed errors.** 4,476 handlers catch `Exception` and 3 are a bare `except:`; 163
+   handlers do nothing but `pass`, and 1,668 catch-all handlers only log, most at debug level.
    A ratchet test (`tests/claims/test_no_silent_swallow.py`) stops both counts rising.
 4. **Latency versus model size.** On an 8 GB GPU a 24B model at Q5 offloads few layers and
    answers in minutes; a 7–9B Q4 is the sweet spot. The startup dialog shows the real fit.

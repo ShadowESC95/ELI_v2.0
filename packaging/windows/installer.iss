@@ -11,7 +11,7 @@
 ; models and conversations are not kept beside the app: the frozen runtime hook
 ; (packaging\pyinstaller\rthook_eli_frozen_paths.py) keeps them in
 ; {localappdata}\ELI_v2, which the uninstaller leaves, apart from the launcher and
-; install pointer the app wrote there up to 2.5.37 (eli_launchers.iss), so
+; install pointer the app wrote there up to 2.5.36 (eli_launchers.iss), so
 ; downloaded models and user data survive an uninstall.
 
 #ifndef MyAppVersion

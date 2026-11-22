@@ -336,7 +336,7 @@ else `<data dir>/models`; model discovery (`hardware_profile.discover_models`, w
 recommendation and the first-run wizard use) searches it and the program's own `models/`
 (before 2.5.36 only the second, so `ELI_MODELS_DIR` was never read there and an install missed
 the models it had downloaded). The `scripts/eli_launch.sh` launcher sets `ELI_MODELS_DIR` to the
-checkout's own `models/` unless one is set (`scripts/eli_isolate_env.sh`; before 2.5.37 it
+checkout's own `models/` unless one is set (`scripts/eli_isolate_env.sh`; before 2.5.38 it
 replaced the one set).
 
 Nothing of v2's goes in a generic place: `~/.local/share/eli`, `~/.config/eli`,

@@ -586,7 +586,7 @@ Lean `.deb` (about 10 MB at v2.5.35): `dist/app_packages/ELI_v2-<v>-amd64.deb`, 
 
 ### `packaging/windows/installer.iss`
 
-Inno Setup script for the frozen bundle (`dist\ELI\`): `iscc packaging\windows\installer.iss /DMyAppVersion=<version>` → `dist\ELI-Setup-<version>.exe`, the installer releases publish. Per-user install to `%LOCALAPPDATA%\Programs\ELI` (no admin); data stays in `%LOCALAPPDATA%\ELI_v2` and survives an uninstall, which removes only the launcher, install pointer and Start Menu shortcuts the app wrote there up to 2.5.37 (when the pointer names that folder; `packaging/windows/eli_launchers.iss`, which `ELI_Setup.iss` uses the same way); a "Fresh install" task resets settings and memory but keeps downloaded models and the GPU pack; installs the Visual C++ runtime when missing. The GPU pack is not downloaded by Setup: ELI offers it on first start.
+Inno Setup script for the frozen bundle (`dist\ELI\`): `iscc packaging\windows\installer.iss /DMyAppVersion=<version>` → `dist\ELI-Setup-<version>.exe`, the installer releases publish. Per-user install to `%LOCALAPPDATA%\Programs\ELI` (no admin); data stays in `%LOCALAPPDATA%\ELI_v2` and survives an uninstall, which removes only the launcher, install pointer and Start Menu shortcuts the app wrote there up to 2.5.36 (when the pointer names that folder; `packaging/windows/eli_launchers.iss`, which `ELI_Setup.iss` uses the same way); a "Fresh install" task resets settings and memory but keeps downloaded models and the GPU pack; installs the Visual C++ runtime when missing. The GPU pack is not downloaded by Setup: ELI offers it on first start.
 
 ---
 
@@ -1292,7 +1292,7 @@ Symptoms gathered from installer logic, startup repair paths, and field reports.
 
 ### `llama-cpp-python` missing or SIGILL / Illegal instruction
 
-**Cause:** No ready-made llama-cpp-python new enough exists for any Python, so it is built here and needs a toolchain; or a prebuilt wheel uses AVX-VNNI instructions your CPU lacks; or a source build made by 2.5.37 or older for a CPU without AVX2 still held AVX2 code, which ggml compiles in by default with native tuning off (re-run `install.sh`: it now switches off each instruction set the CPU lacks).  
+**Cause:** No ready-made llama-cpp-python new enough exists for any Python, so it is built here and needs a toolchain; or a prebuilt wheel uses AVX-VNNI instructions your CPU lacks; or a source build made by 2.5.36 or older for a CPU without AVX2 still held AVX2 code, which ggml compiles in by default with native tuning off (re-run `install.sh`: it now switches off each instruction set the CPU lacks).  
 **Fix:** Install the build toolchain (`base-devel`, `cmake`, `git`) for source build. Startup auto-repair: `eli_startup.sh` re-runs `install.sh` on probe failure (exit 132 if still broken).
 
 ### GPU detected but ELI runs CPU-only / slow

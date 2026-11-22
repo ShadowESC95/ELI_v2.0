@@ -305,7 +305,7 @@ the same shell gate and CREATE_FILE rules. The web surface adds:
   **never exists world-readable for any instant**, and readers see old-or-new, never partial.
 - Routed through it: the **audit HMAC key**, the **API user store**, the **LAN API token**, the
   LAN HTTPS **private key**, **settings** (may hold broker passwords/tokens) and the
-  **agent-trust registry** (`trusted_agents.json`, the integrity anchor for §5). Before 2.5.37
+  **agent-trust registry** (`trusted_agents.json`, the integrity anchor for §5). Before 2.5.38
   the registry was written atomically but with the default file mode, readable by other users.
 
 ### 10. Sandboxed research ingest
@@ -334,7 +334,7 @@ the same shell gate and CREATE_FILE rules. The web surface adds:
   variable overrides the setting (`core/config.network_allowed`): `1`, `true`, `yes` or `on`
   keeps ELI offline and `0`, `false`, `no` or `off` turns the network on; any other value, an
   empty one included, is read as unset (the setting decides, and the log says the value was not
-  understood). Before 2.5.37 every value but `1`, `true` and `yes` turned the network on. Full
+  understood). Before 2.5.38 every value but `1`, `true` and `yes` turned the network on. Full
   Control lifts the offline barrier too.
 - **Egress is genuinely monitored, not a blind hole.** While network is on, the same socket
   chokepoint that enforces offline mode also **records every allowed non-loopback connection**

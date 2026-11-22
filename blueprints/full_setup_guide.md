@@ -1,6 +1,6 @@
 # ELI v2.0 — The Complete Setup Guide (Plain English)
 
-> **Updated for v2.5.36 (November 2026).** Release **v2.5.37** on GitHub; open source
+> **Updated for v2.5.36 (November 2026).** Release **v2.5.38** on GitHub; open source
 > under the Apache License 2.0 from this release on.
 > Primary install: **prebuilt installers on GitHub Releases** — `ELI-Setup-<v>.exe`
 > (Windows), the `.dmg` (macOS, Apple Silicon), the `.AppImage` (Linux). Every packaged

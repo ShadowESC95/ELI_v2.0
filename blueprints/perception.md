@@ -397,7 +397,7 @@ as a personal memory and summarise from the first 17 documents.
   2. `audio_stt.py` is a **2.5k-line** module mixing capture, ducking, echo
      suppression, command aliasing, and cleanup — wants splitting.
   3. The "7B" comments in `ambient_vision.py` and in `vision.py`'s module docstring
-     ("default: Qwen2.5-VL-7B", though no model is built in) were taken out in 2.5.37: both
+     ("default: Qwen2.5-VL-7B", though no model is built in) were taken out in 2.5.38: both
      now say "the vision model", as the code is model-agnostic.
   4. `gaze_engine.py` is experimental and off by default — fine, but it's carried
      weight.

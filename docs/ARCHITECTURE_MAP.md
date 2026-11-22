@@ -13,10 +13,10 @@ Regenerate them with the commands in [Keeping this honest](#keeping-this-honest)
 
 | | |
 |---|---|
-| Tracked Python (excl. tests/build) | **229,017 lines** across **543 modules** |
-| `eli/` Python | **208,046 lines** across **451 modules** |
+| Tracked Python (excl. tests/build) | **230,448 lines** across **543 modules** |
+| `eli/` Python | **209,211 lines** across **451 modules** |
 | Test files | **593** (`test_*.py` under `tests/`, 572 of them at its top level) |
-| Actions in `capability_manifest.json` | **232** (192 router-routable; 215 routable or in the supported list; 208 `SUPPORTED_ACTIONS`) |
+| Actions in `capability_manifest.json` | **232** (193 router-routable; 215 routable or in the supported list; 208 `SUPPORTED_ACTIONS`) |
 | SQLite stores | **8** under `artifacts/db/`: four seeded from `config/templates/db/` (`user` 28 tables + 3 FTS5 indexes · `agent` 2 · `system_index` 4 · `coding_memory` 1, more added at run time) and four created on first use (`orchestrator_audit`, `capability_state`, `documents`, `agenda`) |
 | GGUF model catalogue | 7 chat models + 3 auxiliary files (embedder, vision model and projector) in `eli/core/model_download.py` |
 
@@ -30,32 +30,32 @@ git history; port by content diff (`tools/repo_parity.py` shows drift).
 
 | package | files | lines | what lives there |
 |---|---:|---:|---|
-| `eli/runtime/` | 101 | 40,059 | grounding, evidence, self-model, devices, policy, scheduling, role gate |
-| `eli/execution/` | 14 | 28,025 | router + executor — all 232 manifest actions; the shell gate |
-| `eli/gui/` | 28 | 26,592 | PySide6 desktop app |
-| `eli/cognition/` | 52 | 23,662 | agent bus, persona, inference, tone, scoring |
-| `eli/kernel/` | 10 | 19,281 | the 12-stage engine |
-| `eli/core/` | 33 | 12,682 | config, paths, netguard, load plan, DAG orchestrator |
+| `eli/runtime/` | 101 | 40,189 | grounding, evidence, self-model, devices, policy, scheduling, role gate |
+| `eli/execution/` | 14 | 28,260 | router + executor — all 232 manifest actions; the shell gate |
+| `eli/gui/` | 28 | 26,711 | PySide6 desktop app |
+| `eli/cognition/` | 52 | 23,979 | agent bus, persona, inference, tone, scoring |
+| `eli/kernel/` | 10 | 19,360 | the 12-stage engine |
+| `eli/core/` | 33 | 12,783 | config, paths, netguard, load plan, DAG orchestrator |
 | `eli/perception/` | 24 | 10,848 | STT, TTS, vision, gaze, screen OCR |
-| `eli/memory/` | 12 | 10,584 | SQLite + vector store + knowledge graph + claims |
-| `eli/tools/` | 25 | 6,074 | image engine, capability registry, news, diagnostics |
-| `eli/plugins/` | 34 | 5,997 | calendar, media, notes, weather, web, pomodoro… + marketplace and sandboxes |
-| `eli/planning/` | 20 | 4,387 | proactive daemon, habits, goals, job and proposal queues |
-| `eli/learning/` | 14 | 4,259 | LoRA pipeline, feedback |
+| `eli/memory/` | 12 | 10,605 | SQLite + vector store + knowledge graph + claims |
+| `eli/tools/` | 25 | 6,135 | image engine, capability registry, news, diagnostics |
+| `eli/plugins/` | 34 | 6,038 | calendar, media, notes, weather, web, pomodoro… + marketplace and sandboxes |
+| `eli/planning/` | 20 | 4,372 | proactive daemon, habits, goals, job and proposal queues |
+| `eli/learning/` | 14 | 4,304 | LoRA pipeline, feedback |
 | `eli/integrations/` | 19 | 3,875 | MCP client and server, Ollama, cross-platform media, MPRIS |
 | `eli/utils/` | 5 | 2,127 | logging, platform compatibility |
-| `eli/coding/` | 12 | 2,113 | the coding agent, its sandbox, code mode |
+| `eli/coding/` | 12 | 2,125 | the coding agent, its sandbox, code mode |
 | `eli/setup/` | 9 | 1,970 | installer back end, hardware policy, first-run wizard |
 | `eli/world/` | 26 | 1,867 | autonomy engine, goal ecology, world constitution |
 
-Five modules carry over a quarter of the tracked Python (61,033 of 229,017 lines):
+Five modules carry over a quarter of the tracked Python (61,400 of 230,448 lines):
 
 ```
-17,443  eli/kernel/engine.py
-15,700  eli/execution/executor_enhanced.py
-12,338  eli/gui/eli_pro_audio_gui_v2_0.py
- 9,544  eli/execution/router_enhanced.py
- 6,008  eli/memory/memory.py
+17,507  eli/kernel/engine.py
+15,750  eli/execution/executor_enhanced.py
+12,434  eli/gui/eli_pro_audio_gui_v2_0.py
+ 9,680  eli/execution/router_enhanced.py
+ 6,029  eli/memory/memory.py
 ```
 
 ---
