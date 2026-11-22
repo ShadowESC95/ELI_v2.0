@@ -25,7 +25,7 @@ If applicable, add screenshots to help explain your problem.
 
 **Computer running ELI (please complete the following information):**
  - OS: [e.g. Ubuntu 24.04, Windows 11, macOS 15]
- - ELI version: [e.g. 2.5.38]
+ - ELI version: [e.g. 2.5.39]
  - Installed from: [Windows installer / AppImage / macOS dmg / portable tarball / source]
  - GPU: [e.g. NVIDIA RTX 3060, AMD RX 7600, none]
  - Model: [e.g. Qwen2.5-7B-Instruct-Q4_K_M.gguf]

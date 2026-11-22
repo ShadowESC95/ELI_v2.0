@@ -1,14 +1,14 @@
 # ELI v2.0 — Commands & Installers Reference
 
 > **Updated for v2.5.36 (November 2026).** One hardware-aware GUI wizard. Prebuilt installers on
-> [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.5.38). Full beginner map:
+> [GitHub Releases](https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.5.39). Full beginner map:
 > `first time Installation/INSTALLATION_GUIDE.md`.
 
 
 *Every install path and command in one place. Copy-paste ready. Run everything from
 inside the ELI folder unless noted.*
 
-Canonical version: **2.5.38**. Best-tested platform: **Linux x86_64 + NVIDIA**. Windows,
+Canonical version: **2.5.39**. Best-tested platform: **Linux x86_64 + NVIDIA**. Windows,
 macOS, AMD, Intel Arc, and Apple Silicon ship supported paths; Iris Xe / ≤8 GB use CPU policy.
 
 ---

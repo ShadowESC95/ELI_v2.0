@@ -51,7 +51,7 @@ A frozen build (AppImage, Windows or macOS app) prints the app itself with
     `TRAIN_VOICE`, `WAKE_SET`, `WAKE_ENROLL`, `WAKE_TRAIN`); proactive mode
     (`PROACTIVE_START`, `PROACTIVE_STOP`).
 
-  In v2.5.38 that withholds 75 of the executor's 208 actions. If the owner-only list cannot
+  In v2.5.39 that withholds 75 of the executor's 208 actions. If the owner-only list cannot
   be loaded, nothing is exposed. The rest — status and diagnostics, time and date, notes,
   memory recall and storage, media and window control, opening apps and URLs, timers,
   documents, web search and news (still behind ELI's network switch) — is exposed.

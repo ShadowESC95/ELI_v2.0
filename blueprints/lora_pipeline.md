@@ -47,7 +47,7 @@ phi-hardcoded**:
     the request names none, at most 2000). In the `goal_driven` operator mode the autonomy
     scheduler queues this job itself, at most once a week, for a declared target that
     passes preflight, and names that target in the job.
-  - Manifest: `capability_manifest.json` lists both (232 capabilities in v2.5.38).
+  - Manifest: `capability_manifest.json` lists both (232 capabilities in v2.5.39).
 - Tests: `tests/test_lora_pipeline.py` (target-module resolver, stage order + dry-run
   no-train, both actions, routing, scheduled kind).
 
