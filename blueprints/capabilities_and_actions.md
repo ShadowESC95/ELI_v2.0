@@ -165,7 +165,7 @@ evidence-planner first (real code/web/memory analysis) before synthesising.
 | `CANCEL_CODE_FIX` | Decline the offered code fixes | “no, leave it” (after a code-fix offer) | Core |
 | `SHOW_DIFF` | Show a code diff | “show the diff” | Core |
 | `OPEN_IN_IDE` | Open a generated artifact in the IDE | (post-action; auto after generate) | Core |
-| `DOC_GENERATE` | Alias of GENERATE_DOCUMENT | (no phrase of its own: “generate a document about tides” goes to GENERATE_DOCUMENT) | Core |
+| `DOC_GENERATE` | Save the content it is given as a document and open it; given no content it saves nothing and says so (writing one is GENERATE_DOCUMENT's) | (no phrase of its own: “generate a document about tides” goes to GENERATE_DOCUMENT) | Core |
 
 ## System status & info
 

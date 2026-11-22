@@ -241,7 +241,7 @@ _add("Conversation & persona", "SET_COMMUNICATION_STYLE", "Persist how you want 
 _add("Conversation & persona", "SET_AI_MODE", "Set the reasoning mode (Quick, Normal, Advanced, Research, Expert); reached through the intent resolver or the mode selector", "(no dedicated phrase)")
 _add("Memory & profile", "USER_INFO_REPORT", "Full report of the living user profile; reached through the intent resolver", "(no dedicated phrase)")
 _add("Vision & screen", "IMAGE_STATUS", "Status of the latest image job", "“what is the latest image status”", "“image status”")
-_add("Generation (docs/code)", "DOC_GENERATE", "Alias of GENERATE_DOCUMENT", "(no phrase of its own: “generate a document about tides” goes to GENERATE_DOCUMENT)")
+_add("Generation (docs/code)", "DOC_GENERATE", "Save the content it is given as a document and open it; given no content it saves nothing and says so (writing one is GENERATE_DOCUMENT's)", "(no phrase of its own: “generate a document about tides” goes to GENERATE_DOCUMENT)")
 _add("Plugins", "PLUGIN_STATUS", "The plugin system's status: how many plugins are installed and in the registry, and whether each installed one loaded (OK, disabled, or the error it did not load with)", "“plugin status”", "“check plugin health”", "“are my plugins working?”")
 _add("Plugins", "MCP_LIST", "List configured MCP servers", "“list mcp servers”")
 _add("Plugins", "MCP_STATUS", "Status of MCP servers and their tools", "“mcp status”")

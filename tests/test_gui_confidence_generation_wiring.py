@@ -183,6 +183,24 @@ def test_generate_document_normalizes_to_documents_dir(monkeypatch, tmp_path):
     assert result["doc_path"] == payload["path"]
 
 
+def test_doc_generate_with_no_content_saves_nothing_and_says_so(monkeypatch, tmp_path):
+    """Given no content, DOC_GENERATE saved a file holding only its title and said a document was saved."""
+    import eli.utils.platform_compat as pc
+    from eli.execution import executor_enhanced as ex
+    monkeypatch.setenv("ELI_DATA_DIR", str(tmp_path / "data"))
+    opened = []
+    monkeypatch.setattr(pc, "open_file", lambda path: opened.append(path) or True)
+    empty = ex.execute("DOC_GENERATE", {"title": "Garden plan", "_evidence": ""})
+    assert empty["ok"] is False and empty["error"] == "no_content", empty
+    assert empty["response"] == "Nothing was saved: no content was given for the document “Garden plan”."
+    assert not list(tmp_path.rglob("*.md")) and not opened
+
+    target = tmp_path / "plan.md"
+    saved = ex.execute("DOC_GENERATE", {"title": "Garden plan", "content": "Water on Tuesday.\n",
+                                        "filename": str(target), "_evidence": ""})
+    assert saved["ok"] and target.read_text(encoding="utf-8") == "Water on Tuesday.\n" and opened == [str(target)]
+
+
 def test_gui_has_generated_artifact_open_signal_and_handlers():
     source = Path("eli/gui/eli_pro_audio_gui_v2_0.py").read_text(encoding="utf-8")
 
