@@ -63,9 +63,15 @@ class TrainerTarget:
 
 
 def _project_path(value: str | Path, *, project_root: Path = PROJECT_ROOT) -> Path:
+    """A target's path. For ELI's own project, the target registry's rule (target_registry._resolve:
+    "training/..." in the training folder in force, "models/..." in the models folder); a plan made
+    for another tree joins its paths to that tree."""
     p = Path(value).expanduser()
     if p.is_absolute():
         return p
+    if Path(project_root) == PROJECT_ROOT:
+        from eli.learning.target_registry import _resolve
+        return _resolve(p)
     return (project_root / p).resolve()
 
 

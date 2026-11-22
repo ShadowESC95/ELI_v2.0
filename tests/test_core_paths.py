@@ -66,6 +66,39 @@ def test_db_path_constant_is_path():
     assert isinstance(DB_PATH, Path)
 
 
+# ── The test session's own sandbox ────────────────────────────────────────
+
+_SANDBOX = Path(__file__).resolve().parents[1] / "artifacts" / "_pytest"
+
+
+def test_every_store_a_test_can_reach_is_in_the_session_sandbox():
+    """Only some stores were moved into the sandbox, one variable at a time: the config folder stayed
+    this checkout's own and the data folder its artifacts/ (tests/_state_env.py)."""
+    from tests._state_env import outside
+    assert outside(_SANDBOX) == {}
+
+
+def test_a_name_a_test_gives_reaches_the_sandbox_not_the_owners_settings(monkeypatch):
+    """A live-engine test said "my name is Sam", and the owner's ELI called them Sam: set_user_name
+    mirrored the name into the config folder's settings.json, not the settings file in force, and the
+    config folder was this checkout's. The profile it writes is the data folder's (runtime/users)."""
+    import json
+    from eli.core.runtime_settings import _settings_file
+    from eli.kernel import state
+
+    settings = _settings_file()
+    assert _SANDBOX in settings.parents
+    settings.write_text(json.dumps({"user_name": "Robin"}), encoding="utf-8")
+    monkeypatch.setattr(state, "sync_identity_to_world_model", lambda user_id=None: None)
+    try:
+        state.set_user_name("Sam", user_id="a-test-owner")
+        assert json.loads(settings.read_text(encoding="utf-8"))["user_name"] == "Sam"
+        assert _SANDBOX in state._profile_path("a-test-owner").parents
+    finally:
+        settings.unlink(missing_ok=True)
+        state._profile_path("a-test-owner").unlink(missing_ok=True)
+
+
 # ── Dev mode detection ────────────────────────────────────────────────────
 
 def test_is_not_frozen():

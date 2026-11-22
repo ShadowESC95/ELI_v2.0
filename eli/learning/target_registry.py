@@ -188,13 +188,22 @@ def list_targets() -> list[dict[str, Any]]:
 
 
 def _resolve(value: Any) -> Optional[Path]:
+    """A target's path. One named as it sits in a source checkout, "training/..." or "models/...",
+    is in the training or models folder in force (paths.learning_dir(), paths.models_dir()): the
+    same place in a checkout, but an export into the install's own training/ ignored
+    ELI_LEARNING_DIR (a packaged install's is read-only). Anything else is the project's."""
     if not value:
         return None
     p = Path(str(value)).expanduser()
     if p.is_absolute():
         return p
     try:
-        from eli.core.paths import project_root
+        from eli.core.paths import learning_dir, models_dir, project_root
+        head, rest = (p.parts[0], p.parts[1:]) if p.parts else ("", ())
+        if head == "training":
+            return Path(learning_dir()).joinpath(*rest).resolve()
+        if head == "models":
+            return Path(models_dir()).joinpath(*rest).resolve()
         return (Path(project_root()) / p).resolve()
     except Exception:
         return p.resolve()

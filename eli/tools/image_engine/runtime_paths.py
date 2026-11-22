@@ -74,7 +74,14 @@ def artifacts_dir() -> Path:
 
     ELI_ARTIFACTS_DIR is accepted only if ELI_PROJECT_ROOT is valid for this
     physical tree or if the caller intentionally exports it for this process.
+    ELI's data folder override (ELI_DATA_DIR, eli.core.paths.data_dir) comes first: the image
+    engine kept writing into this tree's artifacts/ when ELI's data folder was set elsewhere.
     """
+    if os.getenv("ELI_DATA_DIR", "").strip():
+        from eli.core.paths import data_dir
+        p = Path(data_dir())
+        p.mkdir(parents=True, exist_ok=True)
+        return p
     env_artifacts = os.getenv("ELI_ARTIFACTS_DIR", "").strip()
     env_root_raw = os.getenv("ELI_PROJECT_ROOT", "").strip()
 

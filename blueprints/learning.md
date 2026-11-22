@@ -39,7 +39,8 @@ The stages, roughly in order:
    history into `SupervisedExample`s. Crucially includes `clean_text` +
    **`redact_text` (PII redaction)** and an exclusion set so sensitive/garbage
    content never becomes a training example. Writes `eli_supervised_v0.jsonl` and
-   its report in `learning_dir()/datasets` (`training/datasets/` in a source checkout).
+   its report in `learning_dir()/datasets` (`training/datasets/` in a source checkout;
+   `ELI_LEARNING_DIR` overrides).
 2. **Gate** (`dataset_filters.py`): `is_bad_response` and `row_is_reviewed`
    enforce quality + a **human review flag**.
 3. **Export / merge**: reviewed rows → `*.trainable.jsonl`.

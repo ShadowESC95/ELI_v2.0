@@ -11,48 +11,34 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")  # the real GPU libraries load
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-# Every state root of the session lives in one sandbox, and each session starts it empty. It used to
-# persist: what earlier runs left in its databases (a user profile, an interview in progress, the
-# vector index) decided later results, and the same test passed or failed by the run before it.
+# Each run starts as a fresh install: what an earlier run left in the throwaway sandbox (its databases,
+# a user profile, an interview in progress, the vector index) is gone before anything below writes or
+# reads it. It used to persist, and the same test passed or failed by the run before it.
+# A run still going in this checkout holds the sandbox (a shared lock beside it, kept for the session):
+# then the sandbox is left as it is, rather than pulled from under that run's open databases.
 SANDBOX = ROOT / "artifacts" / "_pytest"
-_SESSION_MARK = SANDBOX / ".session"
-
-
-def _session_alive(pid: int) -> bool:
-    """Whether the pytest session that left its mark on the sandbox is still running."""
-    try:
-        import psutil
-        return psutil.pid_exists(pid) and "pytest" in " ".join(psutil.Process(pid).cmdline())
-    except ImportError:
-        if os.name != "nt":            # os.kill(pid, 0) only asks on POSIX; on Windows it ends the process
-            try:
-                os.kill(pid, 0)
-            except ProcessLookupError:
-                return False
-            except OSError:
-                return True
-            return True
-        return True                    # cannot tell: keep the other session's state
-    except Exception:
-        return False                   # psutil.NoSuchProcess and the like: it has ended
 
 
 def _fresh_sandbox() -> None:
-    """Empty the sandbox for this session. A session still running in this checkout keeps it (its
-    stores are open), and this one then shares it, as every session did before."""
+    import shutil
+    SANDBOX.parent.mkdir(parents=True, exist_ok=True)
     try:
-        holder = int(_SESSION_MARK.read_text().strip())
-    except (OSError, ValueError):
-        holder = 0
-    if holder and holder != os.getpid() and _session_alive(holder):
-        print(f"[conftest] another pytest session (pid {holder}) is using {SANDBOX}; sharing it")
-    else:
-        import shutil
+        import fcntl
+    except ImportError:                 # Windows: a file another run has open is not deleted anyway
         shutil.rmtree(SANDBOX, ignore_errors=True)
-    SANDBOX.mkdir(parents=True, exist_ok=True)
-    _SESSION_MARK.write_text(str(os.getpid()))
+        return
+    global _SANDBOX_HOLD
+    _SANDBOX_HOLD = open(SANDBOX.parent / "_pytest.lock", "a+")
+    try:
+        fcntl.flock(_SANDBOX_HOLD, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except OSError:
+        fcntl.flock(_SANDBOX_HOLD, fcntl.LOCK_SH)         # another run is using it
+        return
+    shutil.rmtree(SANDBOX, ignore_errors=True)
+    fcntl.flock(_SANDBOX_HOLD, fcntl.LOCK_SH)             # this run's, until it ends
 
 
+_SANDBOX_HOLD = None
 _fresh_sandbox()
 
 # Tests never reach this machine's desktop, as on a CI runner: no session bus (media players,
@@ -71,7 +57,6 @@ for _launcher in ("xdg-open", "gio", "gtk-launch", "open"):
 os.environ["PATH"] = str(_no_launchers) + os.pathsep + os.environ.get("PATH", "")
 # Nor its sound or mixer: the real audio libraries load in tests, so the sound servers are out of
 # reach and ALSA knows only a null device (as on a CI runner, PortAudio then does not start). Nor the internet: a request that is not stubbed fails at once.
-SANDBOX.mkdir(parents=True, exist_ok=True)
 (SANDBOX / "asound.conf").write_text("pcm.!default { type null }\n")
 os.environ["ALSA_CONFIG_PATH"] = str(SANDBOX / "asound.conf")
 os.environ["PULSE_SERVER"] = "unix:" + str(SANDBOX / "no-sound-server")
@@ -83,125 +68,65 @@ os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost,::1"
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-# Redirect ALL artifact writes (documents, runtime snapshots, the scheduled-task
-# store) to a throwaway IN-PROJECT dir for the whole test session, so a test run can
-# never pollute the real artifacts/ or wipe the user's standing scheduled jobs. This
-# is plain config (an in-project path runtime_settings won't strip) — NOT a
-# monkeypatch. _artifacts_dir() and _store_path() both honour ELI_ARTIFACTS_DIR.
-os.environ["ELI_ARTIFACTS_DIR"] = str(SANDBOX)
-# And ELI's data folder (paths.data_dir()): conversations, proactive state, runtime files, the
-# onboarding interview's state. It stayed the checkout's own artifacts/, so tests wrote there and
-# an interview one session began met the next session's "what do you know about me". A test about
-# where the data folder is sets or drops ELI_DATA_DIR itself.
-os.environ["ELI_DATA_DIR"] = str(SANDBOX)
+# Every place ELI keeps state is a throwaway IN-PROJECT dir for the whole session (in-project, so
+# runtime_settings does not strip it as a stale path): the data folder (conversations, proactive and
+# runtime state with the per-user profiles, documents, databases), the config folder (settings, the
+# owner's id, the small settings files), training runs, caches, downloaded plugins, and each store
+# with a variable of its own. Which variable puts which store there is tests/_state_env.py's. Only
+# some stores used to be moved, one variable at a time: the config folder stayed this checkout's, so
+# a test that told an engine "my name is Sam" wrote it into the owner's config/settings.json, and the
+# data folder stayed its artifacts/, where a run rewrote the owner's user profile.
+from tests._state_env import outside as _stores_outside, seed_identity as _seed_identity  # noqa: E402
+from tests._state_env import state_env as _state_env  # noqa: E402
+os.environ.update(_state_env(SANDBOX))
+
+
+def _fresh_config() -> None:
+    """The config folder starts each run as a fresh install has it: the tracked files and nothing else."""
+    import shutil
+    import subprocess
+    target = SANDBOX / "config"
+    shutil.rmtree(target, ignore_errors=True)
+    try:
+        tracked = subprocess.run(["git", "ls-files", "-z", "config"], cwd=ROOT, capture_output=True,
+                                 check=True).stdout.decode("utf-8").split("\0")
+    except (OSError, subprocess.CalledProcessError):
+        tracked = []                    # not a git checkout: start with none, as an empty install would
+    for name in filter(None, tracked):
+        dest = target / Path(name).relative_to("config")
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(ROOT / name, dest)
+    target.mkdir(parents=True, exist_ok=True)
+
+
+_fresh_config()
+_seed_identity(SANDBOX / "config")      # the run's own owner, never this machine's ~/.eli_user_id
 os.environ.setdefault("ELI_CPU_PREFLIGHT", "0")  # no smoke subprocess in tests
-# ELI_ARTIFACTS_DIR alone did NOT isolate the SQLite stores — the user DB path is resolved
-# by eli.core.paths.user_db_path(), which honours ELI_USER_DB/ELI_MEMORY_DB FIRST (before
-# any dev-tree fallback). So tests that called store_memory()/awareness reflection were
-# writing into the REAL artifacts/db/user.sqlite3 and injecting rows ("test store", auto
-# reflections) into the user's memory. Pin the user + memory DB to the throwaway _pytest
-# tree via the highest-priority override so NO test can pollute the real database.
-_PYTEST_DB = SANDBOX / "db" / "user.sqlite3"
-_PYTEST_DB.parent.mkdir(parents=True, exist_ok=True)
-os.environ["ELI_USER_DB"]   = str(_PYTEST_DB)
-os.environ["ELI_MEMORY_DB"] = str(_PYTEST_DB)
-os.environ["ELI_DB_DIR"]    = str(SANDBOX / "db")
-# agent.sqlite3 resolves via ELI_AGENT_DB FIRST (paths.agent_db_path); without it,
-# tests that touched the agent bus (dispatch/metrics/observations) were writing into
-# the REAL artifacts/db/agent.sqlite3. Pin it to the throwaway tree too so NO test can
-# change ANY of ELI's stores — the DB must stay a clean slate for a fresh download.
-os.environ["ELI_AGENT_DB"]  = str(SANDBOX / "db" / "agent.sqlite3")
-
-# persona_auto_path()/notebook_dir() had no override at all — a full test run once
-# replaced the real persona.auto.txt with fixture content. Pin both to the sandbox.
-os.environ["ELI_PERSONA_AUTO_PATH"] = str(SANDBOX / "persona.auto.txt")
-os.environ["ELI_NOTEBOOK_DIR"]      = str(SANDBOX / "eli_notebook")
-# Every note (WRITE_NOTE's daily pages too) is written to notes_dir().
-os.environ["ELI_NOTES_DIR"]         = str(SANDBOX / "eli_notes")
-
-# storage.WORLD_DIR is frozen at import time, so this must be set before that module
-# ever loads — a full-suite run once wrote real events into the actual world state.
-os.environ["ELI_WORLD_DIR"] = str(SANDBOX / "world")
-os.environ["ELI_LAST_TRACE_PATH"] = str(SANDBOX / "last_trace.json")
-
-# Both resolve through db_dir() -> data_dir(), which ELI_DB_DIR doesn't touch, so every
-# test turn was appending to the REAL audit chain (fixture rows from a dev run sat in it).
-# The HMAC key likewise came from (or was created in) the real config dir.
-os.environ["ELI_ORCHESTRATOR_AUDIT_DB"] = str(SANDBOX / "db" / "orchestrator_audit.sqlite3")
-os.environ["ELI_CAPABILITY_STATE_DB"] = str(SANDBOX / "db" / "capability_state.sqlite3")
-os.environ["ELI_AUDIT_HMAC_KEY"] = "eli-pytest-audit-key-not-a-real-secret"
+Path(os.environ["ELI_USER_DB"]).parent.mkdir(parents=True, exist_ok=True)
 # The document index stores whatever a turn reads and embeds it on a worker thread. Off by
 # default here; the tests for it build their own on a tmp path.
-os.environ["ELI_DOCUMENT_INDEX_DB"] = str(SANDBOX / "db" / "documents.sqlite3")
 os.environ.setdefault("ELI_DOCUMENT_INDEX", "0")
-# The agenda (calendar and reminders) writes a DB and an .ics file and fires desktop notifications.
-os.environ["ELI_AGENDA_DB"] = str(SANDBOX / "db" / "agenda.sqlite3")
-os.environ["ELI_CALENDAR_FILE"] = str(SANDBOX / "calendar.ics")
-os.environ["ELI_AGENDA_NOTIFY"] = "0"
-# Nor this machine's settings. Tests read the developer's own config/settings.json (Net toggle, Full
-# Control, model paths) and some wrote to it; with Full Control on, a test's "offline" connect went
-# out to the network. Each run starts with no settings file, as a fresh install and CI do.
-_PYTEST_SETTINGS = SANDBOX / "settings.json"
+# Each run starts with no settings file, as a fresh install and CI do: tests read the developer's own
+# settings (Net toggle, Full Control, model paths) and some wrote to them; with Full Control on, a
+# test's "offline" connect went out to the network.
+_PYTEST_SETTINGS = Path(os.environ["ELI_SETTINGS_FILE"])
 _PYTEST_SETTINGS.unlink(missing_ok=True)
-os.environ["ELI_SETTINGS_FILE"] = str(_PYTEST_SETTINGS)
-# Nor the checkout's training/ folder: a LoRA dry run builds its target's dataset and writes its run
-# plan in learning_dir(), which is training/ in a source tree.
-os.environ["ELI_LEARNING_DIR"] = str(ROOT / "artifacts" / "_pytest" / "training")
 
-# Hard isolation guard: fail LOUDLY at collection if any canonical store still resolves
-# to the real artifacts/db tree. This makes "no test can change memory" an enforced
-# invariant, not just configuration that a future refactor could silently break.
+
+# Hard isolation guard: fail LOUDLY at collection if any store still resolves outside the sandbox
+# (tests/_state_env.stores: the data, config, training and cache folders, the DBs, the persona overlay
+# and persona.py's own constant for it, the notebook and notes, the settings, the plugin state, the
+# world folder (fixed when its module is imported) and the vector index). This makes "no test can
+# change this machine's records" an enforced invariant, not just configuration a refactor could break.
 def _assert_db_isolated() -> None:
-    from eli.core import paths as _p
-    _safe = SANDBOX.resolve()
-    if _safe not in (Path(_p.data_dir()).resolve(), *Path(_p.data_dir()).resolve().parents):
+    escaped = _stores_outside(SANDBOX)
+    if escaped:
         raise RuntimeError(
-            f"TEST ISOLATION BREACH: data_dir() resolves to {Path(_p.data_dir()).resolve()}, outside "
-            f"the throwaway {_safe}. Tests would write ELI's conversations and state into it.")
-    for _name, _fn in (("user", _p.user_db_path), ("memory", _p.memory_db_path),
-                       ("agent", _p.agent_db_path),
-                       ("orchestrator audit", _p.orchestrator_audit_db_path),
-                       ("capability state", _p.capability_state_db_path)):
-        _resolved = Path(_fn()).resolve()
-        if _safe not in _resolved.parents:
-            raise RuntimeError(
-                f"TEST ISOLATION BREACH: {_name} DB resolves to {_resolved}, "
-                f"outside the throwaway {_safe}. A test could pollute the real "
-                f"database. Check eli.core.paths overrides in conftest.")
-    _persona_resolved = Path(_p.persona_auto_path()).resolve()
-    if _safe not in _persona_resolved.parents:
-        raise RuntimeError(
-            f"TEST ISOLATION BREACH: persona_auto_path() resolves to "
-            f"{_persona_resolved}, outside the throwaway {_safe}. A test could "
-            f"overwrite the real persona overlay. Check eli.core.paths overrides "
-            f"in conftest.")
-    for _name, _fn in (("notebook_dir", _p.notebook_dir), ("notes_dir", _p.notes_dir),
-                       ("learning_dir", _p.learning_dir)):
-        _notes_resolved = Path(_fn()).resolve()
-        if _safe not in _notes_resolved.parents:
-            raise RuntimeError(
-                f"TEST ISOLATION BREACH: {_name}() resolves to "
-                f"{_notes_resolved}, outside the throwaway {_safe}. Check "
-                f"eli.core.paths overrides in conftest.")
-    # persona.py used to duplicate persona_auto_path()'s resolution, so the check above
-    # passed while its own write constant still pointed at the real file. Check it directly.
-    from eli.cognition import persona as _persona_mod
-    _persona_file_resolved = Path(_persona_mod._PERSONA_AUTO_FILE).resolve()
-    if _safe not in _persona_file_resolved.parents:
-        raise RuntimeError(
-            f"TEST ISOLATION BREACH: eli.cognition.persona._PERSONA_AUTO_FILE resolves to "
-            f"{_persona_file_resolved}, outside the throwaway {_safe}. A test could "
-            f"overwrite the real persona overlay. Check eli.cognition.persona / "
-            f"eli.core.paths overrides in conftest.")
-    # WORLD_DIR is frozen at import time — check the module constant, not a fresh call.
-    from eli.world.persistence import storage as _world_storage_mod
-    _world_dir_resolved = Path(_world_storage_mod.WORLD_DIR).resolve()
-    if _safe not in _world_dir_resolved.parents:
-        raise RuntimeError(
-            f"TEST ISOLATION BREACH: eli.world.persistence.storage.WORLD_DIR resolves to "
-            f"{_world_dir_resolved}, outside the throwaway {_safe}. A test could write real "
-            f"autonomy-engine events into the actual world state. Check ELI_WORLD_DIR is set "
-            f"before this module is first imported.")
+            "TEST ISOLATION BREACH: " + "; ".join(f"{name} resolves to {path}" for name, path in escaped.items())
+            + f", outside the throwaway {SANDBOX}. A test could change this machine's own records. "
+            "Check tests/_state_env.py.")
+
+
 _assert_db_isolated()
 
 @pytest.fixture(autouse=True)
@@ -391,15 +316,92 @@ def measurements_stay_on_this_machine(monkeypatch, tmp_path):
     monkeypatch.setattr(model_tier, "_speed_ema", 0.0)
 
 
+# Whatever escapes the sandbox anyway (a path built by hand, a new store) is caught: this
+# checkout's own state is listed before the session and compared after it, and every file
+# created or changed there, and every folder made there, is named, with the test that made the
+# folder. It fails the run in CI and with ELI_TEST_STRICT_ISOLATION=1; otherwise it is only
+# reported, since a copy of ELI running from this checkout (ELI's own RUN_TESTS) writes its state
+# while the tests run. (ELI v3's guard.) The persona overlay's own default place is in the source
+# tree, so it is watched as a file.
+_OWN_STATE = [ROOT / name for name in ("artifacts", "config", "training", "runtime", "voices", "plugins",
+                                       "models", "cache")]
+_OWN_FILES = [ROOT / "eli" / "cognition" / "persona.auto.txt"]
+FOLDER = "folder"
+
+
+def _own_state() -> dict:
+    seen = {}
+    for top in _OWN_STATE:
+        for path in top.rglob("*") if top.is_dir() else ():
+            if path == SANDBOX or SANDBOX in path.parents or "__pycache__" in path.parts:
+                continue
+            if path == SANDBOX.parent / "_pytest.lock":
+                continue                 # the lock that holds the sandbox for a run
+            try:
+                if path.is_file():
+                    info = path.stat()
+                    seen[path] = (info.st_mtime_ns, info.st_size)
+                elif path.is_dir():
+                    seen[path] = FOLDER
+            except OSError:
+                continue
+    for path in _OWN_FILES:
+        try:
+            info = path.stat()
+            seen[path] = (info.st_mtime_ns, info.st_size)
+        except OSError:
+            continue
+    return seen
+
+
+def _written_since(before: dict, asked: Path = ROOT / "-") -> list:
+    """What in this checkout's own state was written or made since `before` (_own_state), each a
+    path relative to the checkout, a folder with the test that made it."""
+    out = []
+    for path, was in _own_state().items():
+        if before.get(path) == was or path.resolve() == asked:
+            continue
+        rel = str(path.relative_to(ROOT))
+        made_by = _FOLDERS_MADE.get(str(path.resolve())) if was == FOLDER else None
+        out.append(f"{rel}/ (made by {made_by})" if made_by else (rel + "/" if was == FOLDER else rel))
+    return sorted(out)
+
+
+# Which test made each folder under this checkout's own state, outside the sandbox (an audit hook:
+# os.mkdir), so the report names it.
+_FOLDERS_MADE: dict = {}
+_WATCHED_ROOTS = tuple(str(top.resolve()) for top in _OWN_STATE)
+
+
+def _note_folder_made(event, args) -> None:
+    if event != "os.mkdir" or not args:
+        return
+    try:
+        path = os.path.realpath(os.fsdecode(args[0]))
+    except (TypeError, ValueError):
+        return
+    sandbox = str(SANDBOX.resolve())
+    if path == sandbox or path.startswith(sandbox + os.sep):
+        return
+    if any(path == top or path.startswith(top + os.sep) for top in _WATCHED_ROOTS):
+        _FOLDERS_MADE.setdefault(path, os.environ.get("PYTEST_CURRENT_TEST", "collection").split(" ")[0])
+
+
+sys.addaudithook(_note_folder_made)
+_STATE_BEFORE = _own_state()
+
+
 # ── Auto-updating test-results document ──────────────────────────────────────
 # Every pytest run (re)writes artifacts/test_report.md with the live results, so
 # the report is dynamic — never stale. ELI's RUN_TESTS action reads/summarises it.
 def pytest_sessionfinish(session, exitstatus):
-    try:
-        if _SESSION_MARK.read_text().strip() == str(os.getpid()):
-            _SESSION_MARK.unlink()
-    except OSError:
-        pass
+    asked = Path(session.config.getoption("xmlpath", None) or ROOT / "-").resolve()   # --junitxml
+    escaped = _written_since(_STATE_BEFORE, asked)
+    if escaped:
+        print(f"\n[conftest] TEST ISOLATION BREACH: {len(escaped)} files or folders in this checkout's own "
+              "state were written or made during the run:", *escaped, sep="\n  ")
+        if os.environ.get("CI") or os.environ.get("ELI_TEST_STRICT_ISOLATION"):
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
     if _SNAPSHOT_TOUCHED:
         print("\n[conftest] tests that modified the REAL runtime_snapshot.json (restored):", *_SNAPSHOT_TOUCHED[:10], sep="\n  ")
     try:

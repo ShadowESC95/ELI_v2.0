@@ -144,11 +144,13 @@ def set_user_name(name: str, user_id: str | None = None) -> str:
     sync_identity_to_world_model(user_id=user_id)
 
     # Keep settings.json["user_name"] in sync so the GUI always reflects the
-    # current identity without requiring a session restart.
+    # current identity without requiring a session restart. The settings file in force
+    # (ELI_SETTINGS_FILE first): the config folder's own settings.json was written instead,
+    # so a session pointed at another settings file still renamed the owner in this one.
     try:
-        from eli.core.paths import get_paths as _gp
+        from eli.core.runtime_settings import _settings_file
         import json as _json
-        _cfg = _gp().config_dir / "settings.json"
+        _cfg = _settings_file()
         if _cfg.exists():
             _s = _json.loads(_cfg.read_text(encoding="utf-8"))
             if isinstance(_s, dict) and _s.get("user_name", "") != n:

@@ -69,12 +69,16 @@ deeply:
   and the executor's entry check) in `tests/test_mcp_server.py`.
 - **Offline-by-default enforcement** (`eli/core/netguard`): the socket failsafe
   and egress recording are unit-tested.
-- **Data isolation**: the shared conftest redirects every store and ELI's data folder
-  (`ELI_DATA_DIR`) into `artifacts/_pytest/`, empties it at the start of each session
-  (a session still running in the same checkout keeps it), and
-  `tests/conftest.py::_assert_db_isolated` fails the run if the data folder, the user,
-  memory, agent, audit or capability-state database, the persona overlay, the notes or
-  notebook folder or the world state resolves outside it — a test in the shared suite
+- **Data isolation**: the shared conftest puts every place ELI keeps state into
+  `artifacts/_pytest/` (`tests/_state_env.py`: the data, config, training and cache
+  folders, downloaded plugins, and each store with a variable of its own), empties it at
+  the start of each session (a session still running in the same checkout keeps it), starts
+  its config folder with the tracked files and a test owner's id, and
+  `tests/conftest.py::_assert_db_isolated` fails the run if any store resolves outside it.
+  What a run writes or makes in the checkout's own state folders anyway (`artifacts`,
+  `config`, `training`, `runtime`, `voices`, `plugins`, `models`, `cache`, the persona
+  overlay's default file) is named at the end, a folder with the test that made it, and
+  fails the run in CI and with `ELI_TEST_STRICT_ISOLATION=1` — a test in the shared suite
   cannot touch real user data. Lanes 2–4 run without that conftest and redirect only
   `ELI_ARTIFACTS_DIR`, which does not move the databases (they follow `ELI_DATA_DIR`
   and the per-store variables), so in a source checkout what those tests record in the

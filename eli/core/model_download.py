@@ -404,9 +404,8 @@ def download_model(
             # Auxiliary models (embedder, vision) live in a subdir, e.g. models/embeddings.
             _sub = str(entry.get("subdir") or "").strip()
             dest_dir = (models_dir() / _sub) if _sub else models_dir()
-        dest_dir.mkdir(parents=True, exist_ok=True)
     except Exception as e:
-        return {"ok": False, "error": f"Cannot create models dir: {e}"}
+        return {"ok": False, "error": f"Cannot find the models dir: {e}"}
 
     final_path = dest_dir / filename
     if is_valid_gguf(final_path):
@@ -456,6 +455,9 @@ def download_model(
                         progress_cb(downloaded, total)
                     except Exception:
                         pass
+                # The folder is made once the server has answered: a fetch refused offline left an
+                # empty models/embeddings behind.
+                dest_dir.mkdir(parents=True, exist_ok=True)
                 with open(part_path, mode) as out:
                     while True:
                         chunk = resp.read(_CHUNK)

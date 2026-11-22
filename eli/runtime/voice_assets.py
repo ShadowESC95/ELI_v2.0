@@ -229,7 +229,6 @@ def download_voice(voice_id: str, mirror: bool = False) -> Dict[str, Any]:
         return {"ok": True, "asset": "piper", "already_present": True, "voice": voice_id}
     dest = _piper_dest()
     try:
-        dest.mkdir(parents=True, exist_ok=True)
         import urllib.request
         from eli.core import netguard
         # Prefer the upstream index: it gives the exact repo-relative path (voices whose folder
@@ -254,13 +253,17 @@ def download_voice(voice_id: str, mirror: bool = False) -> Dict[str, Any]:
                                              headers={"User-Agent": "ELI/2.0 (voice-assets)"})
                 tmp = target.with_suffix(target.suffix + ".part")
                 digest = hashlib.md5()
-                with netguard.guarded_urlopen(req, timeout=300) as r, open(tmp, "wb") as fh:
-                    while True:
-                        chunk = r.read(1 << 20)
-                        if not chunk:
-                            break
-                        digest.update(chunk)
-                        fh.write(chunk)
+                with netguard.guarded_urlopen(req, timeout=300) as r:
+                    # The folder is made once there is a file for it: a fetch refused offline left
+                    # an empty models/tts/piper behind.
+                    dest.mkdir(parents=True, exist_ok=True)
+                    with open(tmp, "wb") as fh:
+                        while True:
+                            chunk = r.read(1 << 20)
+                            if not chunk:
+                                break
+                            digest.update(chunk)
+                            fh.write(chunk)
                 if tmp.stat().st_size <= 0:
                     tmp.unlink(missing_ok=True)
                     return {"ok": False, "asset": "piper", "voice": voice_id,

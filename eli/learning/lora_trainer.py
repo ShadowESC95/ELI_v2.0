@@ -29,12 +29,14 @@ def _rel(path: Path) -> str:
 
 
 def _resolve_project_path(value: str | Path | None) -> Path | None:
+    """A target's path, by the target registry's rule (target_registry._resolve): "training/..." in
+    the training folder in force, "models/..." in the models folder, anything else the project's.
+    This copy joined everything to PROJECT_ROOT, so a dry run exported its dataset into the
+    install's training/ whatever ELI_LEARNING_DIR said."""
     if value is None:
         return None
-    p = Path(value)
-    if p.is_absolute():
-        return p
-    return PROJECT_ROOT / p
+    from eli.learning.target_registry import _resolve
+    return _resolve(value)
 
 
 def _stamp() -> str:
