@@ -92,10 +92,10 @@ packaged install (`ELI_LEARNING_DIR` overrides). Run plans, the target registry,
 review queue's candidates, the dataset builder's output and the targets' datasets follow
 it, the built-in targets' as well as the operator's; the targets' adapters are in the
 models folder (`paths.lora_adapters_dir()`), the user's own on a packaged install too,
-whose program folder is read-only. A built-in target's dataset or adapter that an older
-build left under the program folder (`training/datasets/`, `models/lora/adapters/`) is
-still read from there until there is one in its new place; a new adapter is always
-written in the new place.
+whose program folder is read-only. A built-in target's adapter that an older build trained
+under the program folder (`models/lora/adapters/`) is still used from there until there is
+one in its new place; a new adapter is always written in the new place. A dataset is not
+read from the old place: it is built afresh, where it is read.
 
 ### Targets (`target_registry.py` + `lora_trainer_guard.py`)
 

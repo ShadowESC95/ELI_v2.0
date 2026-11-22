@@ -43,7 +43,7 @@ def test_builtin_targets_keep_their_files_in_the_users_folders(learning_dir, tmp
     """The built-in targets named their dataset and adapters relative to the program folder, which a
     packaged install cannot write, so the dataset build failed there and only logged it. Their
     datasets are in learning_dir() and their adapters in the models folder, as an operator target's
-    are; a dataset or adapter an older build left in the program folder is still found there."""
+    are; an adapter an older build trained in the program folder is still found there."""
     from pathlib import Path
     from eli.core import paths
     from eli.learning.lora_trainer_guard import build_training_plan
@@ -66,7 +66,9 @@ def test_builtin_targets_keep_their_files_in_the_users_folders(learning_dir, tmp
     old_dataset.write_text("", encoding="utf-8")
     old_adapter.mkdir(parents=True)
     target = tr.get_target("eli_phi")
-    assert (Path(target["dataset_path"]), Path(target["adapter_path"])) == (old_dataset, old_adapter)
+    # an adapter an older build trained is still used; a dataset is built afresh where it is read
+    assert Path(target["adapter_path"]) == old_adapter
+    assert Path(target["dataset_path"]).parent == learning_dir / "datasets"
     assert Path(target["output_dir"]).parent == adapters               # a new adapter goes where it can be written
     assert Path(tr.get_target("eli_phi_ultra")["dataset_path"]).parent == learning_dir / "datasets"
 

@@ -53,9 +53,11 @@ BUILTIN_TARGETS: dict[str, dict[str, Any]] = {
 # install both are the user's own folders; the program folder is read-only there, and older
 # builds named these paths relative to it, so the dataset build failed. Each entry: the folder
 # now, the folder older builds used (relative to the program folder), and whether a file a user
-# already has there is still read from there (a new adapter, output_dir, never goes there).
+# already has there is still read from there. A trained adapter is (a new one, output_dir, never
+# goes there); a dataset is not: it is built afresh, and the build writes where it is read, which
+# must be the training folder in force (an older one there sent a test's dry run into the checkout).
 _BUILTIN_PLACES = {
-    "dataset_path": (lambda: _learning_dir() / "datasets", "training/datasets", True),
+    "dataset_path": (lambda: _learning_dir() / "datasets", "training/datasets", False),
     "adapter_path": (lambda: _adapters_dir(), "models/lora/adapters", True),
     "output_dir": (lambda: _adapters_dir(), "models/lora/adapters", False),
 }
