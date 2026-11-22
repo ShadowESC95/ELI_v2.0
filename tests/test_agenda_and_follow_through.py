@@ -347,6 +347,32 @@ def test_a_promise_that_did_not_run_does_not_stand_as_kept(monkeypatch):
     assert "I haven't done that" in out[-1] and "check the current load" in out[-1] and stored == [out[-1].strip()]
 
 
+
+@pytest.mark.parametrize("stored_ok", [True, False])
+def test_a_promise_to_keep_what_the_user_said_is_kept_with_a_memory_store(monkeypatch, stored_ok):
+    """Live: told "it stands for Responsible Artificial Intelligence Management Systems", ELI said "I'll
+    update the acronym in my active context" and the reply ended with a note that nothing ran. What
+    it promised to keep is the user's message: it is stored as the user's own "remember that" stores
+    it, and only a refusal by the memory filter leaves the note."""
+    from eli.kernel.engine import CognitiveEngine
+    stored, extra = [], []
+    me = SimpleNamespace(_in_followthrough=False, process=lambda *a, **k: "x", _agenda_offer=lambda *a, **k: "",
+                         _store_followthrough_reply=lambda main, more: extra.append(more))
+    monkeypatch.setattr("eli.kernel.engine.route_intent", lambda text: {"action": "CHAT"})
+
+    def fake_execute(action, args):
+        stored.append((action, args))
+        return {"ok": stored_ok, "action": action}
+    monkeypatch.setattr("eli.execution.executor_enhanced.execute", fake_execute)
+    said = "Half right. It is a course I am doing, and it stands for Harbour Studies Programme"
+    out = list(CognitiveEngine._stream_with_followthrough(
+        me, iter(["Fair enough. I'll update the acronym in my active context so I get it right next time."]), said))
+    assert stored and stored[0][0] == "MEMORY_STORE" and stored[0][1]["text"] == said
+    if stored_ok:
+        assert not any("I haven't done that" in str(piece) for piece in out) and extra == []
+    else:
+        assert "I haven't done that" in out[-1]
+
 def test_an_action_run_from_the_dag_pool_is_recorded_on_the_turn():
     """The pool's threads started with an empty context: what ran there was missing from the
     audit row and carried no user id."""

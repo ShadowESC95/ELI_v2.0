@@ -15,6 +15,7 @@ active" for logging that was always on. Two things fix that at the source:
 from __future__ import annotations
 
 import re
+import threading
 import time
 from functools import lru_cache
 from typing import Callable, Any, Dict, Iterable, List, Optional
@@ -712,7 +713,7 @@ class _Check:
 
     def why(self, unit: str) -> str:
         s = str(unit or "")
-        if not s.strip():
+        if not s.strip() or is_settled(s):
             return ""
         maker = self._invented_maker(s)
         if maker:
@@ -767,6 +768,10 @@ class _Check:
         if _INVENTED_SELF_METRIC.search(s) and (self.about_self or _SPEAKS_OF_ITS_OWN.search(s)) and not all(
                 n in self._evidence for n in re.findall(r"\d+(?:\.\d+)?", s)):
             return "states a figure about its own work that nothing recorded"
+        if not ran and not self._writing:
+            unkept = _promise_nothing_keeps(s, str(self._facts.get("user_input") or ""))
+            if unkept:
+                return unkept
         if not self.about_self:
             return ""
         if not ran and _STANDING_PROMISE.search(s) and _COMMITS.search(s):
@@ -935,6 +940,86 @@ def _carried_out_before() -> bool:
         return False
 
 
+# Replies already judged, and the notes this check writes itself. A finished reply was judged again when
+# it was stored and when it was read aloud (every visible text goes through the governor), without the
+# turn's record or with the end-of-reply marker glued to its last sentence: ELI's own "Nothing is
+# recorded on Friday 23 October." and the executor's "Playing ... on Spotify." were judged inventions,
+# three log lines a reply. A settled text is taken as it is, in the turn that settled it, and by passes
+# that run with no turn of their own (speech, after the turn); a new turn starts with nothing settled,
+# so a sentence true in one turn is judged afresh in the next.
+_settled: set = set()
+_settled_turn: Any = None
+_settled_lock = threading.Lock()
+
+
+def _turn_token() -> Any:
+    """This turn's identity, or None outside any turn."""
+    try:
+        from eli.kernel.request_context import turn_facts_var
+        facts = turn_facts_var.get()
+    except Exception:
+        return None
+    if not isinstance(facts, dict):
+        return None
+    if "_claims_turn" not in facts:
+        import uuid
+        facts["_claims_turn"] = uuid.uuid4().hex
+    return facts["_claims_turn"]
+
+
+def _reply_done_marker() -> str:
+    from eli.kernel.request_context import MAIN_REPLY_DONE_SENTINEL
+    return MAIN_REPLY_DONE_SENTINEL
+
+
+def _fingerprint(text: Any) -> str:
+    return " ".join(re.sub(r"[\W_]+", " ", str(text or "").replace(_reply_done_marker(), " ").lower()).split())
+
+
+def settle(text: Any) -> None:
+    """Mark a finished reply, or a note of this check's own, as judged in this turn."""
+    global _settled_turn
+    key = _fingerprint(text)
+    if not key:
+        return
+    turn = _turn_token()
+    with _settled_lock:
+        if turn is not None and turn != _settled_turn:
+            _settled.clear()
+            _settled_turn = turn
+        _settled.add(key)
+
+
+def is_settled(text: Any) -> bool:
+    key = _fingerprint(text)
+    if not key:
+        return False
+    turn = _turn_token()
+    with _settled_lock:
+        if turn is not None and turn != _settled_turn:
+            return False
+        return key in _settled
+
+
+def _promise_nothing_keeps(sentence: str, user_input: str) -> str:
+    """Why a promise in this sentence would stand unkept, or "". ELI's follow-through carries out a
+    promise that is a read, or what the user asked for, or keeping what the user said; any other
+    ("I'll update the config", "let me run the fix") stayed on screen with a note saying nothing ran."""
+    from eli.runtime.action_commitment import detect_action_commitment, keeps_what_was_said
+    commit = detect_action_commitment(sentence)
+    if not commit or keeps_what_was_said(commit["clause"]):
+        return ""
+    try:
+        from eli.kernel.engine import _followthrough_may_run, route_intent
+        action = str((route_intent(commit["clause"]) or {}).get("action") or "").upper()
+        if _followthrough_may_run(action, user_input, commit["clause"]):
+            return ""
+    except Exception:
+        log.debug("promise check skipped", exc_info=True)
+        return ""
+    return "promises something nothing will carry out"
+
+
 def _turn_context() -> Dict[str, Any]:
     try:
         from eli.kernel.request_context import turn_facts_var
@@ -945,38 +1030,51 @@ def _turn_context() -> Dict[str, Any]:
 
 def _checked(chunks: Iterable[str], check: _Check):
     """Each sentence held until it ends, then served or dropped. Text inside ``` fences passes
-    straight through."""
-    buf = ""
-    in_code = False
-    for piece in chunks:
-        buf += str(piece or "")
-        while buf:
-            if in_code:
+    straight through. The end-of-reply marker ends the visible reply: what is held is served or
+    dropped as at the end of the stream, and the marker goes on alone (glued to the last sentence it
+    was judged with it, and reached the stored text)."""
+    done = _reply_done_marker()
+    state = {"buf": "", "in_code": False}
+
+    def _units(final: bool):
+        while state["buf"]:
+            buf = state["buf"]
+            if state["in_code"]:
                 end = buf.find("```")
                 if end < 0:
-                    if len(buf) > 2:  # the tail could be the start of the closing fence
+                    if final:
+                        yield buf
+                        state["buf"] = ""
+                    elif len(buf) > 2:  # the tail could be the start of the closing fence
                         yield buf[:-2]
-                        buf = buf[-2:]
+                        state["buf"] = buf[-2:]
                     break
                 yield buf[:end + 3]
-                buf, in_code = buf[end + 3:], False
+                state["buf"], state["in_code"] = buf[end + 3:], False
                 continue
-            unit, rest = _next_unit(buf)
+            unit, rest = _next_unit(buf, final)
             fence = buf.find("```")
             if fence >= 0 and (unit is None or fence < len(unit)):
                 yield from check.feed(buf[:fence]) + check.close()
                 yield "```"
-                buf, in_code, check.code_served = buf[fence + 3:], True, True
+                state["buf"], state["in_code"], check.code_served = buf[fence + 3:], True, True
                 continue
             if unit is None:
                 break
-            buf = rest
+            state["buf"] = rest
             yield from check.feed(unit)
-    if buf:
-        if in_code:
-            yield buf
-        else:
-            yield from check.feed(buf)
+
+    for piece in chunks:
+        piece = str(piece or "")
+        while done in piece:
+            before, _, piece = piece.partition(done)
+            state["buf"] += before
+            yield from _units(final=True)
+            yield from check.close()
+            yield done
+        state["buf"] += piece
+        yield from _units(final=False)
+    yield from _units(final=True)
     yield from check.close()
 
 
@@ -1018,14 +1116,16 @@ def gate_stream(chunks: Iterable[str], evidence: str = "", rewrite: Optional[Cal
             return
     after = check.afterword()
     if after:
+        settle(after)
         yield after
+    settle("".join(served) + after)
 
 
 def drop_invented_self_claims(text: str, evidence: str = "") -> str:
     """`text` without sentences that invent ELI's settings, files, causes or fixes, or report
     changes it didn't make. Code blocks are left alone. Never returns an empty reply."""
-    body = str(text or "")
-    if not body.strip():
+    body = str(text or "").replace(_reply_done_marker(), "")
+    if not body.strip() or is_settled(body):
         return body
     def _note_for_the_engine(dropped: List[str], served: str) -> str:
         # Nothing here can reach the model: the engine asks it again from what actually happened.
@@ -1035,6 +1135,8 @@ def drop_invented_self_claims(text: str, evidence: str = "") -> str:
 
     kept = "".join(gate_stream([body], evidence, rewrite=_note_for_the_engine))
     kept = re.sub(r"[ \t]+\n", "\n", kept)
-    return re.sub(r"\n{3,}", "\n\n", kept).strip() or body
+    kept = re.sub(r"\n{3,}", "\n\n", kept).strip() or body
+    settle(kept)
+    return kept
 
 

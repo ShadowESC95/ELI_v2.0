@@ -4376,8 +4376,8 @@ def _ft_summarise_findings(report_text: str, *, max_lines: int = 6) -> str:
     return out
 
 
-# Marks "visible reply done" mid-stream — consumers drop it, never display it.
-MAIN_REPLY_DONE_SENTINEL = "__MAIN_REPLY_DONE__"
+# Marks "visible reply done" mid-stream — consumers drop it, never display it (owned by request_context).
+MAIN_REPLY_DONE_SENTINEL = _request_context.MAIN_REPLY_DONE_SENTINEL
 
 
 def _required_pipeline_stages(action_u: str, mode: str) -> set:
@@ -15385,6 +15385,10 @@ Answer:"""
             user_text = _eli_sanitize_user_input(str(facts.get("user_input") or "")).strip()
             reply = str(reply or "").strip()
             self._ensure_user_turn_stored(facts)
+            if reply:
+                # What the user was shown is final: storing it, and reading it aloud, take it as it is.
+                from eli.cognition.self_claims import settle
+                settle(reply)
             if reply and not facts.get("assistant_stored"):
                 self._store_assistant_turn(reply)
             chat_like = action in self._CHAT_LIKE_ACTIONS or action.startswith("MW_")
@@ -15656,6 +15660,25 @@ Answer:"""
                     _query = f"fetch the latest news about {_deepen}"
             except Exception:
                 _query = commit["clause"]
+            # "I'll remember that", "I'll update the acronym in my active context": what ELI promised to
+            # keep is what the user said, kept with the store the user's own "remember that" runs. The
+            # end of the turn only keeps the facts it can parse ("my name is ..."), so "it stands for
+            # Responsible AI Management Systems" was never kept, and the reply's promise got a note.
+            from eli.runtime.action_commitment import keeps_what_was_said as _keeps_said
+            if _keeps_said(commit["clause"]):
+                from eli.cognition.correction_patterns import split_pasted as _own_words
+                _said = _eli_sanitize_user_input(_own_words(str(user_input or ""))[0]).strip()
+                _kept = None
+                if _said:
+                    try:
+                        from eli.execution.executor_enhanced import execute as _ft_execute
+                        _kept = _ft_execute("MEMORY_STORE", {"text": _said, "tags": ["told_by_user"]})
+                    except Exception:
+                        log.debug("[FOLLOWTHROUGH] keeping what was said failed", exc_info=True)
+                if isinstance(_kept, dict) and _kept.get("ok"):
+                    _request_context.note_turn_fact("promise_kept", "MEMORY_STORE")
+                    log.debug("[FOLLOWTHROUGH] kept what the user said, as the reply promised")
+                    return
             # ELI's own sentence is not a command from the user. It is routed by the router's rules
             # alone, and run only if that is a read ("let me check the news") or something the
             # user's message asked for. Live: "Let's check your calendar for any scheduled events"

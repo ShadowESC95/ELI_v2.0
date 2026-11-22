@@ -29,6 +29,9 @@ from __future__ import annotations
 from contextvars import ContextVar
 from typing import Any, Optional
 
+# Marks "visible reply done" mid-stream: consumers drop it and never display, store, speak or judge it.
+MAIN_REPLY_DONE_SENTINEL = "__MAIN_REPLY_DONE__"
+
 session_id_var: ContextVar[Optional[str]] = ContextVar("eli_session_id", default=None)
 user_id_var: ContextVar[Optional[str]] = ContextVar("eli_user_id", default=None)
 request_id_var: ContextVar[Optional[str]] = ContextVar("eli_request_id", default=None)

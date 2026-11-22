@@ -995,3 +995,54 @@ def test_a_weekday_against_the_clock_is_checked_except_in_what_was_asked_to_be_w
         assert sc.drop_invented_self_claims(story) == story
     finally:
         rc.turn_facts_var.reset(token)
+
+
+def test_a_promise_nothing_will_carry_out_is_held_back(monkeypatch):
+    """A promise ELI's follow-through would not carry out stood on screen with a note saying nothing
+    ran ("I'll update the config", and nothing could). It is held back as the reply is written; a read,
+    what the user asked for, and keeping what the user said still go through."""
+    routes = {"I'll update the config file so it holds the new path": {"action": "CHAT"},
+              "Let me check the latest news for you": {"action": "NEWS_FETCH"}}
+    monkeypatch.setattr("eli.kernel.engine.route_intent", lambda text: routes.get(text, {"action": "CHAT"}))
+    token = rc.turn_facts_var.set({"user_input": "any news today? it stands for Harbour Studies Programme"})
+    try:
+        reply = ("Noted. I'll update the config file so it holds the new path. "
+                 "I'll remember that it stands for Harbour Studies Programme. "
+                 "Let me check the latest news for you.")
+        out = sc.drop_invented_self_claims(reply)
+    finally:
+        rc.turn_facts_var.reset(token)
+    assert "config file" not in out
+    assert "I'll remember that" in out and "Let me check the latest news" in out
+
+
+def test_a_reply_is_judged_once_and_never_its_own_notes(period):
+    """Live: "Nothing is recorded on Friday 23 October." was written by the check, then judged and dropped
+    by the passes that stored and spoke the reply, once with the end-of-reply marker glued to it: three
+    log lines for one reply."""
+    from eli.kernel.request_context import MAIN_REPLY_DONE_SENTINEL as done
+    served = list(self_claims.gate_stream([REPLY[:50], REPLY[50:] + done]))
+    assert served.count(done) == 1 and served[-1] == done or served[-2] == done     # alone, never glued
+    assert not any(done in piece and piece != done for piece in served)
+    shown = "".join(p for p in served if p != done)
+    assert shown.strip().endswith("Nothing is recorded on Wednesday 7 October.")
+    facts = turn_facts_var.get()
+    dropped = facts.get("claims_dropped")
+    for later in (shown, shown + done, shown.strip()):              # stored, and read aloud
+        assert self_claims.drop_invented_self_claims(later).strip() == shown.strip()
+    assert facts.get("claims_dropped") == dropped                   # nothing judged again
+
+
+def test_what_one_turn_settled_is_judged_afresh_in_the_next():
+    reply = "Every action I run is already written to the evidence ledger. I've enabled verbose logging for you."
+    first = {"user_input": "turn on verbose logging", "executed_actions": ["SET_LOG_LEVEL"]}
+    token = rc.turn_facts_var.set(first)
+    try:
+        assert "I've enabled verbose logging" in sc.drop_invented_self_claims(reply)
+    finally:
+        rc.turn_facts_var.reset(token)
+    token = rc.turn_facts_var.set({"user_input": "how are you"})
+    try:
+        assert "I've enabled verbose logging" not in sc.drop_invented_self_claims(reply)
+    finally:
+        rc.turn_facts_var.reset(token)

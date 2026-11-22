@@ -250,6 +250,25 @@ def recover_recent_deepen_topic(memory) -> str:
     return ""
 
 
+# Text in double quotation marks (straight, curly or guillemets). Single quotes are left out: the
+# apostrophe in "I'll" is the same character.
+_QUOTED = re.compile(r'"[^"\n]*"|“[^”\n]*”|«[^»\n]*»')
+
+# A promise to keep what the user said: "I'll remember that", "I'll update the acronym in my active
+# context", "I'll make a note of it", "I'll keep that in mind". What it promises to keep is the user's
+# message, and storing it is the store the user's own "remember that" runs.
+_KEEPS_WHAT_WAS_SAID = re.compile(
+    r"\b(?:remember|memori[sz]e|make\s+a\s+note|note\s+(?:that|it|this|down)|keep\s+(?:that|it|this)\s+in\s+mind"
+    r"|(?:update|correct|fix|store|save|record|log|add|put)\b[^.!?\n]{0,60}?\b(?:memory|memories|notes|"
+    r"(?:active\s+)?context|records?|knowledge(?:\s+base)?|profile)\b)",
+    re.I)
+
+
+def keeps_what_was_said(clause: Any) -> bool:
+    """Whether a commitment is to keep what the user said (in memory, notes or context)."""
+    return bool(_KEEPS_WHAT_WAS_SAID.search(str(clause or "")))
+
+
 def detect_action_commitment(text: str) -> Optional[Dict[str, str]]:
     """Return {clause, matched} if `text` promises/fakes an action, else None.
 
@@ -260,7 +279,11 @@ def detect_action_commitment(text: str) -> Optional[Dict[str, str]]:
     s = str(text or "").strip()
     if not s:
         return None
-    m = _COMMIT_RE.search(s) or _DOING_RE.search(s) or _FAKE_THEATRE_RE.search(s)
+    # A promise inside quotation marks is reported, not made: "So I generated a promise ("I'll update
+    # it") that had no backend action attached to it" got the note that nothing ran for it.
+    quoted = [(q.start(), q.end()) for q in _QUOTED.finditer(s)]
+    m = next((hit for rx in (_COMMIT_RE, _DOING_RE, _FAKE_THEATRE_RE) for hit in rx.finditer(s)
+              if not any(a <= hit.start() < b for a, b in quoted)), None)
     if not m:
         return None
     # Past or perfect-continuous narration ("I've been checking", "I was searching", "I checked

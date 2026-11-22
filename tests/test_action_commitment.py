@@ -179,3 +179,23 @@ def test_retrospective_or_negated_verbs_are_not_commitments():
     # A genuine forward commitment still fires.
     assert d("Let me verify the current schedule for you")
     assert d("I'll search the web for the release date")
+
+
+def test_a_promise_in_quotation_marks_is_reported_not_made():
+    """Live: ELI explaining an earlier promise ("So I generated a promise ("I'll update it") that had no
+    backend action attached to it") got the note that nothing ran for it."""
+    assert d('So I generated a promise ("I\'ll update it") that had no backend action attached to it.') is None
+    assert d("You said “let me check the news” yesterday.") is None
+    made = d('"Fine," I said. Let me check the news now.')
+    assert made and made["clause"].startswith("Let me check the news")
+
+
+def test_a_promise_to_keep_what_the_user_said_is_known_as_one():
+    from eli.runtime.action_commitment import keeps_what_was_said as keeps
+    for clause in ("I'll update the acronym in my active context so I get it right next time",
+                   "I'll remember that", "I'll make a note of it", "I'll keep that in mind",
+                   "I'll save that to my memory", "I'll correct my notes"):
+        assert keeps(clause), clause
+    for clause in ("I'll update the script for you", "let me check the news", "I'll run the tests",
+                   "I'll refresh the weather"):
+        assert not keeps(clause), clause
