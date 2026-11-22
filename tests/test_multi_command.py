@@ -222,7 +222,7 @@ def test_implementing_what_is_not_code_is_not_a_script(text):
 
 
 @pytest.mark.parametrize("text", ["make a list of places to go", "write it down and go", "create a backup and go",
-                                  "build the index and go"])
+                                  "build the index and go", "write a song in c major", "write a story in r"])
 def test_the_word_go_is_not_the_go_language(text):
     """The code rules read "go" anywhere as the Go language, so these were Go scripts to write."""
     assert route(text)["action"] not in ("GENERATE_SCRIPT", "CODE_SOLVE")

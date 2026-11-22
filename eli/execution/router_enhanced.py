@@ -8987,8 +8987,9 @@ try:
                 _code_things = r"script|function|program|module|code"
                 if _first_tok in ("implement", "develop", "code", "cod", "codes"):
                     _code_things += r"|class|method|algorithm|parser|api|library|regex|snippet|data\s+structure"
-                if (_rgs.search(r"\b(?:" + _code_things + r")\b", low2)
-                        or named_language(raw2)):
+                # a one-letter name is a language only beside code: "write a song in c major" is music
+                _lang = named_language(raw2)
+                if _rgs.search(r"\b(?:" + _code_things + r")\b", low2) or (_lang and len(_lang) > 1):
                     # "build me a script at 2am" asks for it then, not now.
                     return _eli_schedule_prepass(raw2) or {
                         "action": "GENERATE_SCRIPT",
