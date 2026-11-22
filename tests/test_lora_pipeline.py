@@ -63,10 +63,50 @@ def test_lora_status_action_reports_readiness():
 
 def test_lora_train_action_dry_run_by_default():
     from eli.execution.executor_enhanced import execute
-    r = execute("LORA_TRAIN", {})
+    r = execute("LORA_TRAIN", {"target": "eli_phi"})
     assert "action" in r and r["action"] == "LORA_TRAIN"
     assert (r.get("result") or {}).get("dry_run") is True
     assert (r.get("result") or {}).get("executed") is False
+
+
+def _pipeline_seen(monkeypatch, ready):
+    import eli.learning.lora_pipeline as lp
+    import eli.learning.lora_trainer_guard as guard
+    import eli.learning.training_preflight as tp
+    seen = []
+    monkeypatch.setattr(guard, "allowed_targets", lambda: {"eli_phi", "eli_phi_ultra", "garden_model"})
+    monkeypatch.setattr(tp, "preflight_all", lambda: {"reports": [
+        {"target": t, "can_train": t in ready, "problems": [] if t in ready else ["base model not found"]}
+        for t in ("eli_phi", "eli_phi_ultra", "garden_model")]})
+    monkeypatch.setattr(lp, "run_pipeline", lambda target, **kw: seen.append((target, kw.get("execute"))) or
+                        {"ok": True, "target": target, "dry_run": not kw.get("execute"), "executed": False,
+                         "summary": f"dry run for {target}", "stages": []})
+    return seen
+
+
+@pytest.mark.parametrize("said,ready,expect", [
+    ("train a lora", {"eli_phi_ultra"}, ["eli_phi_ultra"]),          # the first declared one that is ready
+    ("train a lora for garden_model", set(), ["garden_model"]),      # the one named
+])
+def test_lora_train_from_chat_takes_the_target_the_scheduled_job_would(monkeypatch, said, ready, expect):
+    """From chat, LORA_TRAIN always took eli_phi, declared and ready or not."""
+    from eli.execution.executor_enhanced import execute
+    from eli.execution.router_enhanced import route
+    seen = _pipeline_seen(monkeypatch, ready)
+    routed = route(said)
+    assert routed["action"] == "LORA_TRAIN"
+    out = execute("LORA_TRAIN", routed["args"])
+    assert [t for t, _ in seen] == expect and all(e is False for _, e in seen), seen   # still a dry run
+    assert out["ok"] is True
+
+
+def test_lora_train_from_chat_says_when_no_target_is_ready(monkeypatch):
+    from eli.execution.executor_enhanced import execute
+    seen = _pipeline_seen(monkeypatch, set())
+    out = execute("LORA_TRAIN", {"text": "train a lora"})
+    assert seen == [] and out["ok"] is False and out["error"] == "no_target_ready"
+    assert out["response"].startswith("No declared LoRA target is ready to train (")
+    assert "garden_model: base model not found" in out["response"]
 
 
 def test_lora_actions_supported():

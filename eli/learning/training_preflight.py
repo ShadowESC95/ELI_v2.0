@@ -114,6 +114,24 @@ def preflight_all() -> dict[str, Any]:
     }
 
 
+def targets_to_train(request: str = "") -> list[str]:
+    """The declared targets a request to train is for: the ones it names, in the order named (the
+    autonomy scheduler names the one preflight found ready), else the first one that is ready now,
+    else none. The scheduled LoRA job and chat's LORA_TRAIN both choose by this; chat used to take
+    eli_phi whatever was declared or ready."""
+    import re
+    low = (request or "").lower()
+    named = []
+    for target in guard.allowed_targets():
+        hit = re.search(r"(?<![\w-])" + re.escape(target.lower()) + r"(?![\w-])", low)
+        if hit:
+            named.append((hit.start(), target))
+    if named:
+        return [target for _, target in sorted(named)]
+    ready = [r.get("target") for r in (preflight_all().get("reports") or []) if r.get("can_train")]
+    return [str(ready[0])] if ready else []
+
+
 def main(argv=None) -> int:
     import argparse
 

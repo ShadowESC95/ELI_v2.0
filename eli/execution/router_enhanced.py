@@ -6620,7 +6620,8 @@ def _eli_self_improvement_phrase_guard(text):
         return _mk("LORA_STATUS", {}, 0.95, matched_by="lora.status.guard")
     if re.search(r"\b(train|run|start)\s+(a\s+|the\s+)?lora\b|\blora\s+train(ing)?\b|"
                  r"\bfine[- ]?tune\b|\btrain\s+(an?\s+)?adapter\b", low):
-        return _mk("LORA_TRAIN", {}, 0.95, matched_by="lora.train.guard")
+        # the words go with it: a target they name is the one trained (training_preflight.targets_to_train)
+        return _mk("LORA_TRAIN", {"text": raw}, 0.95, matched_by="lora.train.guard")
     if re.search(r"\banaly[sz]e\s+(your(self)?|its?\s+own)\s+"
                  r"(failures?|errors?|mistakes|performance|metrics)\b", low):
         return _mk("SELF_ANALYZE", {}, 0.96, matched_by="self.analyze.guard")

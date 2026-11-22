@@ -278,32 +278,17 @@ def _worker_testgen(request: str):
         return {"ok": False, "error": f"test generation failed: {e}"}
 
 
-def _lora_targets_for(request: str) -> List[str]:
-    """The declared targets a lora job is for: those its request names (the autonomy
-    scheduler names the one preflight found ready), else the first one ready now."""
-    from eli.learning.lora_trainer_guard import allowed_targets
-    low = (request or "").lower()
-    named = []
-    for target in allowed_targets():
-        hit = re.search(r"(?<![\w-])" + re.escape(target.lower()) + r"(?![\w-])", low)
-        if hit:
-            named.append((hit.start(), target))
-    if named:
-        return [target for _, target in sorted(named)]
-    from eli.learning.training_preflight import preflight_all
-    ready = [r.get("target") for r in (preflight_all().get("reports") or []) if r.get("can_train")]
-    return [str(ready[0])] if ready else []
-
-
 def _worker_lora(request: str):
     """Overnight LoRA fine-tune via the LoRA pipeline (preflight→build→train→eval, in order),
-    execute=True, for the target the request names or the one that is ready. Still bound by the
-    trainer's safety contract (reviewed rows only, GGUF never trained, adapter never overwritten)."""
+    execute=True, for the target the request names or the one that is ready
+    (training_preflight.targets_to_train). Still bound by the trainer's safety contract (reviewed
+    rows only, GGUF never trained, adapter never overwritten)."""
     try:
         from eli.learning.lora_pipeline import run_pipeline
+        from eli.learning.training_preflight import targets_to_train
         m = re.search(r"(\d+)\s*steps?", request or "")
         steps = min(int(m.group(1)), 2000) if m else 50
-        targets = _lora_targets_for(request)
+        targets = targets_to_train(request)
         if not targets:
             return {"ok": False, "error": "no declared LoRA target is ready to train"}
         runs = [run_pipeline(t, execute=True, max_steps=steps) for t in targets]

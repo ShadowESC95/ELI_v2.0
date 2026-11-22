@@ -257,7 +257,7 @@ _add("Self-maintenance", "SELF_TEST", "Run internal self-tests", "“run a self 
 _add("Self-maintenance", "RUN_TESTS", "Run the pytest suite and summarise the results document", "“run the test suite”", "“generate a test report”")
 _add("Self-maintenance", "GENERATE_TESTS", "ELI writes + sandbox-verifies behavioural tests for its own functions (Phase 4)", "“generate tests for your code”", "“grow your test coverage”")
 _add("Self-maintenance", "LORA_STATUS", "Report LoRA fine-tune readiness (preflight: modules, base model, reviewed data)", "“lora status”", "“is lora ready”")
-_add("Self-maintenance", "LORA_TRAIN", "Run the LoRA training pipeline (preflight→build→train→eval, in order); dry-run from chat, real training via the overnight task", "“train a lora”", "“fine-tune yourself”")
+_add("Self-maintenance", "LORA_TRAIN", "Run the LoRA training pipeline (preflight→build→train→eval, in order) for the declared target named, else the first one ready, saying when none is; dry-run from chat, real training via the overnight task", "“train a lora”", "“fine-tune yourself”")
 _add("Self-maintenance", "ORCHESTRATION_STATUS", "Explain the agent DAG orchestrator: execution layers, dependencies, critical path, and last run", "“orchestration status”", "“show your agent dag”")
 _add("Self-maintenance", "TEST_REVIEW", "Run the suite, back up the report + write an errors file, summarise results, and offer result-driven fix options", "“test review”")
 _add("Voice", "WAKE_SET", "Set your own wake word (any phrase); ELI persists it and trains the detector on it", "“change the wake word to athena”", "“set my wake word to atlas”")

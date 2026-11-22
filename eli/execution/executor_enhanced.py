@@ -6843,14 +6843,31 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
     if a == "LORA_TRAIN":
         try:
             from eli.learning.lora_pipeline import run_pipeline
-            target = str(args.get("target") or "eli_phi")
+            from eli.learning.training_preflight import preflight_all, targets_to_train
+            # The target named, else the first declared one that is ready, as the scheduled job
+            # chooses (training_preflight.targets_to_train); eli_phi was taken whatever was ready.
+            named = str(args.get("target") or "").strip()
+            targets = [named] if named else targets_to_train(str(args.get("text") or ""))
+            if not targets:
+                reports = preflight_all().get("reports") or []
+                why = "; ".join(f"{r.get('target')}: {', '.join(r.get('problems') or []) or 'not ready'}"
+                                for r in reports)
+                msg = ("No declared LoRA target is ready to train" + (f" ({why})." if why else ": none is declared."))
+                return {"ok": False, "action": a, "error": "no_target_ready", "content": msg, "response": msg,
+                        "evidence_source": "lora_preflight", "result": {"reports": reports, "executed": False}}
             do_execute = bool(args.get("execute", False))
-            res = run_pipeline(target, execute=do_execute,
-                               max_steps=int(args.get("max_steps", 1) or 1))
-            detail = "\n".join(
-                f"- {s['stage']}: {'ok' if s['ok'] else 'FAILED'} — {s.get('detail')}"
-                for s in res.get("stages", []))
-            msg = (res.get("summary", "") + "\n" + detail).strip()
+            runs = [run_pipeline(t, execute=do_execute, max_steps=int(args.get("max_steps", 1) or 1))
+                    for t in targets]
+            msgs = []
+            for res in runs:
+                detail = "\n".join(
+                    f"- {s['stage']}: {'ok' if s['ok'] else 'FAILED'} — {s.get('detail')}"
+                    for s in res.get("stages", []))
+                msgs.append((res.get("summary", "") + "\n" + detail).strip())
+            res = runs[0] if len(runs) == 1 else {"runs": runs, "ok": all(r.get("ok") for r in runs),
+                                                   "dry_run": not do_execute,
+                                                   "executed": any(r.get("executed") for r in runs)}
+            msg = "\n\n".join(msgs)
             return {"ok": bool(res.get("ok")), "action": a, "content": msg,
                     "response": msg, "evidence_source": "lora_pipeline", "result": res}
         except Exception as e:
