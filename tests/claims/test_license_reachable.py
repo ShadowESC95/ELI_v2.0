@@ -238,3 +238,62 @@ def test_the_gpl_source_archive_holds_each_sdist_and_what_its_build_fetches(tmp_
     digest["value"] = "f" * 64                      # PyPI's digest no longer matches the file
     assert gs.fetch_all(tmp_path / "again") == 1
     assert "does not match" in capsys.readouterr().err
+
+
+def test_a_compiled_package_whose_sdist_lacks_its_build_files_gets_the_tagged_repository(tmp_path, monkeypatch):
+    """piper-tts 1.4.2's sdist on PyPI holds neither its CMakeLists.txt nor the C source of its espeak
+    bridge, so the archive came out without espeak-ng and the v2.5.37 release stopped. A package that
+    carries compiled code its sdist cannot build gets the repository at the version's tag as well, and
+    what that tree's CMake build fetches."""
+    import hashlib
+    import io
+    import json
+    import tarfile
+    gs = _gpl_sources()
+
+    def archive(files):
+        buf = io.BytesIO()
+        with tarfile.open(fileobj=buf, mode="w:gz") as tar:
+            for name, body in files.items():
+                info = tarfile.TarInfo(name)
+                info.size = len(body)
+                tar.addfile(info, io.BytesIO(body))
+        return buf.getvalue()
+
+    sdist = archive({"example_voice-2.0/setup.py": b"from skbuild import setup\n",
+                     "example_voice-2.0/src/example_voice/__init__.py": b""})
+    repo = archive({"example-voice-2.0/CMakeLists.txt":
+                    b'ExternalProject_Add(phonemes\n    GIT_REPOSITORY https://github.com/example-org/phonemes.git\n'
+                    b'    GIT_TAG 0123456789abcdef0123456789abcdef01234567  # pinned\n)\n',
+                    "example-voice-2.0/src/example_voice/bridge.c": b"int main(void) { return 0; }\n"})
+    served = {
+        "https://files.example.org/example_voice-2.0.tar.gz": sdist,
+        "https://github.com/example-org/example-voice/archive/v2.0.tar.gz": repo,
+        "https://github.com/example-org/phonemes/archive/0123456789abcdef0123456789abcdef01234567.tar.gz": b"phonemes",
+    }
+
+    def fake_get(url):
+        if url == gs.PYPI_JSON.format(name="example-voice", version="2.0"):
+            return json.dumps({"urls": [{"packagetype": "sdist", "url": "https://files.example.org/example_voice-2.0.tar.gz",
+                                         "filename": "example_voice-2.0.tar.gz",
+                                         "digests": {"sha256": hashlib.sha256(sdist).hexdigest()}}]}).encode()
+        if url not in served:
+            raise OSError(f"404 {url}")
+        return served[url]
+
+    monkeypatch.setattr(gs, "_get", fake_get)
+    package = {"name": "example-voice", "version": "2.0", "licence": "GPL-3.0-or-later",
+               "home": "http://github.com/example-org/example-voice", "compiled": "yes"}
+    monkeypatch.setattr(gs, "gpl_distributions", lambda: [package])
+    out = tmp_path / "gpl-sources"
+    assert gs.fetch_all(out) == 0
+    names = sorted(p.name for p in out.iterdir())
+    assert "example_voice-2.0.tar.gz" in names and "example-voice-2.0-repository.tar.gz" in names
+    assert any("phonemes" in n for n in names), names
+    assert "leaves out" in (out / "SOURCES.md").read_text(encoding="utf-8")
+
+    # pure Python under the GPL: the sdist is the whole source, and nothing else is fetched
+    package["compiled"] = ""
+    again = tmp_path / "pure"
+    assert gs.fetch_all(again) == 0
+    assert sorted(p.name for p in again.iterdir()) == ["SOURCES.md", "example_voice-2.0.tar.gz"]

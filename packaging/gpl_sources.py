@@ -12,7 +12,9 @@ Windows and macOS builds carry plus a few for Linux alone, and attaches what it 
 Which packages: every installed distribution whose licence metadata names the GPL or AGPL and offers
 no LGPL choice (Qt's packages are used under the LGPL and keep their own source offer). The source is
 that version's sdist from PyPI, checked against PyPI's digest; without one, the project's repository
-at the version's tag. When a package's build fetches more source (CMake ExternalProject or
+at the version's tag. A package that carries compiled code whose build files the sdist leaves out
+also gets the repository at the tag: piper-tts's sdist has neither its CMakeLists.txt nor the C source
+of its espeak bridge. When a package's build fetches more source (CMake ExternalProject or
 FetchContent, as piper-tts does for espeak-ng), that is fetched too, at the commit the build names.
 Anything that cannot be fetched stops the run: a release must not go out without it.
 
@@ -62,8 +64,14 @@ def gpl_distributions() -> List[Dict[str, str]]:
         facts = licence_facts(dist)
         if name and is_gpl(facts):
             found[name.lower()] = {"name": name, "version": str(dist.version),
-                                   "licence": "; ".join(facts), "home": _home_page(dist)}
+                                   "licence": "; ".join(facts), "home": _home_page(dist),
+                                   "compiled": "yes" if _compiled(dist) else ""}
     return [found[k] for k in sorted(found)]
+
+
+def _compiled(dist: metadata.Distribution) -> bool:
+    """Whether the installed distribution carries compiled code: an extension module or a library."""
+    return any(re.search(r"\.(?:so|pyd|dylib)(?:\.\d+)*$", str(f)) for f in (dist.files or []))
 
 
 def _home_page(dist: metadata.Distribution) -> str:
@@ -112,20 +120,36 @@ def pypi_sdist(name: str, version: str) -> Optional[Dict[str, str]]:
     return None
 
 
-def _build_files(archive: bytes, filename: str) -> List[str]:
-    """The CMake files inside a source archive."""
-    texts = []
+_CMAKE = ("CMakeLists.txt", ".cmake")
+_NATIVE = (".c", ".cc", ".cpp", ".cxx", ".pyx")
+
+
+def _members(archive: bytes, filename: str, suffixes: Tuple[str, ...]) -> List[Tuple[str, bytes]]:
+    """(name, content) of each file in a source archive whose name ends with one of `suffixes`."""
+    found: List[Tuple[str, bytes]] = []
     if filename.endswith(".zip"):
         with zipfile.ZipFile(io.BytesIO(archive)) as z:
-            for n in z.namelist():
-                if n.endswith(("CMakeLists.txt", ".cmake")):
-                    texts.append(z.read(n).decode("utf-8", "replace"))
+            found = [(n, z.read(n)) for n in z.namelist() if n.endswith(suffixes)]
     else:
         with tarfile.open(fileobj=io.BytesIO(archive)) as t:
-            for m in t.getmembers():
-                if m.isfile() and m.name.endswith(("CMakeLists.txt", ".cmake")):
-                    texts.append(t.extractfile(m).read().decode("utf-8", "replace"))
-    return texts
+            found = [(m.name, t.extractfile(m).read()) for m in t.getmembers()
+                     if m.isfile() and m.name.endswith(suffixes)]
+    return found
+
+
+def _build_files(archive: bytes, filename: str) -> List[str]:
+    """The CMake files inside a source archive."""
+    return [body.decode("utf-8", "replace") for _name, body in _members(archive, filename, _CMAKE)]
+
+
+def _tagged_archive(home: str, version: str) -> Tuple[bytes, str]:
+    """The project's repository at the version's tag (v<version>, else <version>), and its address."""
+    for url in [u for u in (github_archive(home, tag) for tag in (f"v{version}", version)) if u]:
+        try:
+            return _get(url), url
+        except Exception:
+            continue
+    raise ValueError(f"no tag v{version} / {version} at {home or 'an unknown home page'}")
 
 
 def fetch_all(out_dir: Path) -> int:
@@ -144,20 +168,22 @@ def fetch_all(out_dir: Path) -> int:
                     raise ValueError(f"{sdist['filename']} does not match PyPI's sha256")
                 filename, origin = sdist["filename"], sdist["url"]
             else:
-                tagged = [github_archive(pkg["home"], tag) for tag in (f"v{version}", version)]
-                body = filename = origin = None
-                for url in [u for u in tagged if u]:
-                    try:
-                        body, origin = _get(url), url
-                        break
-                    except Exception:
-                        continue
-                if body is None:
-                    raise ValueError(f"no sdist on PyPI and no tag v{version} / {version} at {pkg['home'] or 'an unknown home page'}")
+                try:
+                    body, origin = _tagged_archive(pkg["home"], version)
+                except ValueError as exc:
+                    raise ValueError(f"no sdist on PyPI and {exc}") from None
                 filename = f"{name}-{version}.tar.gz"
             (out_dir / filename).write_bytes(body)
             lines.append(f"- {name} {version} ({pkg['licence']}): `{filename}`, from {origin}")
-            for kind, source, ref in cmake_fetches("\n".join(_build_files(body, filename))):
+            build_files = _build_files(body, filename)
+            if sdist and pkg.get("compiled") and not _members(body, filename, _CMAKE + _NATIVE):
+                repo_body, repo_url = _tagged_archive(pkg["home"], version)
+                repo_name = f"{name}-{version}-repository.tar.gz"
+                (out_dir / repo_name).write_bytes(repo_body)
+                lines.append(f"  - the build files and C source of its compiled part, which the sdist leaves "
+                             f"out: `{repo_name}`, from {repo_url}")
+                build_files += _build_files(repo_body, repo_name)
+            for kind, source, ref in cmake_fetches("\n".join(build_files)):
                 url = source if kind == "url" else github_archive(source, ref)
                 if not url:
                     raise ValueError(f"its build fetches {source} {ref or '(no fixed commit)'}, which this cannot download")
