@@ -1683,11 +1683,15 @@ def get_settings():
 @app.post("/v1/settings", tags=["System"])
 def set_settings(req: SettingsUpdate, principal: Principal = Depends(require_admin)):
     """Apply settings (admin-only). Only allow-listed keys with valid coercion are written;
-    every change is recorded to the tamper-evident audit ledger."""
+    every change is recorded to the tamper-evident audit ledger. A key that is not written is
+    named in `refused` with the reason (it was dropped without a word, a GPU-layer count among
+    them), and `ok` is then false."""
     from eli.core import config as _cfg
-    applied = {}
+    applied, refused = {}, {}
     for k, v in (req.settings or {}).items():
         if k not in _SETTINGS_SCHEMA:
+            refused[k] = ("not one of the settings this endpoint writes; GET /v1/settings "
+                          "lists them")
             continue
         typ = _SETTINGS_SCHEMA[k][0]
         try:
@@ -1699,15 +1703,21 @@ def set_settings(req: SettingsUpdate, principal: Principal = Depends(require_adm
                 v = float(v)
             else:
                 v = str(v)
-        except Exception:
+        except (TypeError, ValueError):
+            refused[k] = f"{v!r} is not a {typ}"
             continue
-        _cfg.set(k, v)
+        if not _cfg.set(k, v):
+            refused[k] = "the settings file could not be written"
+            continue
         applied[k] = v
     if applied:
         _audit("settings_update", user_id=principal.user_id, action="UPDATE",
                subject=",".join(sorted(applied)), outcome="applied",
                payload={"applied": applied})
-    return {"ok": True, "applied": applied}
+    out = {"ok": not refused, "applied": applied, "refused": refused}
+    if refused:
+        out["error"] = "; ".join(f"{k}: {why}" for k, why in refused.items())
+    return out
 
 
 def _list_chat_models() -> list:

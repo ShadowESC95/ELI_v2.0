@@ -374,6 +374,19 @@ def test_settings_get_shape(tokenless_client):
     assert "values" in d
 
 
+def test_a_setting_the_endpoint_does_not_write_is_refused_with_the_reason(tokenless_client):
+    """POST /v1/settings dropped a key outside its curated list (a GPU-layer count among them) and a
+    value of the wrong type without a word, and answered ok with nothing applied."""
+    r = tokenless_client.post("/v1/settings", json={"settings": {
+        "n_gpu_layers": 20, "top_k": "many", "auto_save": True}})
+    d = r.json()
+    assert d["applied"] == {"auto_save": True}
+    assert set(d["refused"]) == {"n_gpu_layers", "top_k"}
+    assert "GET /v1/settings" in d["refused"]["n_gpu_layers"] and "int" in d["refused"]["top_k"]
+    assert d["ok"] is False and "n_gpu_layers" in d["error"]
+    assert tokenless_client.post("/v1/settings", json={"settings": {"auto_save": True}}).json()["ok"] is True
+
+
 def test_home_mesh_config_partial_update_preserves_other_fields(tokenless_client, monkeypatch):
     """POST /v1/home/mesh/config with only ONE field must not wipe the others.
     A full model_dump() splatted every default (node_name="", …) over the saved

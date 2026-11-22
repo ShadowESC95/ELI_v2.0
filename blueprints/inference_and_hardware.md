@@ -30,7 +30,9 @@ path is hardware-adaptive. Files in `eli/cognition/` and `eli/core/`.
   the setting's other variable names get the same value); otherwise the saved value. What
   `apply_env` wrote is recorded in `ELI_SETTINGS_PUBLISHED`, so its own copies are never taken
   for an export. A saved layer count is not written there (it applies per model); an exported
-  one holds until a count is set in the app. `load_plan.plan()` turns that into the load (below) and
+  one holds until a count is set in the app. A count saved without a source is the user's, and
+  one saved without naming its model (`config.set_gguf_n_gpu_layers`, the window's save) is
+  recorded for the model and context in force. `load_plan.plan()` turns that into the load (below) and
   `_build_with_plan` makes it. A load that still fails is planned again for the memory free at
   that moment, then on the processor (three attempts); a cache type llama.cpp refuses is planned
   again with the default cache; a GPU pack too old for the model hands over to the bundled

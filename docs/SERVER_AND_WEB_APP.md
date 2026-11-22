@@ -151,7 +151,7 @@ caller is admin, so the role column only bites once users are defined.
 | GET  | `/v1/capabilities` | viewer | The command catalogue (Commands tab) |
 | GET  | `/v1/system` | viewer | Measured GPU/CPU/RAM/model telemetry |
 | GET / POST | `/v1/net`, GET `/v1/net/egress` | viewer / admin | The internet switch and the outbound connections netguard allowed; flipping the switch (POST) is admin-only |
-| GET / POST | `/v1/settings` | viewer / admin | The curated settings and their schema; writing them |
+| GET / POST | `/v1/settings` | viewer / admin | The curated settings and their schema; writing them (a key it does not write, such as the GPU-layer count, comes back in `refused` with the reason) |
 | GET / POST | GET `/v1/models/installed`, POST `/v1/model` | viewer / admin | Installed chat models; switch and hot-reload |
 | GET / POST | GET `/v1/connect`, `/v1/connect/qr.svg`; POST `/v1/connect/port` | viewer / admin | Phone-connect URL, QR and firewall hint; the saved port |
 | GET  | `/v1/audit` | viewer | Tamper-evident (HMAC-SHA-256 chained) action trail + chain verification |

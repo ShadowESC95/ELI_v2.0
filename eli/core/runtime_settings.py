@@ -703,13 +703,18 @@ def save_settings(settings: Dict[str, Any]) -> None:
     existing, _ = _bring_up_to_date(existing)
     before = dict(existing)
 
-    # Apply caller updates
+    # A legacy key stands for its canonical one only where the caller gave that one no value: a dict
+    # of loaded settings carries both, the legacy one a copy of the value loaded, and folded in after
+    # the canonical one it wrote the old GPU-layer count over the new.
+    given = {k: v for k, v in settings.items() if k not in LEGACY_KEY_MIGRATIONS}
     for k, v in settings.items():
         if k in LEGACY_KEY_MIGRATIONS:
-            # If caller passed a legacy key, fold it silently
-            existing[LEGACY_KEY_MIGRATIONS[k]] = v
-        else:
-            existing[k] = v
+            given.setdefault(LEGACY_KEY_MIGRATIONS[k], v)
+    # A GPU-layer count given without its source is the caller's choice: only the tuner's count is a
+    # measurement, and the tuner says so (n_gpu_layers_source "tuner").
+    if "n_gpu_layers" in given and "n_gpu_layers_source" not in given:
+        given["n_gpu_layers_source"] = "user"
+    existing.update(given)
 
     existing = _portable_settings_for_storage(existing)
 
@@ -723,6 +728,10 @@ def save_settings(settings: Dict[str, Any]) -> None:
         except Exception:
             log.debug("suppressed exception", exc_info=True)
 
+    changed = _changed_by(given, before, existing)
+    if "n_gpu_layers" in changed:
+        _stamp_layer_count(given, existing, changed)
+
     settings_file.parent.mkdir(parents=True, exist_ok=True)
     # settings may hold secrets (broker passwords, tokens) — born-0600 atomic
     # write, never world-readable for any instant. See eli.core.secure_io.
@@ -734,9 +743,23 @@ def save_settings(settings: Dict[str, Any]) -> None:
     # swap in the settings did nothing; done without the order, every save removed or overwrote the
     # context, batch and model the operator had exported.
     try:
-        apply_env(dict(existing), changed=_changed_by(settings, before, existing))
+        apply_env(dict(existing), changed=changed)
     except Exception:
         log.debug("[SETTINGS] apply_env after save failed", exc_info=True)
+
+
+def _stamp_layer_count(given: Dict[str, Any], s: Dict[str, Any], changed: set) -> None:
+    """A GPU-layer count the user has just set (rule 1 of the order above apply_env) is for the model
+    in force, at the context in force (0, auto, records none), unless the caller named them:
+    pinned_gpu_layers_for_model applies a count only to the model it was set for, and a count saved
+    with no model (config.set_gguf_n_gpu_layers, the window's save) applied to none."""
+    live = _in_force(s, changed)
+    if not str(given.get("n_gpu_layers_model") or "").strip():
+        model = _model_choice(live)
+        if model:
+            s["n_gpu_layers_model"] = model_identity_key(model)
+    if "n_gpu_layers_ctx" not in given:
+        s["n_gpu_layers_ctx"] = _coerce_value("n_ctx", live.get("n_ctx") or 0) or 0
 
 
 def load_settings_from_disk() -> Dict[str, Any]:
@@ -877,7 +900,8 @@ def _resolve_gpu_split(s):
 # n_gpu_layers has no variable apply_env writes: the loader takes the saved count per model
 # (pinned_gpu_layers_for_model). An exported count governs every load (rule 2) until the user sets
 # a count in the app, which removes the exported variables (rule 1); a count the tuner measured
-# (n_gpu_layers_source "tuner") is not the user's.
+# (n_gpu_layers_source "tuner") is not the user's, and a count saved without a source is. A count
+# the user sets without naming its model is recorded for the model in force (_stamp_layer_count).
 _PUBLISHED_VAR = "ELI_SETTINGS_PUBLISHED"
 _ENV_LOCK = threading.RLock()
 
@@ -985,10 +1009,28 @@ def _env_values(s: Dict[str, Any]) -> Dict[str, Optional[str]]:
     out["ELI_GGUF_TENSOR_SPLIT"] = str(ts) if ts else None
     out["ELI_GGUF_MAIN_GPU"] = str(main_gpu) if ts and main_gpu not in (None, "") else None
     out["ELI_GGUF_SPLIT_MODE"] = str(sm) if ts and sm else None
-    model = str(next((s.get(k) for k in _MODEL_CHOICE_KEYS if s.get(k)), "") or "").strip()
+    model = _model_choice(s)
     if model:                       # an empty choice leaves the variable as it is
         out["ELI_GGUF_MODEL_PATH"] = model
     return out
+
+
+def _model_choice(s: Dict[str, Any]) -> str:
+    """The model settings `s` choose: the first of _MODEL_CHOICE_KEYS set."""
+    return str(next((s.get(k) for k in _MODEL_CHOICE_KEYS if s.get(k)), "") or "").strip()
+
+
+def _in_force(s: Dict[str, Any], changed=(), published: Optional[Dict[str, Optional[str]]] = None
+              ) -> Dict[str, Any]:
+    """Settings `s` with what governs each load setting (the order above): the operator's export over
+    the saved value, except where the user has just changed the setting (`changed`)."""
+    published = _published() if published is None else published
+    live = dict(s)
+    for key in _PUBLISHED_KEYS - set(changed or ()):
+        op = _operator_setting(key, published)
+        if op is not None:
+            live[key] = _coerce_value(key, op)
+    return live
 
 
 def _same_env_value(name: str, a: Optional[str], b: Optional[str]) -> bool:
@@ -1030,11 +1072,7 @@ def apply_env(settings=None, changed=()):
     changed = set(changed or ())
     with _ENV_LOCK:
         published = _published()
-        live = dict(s)                                  # the settings in force
-        for key in _PUBLISHED_KEYS - changed:
-            op = _operator_setting(key, published)
-            if op is not None:
-                live[key] = _coerce_value(key, op)
+        live = _in_force(s, changed, published)         # the settings in force
 
         def _write(name: str, value: Optional[str]) -> None:
             if value is None:

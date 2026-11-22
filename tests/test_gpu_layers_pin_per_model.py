@@ -131,6 +131,49 @@ def test_an_exported_layer_count_is_honoured_for_any_model(tmp_path, monkeypatch
     assert load_request("/m/a.gguf").n_gpu_layers is None
 
 
+def test_a_count_set_through_the_api_applies_to_the_model_in_force(tmp_path, monkeypatch):
+    """config.set_gguf_n_gpu_layers, or any save of a count that does not say for which model, saved
+    a count with no model recorded, which pinned_gpu_layers_for_model applies to none; and the
+    "tuner" source the last measurement left on the file made the new count a measurement too."""
+    from eli.core import config
+    from eli.cognition.gguf_inference import load_request
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(tmp_path / "settings.json"))
+    # every variable a save writes (apply_env) is put back as it was when the test ends
+    for var in set(_LAYER_VARS + rs._PUBLISHED_VARS + ("ELI_MODEL_PATH", "ELI_N_CTX")):
+        monkeypatch.setenv(var, "")
+        monkeypatch.delenv(var)
+    rs.save_settings({"model_path": "/m/a.gguf", "n_gpu_layers": 30, "n_gpu_layers_source": "tuner",
+                      "n_gpu_layers_model": "a.gguf", "n_gpu_layers_ctx": 4096})
+    assert load_request("/m/a.gguf").n_gpu_layers is None          # a measurement is not a pin
+    config.set_gguf_n_gpu_layers(12)
+    assert load_request("/m/a.gguf").n_gpu_layers == 12
+    assert rs.pinned_gpu_layers_for_model("/m/a.gguf", current_ctx=8192) == 12   # set at auto context
+    assert load_request("/m/b.gguf").n_gpu_layers is None          # for the model it was set with
+    monkeypatch.setenv("ELI_GGUF_MODEL_PATH", "/m/c.gguf")         # an exported model is the one in force
+    rs.update_settings(n_gpu_layers=9)
+    assert load_request("/m/c.gguf").n_gpu_layers == 9
+    assert load_request("/m/a.gguf").n_gpu_layers is None
+
+
+def test_a_new_count_saved_with_the_settings_it_was_loaded_with_is_kept(tmp_path, monkeypatch):
+    """load_settings() carries the legacy gpu_layers beside n_gpu_layers, a copy of the count
+    loaded; saving the dict back folded it in after the new count and wrote the old one over it
+    (the window's tuner saves this way, so its count was never kept)."""
+    import json
+    f = tmp_path / "settings.json"
+    f.write_text(json.dumps({"n_gpu_layers": 0, "model_path": "/m/a.gguf"}), encoding="utf-8")
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(f))
+    for var in set(_LAYER_VARS + rs._PUBLISHED_VARS + ("ELI_MODEL_PATH", "ELI_N_CTX")):
+        monkeypatch.setenv(var, "")
+        monkeypatch.delenv(var)
+    loaded = rs.load_settings()
+    loaded.update(n_gpu_layers=33, n_gpu_layers_source="tuner", n_gpu_layers_model="a.gguf")
+    rs.save_settings(loaded)
+    assert json.loads(f.read_text())["n_gpu_layers"] == 33
+    rs.save_settings({"gpu_layers": 5})                 # a legacy key on its own still stands for it
+    assert json.loads(f.read_text())["n_gpu_layers"] == 5
+
+
 def test_a_count_set_in_the_app_takes_over_from_the_exported_one(tmp_path, monkeypatch):
     from eli.cognition.gguf_inference import load_request
     monkeypatch.setenv("ELI_SETTINGS_FILE", str(tmp_path / "settings.json"))
