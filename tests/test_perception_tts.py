@@ -224,7 +224,7 @@ def test_run_tts_speaks_more_than_three_chunks(monkeypatch):
 
     text = "One short sentence. " * 12
 
-    assert _run_tts(text, voice_name="test-voice") is True
+    assert _run_tts(text, voice_name="test-voice")
     assert len(spoken) > 3
 
 
@@ -361,3 +361,179 @@ def test_the_speaking_lock_is_held_for_the_whole_reply(tmp_path, monkeypatch):
     assert tr._run_tts("hello there", voice_name="any") is True
     assert seen == [str(os.getpid())] and not lock.exists()
 
+
+# ── Playback goes through the desktop's sound server ─────────────────────────
+def _tone_wav(path, rate=22050):
+    import wave
+    import numpy as np
+    t = np.arange(rate // 2) / rate
+    with wave.open(str(path), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(rate)
+        f.writeframes((np.sin(2 * np.pi * 220 * t) * 12000).astype("<i2").tobytes())
+    return path
+
+
+def _portaudio(monkeypatch, devices, default_output=0, refuse=()):
+    """A stand-in sounddevice listing `devices`; streams opened are recorded, none plays."""
+    import sys
+    import types
+
+    class PortAudioError(Exception):
+        pass
+
+    opened = []
+
+    class _Stream:
+        def __init__(self, samplerate, channels, callback, device=None):
+            name = devices[default_output if device is None else device]["name"]
+            opened.append(name)
+            if name in refuse:
+                raise PortAudioError("Error opening OutputStream: Device unavailable [PaErrorCode -9985]")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def query_devices(device=None, kind=None):
+        if kind == "output":
+            return devices[default_output]
+        return devices[device] if device is not None else list(devices)
+
+    fake = types.SimpleNamespace(OutputStream=_Stream, PortAudioError=PortAudioError, CallbackStop=Exception,
+                                 query_devices=query_devices, query_hostapis=lambda: [{"name": "ALSA"}],
+                                 sleep=lambda ms: None)
+    monkeypatch.setitem(sys.modules, "sounddevice", fake)
+    return opened
+
+
+def _dev(name, out=2):
+    return {"name": name, "max_output_channels": out, "max_input_channels": 0,
+            "default_samplerate": 48000.0, "hostapi": 0}
+
+
+_CARDS_ONLY = [_dev("HDA Intel PCH: ALC1220 Analog (hw:0,0)", 6), _dev("HDA Intel PCH: ALC1220 Digital (hw:0,1)"),
+               _dev("HDA NVidia: HDMI 0 (hw:1,3)", 8)]
+
+
+def _player(monkeypatch, name="pw-play", amplitudes=None):
+    """The system player stand-in: says which player played, plays nothing; meanwhile the
+    lip-sync amplitude is recorded."""
+    import time
+    from eli.perception import tts_router
+    from eli.cognition import expression_state
+    played = []
+    if amplitudes is not None:
+        monkeypatch.setattr(expression_state, "set_amplitude", lambda v: amplitudes.append(float(v)))
+
+    def _play(path, post_play_tail=None):
+        played.append(str(path))
+        time.sleep(0.15)                    # the player's own time: lip-sync runs meanwhile
+        return name
+    monkeypatch.setattr(tts_router, "_platform_play_wav", _play)
+    return played
+
+
+def test_speech_never_opens_a_sound_card_the_sound_server_holds(tmp_path, monkeypatch):
+    """The AppImage's PortAudio listed only the cards, its default the raw "hw:0,0" PipeWire holds:
+    opening it failed with "Device unavailable" while music played, and took the voice silently
+    otherwise, while the log said every reply was spoken. With no device of the server's listed,
+    the system player plays, through the server, and the voice's loudness still drives lip-sync."""
+    from eli.perception import tts_router
+    from eli.utils import platform_compat
+    monkeypatch.setattr(platform_compat, "sound_server", lambda: "pipewire")
+    opened = _portaudio(monkeypatch, _CARDS_ONLY)
+    amps = []
+    played = _player(monkeypatch, "pw-play", amps)
+
+    result = tts_router._play_wav_blocking(_tone_wav(tmp_path / "v.wav"), post_play_tail=0)
+
+    assert opened == [], f"a sound card the server holds was opened: {opened}"
+    assert result and played
+    assert "pw-play" in result.via
+    assert max(amps) > 0.1 and amps[-1] == 0.0, "lip-sync got no loudness from the samples"
+    assert tts_router.last_playback()["via"] == result.via
+
+
+def test_speech_plays_on_the_sound_servers_own_portaudio_device(tmp_path, monkeypatch):
+    from eli.perception import tts_router
+    from eli.utils import platform_compat
+    monkeypatch.setattr(platform_compat, "sound_server", lambda: "pipewire")
+    devices = _CARDS_ONLY + [_dev("sysdefault", 128), _dev("pulse", 32), _dev("pipewire", 64), _dev("default", 64)]
+    opened = _portaudio(monkeypatch, devices)
+    played = _player(monkeypatch)
+
+    result = tts_router._play_wav_blocking(_tone_wav(tmp_path / "v.wav"), post_play_tail=0)
+
+    assert opened == ["pipewire"] and not played
+    assert result and "pipewire" in result.via
+
+
+def test_a_refused_server_device_falls_to_the_system_player_and_says_so(tmp_path, monkeypatch):
+    from eli.perception import tts_router
+    from eli.utils import platform_compat
+    monkeypatch.setattr(platform_compat, "sound_server", lambda: "pulseaudio")
+    opened = _portaudio(monkeypatch, _CARDS_ONLY + [_dev("pulse", 32)], refuse=("pulse",))
+    played = _player(monkeypatch, "paplay")
+
+    result = tts_router._play_wav_blocking(_tone_wav(tmp_path / "v.wav"), post_play_tail=0)
+
+    assert opened == ["pulse"] and played
+    assert result and "paplay" in result.via and "Device unavailable" in result.detail
+
+
+def test_speech_that_could_not_be_played_is_reported_as_not_played(tmp_path, monkeypatch, caplog):
+    """The log said "[TTS_FINAL_PIPER_ONLY] voice=… bytes=…" for every reply, heard or not."""
+    import logging
+    from eli.perception import tts_router
+    from eli.utils import platform_compat
+    monkeypatch.setattr(platform_compat, "sound_server", lambda: "pipewire")
+    _portaudio(monkeypatch, _CARDS_ONLY)
+    _player(monkeypatch, "")
+    wav = _tone_wav(tmp_path / "v.wav")
+
+    result = tts_router._play_wav_blocking(wav, post_play_tail=0)
+    assert not result and "no system player" in result.detail
+    with caplog.at_level(logging.WARNING, logger=tts_router.log.name):
+        tts_router._log_played("[TTS_FINAL_PIPER_ONLY] voice=v", 1234, result)
+    assert "NOT played" in caplog.text and "no system player" in caplog.text
+
+    monkeypatch.setattr(tts_router, "_eli_tts_is_unspeakable", lambda text: False)
+    monkeypatch.setattr(tts_router, "_speak_piper_cli", lambda chunk, voice=None: result)
+    said = tts_router.speak_text("A reply that was never heard.")
+    assert said["ok"] is False and "no system player" in said["error"]
+
+
+def test_without_a_sound_server_portaudio_plays_on_its_default(tmp_path, monkeypatch):
+    from eli.perception import tts_router
+    from eli.utils import platform_compat
+    monkeypatch.setattr(platform_compat, "sound_server", lambda: "")
+    opened = _portaudio(monkeypatch, _CARDS_ONLY + [_dev("default", 64)], default_output=3)
+    _player(monkeypatch)
+    result = tts_router._play_wav_blocking(_tone_wav(tmp_path / "v.wav"), post_play_tail=0)
+    assert opened == ["default"] and result
+
+
+def test_the_sound_server_is_the_socket_a_client_would_reach(tmp_path, monkeypatch):
+    """A session variable that names a socket which is not there is no server (the test run's own
+    dead PULSE_SERVER / PIPEWIRE_REMOTE)."""
+    import socket
+    from eli.utils import platform_compat as pc
+    if not pc.LINUX:
+        pytest.skip("Linux sound servers")
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("PIPEWIRE_REMOTE", str(tmp_path / "gone"))
+    monkeypatch.setenv("PULSE_SERVER", "unix:" + str(tmp_path / "gone-too"))
+    assert pc.sound_server() == ""
+    s = socket.socket(socket.AF_UNIX)
+    try:
+        s.bind(str(tmp_path / "pipewire-0"))
+        monkeypatch.delenv("PIPEWIRE_REMOTE")
+        assert pc.sound_server() == "pipewire"
+        monkeypatch.setattr(pc.shutil, "which", lambda name: f"/usr/bin/{name}")
+        assert [p.rsplit("/", 1)[-1] for p in pc.wav_player_candidates()] == ["pw-play", "paplay", "aplay"]
+    finally:
+        s.close()

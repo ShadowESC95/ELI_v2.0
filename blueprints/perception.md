@@ -243,7 +243,8 @@ Decides the emotion ELI **expresses** and drives three output channels at once.
 The procedural face reacts in real time to what ELI is *doing*, via three cheap flags
 in `expression_state` (priority: thinking > speaking > tone):
 - **Lip-sync** — the mouth animates while TTS plays (`tts_router._run_tts` sets the
-  `speaking` flag; amplitude-driven when available, else a natural talk oscillation).
+  `speaking` flag; amplitude-driven from the voice's samples, by the PortAudio callback or a
+  timer beside the system player).
 - **Thinking look** — a focused/reflective face while the model generates (the GUI sets
   `thinking` around `is_generating`).
 - Otherwise it shows the current expressed tone. Pure-Qt, embedded in the world panel.
@@ -308,6 +309,16 @@ enable it in a source install with `pip install -e ".[natural]"` (from the ELI p
 router now passes tuned `--sentence_silence` / `--length_scale` / `--noise_scale` /
 `--noise_w` (`_piper_prosody_args()`, env-overridable, `ELI_TTS_PROSODY=0` to disable) so
 `?`/`!`/`.` land as intonation and pauses — the "Amy sounds flat" fix.
+
+*Where speech plays.* Through the desktop's sound server wherever one runs
+(`platform_compat.sound_server()`: PipeWire or PulseAudio found by the socket a client would
+reach; the system mixer on Windows and macOS). `tts_router._play_wav_blocking` opens a PortAudio
+stream only on the server's own ALSA device (`pipewire`, `pulse`; on Windows anything but
+WDM-KS), never a raw card the server holds; with none listed (a bundle whose PortAudio sees only
+the cards) the system player plays (`pw-play`, `paplay`, then `aplay`), and lip-sync takes the
+voice's loudness from the samples on a timer. Each part logs where it played or `NOT played`
+with the reason; `last_playback()`, the `SPEAK` reply, the voice test and the speech diagnostics
+say the same.
 
 *No robotic voices.* `list_voices()` hides the espeak `sys:` voices and Piper `low`/`x_low`
 tiers by default (they sound synthetic), surfacing them only as a genuine last resort when

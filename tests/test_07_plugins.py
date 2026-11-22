@@ -72,6 +72,7 @@ def test_a_builtin_plugin_shadowed_by_elis_own_action_runs_that_action(monkeypat
     action now: one implementation per action."""
     import eli.perception.tts_router as tts_router
     monkeypatch.setattr(tts_router, "maybe_speak", lambda text, enabled=True: None)
+    monkeypatch.setattr(tts_router, "speak_text", lambda text, **kw: {"ok": True, "played_through": "a stand-in"})
     try:  # nothing in a test may speak aloud: the old tts plugin spoke through pyttsx3
         import pyttsx3
         monkeypatch.setattr(pyttsx3, "init", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("no speech")))

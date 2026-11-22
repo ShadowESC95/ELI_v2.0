@@ -200,7 +200,7 @@ These five pass the message to `grounded_remediation.try_handle_query`.
 | `TRANSCRIBE` | Transcribe an audio file, or one utterance from the microphone (up to 30 s, ends after 1.2 s of silence), with faster-whisper `small` on the CPU. Reached by "transcribe X" or "make a transcript of X"; a sentence that only mentions a transcript is not a request. |
 | `LISTEN_FOR_COMMAND` | One-shot listen (5 s by default). |
 | `STT_DIAGNOSTICS` = `VOICE_DIAGNOSTICS` | The voice pipeline's state: speech-recognition import, wake word (on/off, trained, phrase), Whisper cache/model/device, output and media ducking, and the TTS backends (Piper, espeak-ng, espeak). |
-| `SPEAK` | Speak text through `tts_router` (Piper, espeak fallback). |
+| `SPEAK` | Speak text through `tts_router` (Piper, espeak fallback); the reply says where it was played, or that it was not. |
 | `LIST_VOICES`, `SET_VOICE`, `DOWNLOAD_VOICE` | Installed and character voices with a count of downloadable ones / switch to an installed voice / fetch a Piper voice by accent or name (MD5-checked, network-gated) and make it active. |
 | `DESIGN_VOICE`, `CREATE_VOICE` | A named character voice (`char:<name>`): a base voice with pitch (−6..+6 semitones) and speed (0.5–1.5) / a cloned voice (`clone:<name>`) from an audio clip, sounding like the sample once the neural voice extra is installed. |
 | `WAKE_TRAIN`, `WAKE_ENROLL`, `WAKE_SET`, `TRAIN_VOICE` | Train the local wake-word model from Piper-synthesised samples mixed with noise / record the user saying it and retrain / change the wake phrase and train on it in the background / learn the user's voice baseline (pitch, energy, rate) for tone detection. |
@@ -450,7 +450,7 @@ The thinking layer: agents, orchestration, inference, persona, reasoning, govern
 |---|---|---|
 | `audio_stt.py` | 2487 | faster-whisper STT + VoiceGate (wake-word, debounce, incomplete-command wait), self-echo suppression, output ducking, per-user voice profile bias. |
 | `vision.py` | 713 | Local GGUF VL (Moondream fast / primary), hot-swap with text model, CPU-pinned CLIP, OCR. |
-| `tts_router.py` | 1368 | Piper/espeak TTS, voice selection, unspeakable-fragment guard; plays at the device's own rate when it refuses the voice's. |
+| `tts_router.py` | 1512 | Piper/espeak TTS, voice selection, unspeakable-fragment guard; plays through the sound server (never a card it holds), at the device's own rate when it refuses the voice's. |
 | `audio_samples.py` | 74 | A sound file as one channel of float32 samples at the rate a consumer needs (speech input, playback, the wake word, the voice profile): PCM WAV read with the standard library, other formats with soundfile. |
 | `os_controller.py` | 673 | Screenshot/volume/keys/mouse/clipboard + `gaze_click`. |
 | `screen_locator.py` | 497 | OCR (tesseract) → locate a named UI element on screen. |

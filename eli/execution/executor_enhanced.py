@@ -793,6 +793,15 @@ def _import_audit_report() -> Dict[str, Any]:
         entries.append({'module': mod, 'status': status, 'error': error, 'suggested_fix': fix})
     return {'ok': True, 'entries': entries}
 
+def _played_line(last: dict) -> str:
+    """The speech diagnostics' line on the last playback (tts_router.last_playback)."""
+    if not last:
+        return "nothing played yet"
+    if last.get("ok"):
+        return f"played through {last.get('via') or 'an unnamed route'}"
+    return f"NOT played ({last.get('detail') or 'playback failed'})"
+
+
 def _format_import_audit(report: Dict[str, Any]) -> str:
     lines = []
     for entry in report.get('entries', []):
@@ -8973,7 +8982,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 f"model: {wh.get('model', '?')} device: {wh.get('device_configured', '?')}",
                 f"STT — output duck: {'✅' if combined.get('wake_duck_enabled') else 'off'} "
                 f"media pause duck: {'✅' if combined.get('media_duck_enabled') else 'off'}",
-                f"TTS — piper: {'✅' if tts.get('piper_bin') else '❌'} model: {'✅' if tts.get('piper_model') else '❌'}",
+                f"TTS — piper: {'✅' if tts.get('piper_bin') else '❌'} model: {'✅' if tts.get('active_model') else '❌'}",
+                "TTS — last speech: " + _played_line(tts.get("last_playback") or {}),
                 f"TTS — espeak-ng: {'✅' if tts.get('espeak_ng') else '❌'}",
                 f"TTS — espeak: {'✅' if tts.get('espeak') else '❌'}",
             ]
@@ -11258,10 +11268,17 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             if not text:
                 return {"ok": False, "action": a, "error": "No text to speak",
                         "content": "Provide text to speak.", "response": "Provide text to speak."}
-            from eli.perception.tts_router import maybe_speak
-            maybe_speak(text, enabled=True)
-            msg = f"Speaking: {text[:80]}"
-            return {"ok": True, "action": a, "content": msg, "response": msg}
+            from eli.perception.tts_router import speak_text
+            # The reply says what happened to the words: where they were played, or that they were not.
+            # "Speaking: ..." was said before playback began, and stayed true-looking when nothing was heard.
+            r = speak_text(text) or {}
+            if r.get("ok"):
+                msg = f"Said aloud through {r.get('played_through') or 'the speakers'}: {text[:80]}"
+                return {"ok": True, "action": a, "content": msg, "response": msg,
+                        "played_through": r.get("played_through", "")}
+            why = r.get("error") or "the speech could not be played"
+            msg = f"Not said aloud: {why}."
+            return {"ok": False, "action": a, "error": why, "content": msg, "response": msg}
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 

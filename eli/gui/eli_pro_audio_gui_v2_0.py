@@ -8131,9 +8131,11 @@ class EliMainWindow(QMainWindow):
     def _test_tts_voice(self):
         try:
             from eli.perception.tts_router import speak_text
-            speak_text("Voice test complete. STT and TTS are wired.")
+            r = speak_text("Voice test complete. STT and TTS are wired.") or {}
+            note = (f"played through {r.get('played_through') or 'an unnamed route'}" if r.get("ok")
+                    else f"NOT played: {r.get('error') or 'playback failed'}")
             self._tts_diag_label.setText(
-                self._tts_diag_label.text() + "\n\n[Test] sent 'Voice test complete' to TTS."
+                self._tts_diag_label.text() + f"\n\n[Test] 'Voice test complete' {note}."
             )
         except Exception as ex:
             QMessageBox.warning(self, "TTS test failed", str(ex))

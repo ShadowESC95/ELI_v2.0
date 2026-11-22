@@ -38,22 +38,31 @@ def test_web_search_uses_mocked_fetch_not_real_network(monkeypatch):
 
 
 def test_speak_uses_mocked_tts_not_real_audio(monkeypatch):
+    """SPEAK says where the words were played, or that they were not: "Speaking: ..." was the reply
+    before playback began, also when nothing was heard."""
     calls = []
 
     import eli.perception.tts_router as tts_router
 
-    def fake_maybe_speak(text, enabled=True):
-        calls.append({"text": text, "enabled": enabled})
-        return None
+    def fake_speak_text(text, **_kw):
+        calls.append(text)
+        return {"ok": True, "played_through": "PortAudio 'pipewire' (pipewire)", "error": ""}
 
-    monkeypatch.setattr(tts_router, "maybe_speak", fake_maybe_speak)
+    monkeypatch.setattr(tts_router, "speak_text", fake_speak_text)
 
     ex = _executor()
     result = ex.execute("SPEAK", {"text": "side effect gate test"})
 
     assert isinstance(result, dict)
     assert result.get("ok") is True
-    assert calls == [{"text": "side effect gate test", "enabled": True}]
+    assert calls == ["side effect gate test"]
+    assert "PortAudio 'pipewire'" in result["response"]
+
+    monkeypatch.setattr(tts_router, "speak_text",
+                        lambda text, **_kw: {"ok": False, "played_through": "", "error": "no system player could play it"})
+    failed = ex.execute("SPEAK", {"text": "side effect gate test"})
+    assert failed.get("ok") is False
+    assert "no system player could play it" in failed["response"]
 
 
 def test_smart_home_with_no_devices_is_honest(monkeypatch):

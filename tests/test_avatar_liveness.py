@@ -116,7 +116,7 @@ def test_a_device_that_refuses_the_voices_rate_gets_it_resampled(tmp_path, monke
         pass
 
     class _Stream:
-        def __init__(self, samplerate, channels, callback):
+        def __init__(self, samplerate, channels, callback, device=None):
             opened.append(samplerate)
             if samplerate != 48000:
                 raise PortAudioError("Invalid sample rate")
@@ -134,6 +134,8 @@ def test_a_device_that_refuses_the_voices_rate_gets_it_resampled(tmp_path, monke
 
     def _no_fallback(*a, **k):
         raise AssertionError("fell back to the system player")
-    monkeypatch.setattr(tts_router, "_platform_play_wav_blocking", _no_fallback)
-    assert tts_router._play_wav_blocking(str(path), post_play_tail=0) is True
+    monkeypatch.setattr(tts_router, "_platform_play_wav", _no_fallback)
+    from eli.utils import platform_compat
+    monkeypatch.setattr(platform_compat, "sound_server", lambda: "")   # nothing holds the cards
+    assert tts_router._play_wav_blocking(str(path), post_play_tail=0)
     assert opened == [48000]
