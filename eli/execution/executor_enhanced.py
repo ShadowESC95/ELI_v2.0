@@ -11548,7 +11548,9 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                 msg = ("No devices set up yet — add them in the Home tab of ELI's web app "
                        "(ELI's own MQTT device server).")
                 return {"ok": False, "action": a, "error": "no_devices", "content": msg, "response": msg}
-            target = resolve_spoken_target(device or spoken, devs, srv.rooms())
+            # The scene the router found by its registered name (device_server.named_in_registry)
+            target = ({"kind": "scene", "scene": str(args["scene"])} if args.get("scene")
+                      else resolve_spoken_target(device or spoken, devs, srv.rooms()))
             if target["kind"] is None and not target.get("choices"):
                 _scene = resolve_spoken_target(device or spoken, [], [], srv.list_scenes())
                 if _scene["kind"] == "scene":

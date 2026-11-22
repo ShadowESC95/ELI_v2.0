@@ -9081,6 +9081,19 @@ try:
             def _stage_identity_contract(text, *_a, **_k):
                 return _eli_phase38_identity_contract(text)
 
+            def _stage_smart_home_names(text, *_a, **_k):
+                """A scene, device or room of ELI's own smart-home registry, named as all the request
+                names (device_server.named_in_registry): "activate movie mode" focused an app called
+                "movie mode", "start movie night" opened one, and "movie mode" alone went to chat."""
+                from eli.runtime.device_server import named_in_registry
+                said = str(text or "").strip()
+                hit = named_in_registry(said)
+                if hit is None:
+                    return None
+                arg = "scene" if hit["kind"] == "scene" else "device"
+                return _mk("SMART_HOME", {"command": said, "text": said, arg: hit["name"]}, 0.95,
+                           matched_by=f"smart_home.{hit['kind']}_by_name", entities={arg: hit["name"]})
+
             def _stage_set_user_name(text, *_a, **_k):
                 import re as _re
                 low = _re.sub(r"\s+", " ", str(text or "").lower()).strip()
@@ -9356,6 +9369,9 @@ try:
                 ("personal_memory_pre_route", _stage_personal_memory_pre_route),
                 ("lrf_pre_route", _stage_lrf_pre_route),
                 ("resume_task_pre_route", _stage_resume_task_pre_route),
+                # a name from the smart-home registry is the user's own: before the app rules take
+                # "start movie night" for an app to open
+                ("smart_home_names", _stage_smart_home_names),
                 # set_user_name runs before portable_route so "call me Alex" / "my name is X" aren't taken for
                 # media-play requests by portable_intent_contract. multi_command_prepass runs first so a chained
                 # utterance is split and each command routed on its own.

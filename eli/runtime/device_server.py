@@ -147,11 +147,60 @@ def resolve_spoken_target(text: Any, devices: List[Dict[str, Any]], rooms: List[
     return {"kind": None, "choices": [_label(d) for d in part]}
 
 
-def _registry_path() -> Path:
+def _devices_folder() -> Path:
     from eli.core.paths import get_paths
-    p = Path(get_paths().artifacts_dir) / "devices"
+    return Path(get_paths().artifacts_dir) / "devices"
+
+
+def _registry_path() -> Path:
+    p = _devices_folder()
     p.mkdir(parents=True, exist_ok=True)
     return p / "registry.json"
+
+
+def has_registry() -> bool:
+    """Whether ELI's smart-home registry holds a device or a scene, looked at without creating its
+    folder or starting the device server."""
+    folder = _devices_folder()
+    return (folder / "registry.json").is_file() or (folder / "scenes.json").is_file()
+
+
+# The words a request to the home says besides what it names: who it is said to, the verb that
+# starts a scene or switches a device, "on"/"off", and the articles. "play" is not one: "play jazz
+# evening" is music, whatever a scene is called.
+_REQUEST_WORDS = frozenset(
+    "please eli hey ok okay now can could would will you the my our a an this that scene "
+    "activate start run trigger enable launch begin set go switch turn put power toggle to into on off".split())
+
+
+def named_in_registry(text: Any) -> Optional[Dict[str, Any]]:
+    """What a request to the home names from ELI's own registry, when that is all it names: a scene
+    to start, said alone or after a verb that starts it ("movie night", "activate movie night", "turn
+    on the movie night scene"), or a device or room by its registered name with on or off ("turn off
+    the aquarium"). {"kind": "scene" | "device" | "room", "name": the registry's name}, or None when
+    it names nothing registered or says more than that. The smart-home rules knew device words only
+    ("lights", "lamp"), so a scene ran only after "smart home"."""
+    if not has_registry():
+        return None
+    said = [w for w in _spoken_words(text) if w not in _REQUEST_WORDS]
+    if not said:
+        return None
+
+    def _named(name: Any) -> bool:
+        words = [w for w in _spoken_words(name) if w not in _REQUEST_WORDS]
+        return bool(words) and words == said
+
+    srv = get_server()
+    scene = next((s for s in srv.list_scenes() if _named(s.get("name"))), None)
+    if scene:
+        return {"kind": "scene", "name": str(scene.get("name"))}
+    if parse_spoken_command(text)[0] not in ("on", "off", "toggle"):
+        return None
+    for d in srv.list_devices():
+        if any(_named(d.get(k)) for k in ("display_name", "custom_name", "name")):
+            return {"kind": "device", "name": str(d.get("display_name") or d.get("name") or d.get("id"))}
+    room = next((r.get("room") for r in srv.rooms() if r.get("room") != "Unassigned" and _named(r.get("room"))), None)
+    return {"kind": "room", "name": str(room)} if room else None
 
 
 def _cfg() -> Dict[str, Any]:

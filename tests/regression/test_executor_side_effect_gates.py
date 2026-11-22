@@ -189,6 +189,53 @@ def test_smart_home_reads_the_device_from_what_was_said(monkeypatch, said, expec
     assert srv.calls == expected
 
 
+class _HomeWithAnAquarium(_HomeSrv):
+    """A switch named with no device word in it."""
+
+    def list_devices(self):
+        return super().list_devices() + [{"id": "tank-1", "name": "Aquarium", "type": "switch", "room": "Lounge",
+                                          "command_topic": "h/a"}]
+
+
+@pytest.mark.parametrize("said,expected", [
+    ("activate movie night", [("scene", "Movie Night", None)]),
+    ("movie night", [("scene", "Movie Night", None)]),
+    ("start movie night", [("scene", "Movie Night", None)]),
+    ("turn on the movie night scene", [("scene", "Movie Night", None)]),
+    ("turn off the aquarium", [("tank-1", "off", None)]),
+])
+def test_a_scene_or_device_is_reached_by_the_name_the_registry_gives_it(monkeypatch, said, expected):
+    """"activate movie mode" focused an app called "movie mode" and "movie mode" alone went to chat: a
+    scene ran only after "smart home". The names are the registry's own (device_server.named_in_registry)."""
+    import eli.runtime.device_server as ds
+    from eli.execution.router_enhanced import route
+    srv = _HomeWithAnAquarium()
+    monkeypatch.setattr(ds, "get_server", lambda: srv)
+    monkeypatch.setattr(ds, "has_registry", lambda: True)
+    routed = route(said)
+    assert routed["action"] == "SMART_HOME", routed
+    result = _executor().execute("SMART_HOME", routed["args"])
+    assert result.get("ok") is True, result
+    assert srv.calls == expected
+
+
+@pytest.mark.parametrize("said", ["play movie night", "what is movie night", "movie"])
+def test_a_registered_name_inside_something_else_is_not_a_smart_home_request(monkeypatch, said):
+    import eli.runtime.device_server as ds
+    from eli.execution.router_enhanced import route
+    monkeypatch.setattr(ds, "get_server", lambda: _HomeWithAnAquarium())
+    monkeypatch.setattr(ds, "has_registry", lambda: True)
+    assert route(said)["action"] != "SMART_HOME"
+
+
+def test_with_no_registry_no_name_is_taken_for_a_scene(monkeypatch):
+    import eli.runtime.device_server as ds
+    from eli.execution.router_enhanced import route
+    monkeypatch.setattr(ds, "has_registry", lambda: False)
+    monkeypatch.setattr(ds, "get_server", lambda: pytest.fail("the device server was started to route a message"))
+    assert route("movie night")["action"] != "SMART_HOME"
+
+
 def test_pomodoro_start_stop_uses_temp_config_dir(monkeypatch, tmp_path):
     import eli.core.paths as paths
 

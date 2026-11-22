@@ -815,8 +815,11 @@ no cloud:
   Asking in chat works too: "turn on the desk lamp", "turn the lights off in the kitchen" (the
   kitchen's lights, not its other devices), "dim the hall light to 30%", "smart home movie mode".
   ELI finds the device, room or scene by the name you gave it, and asks which one when a name fits
-  more than one.
-- **Scenes** — save a set of device states as "Movie mode" and activate it from the Home tab.
+  more than one. A name from your Home tab works on its own too: "turn off the aquarium" for a
+  device called Aquarium, and "movie mode", "activate movie mode" or "start movie mode" for a scene
+  called Movie mode ("play …" stays music).
+- **Scenes** — save a set of device states as "Movie mode" and activate it from the Home tab, or
+  by its name in chat.
 - **Automations** — *when* something happens (a time, **sunrise/sunset**, or a device turning on/off),
   *do* something (control a device or run a scene), optionally *only if* a condition holds.
 - ELI **learns** how you use your home and **suggests** automations you can accept with one tap.

@@ -90,7 +90,7 @@ _add("App & window control", "NEXT_WINDOW", "Switch to the next window", "“nex
 _add("App & window control", "PREVIOUS_WINDOW", "Switch to the previous window", "“previous window”")
 _add("App & window control", "RESTORE_WINDOWS", "Restore minimised windows", "“restore windows”")
 _add("App & window control", "SWITCH_WORKSPACE", "Move one workspace left or right, or go to a workspace by its number (Linux; elsewhere it says it can only step left or right)", "“switch workspace 2”", "“workspace left”")
-_add("App & window control", "SMART_HOME", "Control smart-home devices", "“turn off the lights”")
+_add("App & window control", "SMART_HOME", "Control smart-home devices, rooms and scenes: by a device word, or by the name the Home tab registry gives a device, room or scene (“turn off the aquarium”, “activate movie mode”)", "“turn off the lights”")
 _add("App & window control", "CONFIRM_PENDING_REMEDIATION", "Approve a pending fix/install offer", "“yes” (to an “install X?” offer)")
 _add("App & window control", "CANCEL_PENDING_REMEDIATION", "Decline a pending fix/install offer", "“no” (to an “install X?” offer)")
 
