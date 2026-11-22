@@ -957,6 +957,15 @@ _LOADING = threading.RLock()
 _HANDING_OVER = threading.Lock()
 _unloads = 0
 
+# The steps a stream takes into llama.cpp, counted. An unload marks the model gone, waits for the steps
+# under way to come out (the abort callback ends a generation at its next token) and only then frees
+# it; a stream that began before the unload stops at its next step. At shutdown the window's thread
+# freed the model while another thread was still reading a background stream (the coding agent's):
+# llama_context::n_ctx() on freed memory, SIGSEGV. The call lock alone did not keep them apart: it
+# belongs to the thread that started the stream, which need not be the one reading it.
+_STREAM_STEPS = threading.Condition()
+_stream_steps_in_native = 0
+
 
 def load_model(force_reload: bool = False, *, request=None):
     """The loaded model, loading it if needed: the configured model, or `request`
@@ -1592,6 +1601,7 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                 _acquire_lock_fg_priority()
                 try:
                     _resume()
+                    _model_of_this_stream = _unloads
                     response = llm(
                         full_prompt,
                         temperature=temperature,
@@ -1609,8 +1619,22 @@ def _safe_invoke_llm(llm, full_prompt: str, *, temperature, max_tokens, top_p, t
                     raise
 
                 def _locked_stream():
+                    global _stream_steps_in_native
+                    steps = iter(response)
                     try:
-                        for item in response:
+                        while True:
+                            with _STREAM_STEPS:
+                                if _unloads != _model_of_this_stream:
+                                    return          # unloaded under this stream: no step into freed memory
+                                _stream_steps_in_native += 1
+                            try:
+                                item = next(steps)
+                            except StopIteration:
+                                return
+                            finally:
+                                with _STREAM_STEPS:
+                                    _stream_steps_in_native -= 1
+                                    _STREAM_STEPS.notify_all()
                             yield item
                     finally:
                         _safe_release()
@@ -2280,9 +2304,12 @@ def unload_model() -> None:
     global _llm, _load_failed, _last_error, _unloads
     with _LLM_CALL_LOCK:
         forget_saved_states()
-        with _HANDING_OVER:
+        with _HANDING_OVER, _STREAM_STEPS:
             _unloads += 1
             closing, _llm = _llm, None
+        with _STREAM_STEPS:
+            while _stream_steps_in_native:
+                _STREAM_STEPS.wait()
         if closing is not None:
             try:
                 closing.close()

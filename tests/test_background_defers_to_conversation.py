@@ -145,3 +145,64 @@ def test_a_job_someone_asked_for_waits_and_is_not_told_nothing(monkeypatch):
     finally:
         gi.set_job_inference(False)
         gi.set_background_inference(False)
+
+
+def test_an_unload_never_frees_the_model_under_a_stream_still_being_read():
+    """Live (core dump, ELI's own shutdown): the window's thread freed the model while another thread
+    was still reading a stream that thread had started: llama_context::n_ctx() on freed memory, SIGSEGV.
+    The call lock belongs to the thread that started a stream, not the one reading it, so it did not
+    hold the unload back. The unload now waits for the step under way, and the stream takes no step
+    after it."""
+    import threading
+    import time
+    entered, release = threading.Event(), threading.Event()
+
+    class _Model:
+        freed = False
+
+        def __call__(self, prompt, **kw):
+            def tokens():
+                for i in range(50):
+                    assert not _Model.freed, "a step into a freed model"
+                    if i == 1:
+                        entered.set()
+                        release.wait(5)          # a slow step, under way when the unload comes
+                        assert not _Model.freed, "freed during a step"
+                    yield {"choices": [{"text": f"t{i} "}]}
+            return tokens()
+
+        def tokenize(self, b, add_bos=False):
+            return [1]
+
+        def close(self):
+            _Model.freed = True
+
+    model = _Model()
+    gi._llm = model
+    read, failures = [], []
+    try:
+        # started on this thread (which takes the call lock), read on another, as at shutdown
+        stream = gi._safe_invoke_llm(model, "hello", temperature=0.1, max_tokens=16, top_p=0.9, top_k=40,
+                                     repeat_penalty=1.0, stop=None, stream=True, grammar=None)
+
+        def reader():
+            try:
+                for item in stream:
+                    read.append(item)
+            except AssertionError as exc:
+                failures.append(str(exc))
+        t = threading.Thread(target=reader, daemon=True)
+        t.start()
+        assert entered.wait(5)
+        threading.Timer(0.3, release.set).start()
+        began = time.monotonic()
+        gi.unload_model()                        # the starting thread unloads while the reader is in a step
+        waited = time.monotonic() - began
+        t.join(5)
+        assert waited >= 0.25, "the unload freed the model while a step was under way"
+        assert _Model.freed and failures == [] and len(read) == 2      # stopped at its next step
+    finally:
+        release.set()
+        gi._llm = None
+        while gi._LLM_CALL_LOCK._is_owned():       # the reader could not release a lock it did not hold
+            gi._LLM_CALL_LOCK.release()
