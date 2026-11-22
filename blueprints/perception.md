@@ -152,6 +152,11 @@ A large, feature-dense STT module:
   says it was not clear (`heard_clearly`).
 - **Playback** opens at the output device's own rate, the voice resampled to it, instead of
   failing first on a device that takes only its own rate.
+- **Voice profile** (`artifacts/runtime/voice_profile.json`; `voice_profile_n` in the "Microphone
+  ready" line): the level and length of the owner's speech, which may lower the energy gate toward
+  it. It learns only from what the voice gate takes as the owner's — the wake word, a command it
+  sends on (`_learn_voice`) — and not while ELI's media plays or the noise self-heal holds the gate
+  up; learnt from every capture it measured the songs the mic transcribed.
 - Transcript cleanup: `_cleanup`, `_collapse_repeated_phrase`,
   `_eli_fast_command_alias` (maps spoken phrases to commands),
   `_is_safe_direct`/`_allow_direct_chat` (gates which utterances bypass to chat).
