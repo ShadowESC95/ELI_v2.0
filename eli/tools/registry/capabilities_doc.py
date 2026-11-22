@@ -145,7 +145,7 @@ _add("Voice", "LISTEN_FOR_COMMAND", "Start listening for a voice command", "“l
 # ── Files & notes ───────────────────────────────────────────────────────────
 _add("Files & notes", "CREATE_FILE", "Create a file", "“create a file notes.txt”")
 _add("Files & notes", "CREATE_FOLDER", "Create a folder", "“make a folder called projects”")
-_add("Files & notes", "READ_FILE", "Read a file's contents", "“read notes.txt”")
+_add("Files & notes", "READ_FILE", "Read a file's contents; asked to find a file by name, it reads it where ELI looks for that name (the folder it runs in, or the path given) and says where it looked if it is not there: there is no search of the disk", "“read notes.txt”", "“find the file called notes.txt”")
 _add("Files & notes", "LIST_DIR", "List a directory", "“list the files in ~/Documents”")
 _add("Files & notes", "FILE_AUDIT", "Audit files for issues", "“file audit”")
 _add("Files & notes", "SUMMARIZE_FILE", "Summarise a document/file", "“summarise report.docx”")

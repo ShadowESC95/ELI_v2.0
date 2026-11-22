@@ -844,6 +844,21 @@ _TEXT_IN_A_FILE = re.compile(
     r"(?:(?:image|picture|photo|screenshot|scan|file)\s+(?:called\s+|named\s+)?)?(?P<file>\S.*)$", re.I)
 
 
+# Asked to find a file by its name: "find the file called notes.txt", "where is report.pdf", "locate my
+# notes.txt", "search for the file named budget.xlsx".
+_FIND_A_FILE = re.compile(
+    r"^(?:please\s+)?(?:(?:can|could|would)\s+you\s+(?:please\s+)?)?"
+    r"(?:find|locate|search\s+for|look\s+for|where(?:'s|\s+is))\s+(?:me\s+)?(?:the\s+|my\s+|a\s+)?"
+    r"(?:(?:file|document|doc)\s+)?(?:(?:called|named)\s+)?(?P<name>[^?!]+?)[?.!]*$", re.I)
+
+
+def _file_to_find(raw: str) -> Optional[str]:
+    """The name of the file a request asks to find, or None when it does not ask for a file by name."""
+    m = _FIND_A_FILE.match(str(raw or "").strip())
+    name = m.group("name").strip() if m else ""
+    return name if name and _names_a_file(name.split()[-1]) else None
+
+
 def _file_its_text_is_asked_of(phrase: str) -> Optional[str]:
     """The file in "the text in image.jpg" (image.jpg), or None when the phrase does not ask for the
     writing in a file it names."""
@@ -2038,6 +2053,10 @@ def _eli_web_lookup_prepass(raw: str, low: str):
         r"|you(?:'?re| are) (?:wrong|lying|making|confus))",
         low,
     ):
+        return None
+
+    # A file to find by its name is on this machine, never a web search (the router's READ_FILE).
+    if _file_to_find(raw):
         return None
 
     # "search" as a request, not the noun: a bare `search\b` sent "why the vector search
@@ -4646,6 +4665,15 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
             _web = ("OPEN_URL", {"site": _site})
         if _web is not None:
             return _mk(_web[0], _web[1], 0.97, matched_by="web.browse_to", entities=dict(_web[1]))
+
+    # A file to find by its name is on this machine: "find the file called notes.txt" was a web
+    # search for the words. ELI has no search of the disk (no such action in the manifest): READ_FILE
+    # looks for the name where ELI resolves one (paths.resolve_user_repo_path) and reads it, or says
+    # where it looked.
+    _to_find = _file_to_find(raw)
+    if _to_find:
+        return _mk("READ_FILE", {"path": _to_find}, 0.9, matched_by="file.find_by_name",
+                   entities={"path": _to_find})
 
     # Guard: "search your memory/memories ..." must never fall through to web search.
     m = re.match(r"^(?:search\s+(?:for\s+)?)(.+)$", raw, re.I)

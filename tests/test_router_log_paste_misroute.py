@@ -197,6 +197,37 @@ def test_a_quoted_name_with_an_extension_is_a_file(said, action, name, monkeypat
     assert os.path.basename(got["args"].get("path") or "") == name
 
 
+@pytest.mark.parametrize("said, name", [
+    ("find the file called notes.txt", "notes.txt"),
+    ("where is report.pdf", "report.pdf"),
+    ("locate my notes.txt", "notes.txt"),
+    ("search for the file named budget.xlsx", "budget.xlsx"),
+    ("find the file called meeting notes.txt", "meeting notes.txt"),
+])
+@pytest.mark.parametrize("online", [False, True])
+def test_a_file_to_find_by_name_is_looked_for_on_this_machine(said, name, online, monkeypatch):
+    """"find the file called notes.txt" was a web search for "file called notes.txt". ELI has no
+    search of the disk: READ_FILE looks for the name and says where it looked."""
+    import eli.core.config as cfg
+    monkeypatch.setattr(cfg, "network_allowed", lambda: online)
+    got = route(said)
+    assert got["action"] == "READ_FILE" and got["args"]["path"] == name, got
+
+
+def test_the_file_found_by_name_is_read_or_said_to_be_missing_where_it_was_looked_for(tmp_path, monkeypatch):
+    from eli.execution.executor_enhanced import execute
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / "notes.txt").write_text("water the plants\n", encoding="utf-8")
+    found = execute("READ_FILE", route("find the file called notes.txt")["args"])
+    assert found["ok"] and "water the plants" in found["content"]
+    missing = execute("READ_FILE", route("where is report.pdf")["args"])
+    assert not missing["ok"] and str(tmp_path / "report.pdf") in missing["content"]
+
+
+def test_finding_something_that_is_not_a_file_is_still_a_search():
+    assert route("find me a good recipe for pancakes")["action"] == "OPEN_BROWSER"
+
+
 def test_quoted_text_that_names_no_file_keeps_its_quotes():
     from eli.execution.router_enhanced import _normalize_text
     assert _normalize_text('summarise "the quarterly figures"')[0] == 'summarise "the quarterly figures"'

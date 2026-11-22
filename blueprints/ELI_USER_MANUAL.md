@@ -328,6 +328,9 @@ and ELI opens or reports the right thing.
   file notes.txt and overwrite it") · "make a folder called projects" · "read notes.txt"
 - "list the files in ~/Documents" · "what's in my clipboard?" · "summarise report.docx" ·
   "convert report.md to pdf"
+- "find the file called notes.txt" or "where is report.pdf" reads that file if it is where ELI looks
+  for a name (the folder ELI runs in, or the path you give), and says where it looked if not: ELI
+  does not search the whole disk, and never sends a file's name to a web search.
 - **Notes.** "write a note saying buy milk" (or just "note: buy milk") adds a line to today's
   page in ELI's notes (the `notes` folder in its data folder). "new note buy milk" saves a
   separate note there. "list my notes" and "search notes for budget" cover both, and the pages
