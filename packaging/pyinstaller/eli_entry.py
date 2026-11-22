@@ -17,11 +17,17 @@ Modes:
                 exit. The Windows installer has a licence pane of its own; the
                 dmg, AppImage and portable zip do not, so this is how the terms
                 stay reachable from every download.
-  -c / -m       python-compatible passthrough. ELI spawns
-                `sys.executable -c "…"` helpers (import smoke tests, sandbox
-                probes); in a frozen app sys.executable is ELI itself, and
-                without this the helpers re-launched whole GUI instances
-                (the "installer started the app two more times" bug).
+  python args   python-compatible passthrough: interpreter switches, then
+                -c CODE, -m MODULE, - (stdin) or a .py script. ELI spawns
+                `sys.executable …` helpers (import smoke tests, sandbox runs of
+                generated code, test and eval reports, self-upgrade checks); in
+                a frozen app sys.executable is ELI itself, and a helper this
+                did not recognise started a whole GUI instance, which met the
+                single-instance guard and showed "ELI is already running" once
+                per helper (the coding agent's sandbox ran `ELI script.py` for
+                every candidate it tried). An uncaught error in a helper is
+                printed and exits 1 rather than reaching the bootloader, whose
+                windowed builds show it as a dialog too.
 
 multiprocessing.freeze_support() must run before anything else: ELI spawns
 helper processes and without it a frozen child on Windows/macOS re-executes
@@ -29,6 +35,7 @@ the whole GUI.
 """
 import multiprocessing
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -57,18 +64,82 @@ try:
 except Exception as _host_env_exc:
     print(f"[ELI] host environment for child programs not installed: {_host_env_exc}", file=sys.stderr)
 
-# python -c / -m passthrough for self-spawned helpers (see module docstring).
-if len(sys.argv) >= 2 and sys.argv[1] == "-c":
-    _code = sys.argv[2] if len(sys.argv) >= 3 else ""
-    sys.argv = [sys.argv[0]] + sys.argv[3:]
-    exec(compile(_code, "<frozen -c>", "exec"), {"__name__": "__main__"})
-    sys.exit(0)
-if len(sys.argv) >= 3 and sys.argv[1] == "-m":
+# Interpreter switches a helper may put first, as `python` takes them (-I, -u, -B, -X utf8, ...). In a
+# frozen app only -u changes anything; -I and -P also keep the script's folder off sys.path.
+_PY_SWITCHES = re.compile(r"-[IuBEsSOqbdvxRP]+")
+_PY_VALUED = ("-X", "-W")
+
+
+def _python_invocation(argv):
+    """What `python <argv>` would run, when argv is a python command line: (kind, target, rest,
+    switches) with kind "c" (code), "m" (module), "path" (a .py script) or "stdin"; None for anything
+    else, ELI's own flags included."""
+    switches = []
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in _PY_VALUED and i + 1 < len(argv):
+            switches += argv[i:i + 2]
+            i += 2
+        elif (arg.startswith(_PY_VALUED) and len(arg) > 2) or _PY_SWITCHES.fullmatch(arg):
+            switches.append(arg)
+            i += 1
+        else:
+            break
+    if i >= len(argv):
+        return None
+    arg, rest = argv[i], argv[i + 1:]
+    if arg in ("-c", "-m") and rest:
+        return (arg[1], rest[0], rest[1:], switches)
+    if arg == "-":
+        return ("stdin", "-", rest, switches)
+    if not arg.startswith("-") and arg.lower().endswith((".py", ".pyw")):
+        return ("path", arg, rest, switches)
+    return None
+
+
+def _run_python_invocation(kind, target, rest, switches):
+    """Run a python command line in this process and exit with its status, as python would."""
     import runpy
-    _mod = sys.argv[2]
-    sys.argv = [sys.argv[0]] + sys.argv[3:]
-    runpy.run_module(_mod, run_name="__main__", alter_sys=True)
+    import traceback
+    flags = "".join(s[1:] for s in switches if not s.startswith(_PY_VALUED))
+    if "u" in flags:
+        for stream in (sys.stdout, sys.stderr):
+            if hasattr(stream, "reconfigure"):
+                stream.reconfigure(line_buffering=True, write_through=True)
+    try:
+        if kind == "c":
+            sys.argv = ["-c"] + rest
+            exec(compile(target, "<string>", "exec"), {"__name__": "__main__"})
+        elif kind == "m":
+            sys.argv = [target] + rest
+            runpy.run_module(target, run_name="__main__", alter_sys=True)
+        elif kind == "path":
+            script = os.path.abspath(target)
+            if not os.path.isfile(script):
+                print(f"{sys.argv[0]}: can't open file {target!r}: [Errno 2] No such file or directory",
+                      file=sys.stderr)
+                sys.exit(2)
+            sys.argv = [target] + rest
+            if "I" not in flags and "P" not in flags:
+                sys.path.insert(0, os.path.dirname(script))
+            runpy.run_path(script, run_name="__main__")
+        else:
+            sys.argv = ["-"] + rest
+            exec(compile(sys.stdin.read(), "<stdin>", "exec"), {"__name__": "__main__"})
+    except SystemExit:
+        raise
+    except BaseException:
+        traceback.print_exc()
+        sys.exit(1)
     sys.exit(0)
+
+
+# python passthrough for self-spawned helpers (see module docstring), before anything heavy loads.
+if __name__ == "__main__":
+    _helper = _python_invocation(sys.argv[1:])
+    if _helper is not None:
+        _run_python_invocation(*_helper)
 
 
 def _assert_paths_outside_bundle() -> None:

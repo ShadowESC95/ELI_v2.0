@@ -84,4 +84,4 @@ def test_installed_wrapper_cleans_system_programs_only(bundle, monkeypatch):
 
 def test_the_frozen_entry_installs_it_before_anything_runs():
     src = (ROOT / "packaging/pyinstaller/eli_entry.py").read_text(encoding="utf-8")
-    assert src.index("_install_host_env()") < src.index('sys.argv[1] == "-c"')
+    assert src.index("_install_host_env()") < src.index("_python_invocation(sys.argv[1:])")
