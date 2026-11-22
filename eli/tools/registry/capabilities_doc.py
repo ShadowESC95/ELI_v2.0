@@ -115,7 +115,7 @@ _add("Media", "SKIP_YOUTUBE_AD", "Skip a YouTube ad when skippable", "“skip th
 _add("Vision & screen", "SCREEN_READ_ANALYZE", "Screenshot → vision model + OCR; answers questions about on-screen content", "“what's on my screen”", "“can you see this”", "“what season is on the screen”")
 _add("Vision & screen", "SCREEN_LOCATE", "Find on-screen UI text/element", "“find the submit button on screen”")
 _add("Vision & screen", "SCREENSHOT", "Capture a screenshot", "“take a screenshot”")
-_add("Vision & screen", "OCR_IMAGE", "Extract text from an image file", "“ocr photo.png”")
+_add("Vision & screen", "OCR_IMAGE", "Extract text from an image file; asked to copy it, puts it on the clipboard and says what was copied", "“ocr photo.png”", "“copy the text from screenshot.png”")
 _add("Vision & screen", "ANALYZE_IMAGE", "Describe/analyse an image file (VLM)", "“analyse image ~/Pictures/cat.jpg”")
 _add("Vision & screen", "GENERATE_IMAGE", "Make a picture with ELI's local image engine, as the saved image settings say (procedural, or a diffusion model when one is set up), saved in its image outputs; in the desktop chat box the Image Studio makes it", "“generate an image of a red fox in snow”", "“draw me a lighthouse”", "“paint a picture of a sunset over the sea”")
 _add("Vision & screen", "ANALYZE_PDF", "Read/summarise a PDF", "“summarise report.pdf”", "“analyse this pdf”")

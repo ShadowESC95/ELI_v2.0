@@ -349,7 +349,8 @@ and ELI opens or reports the right thing.
 ### 📊 Screen, images, PDFs, spreadsheets
 - "what's on my screen?" · "find the submit button on screen" · "find the word compose" ·
   "click compose" (finds the text and clicks it) · "take a screenshot"
-- "look at cat.jpg" (describes it) · "ocr image.jpg" (reads the text in it)
+- "look at cat.jpg" (describes it) · "ocr image.jpg" (reads the text in it) · "copy the text from
+  screenshot.png" (reads it and puts it on the clipboard, and says what was copied)
 - "summarise report.pdf" · "analyse data.csv" · "watch my screen" / "stop watching"
 
 ### 🌐 Information

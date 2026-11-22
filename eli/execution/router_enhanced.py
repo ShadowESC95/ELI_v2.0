@@ -1937,7 +1937,9 @@ def _eli_meta_continuity_probe(text: str) -> bool:
     ))
 # === END ELI non-Quick/meta-continuity routing contract v1 ===
 
-_FROM_A_SENDER = re.compile(r"\b(?:reply|response|message|text)\s+(?:from|by)\s+(?P<source>\S+)", re.I)
+_FROM_A_SENDER = re.compile(r"\b(?:reply|response|message|text)\s+(?:from|by)\s+(?:(?:the|this|that|my)\s+)?"
+                            r"(?:(?:image|picture|photo|screenshot|scan|file)\s+(?:called\s+|named\s+)?)?(?P<source>\S+)",
+                            re.I)
 
 
 def _eli_react_to_content_prepass(original_text: str, raw: str, low: str):
@@ -5194,6 +5196,16 @@ def route(text: str, _clause_depth: int = 0) -> Dict[str, Any]:
                 '',
                 raw,
                 flags=re.I).strip()
+            # "copy the text from screenshot.png": the writing in that file, read (OCR for a picture)
+            # and copied by the reading action. The words "the text from screenshot.png" were put on
+            # the clipboard.
+            _src = _file_its_text_is_asked_of(
+                re.sub(r"\s+(?:to|into|onto|on)\s+(?:the\s+|my\s+)?clipboard$", "", content, flags=re.I))
+            if _src:
+                _src = os.path.abspath(os.path.expanduser(_src))
+                _reader = "OCR_IMAGE" if _src.lower().endswith(_IMAGE_SUFFIXES) else "READ_FILE"
+                return _mk(_reader, {"path": _src, "copy": True}, 0.93, matched_by="clipboard.copy_text_of_file",
+                           entities={"path": _src})
             return _mk("SET_CLIPBOARD", {
                        "text": content}, 0.9, matched_by="clipboard.set", entities={"text": content})
         if "get" in low or "what" in low or "show" in low:

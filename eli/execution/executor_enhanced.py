@@ -7260,7 +7260,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
                         "error": "tesseract not found. Install: sudo apt install tesseract-ocr",
                         "content": "OCR engine not found.", "response": "OCR engine not found."}
             msg = f"OCR result from {p.name}:\n\n{text}" if text else f"No text detected in {p.name}."
-            return {"ok": True, "action": a, "content": msg, "response": msg, "text": text, "path": str(p)}
+            out = {"ok": True, "action": a, "content": msg, "response": msg, "text": text, "path": str(p)}
+            return _with_what_was_copied(out, text, p.name) if args.get("copy") else out
         except Exception as e:
             return {"ok": False, "action": a, "error": str(e), "content": str(e), "response": str(e)}
 
@@ -12738,6 +12739,29 @@ def _read_document_text(path):
     return DocumentReaderPlugin().read({"path": str(path)})
 
 
+def _with_what_was_copied(result: Dict[str, Any], text: str, name: str) -> Dict[str, Any]:
+    """A reading action's result when it was asked to copy what it read ("copy the text from
+    screenshot.png"): the text put on the clipboard, and the reply says what was copied, or that
+    nothing was and why."""
+    out = dict(result)
+    if not str(text or "").strip():
+        msg = f"No text detected in {name}, so nothing was copied."
+        out.update(copied=False, content=msg, response=msg)
+        return out
+    try:
+        from eli.perception.os_controller import set_clipboard
+        done = set_clipboard(text)
+    except Exception as e:
+        done = {"ok": False, "error": str(e)}
+    if done.get("ok"):
+        msg = f"Copied the text in {name} to the clipboard ({len(text)} characters):\n\n{text}"
+    else:
+        why = done.get("error") or done.get("content") or "the clipboard did not take it"
+        msg = f"I read the text in {name} but could not copy it ({why}). Here it is:\n\n{text}"
+    out.update(copied=bool(done.get("ok")), content=msg, response=msg)
+    return out
+
+
 def _eli_safe_read_file(args=None):
     _args = args or {}
     path = str(_args.get("path") or "").strip()
@@ -12764,26 +12788,22 @@ def _eli_safe_read_file(args=None):
         if not _doc.get("ok"):
             return {"ok": False, "action": "READ_FILE",
                     "content": _doc.get("content", "Could not read file.")}
-        return {"ok": True, "action": "READ_FILE", "path": str(p),
-                "content": _doc.get("content", "")}
-    data = None
-    for enc in ("utf-8", "utf-8-sig", "latin-1"):
-        try:
-            data = p.read_text(encoding=enc)
-            break
-        except Exception:
-            log.debug("suppressed exception", exc_info=True)
-    if data is None:
-        try:
-            data = p.read_bytes().decode("utf-8", errors="replace")
-        except Exception as e:
-            return {"ok": False, "action": "READ_FILE", "content": f"Could not read file: {e}"}
-    return {
-        "ok": True,
-        "action": "READ_FILE",
-        "path": str(p),
-        "content": data,
-    }
+        data = _doc.get("content", "")
+    else:
+        data = None
+        for enc in ("utf-8", "utf-8-sig", "latin-1"):
+            try:
+                data = p.read_text(encoding=enc)
+                break
+            except Exception:
+                log.debug("suppressed exception", exc_info=True)
+        if data is None:
+            try:
+                data = p.read_bytes().decode("utf-8", errors="replace")
+            except Exception as e:
+                return {"ok": False, "action": "READ_FILE", "content": f"Could not read file: {e}"}
+    out = {"ok": True, "action": "READ_FILE", "path": str(p), "content": data}
+    return _with_what_was_copied(out, data, p.name) if _args.get("copy") else out
 
 _NOTE_LOCK = threading.Lock()
 # How much of a title names its note's file (the note keeps the whole title), and how many notes a

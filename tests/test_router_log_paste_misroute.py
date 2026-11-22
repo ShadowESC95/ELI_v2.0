@@ -262,6 +262,59 @@ def test_the_text_in_an_image_is_read_from_that_image(said):
     assert os.path.basename(got["args"]["path"]) == "image.jpg"
 
 
+@pytest.mark.parametrize("said, action, name", [
+    ("copy the text from screenshot.png", "OCR_IMAGE", "screenshot.png"),
+    ("copy the text in scan.jpg to the clipboard", "OCR_IMAGE", "scan.jpg"),
+    ("copy the text from the image screenshot.png to my clipboard", "OCR_IMAGE", "screenshot.png"),
+    ("copy the text from notes.txt", "READ_FILE", "notes.txt"),
+])
+def test_copying_the_text_of_a_file_reads_that_file_and_copies_it(said, action, name):
+    """"copy the text from screenshot.png" put the words "the text from screenshot.png" on the clipboard."""
+    import os
+    got = route(said)
+    assert got["action"] == action and got["args"]["copy"] is True, got
+    assert os.path.basename(got["args"]["path"]) == name
+    assert route("copy hello world")["args"] == {"text": "hello world"}
+
+
+def _fake_ocr(monkeypatch, said):
+    import subprocess
+    import types
+    from eli.execution import executor_enhanced as ex
+    monkeypatch.setattr(ex.shutil, "which", lambda name, *a, **k: "/usr/bin/tesseract" if name == "tesseract" else None)
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: types.SimpleNamespace(returncode=0, stdout=said, stderr=""))
+
+
+@pytest.mark.parametrize("read, clipboard_ok, expect", [
+    ("OPEN AT NINE", True, "Copied the text in shot.png to the clipboard (12 characters)"),
+    ("OPEN AT NINE", False, "I read the text in shot.png but could not copy it"),
+    ("", True, "No text detected in shot.png, so nothing was copied."),
+])
+def test_the_reply_says_what_was_copied_from_the_image(tmp_path, monkeypatch, read, clipboard_ok, expect):
+    import eli.perception.os_controller as osc
+    from eli.execution.executor_enhanced import execute
+    shot = tmp_path / "shot.png"
+    shot.write_bytes(b"\x89PNG")
+    copied = []
+    monkeypatch.setattr(osc, "set_clipboard", lambda text: copied.append(text) or {"ok": clipboard_ok, "error": "no backend"})
+    _fake_ocr(monkeypatch, read)
+    out = execute("OCR_IMAGE", {"path": str(shot), "copy": True})
+    assert out["response"].startswith(expect), out["response"]
+    assert copied == ([read] if read else [])
+    assert out["copied"] is (bool(read) and clipboard_ok)
+
+
+def test_the_text_of_a_text_file_is_copied_as_read(tmp_path, monkeypatch):
+    import eli.perception.os_controller as osc
+    from eli.execution.executor_enhanced import execute
+    copied = []
+    monkeypatch.setattr(osc, "set_clipboard", lambda text: copied.append(text) or {"ok": True})
+    (tmp_path / "plan.txt").write_text("water the plants\n", encoding="utf-8")
+    out = execute("READ_FILE", {"path": str(tmp_path / "plan.txt"), "copy": True})
+    assert copied == ["water the plants\n"] and out["copied"] is True
+    assert "Copied the text in plan.txt to the clipboard" in out["content"]
+
+
 def test_a_message_from_someone_is_still_a_message_to_react_to():
     assert route("what do you think of the reply from Sam")["meta"]["matched_by"] == "chat.react_to_pasted_content"
     assert route("analyse image ~/Pictures/cat.jpg")["action"] == "ANALYZE_IMAGE"   # describing it is not reading it
