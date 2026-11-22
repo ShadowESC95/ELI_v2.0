@@ -417,6 +417,32 @@ def test_the_answer_to_what_the_image_should_show_makes_it(proposals):
     assert not pp.is_the_detail("set a timer for 5 minutes", "subject") and not pp.is_the_detail("no thanks", "subject")
 
 
+def test_the_answer_to_which_folder_runs_the_request_with_that_folder(proposals, tmp_path, monkeypatch):
+    """"Which folder? Give me the path." was never answered: a path was not a detail the follow-up
+    knew, and "analyse <folder>" was not the action that asked, so the reply went to chat."""
+    from eli.execution import executor_enhanced as ex
+    from eli.execution.router_enhanced import route
+    from eli.runtime import background_tasks
+    monkeypatch.setattr(background_tasks, "work_targets", lambda *a, **k: [])   # no job in hand
+    papers = tmp_path / "field papers"
+    papers.mkdir()
+    asked = ex.execute("ANALYZE_PDF_FOLDER", {})
+    assert asked["response"] == "Which folder? Give me the path."
+    assert pp.get_follow_up()["awaiting"]["needs"] == "path"
+    got = route(f"it's in {papers}")
+    assert got["action"] == "ANALYZE_PDF_FOLDER" and got["meta"]["matched_by"] == "pending_proposal.answer"
+    assert got["args"]["path"] == str(papers)
+    assert pp.get_follow_up() is None
+
+
+@pytest.mark.parametrize("reply,is_it", [("~/papers", True), ("/data/scans", True), ("report.pdf", True),
+                                         ("my downloads", True), ("the folder is ~/x", True),
+                                         ("no thanks", False), ("what do you mean", False), ("play some jazz", False),
+                                         ("the blue one", False)])
+def test_a_reply_that_is_only_a_path_is_the_detail_asked_for(reply, is_it):
+    assert pp.is_the_detail(reply, "path") is is_it
+
+
 @pytest.mark.parametrize("reply,is_it", [("friday at 3pm", True), ("in 20 minutes", True), ("tomorrow", True),
                                          ("at 4", True), ("make it 7.30pm", True), ("next monday at 9", True),
                                          ("set a timer for 5 minutes", False), ("what's on tomorrow", False),

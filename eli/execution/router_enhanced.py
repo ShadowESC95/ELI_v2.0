@@ -9287,10 +9287,15 @@ try:
                     waiting = prop.get("awaiting") if isinstance(prop.get("awaiting"), dict) else None
                     if waiting and _pp.is_the_detail(text, waiting.get("needs")):
                         # An action asked for a missing detail ("When is it?") and the reply is
-                        # that detail: the original request is run again with it.
+                        # that detail: the original request is run again with it. One that names the
+                        # argument the answer fills ("arg") is run as it was, with that argument.
                         _pp.clear_pending_proposal()
                         _asked_cmd = str(waiting.get("command") or "")
-                        _detail = str(text or "").strip().rstrip("?.!")
+                        _detail = _pp.detail_of(text, waiting.get("needs"))
+                        if waiting.get("arg") and waiting.get("action"):
+                            return _mk(str(waiting["action"]).upper(),
+                                       {**dict(waiting.get("args") or {}), str(waiting["arg"]): _detail}, 0.95,
+                                       matched_by="pending_proposal.answer")
                         whole = route(_asked_cmd.replace("{answer}", _detail) if "{answer}" in _asked_cmd
                                       else f"{_asked_cmd} {_detail}".strip())
                         if str(whole.get("action") or "").upper() == str(waiting.get("action") or "").upper():

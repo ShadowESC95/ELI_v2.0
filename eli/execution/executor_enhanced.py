@@ -2318,10 +2318,12 @@ def _stub_marker(code: str) -> str:
 
 
 def _asks_which(action: str, what: str) -> dict:
-    """A file command with nothing named and nothing in hand. Never the current folder."""
+    """A file command with nothing named and nothing in hand. Never the current folder. The answer
+    is the action's "path" ("arg"): the request runs again with it (router, pending_proposal.answer).
+    It was re-routed as "analyse <answer>", which is not this action for a folder, so it never ran."""
     msg = f"Which {what}? Give me the path."
     return {"ok": False, "action": action, "error": "no path given", "content": msg, "response": msg,
-            "awaiting": {"command": "analyse {answer}", "action": action, "needs": "path"}}
+            "awaiting": {"command": "analyse {answer}", "action": action, "needs": "path", "arg": "path"}}
 
 
 def _maybe_background_file_analysis(action, args):

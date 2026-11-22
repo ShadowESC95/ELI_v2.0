@@ -660,4 +660,41 @@ def is_the_detail(reply: str, needs: str) -> bool:
         low = str(reply or "").strip().lower().strip(" .!")
         return bool(low) and not is_consent(low) and not starts_with_command(low, after_lead=True) and not _re.search(
             r"\b(?:no|nope|nah|never ?mind|cancel|stop|skip|leave it|forget it|nothing|dunno|idk)\b", low)
+    if str(needs or "") == "path":
+        # a file or a folder ("~/papers", "it's in /data/scans", "report.pdf", "my downloads"): "Which
+        # folder? Give me the path." was never answered by one, and the reply went to chat
+        return bool(detail_of(reply, "path"))
     return False
+
+
+# What comes before a path in an answer: "it's ~/papers", "in /data/scans", "the folder is ~/x".
+_PATH_LEAD = _re.compile(r"^(?:(?:it'?s|its|it\s+is|that'?s|in|at|from|under|use|try|"
+                         r"the\s+(?:folder|file|directory|path)(?:\s+is)?)\s+)+", _re.I)
+
+
+def detail_of(reply: str, needs: str) -> str:
+    """The detail a reply gives, as the action takes it. For a path, the file or folder itself, in
+    full ("it's ~/papers" -> /home/<user>/papers), or "" when the reply names none: written as a path,
+    a name with a file extension, one that is there, or a folder everyone has."""
+    import os
+    said = str(reply or "").strip()
+    if str(needs or "") != "path":
+        return said.rstrip("?.!")
+    said = _PATH_LEAD.sub("", said).strip().strip("\"'`“”‘’").rstrip(".!,;")
+    if not said:
+        return ""
+    whole = os.path.abspath(os.path.expanduser(said))
+    if (os.path.exists(os.path.expanduser(said)) or said.startswith(("~", "/", "./", "../"))
+            or "/" in said or "\\" in said or _re.match(r"[A-Za-z]:[\\/]", said)):
+        return whole
+    from eli.execution.portable_intent_contract import _FILE_EXTENSIONS
+    last = said.split()[-1]
+    if "." in last and last.rsplit(".", 1)[1].lower() in _FILE_EXTENSIONS:
+        return whole
+    try:
+        from eli.utils.platform_compat import known_user_dir
+        known = known_user_dir(said)
+    except Exception:
+        log.debug("known folder lookup failed", exc_info=True)
+        known = ""
+    return os.path.abspath(os.path.expanduser(known)) if known else ""
