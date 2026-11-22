@@ -118,11 +118,15 @@ def _starters(monkeypatch, safe):
     from eli.memory.memory import Memory
 
     threads, calls = [], []
+    # Only what start-up itself starts, on this thread: a timer an earlier test set may fire meanwhile
+    # and start a worker of its own, which runs as it would.
+    starter, real_start = threading.current_thread(), threading.Thread.start
+    monkeypatch.setattr(threading.Thread, "start", lambda self: threads.append(self.name)
+                        if threading.current_thread() is starter else real_start(self))
     # Both are process-wide: one an earlier test made starts no thread of its own here.
     monkeypatch.setattr(habits_scheduler, "get_scheduler", lambda: calls.append("habit scheduler"))
     monkeypatch.setattr(self_improvement, "get_self_improvement", lambda: types.SimpleNamespace(
         start_self_improvement_loop=lambda **k: calls.append("self-improvement loop")))
-    monkeypatch.setattr(threading.Thread, "start", lambda self: threads.append(self.name))
     monkeypatch.setattr(atexit, "register", lambda f, *a, **k: f)
     monkeypatch.setattr(signal, "signal", lambda *a, **k: None)
     monkeypatch.setattr(engine_mod, "_eli_test_mode", lambda: False)    # start-up as in the app
