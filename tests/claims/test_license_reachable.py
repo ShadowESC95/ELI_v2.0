@@ -34,7 +34,8 @@ def test_license_is_apache_2_0():
     assert "Apache License" in text and "Version 2.0, January 2004" in text
     assert "TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION" in text
     notice = (REPO / "NOTICE").read_text(encoding="utf-8")
-    assert "Apache License, Version 2.0" in notice and "ShadowESC95" in notice
+    assert "Apache License, Version 2.0" in notice and "Jason Fitzgibbon Bridgeman (GitHub: ShadowESC95) <jaybridgeman0095@gmail.com>" in notice
+    assert "Copyright 2026 Jason Fitzgibbon Bridgeman" in text
 
 
 @pytest.mark.parametrize("name", DOCS + ("models/MODEL_LICENSES.md",))

@@ -618,7 +618,8 @@ what works, what breaks, what's missing shapes future releases and tells me whet
 
 ## License
 
-ELI v2.0 is **open source** under the **[Apache License 2.0](LICENSE)** — © 2026 ShadowESC95; the copyright notice is in **[NOTICE](NOTICE)**. You may use, modify and distribute it,
+ELI v2.0 is **open source** under the **[Apache License 2.0](LICENSE)** — © 2026 Jason Fitzgibbon
+Bridgeman (GitHub: [ShadowESC95](https://github.com/ShadowESC95), <jaybridgeman0095@gmail.com>); the copyright notice is in **[NOTICE](NOTICE)**. You may use, modify and distribute it,
 commercially or not, under those terms: keep the licence and the NOTICE with any copy or derived
 work you distribute, and mark the files you changed. It is provided "as is", without warranty.
 

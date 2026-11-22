@@ -344,6 +344,6 @@ that folder.
 
 ---
 
-*ELI v2.0 — © 2026 ShadowESC95. Open source under the Apache License 2.0
+*ELI v2.0 — © 2026 Jason Fitzgibbon Bridgeman (GitHub: ShadowESC95). Open source under the Apache License 2.0
 (free to use, modify, and share, commercially or not; keep the NOTICE file with any copy you
 pass on). Questions: jaybridgeman0095@gmail.com*

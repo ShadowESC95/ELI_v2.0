@@ -338,7 +338,7 @@ install from the Start Menu; your data stays in `%LOCALAPPDATA%\ELI_v2` until yo
 
 ---
 
-*ELI v2.0 — © 2026 ShadowESC95. Open source under the Apache License 2.0.
+*ELI v2.0 — © 2026 Jason Fitzgibbon Bridgeman (GitHub: ShadowESC95). Open source under the Apache License 2.0.
 Questions: jaybridgeman0095@gmail.com*
 
 

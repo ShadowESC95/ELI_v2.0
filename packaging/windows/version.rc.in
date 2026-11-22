@@ -21,7 +21,7 @@ VSVersionInfo(
            StringStruct('FileDescription', 'ELI v2.0 — Local AI Assistant'),
            StringStruct('FileVersion', '@VERSION@'),
            StringStruct('InternalName', 'ELI'),
-           StringStruct('LegalCopyright', '(c) ShadowESC95. All rights reserved.'),
+           StringStruct('LegalCopyright', 'Copyright (c) 2026 Jason Fitzgibbon Bridgeman (GitHub: ShadowESC95)'),
            StringStruct('OriginalFilename', 'ELI.exe'),
            StringStruct('ProductName', 'ELI v2.0'),
            StringStruct('ProductVersion', '@VERSION@')]

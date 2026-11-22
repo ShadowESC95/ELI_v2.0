@@ -10,7 +10,7 @@ readme = "README.md"
 requires-python = ">=3.10"
 # Open source under the Apache License 2.0: LICENSE has the terms, NOTICE the copyright.
 license = "Apache-2.0"
-authors = [{ name = "ELI Contributors" }]
+authors = [{ name = "Jason Fitzgibbon Bridgeman", email = "jaybridgeman0095@gmail.com" }]
 keywords = ["ai", "assistant", "llm", "local", "gpu", "gguf"]
 classifiers = [
     "Programming Language :: Python :: 3",
