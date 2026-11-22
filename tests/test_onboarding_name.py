@@ -121,7 +121,7 @@ def test_a_command_typed_at_the_name_question_is_carried_out_not_stored_as_the_n
 
 
 @pytest.mark.parametrize("typed,name", [
-    ("jason", "jason"), ("Mark", "Mark"), ("Will", "Will"), ("June", "June"), ("Rose", "Rose"),
+    ("rowan", "rowan"), ("Mark", "Mark"), ("Will", "Will"), ("June", "June"), ("Rose", "Rose"),
     ("call me Pause", "Pause"),             # introduced as a name: a name, whatever the word
     ("hi, my name is Stop", "Stop"),
 ])

@@ -25,7 +25,7 @@ _COMPANIONS = ("NOTICE", "THIRD_PARTY_NOTICES.md", "models/MODEL_LICENSES.md")
 
 SUMMARY = (
     "ELI v2.0 — open source under the Apache License, Version 2.0.\n"
-    "Copyright (c) 2026 Jason Fitzgibbon Bridgeman.\n"
+    "Copyright (c) 2026 ShadowESC95.\n"
     "\n"
     "You may use, modify and distribute ELI, commercially or not, under the\n"
     "Apache-2.0 terms; keep the NOTICE file with any copy you distribute.\n"

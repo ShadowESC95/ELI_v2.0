@@ -1,6 +1,6 @@
 # Third-Party Notices — ELI v2.0
 
-ELI v2.0 (© 2026 Jason Fitzgibbon Bridgeman) is open source under the
+ELI v2.0 (© 2026 ShadowESC95) is open source under the
 **Apache License 2.0** (see `LICENSE` and `NOTICE`); releases up to and including
 v2.5.35 were published under the PolyForm Noncommercial License 1.0.0. The Apache
 licence covers ELI's own code only. This file lists the **third-party** components
