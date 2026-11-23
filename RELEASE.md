@@ -3,12 +3,12 @@
 > Maintainer walkthrough: **`docs/RELEASE_PIPELINE.md`**  
 > **New users:** **`first time Installation/INSTALLATION_GUIDE.md`**
 
-Current semver: **`pyproject.toml`** → **2.5.39** (tag **`v2.5.39`**). The tag must equal
+Current semver: **`pyproject.toml`** → **2.5.40** (tag **`v2.5.40`**). The tag must equal
 `[project].version`; the release workflow's version guard fails the run otherwise.
 
 ## 1. Build packages
 
-**CI / tag push (recommended):** push tag `v2.5.39` — `.github/workflows/release.yml` builds the
+**CI / tag push (recommended):** push tag `v2.5.40` — `.github/workflows/release.yml` builds the
 Windows, macOS and Linux bundles and the source packages in parallel, launch-tests each frozen
 bundle, runs the whole test suite on Linux against the release's own libraries, and publishes the
 GitHub Release only when all of them pass. `workflow_dispatch` is a dry run: it builds the
@@ -46,5 +46,5 @@ the GPU pack and a model on first start.
 ## 3. Tag and publish
 
 ```bash
-git tag v2.5.39 && git push origin v2.5.39
+git tag v2.5.40 && git push origin v2.5.40
 ```

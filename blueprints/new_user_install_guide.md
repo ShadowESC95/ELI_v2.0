@@ -1,7 +1,7 @@
 # ELI v2.0 — New User Installation Guide
 
 > **Updated for v2.5.36.** One hardware-aware GUI wizard.  
-> Releases: https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.5.39  
+> Releases: https://github.com/ShadowESC95/ELI_v2.0/releases/tag/v2.5.40  
 > Full guide: **`first time Installation/INSTALLATION_GUIDE.md`**
 
 **Version:** 2.5.36 · open source under the Apache License 2.0
