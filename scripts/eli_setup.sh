@@ -151,7 +151,7 @@ _ensure_gui_in_venv() {
     fi
   elif "$PY" -m pip install ${PIP_WH_ARGS[@]+"${PIP_WH_ARGS[@]}"} 'PySide6>=6.6.0'; then
     _qt_install_ok=1
-  elif "$PY" -m pip install -e "$ROOT[gui]"; then
+  elif "$PY" -m pip install -e "$ROOT"; then
     _qt_install_ok=1
   fi
   if [ "$_qt_install_ok" -eq 0 ] && [ -t 1 ]; then
