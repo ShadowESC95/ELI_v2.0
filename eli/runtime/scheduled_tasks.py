@@ -260,7 +260,8 @@ def _worker_eval(request: str):
             [_sys.executable, "tools/run_test_report.py", "tests/"],
             cwd=str(repo), capture_output=True, text=True, timeout=3600)
         out["test_report"] = (tr.stdout or "")[-600:]
-        out["test_report_path"] = str(repo / "artifacts" / "test_report.md")
+        from eli.runtime.test_review import report_paths
+        out["test_report_path"] = str(report_paths()[0])
     except Exception as e:
         out["test_report_error"] = str(e)
     return out

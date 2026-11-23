@@ -6797,7 +6797,8 @@ def _execute_impl(action: str, args: Optional[Dict[str, Any]] = None) -> Dict[st
             target = str(args.get("target") or "tests/claims/test_structural_claims.py")
             r = _ts_sp.run([_ts_sys.executable, "tools/run_test_report.py", target],
                            cwd=str(repo), capture_output=True, text=True, timeout=900)
-            rep = repo / "artifacts" / "test_report.md"
+            from eli.runtime.test_review import report_paths
+            rep = report_paths()[0]
             body = rep.read_text(encoding="utf-8")[:4000] if rep.exists() else \
                 (r.stdout or r.stderr or "")[-2000:]
             return {"ok": True, "action": a, "content": body, "response": body,

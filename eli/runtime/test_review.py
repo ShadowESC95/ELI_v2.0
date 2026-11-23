@@ -33,11 +33,21 @@ REPO = Path(__file__).resolve().parents[2]
 
 
 def _art() -> Path:
-    """Artifacts root, honouring ELI_ARTIFACTS_DIR (so tests/users can redirect)."""
+    """Artifacts root, honouring ELI_ARTIFACTS_DIR (so tests/users can redirect), else ELI's data folder.
+    It was the program folder's artifacts/, which an install does not write to."""
     import os
     env = os.environ.get("ELI_ARTIFACTS_DIR")
-    base = Path(env).expanduser() if env else (REPO / "artifacts")
-    return base
+    if env:
+        return Path(env).expanduser()
+    from eli.core.paths import artifacts_dir
+    return Path(artifacts_dir())
+
+
+def report_paths() -> Tuple[Path, Path]:
+    """The results document and its junit: where tools/run_test_report.py writes them and where every
+    reader (RUN_TESTS, the evidence planner, the scheduled eval, this module) looks for them."""
+    art = _art()
+    return art / "test_report.md", art / "test_report.junit.xml"
 
 
 def _parse_junit(path: Path) -> Tuple[Dict[str, int], List[Dict[str, str]]]:
@@ -174,7 +184,7 @@ def run_and_review(target: str = "tests/", *, timeout: int = 3600,
                 log.debug("suppressed exception", exc_info=True)
 
     # 1) Back up the previous report before it is overwritten.
-    prev = art / "test_report.md"
+    prev, junit = report_paths()
     backup_path = None
     if prev.is_file():
         backup_path = reports_dir / f"test_report_{ts}.bak.md"
@@ -195,7 +205,7 @@ def run_and_review(target: str = "tests/", *, timeout: int = 3600,
         return {"ok": False, "error": str(e), "options": []}
 
     # 3) Parse + write an errors backup file when there are failures.
-    totals, failures = _parse_junit(art / "test_report.junit.xml")
+    totals, failures = _parse_junit(junit)
     error_file = None
     if failures:
         error_file = reports_dir / f"errors_{ts}.md"

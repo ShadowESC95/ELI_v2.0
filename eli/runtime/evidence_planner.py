@@ -165,8 +165,8 @@ def _gather_code(query: str, mode: str, session_id: str, user_id: str) -> Tuple[
         log.debug("suppressed exception", exc_info=True)
     # (d) latest test-suite report — so upgrade proposals cite real correctness state.
     try:
-        from pathlib import Path as _P
-        rep = _P(__file__).resolve().parents[2] / "artifacts" / "test_report.md"
+        from eli.runtime.test_review import report_paths
+        rep = report_paths()[0]
         if rep.is_file():
             txt = rep.read_text(encoding="utf-8", errors="ignore").strip()
             if txt:

@@ -70,3 +70,29 @@ def test_run_and_review_integration():
     if res["ok"]:
         assert res["error_file"] is None
     assert res["report_path"]
+
+
+def test_every_reader_finds_the_report_where_the_tool_writes_it(tmp_path, monkeypatch):
+    """RUN_TESTS, the evidence planner and the scheduled eval read artifacts/test_report.md in the
+    program folder; the tool writes it to ELI_ARTIFACTS_DIR or the data folder."""
+    import importlib
+    import subprocess
+    import sys
+    monkeypatch.setenv("ELI_ARTIFACTS_DIR", str(tmp_path))
+    sys.modules.pop("tools.run_test_report", None)
+    tool = importlib.import_module("tools.run_test_report")
+    assert (tool.OUT, tool.JUNIT) == TR.report_paths() == (tmp_path / "test_report.md",
+                                                           tmp_path / "test_report.junit.xml")
+    tool.OUT.write_text("# ELI — Test Suite Report\n- **Passed:** 7\n", encoding="utf-8")
+
+    from eli.execution import executor_enhanced as ex
+    monkeypatch.setattr(subprocess, "run", lambda *a, **k: subprocess.CompletedProcess(a, 0, "", ""))
+    got = ex.execute("RUN_TESTS", {"target": "tests/test_nothing.py"})
+    assert got["report_path"] == str(tool.OUT) and "**Passed:** 7" in got["content"]
+
+    from eli.runtime import code_examiner, evidence_planner
+    monkeypatch.setattr(code_examiner, "resolve_targets", lambda q: [])
+    monkeypatch.setattr("eli.runtime.self_improvement.get_self_improvement", lambda: None)
+    monkeypatch.setattr("eli.cognition.agent_bus.FileCodeAgent.run", lambda *a, **k: None)
+    text, sources = evidence_planner._gather_code("upgrade", "quick", "s", "u")
+    assert "test_report" in sources and "**Passed:** 7" in text
