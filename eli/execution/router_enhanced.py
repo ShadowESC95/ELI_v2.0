@@ -8,8 +8,10 @@ def _eli_pipeline_trace(stage: str, **data):
     try:
         import json, time, os
         from pathlib import Path
-        from eli.core.paths import get_paths
-        out = Path(get_paths().project_root) / "ops" / "reports" / "pipeline_visibility" / "runtime_pipeline_trace.jsonl"
+        from eli.core.paths import logs_dir
+        # this install's logs (paths.logs_dir), never the install's own tree: an engine start in a test
+        # or an eval wrote ops/reports/ into the checkout, and an installed ELI into site-packages
+        out = Path(logs_dir()) / "pipeline_visibility" / "runtime_pipeline_trace.jsonl"
         out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": time.time(), "stage": stage, **data}, ensure_ascii=False, default=str) + "\n")
@@ -914,9 +916,11 @@ def _eli_resolve_known_eli_file(low: str):
                 r"\bpersona\s+(?:un)?lock|\b(?:un)?lock(?:ed)?\s+(?:\w+\s+)?persona\b", low):
             candidates.append(root / "eli" / "cognition" / "persona.txt")
         if "settings.json" in low or re.search(r"\bsettings\s+(file|json)\b", low):
-            candidates.append(root / "config" / "settings.json")
+            from eli.core.runtime_settings import _settings_file
+            candidates.append(_settings_file())          # the file the settings are read from
         if re.search(r"capability[\s_]manifest", low):
-            candidates.append(root / "capability_manifest.json")
+            from eli.tools.registry.capability_updater import current_manifest_path
+            candidates.append(current_manifest_path())   # the one this install reads
         for p in candidates:
             if p.exists():
                 return str(p)

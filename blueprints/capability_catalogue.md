@@ -829,7 +829,7 @@ is unique under `eli/`; recount the others with `wc -l`.
 | `news/news_synthesis.py` | 926 | News synthesis: every 3 hours the window's articles are summarised into `news_reflections` (a window with no articles advances the cadence but is not stored as a memory); the briefing NEWS_FETCH reads, interest news for the morning report, the 24-hour digest (`build_morning_digest`). |
 | `registry/capabilities_doc.py` | 395 | capabilities_doc.py — regenerate blueprints/capabilities_and_actions.md. |
 | `registry/capability_registry.py` | 38 | Process-local capability registry (`register_capability`). |
-| `registry/capability_updater.py` | 200 | Writes `capability_manifest.json` from `CapabilitySync.discover()` (only when the capabilities changed), keeps per-capability state and regenerates `capabilities_and_actions.md`; `capability_status` says what has worked on this machine. |
+| `registry/capability_updater.py` | 223 | Writes `capability_manifest.json` from `CapabilitySync.discover()` (only when the capabilities changed), keeps per-capability state and regenerates `capabilities_and_actions.md`. An engine start writes both into the data folder (`artifacts/runtime/`); the shipped ones at the root are written by running the module (`python -m eli.tools.registry.capability_updater`, `python -m eli.tools.registry.capabilities_doc`); `current_manifest_path()` reads the regenerated one, else the shipped one; `capability_status` says what has worked on this machine. |
 
 ## package root
 | Module | Lines | Role |

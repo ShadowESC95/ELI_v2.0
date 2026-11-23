@@ -208,6 +208,9 @@ class CodeMonitor:
     STATE_FILE = ".code_monitor_state.json"
 
     def __init__(self, repo_root: Optional[Path] = None):
+        # What was last seen of ELI's own tree is this install's runtime state (paths.data_dir()):
+        # kept in the tree, every engine start in a test or an eval wrote it into the checkout. Another
+        # tree a caller names keeps its own beside it.
         if repo_root is None:
             try:
                 from eli.core.paths import get_paths
@@ -215,7 +218,14 @@ class CodeMonitor:
             except Exception:
                 repo_root = Path(__file__).resolve().parents[3]
         self.repo_root = Path(repo_root)
-        self.state_path = self.repo_root / self.STATE_FILE
+        state_dir = self.repo_root
+        try:
+            from eli.core.paths import data_dir, project_root
+            if self.repo_root.resolve() == Path(project_root()).resolve():
+                state_dir = data_dir() / "runtime"
+        except Exception:
+            log.debug("code_monitor: data folder unknown; state kept beside the tree", exc_info=True)
+        self.state_path = state_dir / self.STATE_FILE
         self.use_git = _git_ok(self.repo_root)
 
     def check(self) -> ChangeReport:
@@ -254,6 +264,7 @@ class CodeMonitor:
 
     def _save_state(self, data: Dict[str, Any]) -> None:
         try:
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
             self.state_path.write_text(
                 json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
