@@ -1314,7 +1314,7 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
             "meta_path": str(meta_path),
             "index_exists": Path(idx_path).exists(),
             "meta_exists": Path(meta_path).exists(),
-            "embedding_model": str((get_paths().project_root / "models" / "embeddings" / "nomic-embed-text-v1.5.Q4_K_M.gguf").resolve()),
+            "embedding_model": _vs.resolve_embedder_path(),   # the file the store loads, wherever it is
         }
         if vector_status["faiss_available"] and vector_status["index_exists"]:
             import faiss
