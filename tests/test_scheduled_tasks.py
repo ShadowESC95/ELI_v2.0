@@ -5,7 +5,7 @@ import time
 import pytest
 
 from eli.runtime.background_tasks import BackgroundTasks
-# The schedule store lives under the in-project test artifacts dir (conftest sets
+# The schedule store lives in the run's sandbox (conftest sets
 # ELI_ARTIFACTS_DIR); _store_path() honours it, so these tests never touch the real
 # artifacts/runtime/scheduled_tasks.json that holds the user's standing jobs.
 

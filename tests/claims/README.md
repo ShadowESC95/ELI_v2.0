@@ -12,7 +12,7 @@ Run: `pytest tests/claims/ -q`
 A session bootstrap in `conftest.py` runs `tools/bootstrap_claims_artifacts.py`: it seeds
 blank DB stores (each store missing from the database folder in force, `paths.db_dir()`, is
 copied from `config/templates/db/`, then `init_all_data`; under pytest that folder is the
-session's sandbox, `artifacts/_pytest/db`, which each session starts empty) and regenerates `capability_manifest.json` only when it is missing or
+run's own sandbox in the system temp folder, removed when the run ends) and regenerates `capability_manifest.json` only when it is missing or
 lists fewer than 200 capabilities, so a run never rewrites a valid tracked manifest — no
 manual step needed on a fresh clone.
 

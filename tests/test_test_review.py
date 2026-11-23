@@ -63,7 +63,7 @@ def test_propose_fixes_no_resolvable_modules():
 
 def test_run_and_review_integration():
     # light: run a small real target; the subprocess + parent both resolve the same
-    # ELI_ARTIFACTS_DIR (the in-project test dir from conftest), so totals are parsed.
+    # ELI_ARTIFACTS_DIR (the run's sandbox from conftest), so totals are parsed.
     res = TR.run_and_review("tests/test_lora_pipeline.py", timeout=300)
     assert "totals" in res and res["totals"]["total"] >= 1
     assert isinstance(res["options"], list) and res["options"]

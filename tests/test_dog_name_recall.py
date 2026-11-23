@@ -120,7 +120,7 @@ def test_conversation_fallback_prefers_distinctive_noun_over_recency(tmp_path, m
 # ── add_conversation_turn promotes passing facts into the KG ─────────────────
 
 def test_add_conversation_turn_promotes_fact_to_kg(tmp_path):
-    reset_knowledge_graph()   # isolated (points at ELI_ARTIFACTS_DIR=_pytest store)
+    reset_knowledge_graph()   # isolated (points at the run's sandbox store, ELI_ARTIFACTS_DIR)
     from eli.memory.knowledge_graph import get_knowledge_graph
     db = tmp_path / "user.sqlite3"
     mem = Memory(db_path=db)

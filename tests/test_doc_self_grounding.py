@@ -109,7 +109,7 @@ def _capture_doc_prompt(monkeypatch, evidence, sources):
     monkeypatch.setattr(g, "chat_completion", fake_chat)
     # central hook calls plan_and_gather → stub it deterministically
     monkeypatch.setattr(EP, "plan_and_gather", lambda *a, **k: (evidence, sources))
-    # Artifacts already redirect to the in-project test dir (conftest ELI_ARTIFACTS_DIR),
+    # Artifacts already redirect to the run's sandbox (conftest ELI_ARTIFACTS_DIR),
     # so the doc write can't pollute the real artifacts/ — no per-test redirect needed.
     monkeypatch.setenv("ELI_TEST_MODE", "0")
     # These tests assert the single-pass evidence-injection (the fallback prompt);
