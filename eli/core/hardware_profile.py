@@ -2986,10 +2986,11 @@ def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
     try:
         from eli.core.runtime_settings import load_settings, save_settings
         settings: Dict[str, Any] = {}
-        settings["model_path"] = rec.model_path
-        settings["bundled_model_path"] = rec.model_path
-        settings["custom_model_path"] = rec.model_path
-        settings["gguf_model_path"] = rec.model_path
+        if str(rec.model_path or "").strip():      # no model found is no choice: the user's stays
+            settings["model_path"] = rec.model_path
+            settings["bundled_model_path"] = rec.model_path
+            settings["custom_model_path"] = rec.model_path
+            settings["gguf_model_path"] = rec.model_path
         # Hardware-computed values stored under isolated keys only.
         settings["hw_profile_n_gpu_layers"] = rec.n_gpu_layers
         settings["hw_profile_n_ctx"] = rec.n_ctx
@@ -3200,7 +3201,10 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
     before = {k: settings.get(k) for k in (
         "hw_profile_n_ctx", "hw_profile_n_gpu_layers", "hw_profile_batch_size", "model_path"
     )}
-    new_settings = dict(settings)
+    # Only the keys written here go to the file: the whole load_settings() view handed back wrote every
+    # default and every one-session environment override into it (on a new user's first run an
+    # ELI_USER_NAME exported for that one run became the saved name).
+    new_settings: Dict[str, Any] = {}
 
     # Hardware-computed recommendation stored under hw_profile_* only.
     # n_ctx / n_gpu_layers / batch_size (canonical keys) are NOT touched —
@@ -3215,8 +3219,9 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
     if rec.mode_presets:
         new_settings["mode_presets"] = dict(rec.mode_presets)
 
-    # Model path: preserve user selection unless it was invalid.
-    if model_invalid:
+    # Model path: preserve user selection unless it was invalid, and then only for a model the
+    # recommendation found (an empty path is no choice, and it wiped the user's).
+    if model_invalid and str(rec.model_path or "").strip():
         new_settings["model_path"] = rec.model_path
         new_settings["bundled_model_path"] = rec.model_path
         new_settings["custom_model_path"] = rec.model_path
@@ -3239,7 +3244,7 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
 
     diffs = []
     for k, before_v in before.items():
-        after_v = new_settings.get(k)
+        after_v = new_settings.get(k, before_v)
         if str(before_v) != str(after_v):
             diffs.append(f"{k}: {before_v} → {after_v}")
     banner = "Hardware profile updated. " + primary_reason
