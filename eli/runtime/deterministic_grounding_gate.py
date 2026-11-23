@@ -263,21 +263,26 @@ def _eli_json_file_v2(path: _EliPath) -> dict:
     return {}
 
 
+# The snapshot, the settings and the stores where ELI keeps them, not in the program folder: on an
+# install there is nothing there, and in a checkout a test read the owner's own databases.
 def _eli_runtime_snapshot_v2() -> dict:
-    return _eli_json_file_v2(_eli_project_root_v2() / "artifacts" / "runtime_snapshot.json")
+    return _eli_json_file_v2(_artifacts_dir() / "runtime_snapshot.json")
 
 
 def _eli_settings_v2() -> dict:
-    return _eli_json_file_v2(_eli_project_root_v2() / "config" / "settings.json")
+    from eli.core.runtime_settings import _settings_file
+    return _eli_json_file_v2(_settings_file())
 
 
 def _eli_db_paths_v2() -> dict[str, _EliPath]:
-    root = _eli_project_root_v2()
+    from eli.core.paths import agent_db_path, user_db_path
+    from eli.memory.vector_store import _get_index_paths
+    index, meta = _get_index_paths()
     return {
-        "user_db": root / "artifacts" / "db" / "user.sqlite3",
-        "agent_db": root / "artifacts" / "db" / "agent.sqlite3",
-        "vector_index": root / "artifacts" / "vectors" / "index.faiss",
-        "vector_meta": root / "artifacts" / "vectors" / "meta.pkl",
+        "user_db": _EliPath(user_db_path()),
+        "agent_db": _EliPath(agent_db_path()),
+        "vector_index": _EliPath(index),
+        "vector_meta": _EliPath(meta),
     }
 
 
@@ -1423,11 +1428,13 @@ def _eli_v6_score_fact(s: str, source: str = "") -> int:
 
 
 def _eli_v6_profile_file_candidates() -> list[tuple[int, str]]:
+    from eli.core.paths import persona_auto_path
     out: list[tuple[int, str]] = []
-    root = _EliPath(__file__).resolve().parents[2]
 
     for rel in _PERSONAL_MEMORY_PROFILE_FILES_V6:
-        path = root / rel
+        # the data folder's files and the persona overlay in force, not the program folder's
+        path = (_EliPath(persona_auto_path()) if rel.endswith("persona.auto.txt")
+                else _EliPath(_artifacts_dir()) / rel.split("/", 1)[1])
         if not path.exists() or not path.is_file():
             continue
         try:
@@ -1523,19 +1530,9 @@ import sqlite3 as _eli_v8_sqlite3
 from pathlib import Path as _EliV8Path
 
 
-def _eli_v8_project_root() -> _EliV8Path:
-    try:
-        return _EliV8Path(__file__).resolve().parents[2]
-    except Exception:
-        return _EliV8Path.cwd()
-
-
 def _eli_v8_db_paths() -> list[_EliV8Path]:
-    root = _eli_v8_project_root()
-    return [
-        root / "artifacts" / "db" / "user.sqlite3",
-        root / "artifacts" / "db" / "agent.sqlite3",
-    ]
+    from eli.core.paths import agent_db_path, user_db_path
+    return [_EliV8Path(user_db_path()), _EliV8Path(agent_db_path())]
 
 
 def _eli_v8_norm(s: object) -> str:

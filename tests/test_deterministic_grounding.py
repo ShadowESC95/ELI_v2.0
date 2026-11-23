@@ -176,3 +176,19 @@ def test_last_response_confidence_is_honest_with_no_trace(monkeypatch, tmp_path)
     assert "no trace is available" in out.lower() or "don't have a real basis" in out.lower()
     # Must not fall back to the old fabricated-sounding boilerplate.
     assert "If the previous answer came from a deterministic" not in out
+
+
+def test_the_gate_reads_the_stores_and_settings_in_force_not_the_program_folders(monkeypatch, tmp_path):
+    """It built every path from the program folder: on an install nothing is there, and in a checkout
+    the tests read the owner's own databases."""
+    import json
+    from eli.runtime import deterministic_grounding_gate as gate
+    monkeypatch.setenv("ELI_USER_DB", str(tmp_path / "u.sqlite3"))
+    monkeypatch.setenv("ELI_AGENT_DB", str(tmp_path / "a.sqlite3"))
+    (tmp_path / "s.json").write_text(json.dumps({"n_ctx": 1234}), encoding="utf-8")
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(tmp_path / "s.json"))
+    paths = gate._eli_db_paths_v2()
+    assert paths["user_db"] == (tmp_path / "u.sqlite3").resolve()
+    assert paths["agent_db"] == (tmp_path / "a.sqlite3").resolve()
+    assert gate._eli_v8_db_paths() == [paths["user_db"], paths["agent_db"]]
+    assert gate._eli_settings_v2()["n_ctx"] == 1234
