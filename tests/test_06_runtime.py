@@ -55,6 +55,8 @@ def test_the_code_monitor_sees_what_changed_between_checks(tmp_path):
     report = mon.check()
     assert [(c.path, c.change_type, c.lines_added) for c in report.changes] == [("eli/memory/store.py", "modified", 2)]
     assert report.has_changes and "memory system" in report.summary()
+    assert not list(repo.glob("*code_monitor*")), "the state went into the folder it watches"
+    assert mon.state_path.is_file()
 
 
 def test_code_changes_says_when_it_could_not_look(monkeypatch, tmp_path):

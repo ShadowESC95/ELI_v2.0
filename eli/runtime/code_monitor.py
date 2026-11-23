@@ -205,17 +205,20 @@ class CodeMonitor:
             print(report.summary())
     """
 
-    STATE_FILE = ".code_monitor_state.json"
+    STATE_FILE = "code_monitor_state.json"
 
     def __init__(self, repo_root: Optional[Path] = None):
+        from eli.core import paths as _paths
         if repo_root is None:
             try:
-                from eli.core.paths import get_paths
-                repo_root = get_paths().project_root
+                repo_root = _paths.get_paths().project_root
             except Exception:
                 repo_root = Path(__file__).resolve().parents[3]
         self.repo_root = Path(repo_root)
-        self.state_path = self.repo_root / self.STATE_FILE
+        # where ELI keeps its runtime state, not in the folder it watches (a read-only program folder
+        # on an install; a test run wrote .code_monitor_state.json into the checkout). One record per
+        # watched folder.
+        self.state_path = _paths.artifacts_dir() / "runtime" / self.STATE_FILE
         self.use_git = _git_ok(self.repo_root)
 
     def check(self) -> ChangeReport:
@@ -244,18 +247,24 @@ class CodeMonitor:
         self._save_state({"git_ref": report.git_ref, "timestamp": report.timestamp})
         return report
 
-    def _load_state(self) -> Dict[str, Any]:
-        if not self.state_path.exists():
-            return {}
+    def _all_states(self) -> Dict[str, Any]:
         try:
-            return json.loads(self.state_path.read_text(encoding="utf-8"))
+            data = json.loads(self.state_path.read_text(encoding="utf-8"))
+            return data if isinstance(data, dict) else {}
         except Exception:
             return {}
 
+    def _load_state(self) -> Dict[str, Any]:
+        state = self._all_states().get(str(self.repo_root.resolve()))
+        return state if isinstance(state, dict) else {}
+
     def _save_state(self, data: Dict[str, Any]) -> None:
         try:
+            states = self._all_states()
+            states[str(self.repo_root.resolve())] = data
+            self.state_path.parent.mkdir(parents=True, exist_ok=True)
             self.state_path.write_text(
-                json.dumps(data, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+                json.dumps(states, indent=2, sort_keys=True) + "\n", encoding="utf-8"
             )
         except Exception as exc:
             log.warning("code_monitor: state save failed: %s", exc)
