@@ -186,18 +186,35 @@ def _is_dev_mode() -> bool:
     return False
 
 
+def _user_tag() -> str:
+    """Who runs this process, for names in places every account on the machine shares: the user id on
+    Linux and macOS (/tmp is one folder for all of them), the account name on Windows (named pipes are
+    one namespace for every session)."""
+    if hasattr(os, "getuid"):
+        return str(os.getuid())
+    import getpass
+    import re
+    try:
+        name = getpass.getuser()
+    except Exception:
+        name = os.environ.get("USERNAME", "")
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", name) or "user"
+
+
 def temp_path(name: str) -> Path:
-    """`name` in the system temp folder, under this version's own name (ELI_v2-tts_speaking.lock).
-    A lock, socket, log or report one ELI version leaves there must never be read by another one
-    running beside it: with shared names, v2 speaking muted v3's microphone and either version
-    could drive the other's video player."""
+    """`name` in the system temp folder, under this version's own name and this user's
+    (ELI_v2-1000-tts_speaking.lock). A lock, socket, log or report one ELI leaves there must never be
+    read by another one running beside it: with shared names, v2 speaking muted v3's microphone and
+    either version could drive the other's video player, and with no user in the name a second account
+    on the same machine had its microphone muted while the first one's ELI spoke and could not write
+    its own lock or player socket, which the first one's ELI owned."""
     import tempfile
-    return Path(tempfile.gettempdir()) / f"{_APP_NAME}-{name}"
+    return Path(tempfile.gettempdir()) / f"{_APP_NAME}-{_user_tag()}-{name}"
 
 
 def pipe_path(name: str) -> str:
-    """A Windows named pipe that is this version's alone (see temp_path)."""
-    return "\\\\.\\pipe\\" + f"{_APP_NAME}-{name}"
+    """A Windows named pipe that is this version's and this user's alone (see temp_path)."""
+    return "\\\\.\\pipe\\" + f"{_APP_NAME}-{_user_tag()}-{name}"
 
 
 def adopt_legacy_file(own: Path, legacy: str) -> Path:

@@ -498,3 +498,17 @@ def test_a_data_home_left_empty_or_relative_is_not_the_folder_eli_starts_in(tmp_
     assert hook._user_root().resolve() == own
     assert dl.stable_user_root() == own
 
+
+def test_temp_names_are_each_users_own(monkeypatch):
+    """/tmp is one folder for every account on the machine, and a Windows named pipe one namespace. With
+    the version alone in the name, a second account's ELI took the first one's speaking lock as its own
+    (its microphone muted while the other ELI spoke) and could not write its own lock or player socket."""
+    import eli.core.paths as P
+    if not hasattr(os, "getuid"):
+        pytest.skip("POSIX accounts")
+    monkeypatch.setattr(os, "getuid", lambda: 1000)
+    first = (P.temp_path("tts_speaking.lock"), P.pipe_path("youtube_mpv"))
+    monkeypatch.setattr(os, "getuid", lambda: 1001)
+    second = (P.temp_path("tts_speaking.lock"), P.pipe_path("youtube_mpv"))
+    assert first[0] != second[0] and first[1] != second[1]
+    assert first[0].parent == second[0].parent and first[0].name.startswith("ELI_v2-")
