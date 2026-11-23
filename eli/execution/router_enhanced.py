@@ -8,8 +8,9 @@ def _eli_pipeline_trace(stage: str, **data):
     try:
         import json, time, os
         from pathlib import Path
-        from eli.core.paths import get_paths
-        out = Path(get_paths().project_root) / "ops" / "reports" / "pipeline_visibility" / "runtime_pipeline_trace.jsonl"
+        from eli.core.paths import logs_dir
+        # the data folder's logs, never the program folder (a test run wrote ops/ into the checkout)
+        out = Path(logs_dir()) / "runtime_pipeline_trace.jsonl"
         out.parent.mkdir(parents=True, exist_ok=True)
         with out.open("a", encoding="utf-8") as f:
             f.write(json.dumps({"ts": time.time(), "stage": stage, **data}, ensure_ascii=False, default=str) + "\n")
