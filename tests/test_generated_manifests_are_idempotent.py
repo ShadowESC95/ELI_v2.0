@@ -118,22 +118,58 @@ def test_the_capabilities_table_is_not_rewritten_for_a_new_day_alone(tmp_path, m
     from eli.tools.registry import capabilities_doc as doc
 
     out = tmp_path / "capabilities_and_actions.md"
-    monkeypatch.setattr(doc, "OUT", out)
     caps = [{"action": "TIME", "routable": True}, {"action": "DATE", "routable": True}]
-    monkeypatch.setattr(doc, "_load_manifest", lambda: (caps, {"TIME", "DATE"}, set()))
-    doc.generate_capabilities_doc()
+    monkeypatch.setattr(doc, "_load_manifest", lambda path=None: (caps, {"TIME", "DATE"}, set()))
+    doc.generate_capabilities_doc(to=out)
     yesterday = out.read_text(encoding="utf-8").replace(
         f"*Auto-generated {time.strftime('%Y-%m-%d')} ", "*Auto-generated 2026-01-01 ", 1)
     out.write_text(yesterday, encoding="utf-8")
 
-    doc.generate_capabilities_doc()
+    doc.generate_capabilities_doc(to=out)
     assert out.read_text(encoding="utf-8") == yesterday, "rewritten with nothing changed but the date"
 
     caps.append({"action": "VOLUME", "routable": True})
-    monkeypatch.setattr(doc, "_load_manifest", lambda: (caps, {"TIME", "DATE", "VOLUME"}, set()))
-    doc.generate_capabilities_doc()
+    monkeypatch.setattr(doc, "_load_manifest", lambda path=None: (caps, {"TIME", "DATE", "VOLUME"}, set()))
+    doc.generate_capabilities_doc(to=out)
     assert "2026-01-01" not in out.read_text(encoding="utf-8"), "a real change was not written"
 
+
+
+def test_an_engine_start_keeps_its_manifest_and_table_in_the_data_folder_not_the_install(tmp_path, monkeypatch):
+    """Every engine start wrote capability_manifest.json and blueprints/capabilities_and_actions.md at
+    the install's root: an ELI installed from the wheel wrote both into site-packages (and failed where
+    that is read-only), and a test or an eval run from a checkout rewrote the tracked ones. The start
+    keeps this install's own copies in its data folder; the shipped ones are written when asked for."""
+    from types import SimpleNamespace
+    import eli.core.paths as P
+    import eli.runtime.capability_sync as sync_mod
+    from eli.tools.registry import capabilities_doc as doc
+    from eli.tools.registry import capability_updater as up
+    site, data = tmp_path / "site-packages", tmp_path / "data"
+    site.mkdir()
+    monkeypatch.setattr(up, "ELI_ROOT", site)
+    monkeypatch.setattr(doc, "OUT", site / "blueprints" / "capabilities_and_actions.md")
+    monkeypatch.setattr(P, "data_dir", lambda: data)
+
+    class _Sync:
+        def __init__(self, repo_root=None):
+            pass
+
+        def discover(self):
+            return {"TIME": {"source": "executor", "routable": True, "in_supported_list": True}}
+
+        def run(self):
+            return SimpleNamespace(has_changes=False, summary=lambda: "")
+
+    monkeypatch.setattr(sync_mod, "CapabilitySync", _Sync)
+    assert up.current_manifest_path() == site / "capability_manifest.json"     # none regenerated: the shipped one
+    assert up.update_capability_manifest()["ok"]
+    assert not list(site.rglob("*")), "written into the install"
+    own = data / "runtime" / "capability_manifest.json"
+    assert up.current_manifest_path() == own and json.loads(own.read_text(encoding="utf-8"))["total"] == 1
+    assert (data / "runtime" / "capabilities_and_actions.md").is_file()
+    up.update_capability_manifest(path=up.shipped_manifest_path())             # asked for by name
+    assert (site / "capability_manifest.json").is_file()
 
 def test_first_write_always_happens(sync):
     assert not sync.inventory_path.exists()

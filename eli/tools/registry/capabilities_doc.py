@@ -30,8 +30,16 @@ try:
     ELI_ROOT = canonical_root(Path(__file__).resolve().parents[3])
 except Exception:
     ELI_ROOT = Path(__file__).resolve().parents[3]
-MANIFEST = ELI_ROOT / "capability_manifest.json"
 OUT = ELI_ROOT / "blueprints" / "capabilities_and_actions.md"
+
+
+def out_path() -> Path:
+    """Where an engine start writes the table: this install's runtime state (paths.data_dir()). The
+    tracked blueprint is written only when it is asked for (running this module, `to=OUT`): every engine
+    start wrote it, so an installed ELI made blueprints/ in site-packages and a test or an eval run from
+    a checkout rewrote the blueprint."""
+    from eli.core.paths import data_dir
+    return data_dir() / "runtime" / "capabilities_and_actions.md"
 
 # action -> (category, description, [phrases]). Edit here when adding an action.
 _C: "OrderedDict[str, Tuple[str, str, List[str]]]" = OrderedDict()
@@ -312,8 +320,11 @@ _add("Shell & advanced", "NOOP", "Internal no-op (ignored fragment guard)", "(in
 _CAT_ORDER = list(OrderedDict((c, None) for (c, _, _) in _C.values()))
 
 
-def _load_manifest() -> Tuple[List[dict], set, set]:
-    data = json.loads(MANIFEST.read_text(encoding="utf-8"))
+def _load_manifest(path=None) -> Tuple[List[dict], set, set]:
+    if path is None:
+        from eli.tools.registry.capability_updater import current_manifest_path
+        path = current_manifest_path()
+    data = json.loads(Path(path).read_text(encoding="utf-8"))
     caps = data.get("capabilities", [])
     routable = {c["action"] for c in caps
                 if c.get("routable") or c.get("in_supported_list")}
@@ -326,10 +337,11 @@ def _without_date(text: str) -> str:
     return re.sub(r"^\*Auto-generated \d{4}-\d{2}-\d{2} ", "*Auto-generated ", text, count=1, flags=re.M)
 
 
-def generate_capabilities_doc() -> Dict:
-    """Render blueprints/capabilities_and_actions.md from the manifest + curated map.
-    Returns {ok, total, documented, routable, needs_phrase}."""
-    caps, routable, plugin = _load_manifest()
+def generate_capabilities_doc(manifest=None, to=None) -> Dict:
+    """Render the capabilities table from the manifest (`manifest`, the one just written, else the
+    install's current one) + curated map, to `to` (the blueprint is OUT) or out_path(). Returns
+    {ok, total, documented, routable, needs_phrase, path}."""
+    caps, routable, plugin = _load_manifest(manifest)
     all_actions = {c["action"] for c in caps}
 
     # New routable actions not yet curated → emitted with a placeholder so the doc
@@ -382,28 +394,28 @@ def generate_capabilities_doc() -> Dict:
         out.append(f"- ⚠️ New/undocumented (need a curated phrase): {', '.join(needs_phrase)}")
     out.append("")
 
-    text = "\n".join(out)
-    # Only when the table changed. A new day's date alone is no change: this file is tracked, and the
-    # first start of each day (the app's, or an engine a test builds) left it modified in git.
+    text, path = "\n".join(out), Path(to) if to else out_path()
+    # Only when the table changed. A new day's date alone is no change: the blueprint is tracked, and
+    # the first start of each day (the app's, or an engine a test builds) left it modified in git.
     try:
-        before = OUT.read_text(encoding="utf-8")
+        before = path.read_text(encoding="utf-8")
     except OSError:
         before = None
     if before is None or _without_date(before) != _without_date(text):
-        OUT.parent.mkdir(parents=True, exist_ok=True)
-        OUT.write_text(text, encoding="utf-8")
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(text, encoding="utf-8")
     return {
         "ok": True,
         "total": len(all_actions),
         "routable": len(routable),
         "documented": len(routable & set(_C)),
         "needs_phrase": needs_phrase,
-        "path": str(OUT),
+        "path": str(path),
     }
 
 
 if __name__ == "__main__":
-    r = generate_capabilities_doc()
+    r = generate_capabilities_doc(to=OUT)          # the tracked blueprint, asked for by name
     print(f"Wrote {r['path']}")
     print(f"  documented {r['documented']}/{r['routable']} routable")
     if r["needs_phrase"]:

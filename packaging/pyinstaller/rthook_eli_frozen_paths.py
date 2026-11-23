@@ -145,13 +145,24 @@ def _seed_stamp(bundle: Path) -> str:
     return f"{version}+{built}" if built else version
 
 
+def _folder_from_env(name: str):
+    """eli.core.paths._folder_from_env: an unset, empty or relative variable names no folder (an
+    empty XDG_DATA_HOME put the whole root in the folder the app was started from)."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return None
+    p = Path(raw).expanduser()
+    return p if p.is_absolute() else None
+
+
 def _user_root() -> Path:
+    """eli.core.paths.user_root(), which this hook runs before."""
     if sys.platform == "win32":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
+        base = _folder_from_env("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
     elif sys.platform == "darwin":
         base = Path.home() / "Library" / "Application Support"
     else:
-        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
+        base = _folder_from_env("XDG_DATA_HOME") or Path.home() / ".local" / "share"
     return base / "ELI_v2"
 
 

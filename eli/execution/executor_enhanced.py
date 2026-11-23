@@ -1314,7 +1314,7 @@ def _explain_memory_runtime_report() -> Dict[str, Any]:
             "meta_path": str(meta_path),
             "index_exists": Path(idx_path).exists(),
             "meta_exists": Path(meta_path).exists(),
-            "embedding_model": str((get_paths().project_root / "models" / "embeddings" / "nomic-embed-text-v1.5.Q4_K_M.gguf").resolve()),
+            "embedding_model": _vs.resolve_embedder_path(),   # the file the store loads, wherever it is
         }
         if vector_status["faiss_available"] and vector_status["index_exists"]:
             import faiss
@@ -2022,8 +2022,10 @@ def _runtime_boot_status() -> Dict[str, Any]:
             "project_root": Path(paths.project_root),
             "user_db": Path(paths.user_db),
             "agent_db": Path(paths.agent_db),
-            "settings": Path(paths.project_root) / "config" / "settings.json",
-            "capability_manifest": Path(paths.project_root) / "capability_manifest.json",
+            # where they really are: the settings file runtime_settings reads, the manifest this install reads
+            "settings": __import__("eli.core.runtime_settings", fromlist=["_settings_file"])._settings_file(),
+            "capability_manifest": __import__("eli.tools.registry.capability_updater",
+                                              fromlist=["current_manifest_path"]).current_manifest_path(),
         }
         for label, path in path_checks.items():
             checks[f"path.{label}"] = path.exists()
@@ -15035,9 +15037,12 @@ try:
         if not runtime_snapshot:
             runtime_snapshot = _eli_self_read_json(root / "artifacts" / "runtime_snapshot.json")
 
-        # The manifest ships inside the bundle for a frozen build and is rewritten
-        # into the per-user root at runtime; take whichever exists.
-        manifest = _eli_self_read_json(root / "capability_manifest.json")
+        # The one this install regenerated, else the one the build shipped (capability_updater).
+        try:
+            from eli.tools.registry.capability_updater import current_manifest_path as _cur_manifest
+            manifest = _eli_self_read_json(_cur_manifest())
+        except Exception:
+            manifest = {}
         if not manifest:
             try:
                 manifest = _eli_self_read_json(

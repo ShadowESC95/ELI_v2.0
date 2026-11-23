@@ -24,6 +24,26 @@ def _eli_root() -> Path:
 ELI_ROOT = _eli_root()
 
 
+def shipped_manifest_path() -> Path:
+    """The manifest the build ships at the install's root (tracked; refreshed by running this module)."""
+    return ELI_ROOT / "capability_manifest.json"
+
+
+def manifest_path() -> Path:
+    """Where an engine start regenerates the manifest: this install's runtime state (paths.data_dir()),
+    never the install's root. Written there, an installed ELI wrote capability_manifest.json into
+    site-packages (or failed where that is read-only), and a test or an eval that started an engine
+    rewrote the checkout's tracked manifest."""
+    from eli.core.paths import data_dir
+    return data_dir() / "runtime" / "capability_manifest.json"
+
+
+def current_manifest_path() -> Path:
+    """The manifest to read: the one this install regenerated, else the one the build shipped."""
+    regenerated = manifest_path()
+    return regenerated if regenerated.is_file() else shipped_manifest_path()
+
+
 def _plugin_permission_rollup(plugin_id: str) -> str:
     """permission_state for a plugin-sourced action.
 
@@ -119,7 +139,7 @@ def capability_status(actions=None) -> dict:
     from eli.runtime.evidence_ledger import verified_actions
     if actions is None:
         try:
-            actions = [c["action"] for c in json.loads((ELI_ROOT / "capability_manifest.json").read_text(
+            actions = [c["action"] for c in json.loads(current_manifest_path().read_text(
                 encoding="utf-8")).get("capabilities", [])]
         except Exception:
             actions = []
@@ -140,14 +160,16 @@ def capability_status(actions=None) -> dict:
     return {"discovered": len(view), **counts, "actions": view}
 
 
-def update_capability_manifest():
+def update_capability_manifest(path=None):
+    """Bring the manifest at `path` (default manifest_path(), this install's own) up to what the code
+    holds now. It is written only when the capabilities changed."""
     from eli.runtime.capability_sync import CapabilitySync
 
     sync = CapabilitySync(repo_root=ELI_ROOT)
     capabilities_map = sync.discover()
     delta = sync.run()
 
-    manifest_path = ELI_ROOT / "capability_manifest.json"
+    target = Path(path) if path else manifest_path()
 
     capabilities = [
         _build_capability_entry(action, meta)
@@ -161,11 +183,12 @@ def update_capability_manifest():
     }
 
     # Only write when the capabilities themselves changed. A fresh timestamp over
-    # an identical manifest is not an update: this file is tracked, so rewriting
+    # an identical manifest is not an update: the shipped one is tracked, so rewriting
     # it on every start left it permanently modified in git, and a real
     # capability change would have been indistinguishable from that noise.
-    if not _manifest_matches(manifest_path, manifest):
-        manifest_path.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
+    if not _manifest_matches(target, manifest):
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(json.dumps(manifest, indent=2), encoding="utf-8")
 
     # Keep the human-readable reference table in sync with the manifest. Best-effort:
     # any newly-discovered routable action without a curated activation phrase is
@@ -173,7 +196,7 @@ def update_capability_manifest():
     doc_needs_phrase = []
     try:
         from eli.tools.registry.capabilities_doc import generate_capabilities_doc
-        _doc = generate_capabilities_doc()
+        _doc = generate_capabilities_doc(manifest=target)
         doc_needs_phrase = _doc.get("needs_phrase", [])
     except Exception:
         pass
@@ -191,7 +214,7 @@ def update_capability_manifest():
 
 
 if __name__ == "__main__":
-    result = update_capability_manifest()
+    result = update_capability_manifest(path=shipped_manifest_path())   # the tracked one, asked for by name
     if result["ok"]:
         print(f"Capability manifest updated: {result['total']} capabilities")
         print(f"  Executor actions: {result['executor_actions']}")

@@ -233,3 +233,26 @@ def test_the_model_loader_gives_the_embedder_its_place_before_planning(monkeypat
     except Exception:
         pass
     assert order[:1] == ["embedder"], order
+
+
+@pytest.mark.parametrize("own_models", ["installed", "named"])
+def test_the_embedder_is_found_where_it_is_downloaded(tmp_path, monkeypatch, own_models):
+    """The download puts the embedder in models_dir()/embeddings. The store looked in <project
+    root>/models and beside ELI_MODELS_DIR's parent only, so for an installed ELI (models in its data
+    folder) or a models folder of the user's own naming it never found it: recall on keywords alone."""
+    import eli.core.paths as P
+    import eli.memory.vector_store as vs
+    from eli.core import model_download
+    monkeypatch.delenv("ELI_EMBED_MODEL_PATH", raising=False)
+    monkeypatch.setattr(vs, "_project_root", lambda: tmp_path / "site-packages")
+    if own_models == "installed":
+        monkeypatch.delenv("ELI_MODELS_DIR", raising=False)
+        monkeypatch.setattr(P, "_is_dev_mode", lambda: False)
+        monkeypatch.setattr(P, "data_dir", lambda: tmp_path / "data")
+    else:
+        monkeypatch.setenv("ELI_MODELS_DIR", str(tmp_path / "llm"))
+    entry = next(e for e in model_download.AUX_MODELS if e["key"] == "embedder")
+    downloaded = P.models_dir() / entry["subdir"] / entry["filename"]
+    downloaded.parent.mkdir(parents=True)
+    downloaded.write_bytes(b"GGUF")
+    assert resolve_embedder_path() == str(downloaded.resolve())

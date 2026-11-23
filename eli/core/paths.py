@@ -43,16 +43,32 @@ def is_frozen() -> bool:
     """True if running as a frozen (PyInstaller/cx_Freeze) bundle."""
     return getattr(sys, 'frozen', False)
 
+def _folder_from_env(name: str) -> Path | None:
+    """The folder an environment variable names, read as the XDG base-directory rules read one: unset,
+    empty or relative names no folder. Path("") is the current folder, so an XDG_DATA_HOME left empty
+    put every store of a new user in whatever folder ELI was started from."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return None
+    p = Path(raw).expanduser()
+    return p if p.is_absolute() else None
+
+
+def platform_data_home(platform: str | None = None) -> Path:
+    """This user's own folder for application data: %LOCALAPPDATA% on Windows, ~/Library/Application
+    Support on macOS, $XDG_DATA_HOME or ~/.local/share elsewhere."""
+    platform = platform or sys.platform
+    if platform == "win32":
+        return _folder_from_env("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
+    if platform == "darwin":
+        return Path.home() / "Library" / "Application Support"
+    return _folder_from_env("XDG_DATA_HOME") or Path.home() / ".local" / "share"
+
+
 def _frozen_user_root() -> Path:
     """v2's per-user root, for the packaged app and an installed one alike — must match
     packaging/pyinstaller/rthook_eli_frozen_paths.py."""
-    if sys.platform == "win32":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return (base / _APP_NAME).expanduser().resolve()
+    return (platform_data_home() / _APP_NAME).expanduser().resolve()
 
 
 def _frozen_base() -> Path:
@@ -170,18 +186,35 @@ def _is_dev_mode() -> bool:
     return False
 
 
+def _user_tag() -> str:
+    """Who runs this process, for names in places every account on the machine shares: the user id on
+    Linux and macOS (/tmp is one folder for all of them), the account name on Windows (named pipes are
+    one namespace for every session)."""
+    if hasattr(os, "getuid"):
+        return str(os.getuid())
+    import getpass
+    import re
+    try:
+        name = getpass.getuser()
+    except Exception:
+        name = os.environ.get("USERNAME", "")
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", name) or "user"
+
+
 def temp_path(name: str) -> Path:
-    """`name` in the system temp folder, under this version's own name (ELI_v2-tts_speaking.lock).
-    A lock, socket, log or report one ELI version leaves there must never be read by another one
-    running beside it: with shared names, v2 speaking muted v3's microphone and either version
-    could drive the other's video player."""
+    """`name` in the system temp folder, under this version's own name and this user's
+    (ELI_v2-1000-tts_speaking.lock). A lock, socket, log or report one ELI leaves there must never be
+    read by another one running beside it: with shared names, v2 speaking muted v3's microphone and
+    either version could drive the other's video player, and with no user in the name a second account
+    on the same machine had its microphone muted while the first one's ELI spoke and could not write
+    its own lock or player socket, which the first one's ELI owned."""
     import tempfile
-    return Path(tempfile.gettempdir()) / f"{_APP_NAME}-{name}"
+    return Path(tempfile.gettempdir()) / f"{_APP_NAME}-{_user_tag()}-{name}"
 
 
 def pipe_path(name: str) -> str:
-    """A Windows named pipe that is this version's alone (see temp_path)."""
-    return "\\\\.\\pipe\\" + f"{_APP_NAME}-{name}"
+    """A Windows named pipe that is this version's and this user's alone (see temp_path)."""
+    return "\\\\.\\pipe\\" + f"{_APP_NAME}-{_user_tag()}-{name}"
 
 
 def adopt_legacy_file(own: Path, legacy: str) -> Path:

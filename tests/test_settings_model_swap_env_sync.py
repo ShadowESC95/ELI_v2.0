@@ -348,6 +348,29 @@ def test_applying_a_hardware_recommendation_keeps_the_users_settings_and_no_expo
     assert json.loads(f.read_text(encoding="utf-8"))["provider"] == "custom_gguf"   # Ollama loads no GGUF
 
 
+
+def test_the_first_run_hardware_profile_saves_no_export_and_wipes_no_model(tmp_path, monkeypatch):
+    """On a new user's first run the hardware profile saved the whole loaded settings back: a value
+    exported for that one run (ELI_USER_NAME, ELI_N_CTX) became a saved setting. With no model in any
+    folder its empty choice was written over the model the user had picked (a drive not plugged in)."""
+    import json
+    from eli.core import hardware_profile as hp
+    f = tmp_path / "settings.json"
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(f))
+    monkeypatch.setenv("ELI_USER_NAME", "Visitor")
+    monkeypatch.setenv("ELI_N_CTX", "1234")
+    monkeypatch.setattr(hp, "detect_hardware", lambda *, force=False: hp.HardwareProfile(cpu_threads=4))
+    monkeypatch.setattr(hp, "discover_models", lambda *a, **k: [])
+    assert hp.enforce_hardware_authority()["rewritten"]
+    saved = json.loads(f.read_text(encoding="utf-8"))
+    assert "user_name" not in saved and "n_ctx" not in saved and saved["hardware_fingerprint"]
+    chosen = str(tmp_path / "unplugged_drive" / "chosen.gguf")
+    f.write_text(json.dumps({"model_path": chosen}), encoding="utf-8")
+    hp.enforce_hardware_authority()
+    assert json.loads(f.read_text(encoding="utf-8"))["model_path"] == chosen
+    hp.apply_recommendation(hp.ModelRecommendation(model_path=""))
+    assert json.loads(f.read_text(encoding="utf-8"))["model_path"] == chosen
+
 def test_the_think_switch_follows_a_change_made_through_the_settings(saved_auto_ctx, monkeypatch):
     """ELI_MODEL_THINK was written once and then never again: turning deep thinking off through the
     settings (the API, the dashboard) had no effect until a restart."""

@@ -70,3 +70,13 @@ def test_code_changes_says_when_it_could_not_look(monkeypatch, tmp_path):
     monkeypatch.setattr(awareness_boot, "_awareness", state)
     text = execute("CODE_CHANGES", {})["response"]
     assert "can't see code changes" in text and str(plain) in text
+
+
+
+def test_what_the_code_monitor_saw_is_kept_in_the_data_folder_not_the_tree():
+    """Kept in the source tree, every engine start in a test or an eval wrote .code_monitor_state.json
+    into the checkout."""
+    from eli.core.paths import data_dir, project_root
+    from eli.runtime.code_monitor import CodeMonitor
+    for mon in (CodeMonitor(), CodeMonitor(project_root())):        # awareness_boot names the install's root
+        assert mon.state_path.parent == data_dir() / "runtime"

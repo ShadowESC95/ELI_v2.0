@@ -99,7 +99,8 @@ def install_linux_theme_icon(root: Optional[Path] = None) -> str:
     src = source_icon_path(root)
     if src is None:
         return ICON_NAME
-    theme_base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "icons" / "hicolor"
+    from eli.core.paths import platform_data_home
+    theme_base = platform_data_home("linux") / "icons" / "hicolor"
     for size in (48, 128, 256):
         dest_dir = theme_base / f"{size}x{size}" / "apps"
         dest_dir.mkdir(parents=True, exist_ok=True)

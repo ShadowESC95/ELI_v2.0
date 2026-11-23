@@ -2481,6 +2481,20 @@ def kv_cache_quantized(
     return bool(cap is not None and want > 0 and cap < want)
 
 
+def _rest_fits_in_ram(m: Dict[str, Any], gpu_layers: int, n_ctx: int, kv_quantized: bool,
+                      hw: HardwareProfile, batch: int) -> bool:
+    """Whether what model `m` leaves on the processor with `gpu_layers` on the GPU fits the RAM budget
+    (cpu_ram_budget_mb) at the smallest context it would load with. A GPU that shares the system's
+    memory takes its layers out of the same RAM, so there the whole model has to fit. Any layer on
+    the GPU was enough: with several models on disk, the largest was chosen whatever was left over,
+    an 18 GB model on an 8 GB laptop with an integrated GPU."""
+    total = layers_for_model(m["path"], m["size_gb"])
+    on_gpu = 0 if hw.gpu_integrated else _fit_layers_real(gpu_layers, total)
+    need = _estimate_cpu_spill_mb(m["size_gb"], total, on_gpu, n_ctx, batch, kv_quantized=kv_quantized,
+                                  cost=model_cost(m["path"], kv_quantized=kv_quantized))
+    return need <= cpu_ram_budget_mb(hw.available_ram_gb)
+
+
 def recommend(hw: Optional[HardwareProfile] = None,
               models: Optional[List[Dict[str, Any]]] = None,
               user_ctx: Optional[int] = None) -> ModelRecommendation:
@@ -2628,7 +2642,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
             ), layers_for_model(m["path"], m["size_gb"]))
             if hw.gpu_integrated:
                 layers = min(layers, max(4, int(layers_for_model(m["path"], m["size_gb"]) * 0.25)))
-            if layers > 0:
+            if layers > 0 and _rest_fits_in_ram(m, layers, min(rec.n_ctx, _ctx_grain), kv_q, hw, rec.batch_size):
                 chosen = m
                 chosen_layers = layers
                 break
@@ -2986,10 +3000,11 @@ def apply_recommendation(rec: ModelRecommendation) -> Dict[str, Any]:
     try:
         from eli.core.runtime_settings import load_settings, save_settings
         settings: Dict[str, Any] = {}
-        settings["model_path"] = rec.model_path
-        settings["bundled_model_path"] = rec.model_path
-        settings["custom_model_path"] = rec.model_path
-        settings["gguf_model_path"] = rec.model_path
+        if str(rec.model_path or "").strip():      # no model found is no choice: the user's stays
+            settings["model_path"] = rec.model_path
+            settings["bundled_model_path"] = rec.model_path
+            settings["custom_model_path"] = rec.model_path
+            settings["gguf_model_path"] = rec.model_path
         # Hardware-computed values stored under isolated keys only.
         settings["hw_profile_n_gpu_layers"] = rec.n_gpu_layers
         settings["hw_profile_n_ctx"] = rec.n_ctx
@@ -3200,7 +3215,10 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
     before = {k: settings.get(k) for k in (
         "hw_profile_n_ctx", "hw_profile_n_gpu_layers", "hw_profile_batch_size", "model_path"
     )}
-    new_settings = dict(settings)
+    # Only the keys written here go to the file: the whole load_settings() view handed back wrote every
+    # default and every one-session environment override into it (on a new user's first run an
+    # ELI_USER_NAME exported for that one run became the saved name).
+    new_settings: Dict[str, Any] = {}
 
     # Hardware-computed recommendation stored under hw_profile_* only.
     # n_ctx / n_gpu_layers / batch_size (canonical keys) are NOT touched —
@@ -3215,8 +3233,9 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
     if rec.mode_presets:
         new_settings["mode_presets"] = dict(rec.mode_presets)
 
-    # Model path: preserve user selection unless it was invalid.
-    if model_invalid:
+    # Model path: preserve user selection unless it was invalid, and then only for a model the
+    # recommendation found (an empty path is no choice, and it wiped the user's).
+    if model_invalid and str(rec.model_path or "").strip():
         new_settings["model_path"] = rec.model_path
         new_settings["bundled_model_path"] = rec.model_path
         new_settings["custom_model_path"] = rec.model_path
@@ -3239,7 +3258,7 @@ def enforce_hardware_authority(*, force: bool = False) -> Dict[str, Any]:
 
     diffs = []
     for k, before_v in before.items():
-        after_v = new_settings.get(k)
+        after_v = new_settings.get(k, before_v)
         if str(before_v) != str(after_v):
             diffs.append(f"{k}: {before_v} → {after_v}")
     banner = "Hardware profile updated. " + primary_reason

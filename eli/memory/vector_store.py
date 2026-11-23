@@ -3,7 +3,7 @@ import os, sys, threading
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from eli.core.paths import project_root as _project_root
+from eli.core.paths import models_dir, project_root as _project_root
 
 
 from eli.utils.log import get_logger
@@ -22,21 +22,22 @@ def resolve_embedder_path() -> str:
     env_embed = os.getenv('ELI_EMBED_MODEL_PATH', '').strip()
     if env_embed:
         return str(Path(env_embed).expanduser().resolve())
-    _models_dir = Path(os.getenv('ELI_MODELS_DIR', str(_project_root() / 'models')))
-    # Search several roots so a frozen build (PyInstaller/AppImage) finds the bundled
-    # embedder when the writable data-dir copy is absent. Without this the packaged app
-    # fell back to keyword-only recall ("Embed model not found").
-    _roots = [_project_root(), _models_dir.parent]
+    # First where the download puts it (eli.core.model_download: models_dir()/embeddings). Only
+    # <project root>/models was looked in, and the folder above ELI_MODELS_DIR: an installed ELI keeps
+    # its models in its data folder and ELI_MODELS_DIR may be any folder, so the embedder fetched there
+    # was never found and memory recall ran on keywords alone.
+    own = models_dir().joinpath(*_EMBEDDER_REL[1:])
+    candidates = [own, _project_root().joinpath(*_EMBEDDER_REL)]
+    # A frozen build (PyInstaller/AppImage) may carry one in the bundle when the data folder has none.
     _meipass = getattr(sys, '_MEIPASS', '')
     if _meipass:
-        _roots.append(Path(_meipass))
+        candidates.append(Path(_meipass).joinpath(*_EMBEDDER_REL))
     if getattr(sys, 'frozen', False):
-        _roots.append(Path(sys.executable).resolve().parent)
-    for _root in _roots:
-        _cand = _root.joinpath(*_EMBEDDER_REL)
+        candidates.append(Path(sys.executable).resolve().parent.joinpath(*_EMBEDDER_REL))
+    for _cand in candidates:
         if _cand.exists():
             return str(_cand.resolve())
-    return str((_project_root() / Path(*_EMBEDDER_REL)).resolve())
+    return str(own.resolve())
 
 
 def embedder_footprint_gib() -> float:

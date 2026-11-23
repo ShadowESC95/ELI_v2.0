@@ -355,7 +355,7 @@ are trust-gated (§ plugin table below).
   `memories_archive`. A daily `run_upkeep()` does the merging, decay, archiving, identity
   merge and learning-table tidy. Full detail in `memory.md`.
 - **`vector_store.py`**: FAISS index at `artifacts/vectors/index.faiss`; embedder
-  `models/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf` *(runtime)*.
+  `<models_dir()>/embeddings/nomic-embed-text-v1.5.Q4_K_M.gguf` *(runtime)*, where the download puts it.
 - **Knowledge graph**: `kg_entities` and `kg_relations` (FTS5-backed) in the user database.
 - **Working memory** (`cognition/working_memory.py`): session-pinned facts with dates
   preserved, restored across sessions.

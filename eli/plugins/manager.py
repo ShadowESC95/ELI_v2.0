@@ -29,7 +29,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
-from eli.core.legacy_paths import legacy_named_paths, migrate_text_file
+from eli.core.legacy_paths import migrate_text_file
 from eli.core.paths import get_paths
 from eli.utils.log import get_logger
 
@@ -95,9 +95,12 @@ def _state_file() -> Path:
     if not state_dir or not state_dir.is_absolute():
         state_dir = Path(get_paths().config_dir)
     state_file = state_dir / "plugins_state.json"
+    # Nothing is brought over from another program's folder: the state of ~/.config/eli-* and ~/.eli_*
+    # (the folders of earlier ELI programs, of ELI VR and of the licence keys) was copied in, so a new
+    # user started with the plugins another ELI had enabled.
     migrate_text_file(
         state_file,
-        legacy_named_paths("plugins_state.json"),
+        [],
         default_text=json.dumps({"enabled": [], "disabled": [], "installed": {}}, indent=2),
     )
     return state_file

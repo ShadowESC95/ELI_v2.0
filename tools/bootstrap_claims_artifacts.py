@@ -80,7 +80,7 @@ def main() -> int:
     else:
         try:
             from eli.tools.registry.capability_updater import update_capability_manifest
-            r = update_capability_manifest()
+            r = update_capability_manifest(path=manifest)     # the shipped one at the root, by name
             if not r.get("ok"):
                 print(f"[WARN] manifest refresh: {r}", file=sys.stderr)
                 ok = False
