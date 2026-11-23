@@ -291,3 +291,22 @@ def test_recalling_the_last_audit_routes_to_examine_not_chat(monkeypatch):
     r = route("pull up each of those 59 findings once more")
     assert r["action"] == "EXAMINE_CODE" and r["meta"]["matched_by"] == "eli.examine_code_recall"
     assert route("pull up that song")["action"] != "EXAMINE_CODE"
+
+
+def test_the_sweep_reads_git_only_for_a_source_tree_that_is_its_own_repository(tmp_path, monkeypatch):
+    """A source tree inside another repository (a copy kept in someone's project) took that
+    repository's recent files for its own."""
+    import subprocess
+    outer = tmp_path / "outer"
+    inner = outer / "nested"
+    (inner / "eli").mkdir(parents=True)
+    (inner / "eli" / "__init__.py").write_text("", encoding="utf-8")
+    (outer / "eli").mkdir()
+    (outer / "eli" / "__init__.py").write_text("", encoding="utf-8")
+    git = lambda *a, cwd: subprocess.run(["git", *a], cwd=cwd, capture_output=True, text=True, check=True)
+    git("init", "-q", cwd=outer)
+    git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "add", "-A", cwd=outer)
+    git("-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "-m", "c", cwd=outer)
+    monkeypatch.setattr(CE, "PROJECT_ROOT", inner)
+    assert CE._git_recent_py() == []
+

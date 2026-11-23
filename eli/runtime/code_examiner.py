@@ -168,9 +168,19 @@ def _extract_named_paths(request: str) -> List[Path]:
 
 
 def _git_recent_py(days: int = 7, max_files: int = MAX_SWEEP_FILES) -> List[Path]:
-    """Recently-modified project .py files via git (working tree + recent commits)."""
+    """Recently-modified project .py files via git (working tree + recent commits). Only when ELI's
+    source tree is a repository of its own: inside another one (a copy kept in someone's project)
+    git reads the enclosing history, whose paths are not this tree's, and the sweep picked files
+    nobody changed."""
     found: List[Path] = []
     seen: set[str] = set()
+    try:
+        top = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=str(PROJECT_ROOT),
+                             capture_output=True, text=True, timeout=15)
+    except (OSError, subprocess.SubprocessError):
+        return found
+    if top.returncode != 0 or Path(top.stdout.strip()).resolve() != Path(PROJECT_ROOT).resolve():
+        return found
 
     def _collect(args: List[str]) -> None:
         try:
