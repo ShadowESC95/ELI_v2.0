@@ -43,16 +43,32 @@ def is_frozen() -> bool:
     """True if running as a frozen (PyInstaller/cx_Freeze) bundle."""
     return getattr(sys, 'frozen', False)
 
+def _folder_from_env(name: str) -> Path | None:
+    """The folder an environment variable names, read as the XDG base-directory rules read one: unset,
+    empty or relative names no folder. Path("") is the current folder, so an XDG_DATA_HOME left empty
+    put every store of a new user in whatever folder ELI was started from."""
+    raw = (os.environ.get(name) or "").strip()
+    if not raw:
+        return None
+    p = Path(raw).expanduser()
+    return p if p.is_absolute() else None
+
+
+def platform_data_home(platform: str | None = None) -> Path:
+    """This user's own folder for application data: %LOCALAPPDATA% on Windows, ~/Library/Application
+    Support on macOS, $XDG_DATA_HOME or ~/.local/share elsewhere."""
+    platform = platform or sys.platform
+    if platform == "win32":
+        return _folder_from_env("LOCALAPPDATA") or Path.home() / "AppData" / "Local"
+    if platform == "darwin":
+        return Path.home() / "Library" / "Application Support"
+    return _folder_from_env("XDG_DATA_HOME") or Path.home() / ".local" / "share"
+
+
 def _frozen_user_root() -> Path:
     """v2's per-user root, for the packaged app and an installed one alike — must match
     packaging/pyinstaller/rthook_eli_frozen_paths.py."""
-    if sys.platform == "win32":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return (base / _APP_NAME).expanduser().resolve()
+    return (platform_data_home() / _APP_NAME).expanduser().resolve()
 
 
 def _frozen_base() -> Path:

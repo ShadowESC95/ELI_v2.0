@@ -84,13 +84,8 @@ def _desktop_stem() -> str:
 
 def stable_user_root() -> Path:
     """Per-user data root outside any extract folder (redistribution-safe)."""
-    if sys.platform == "win32":
-        base = Path(os.environ.get("LOCALAPPDATA", Path.home() / "AppData" / "Local"))
-    elif sys.platform == "darwin":
-        base = Path.home() / "Library" / "Application Support"
-    else:
-        base = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share"))
-    return (base / _share_dirname()).expanduser().resolve()
+    from eli.core.paths import platform_data_home
+    return (platform_data_home(sys.platform) / _share_dirname()).expanduser().resolve()
 
 
 def install_root_pointer_path() -> Path:
@@ -279,7 +274,8 @@ def _icon_for(root: Path) -> str:
 
 
 def _apps_dir() -> Path:
-    return Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local" / "share")) / "applications"
+    from eli.core.paths import platform_data_home
+    return platform_data_home("linux") / "applications"
 
 
 def _desktop_search_dirs() -> list[Path]:

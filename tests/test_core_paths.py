@@ -466,3 +466,35 @@ def test_a_real_eli_folder_in_home_keeps_its_paths(monkeypatch, tmp_path):
     root = canonical_project_root()
     assert resolve_user_repo_path("~/eli/pyproject.toml") == (root / "pyproject.toml").resolve()
     assert resolve_user_repo_path("~/eli/core") == (root / "eli" / "core").resolve()
+
+
+@pytest.mark.parametrize("platform,variable,default", [
+    ("linux", "XDG_DATA_HOME", (".local", "share")),
+    ("win32", "LOCALAPPDATA", ("AppData", "Local")),
+])
+@pytest.mark.parametrize("value", ["", "   ", "relative/share"])
+def test_a_data_home_left_empty_or_relative_is_not_the_folder_eli_starts_in(tmp_path, monkeypatch, platform,
+                                                                          variable, default, value):
+    """An XDG_DATA_HOME set to nothing is no folder by the XDG rules, but it was read as Path(""), the
+    current folder: a new user's whole ELI_v2 root (databases, settings, models) went into whatever
+    folder ELI was started from, the packaged app's runtime hook and the launcher pointer with it."""
+    import importlib.util
+    import sys
+    import eli.core.paths as P
+    import eli.runtime.desktop_launchers as dl
+    home, elsewhere = tmp_path / "home", tmp_path / "started_here"
+    elsewhere.mkdir()
+    monkeypatch.chdir(elsewhere)
+    monkeypatch.setattr(Path, "home", classmethod(lambda cls: home))
+    monkeypatch.setattr(sys, "platform", platform)
+    monkeypatch.setenv(variable, value)
+    monkeypatch.setattr(dl, "product_line", lambda: "v2")
+    own = (home.joinpath(*default) / "ELI_v2").resolve()
+    hook_file = Path(P.__file__).resolve().parents[2] / "packaging" / "pyinstaller" / "rthook_eli_frozen_paths.py"
+    spec = importlib.util.spec_from_file_location("_rthook_under_test", hook_file)
+    hook = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(hook)          # not frozen here: it only defines its functions
+    assert P._frozen_user_root() == own
+    assert hook._user_root().resolve() == own
+    assert dl.stable_user_root() == own
+

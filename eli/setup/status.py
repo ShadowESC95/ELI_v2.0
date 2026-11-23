@@ -110,7 +110,8 @@ def has_voice_assets() -> bool:
 
 
 def has_desktop_launcher() -> bool:
-    apps = Path(os.environ.get("XDG_DATA_HOME", Path.home() / ".local/share")) / "applications"
+    from eli.runtime.desktop_launchers import _apps_dir
+    apps = _apps_dir()
     return (apps / "eli-v2.desktop").exists() or (apps / "eli.desktop").exists()
 
 
