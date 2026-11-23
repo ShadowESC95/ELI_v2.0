@@ -39,11 +39,24 @@ for _desktop_var in ("DISPLAY", "WAYLAND_DISPLAY", "XDG_SESSION_TYPE"):
 os.environ["DBUS_SESSION_BUS_ADDRESS"] = "unix:path=" + str(SANDBOX / "no-session-bus")
 # Nor is a file opened on it: with no display xdg-open still started LibreOffice on a summary and it
 # stayed running after the tests. These launchers do nothing here; a test of one stubs its own.
+# Nor does a test run this machine's own programs for its devices, its desktop or the programs
+# installed on it: `flatpak search` and `flatpak run` made a Flatpak repository in the home folder,
+# `bluetoothctl` and `nmcli` asked the real radios, `snap info` asked the snap store, and xdotool and
+# wmctrl were run on the desktop. Each is a program here that reaches nothing and fails, as where it
+# is not installed; a test of one stubs its own. A run of the real one is named at the end (below).
+_LAUNCHERS = ("xdg-open", "gio", "gtk-launch", "open")
+MACHINE_PROGRAMS = (
+    "flatpak", "snap", "apt-cache", "apt-get", "dnf", "pacman", "zypper",                  # installed programs
+    "bluetoothctl", "hciconfig", "hcitool", "btmgmt", "rfkill", "nmcli", "iwlist", "iw",   # radios
+    "pactl", "pacmd", "wpctl", "pw-cli",                                                    # sound server
+    "playerctl", "dbus-send", "gdbus", "busctl", "qdbus", "notify-send", "gsettings",       # the session
+    "xdotool", "ydotool", "wmctrl", "kdotool", "wlrctl", "spotify", "update-desktop-database",
+)
 _no_launchers = SANDBOX / "no-launchers"
 _no_launchers.mkdir(parents=True, exist_ok=True)
-for _launcher in ("xdg-open", "gio", "gtk-launch", "open"):
-    (_no_launchers / _launcher).write_text("#!/bin/sh\nexit 0\n")
-    (_no_launchers / _launcher).chmod(0o755)
+for _program in _LAUNCHERS + MACHINE_PROGRAMS:
+    (_no_launchers / _program).write_text("#!/bin/sh\nexit %d\n" % (0 if _program in _LAUNCHERS else 1))
+    (_no_launchers / _program).chmod(0o755)
 os.environ["PATH"] = str(_no_launchers) + os.pathsep + os.environ.get("PATH", "")
 # Nor its sound or mixer: the real audio libraries load in tests, so the sound servers are out of
 # reach and ALSA knows only a null device (as on a CI runner, PortAudio then does not start). Nor the internet: a request that is not stubbed fails at once.
@@ -61,6 +74,7 @@ os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 # reached `flatpak run`), so those two keep their files in the sandbox.
 os.environ["MPLCONFIGDIR"] = str(SANDBOX / "matplotlib")
 os.environ["FLATPAK_USER_DIR"] = str(SANDBOX / "flatpak")
+os.environ["TTS_HOME"] = str(SANDBOX / "tts")         # Coqui TTS made ~/.local/share/tts for its models
 
 # Every place ELI keeps state is a folder of the sandbox for the whole session (runtime_settings keeps a
 # path outside the install unless it is inside another ELI install): the data folder (conversations, proactive and
@@ -366,11 +380,41 @@ _PATH_EVENTS = {"os.mkdir": (0,), "os.remove": (0,), "os.rmdir": (0,), "os.trunc
                 "shutil.copytree": (1,), "os.symlink": (1,), "sqlite3.connect": (0,)}
 
 
+# Each real run of one of this machine's programs (MACHINE_PROGRAMS, by a full path or with a PATH
+# that leaves out the stand-ins), with the test that started it.
+MACHINE_RUNS: list = []
+_MACHINE = frozenset(_LAUNCHERS + MACHINE_PROGRAMS)
+_STAND_INS = os.path.realpath(_no_launchers)
+
+
+def _note_machine_program(args, _runs=MACHINE_RUNS, _machine=_MACHINE, _stand_ins=_STAND_INS, _os=os,
+                          _which=_shutil.which) -> None:
+    """subprocess.Popen's audit event: (executable, args, cwd, env)."""
+    argv = args[1] if len(args) > 1 else None
+    argv = [argv] if isinstance(argv, (str, bytes)) else list(argv or [])
+    argv = [_os.fsdecode(a) if isinstance(a, (str, bytes, _os.PathLike)) else str(a) for a in argv]
+    if not argv:
+        return
+    program = argv[0]
+    if _os.path.basename(program) in ("sh", "bash", "dash") and "-c" in argv[1:-1]:
+        words = argv[argv.index("-c") + 1].split()
+        program = words[0] if words else program
+    if _os.path.basename(program) not in _machine:
+        return
+    env = args[3] if len(args) > 3 and isinstance(args[3], dict) else None
+    path = program if _os.sep in program else _which(program, path=(env or _os.environ).get("PATH"))
+    if path and not _os.path.realpath(path).startswith(_stand_ins + _os.sep):
+        _runs.append(f"{path} (run by {_os.environ.get('PYTEST_CURRENT_TEST', 'collection').split(' ')[0]})")
+
+
 def _note_writer(event, args, _events=_PATH_EVENTS, _flags=_WRITE_FLAGS, _prefixes=_ROOT_PREFIXES,
-                 _writers=_WRITERS, _os=os) -> None:
+                 _writers=_WRITERS, _os=os, _machine_program=_note_machine_program) -> None:
     # Everything it needs is bound here: the hook outlives this module's globals, which are emptied
     # while the interpreter shuts down, and an error raised in it fails the operation it watched.
     try:
+        if event == "subprocess.Popen":
+            _machine_program(args)
+            return
         if event == "open":
             if len(args) < 3 or not isinstance(args[2], int) or not args[2] & _flags:
                 return
@@ -405,6 +449,11 @@ def pytest_sessionfinish(session, exitstatus):
     if escaped:
         print(f"\n[conftest] TEST ISOLATION BREACH: {len(escaped)} files or folders in this checkout were "
               "written, made or removed during the run:", *escaped, sep="\n  ")
+        if os.environ.get("CI") or os.environ.get("ELI_TEST_STRICT_ISOLATION"):
+            session.exitstatus = pytest.ExitCode.TESTS_FAILED
+    if MACHINE_RUNS:
+        print(f"\n[conftest] TESTS RAN THIS MACHINE'S OWN PROGRAMS ({len(MACHINE_RUNS)}):",
+              *sorted(set(MACHINE_RUNS)), sep="\n  ")
         if os.environ.get("CI") or os.environ.get("ELI_TEST_STRICT_ISOLATION"):
             session.exitstatus = pytest.ExitCode.TESTS_FAILED
     if _SNAPSHOT_TOUCHED:

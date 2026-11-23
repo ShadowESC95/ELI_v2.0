@@ -44,3 +44,28 @@ def test_sound_cannot_reach_a_real_device():
     except FileNotFoundError:
         return
     assert "Master" not in mixer.stdout, "a test could change this machine's volume"
+
+
+def test_the_machines_own_programs_are_stand_ins_that_reach_nothing():
+    """`flatpak search` and `flatpak run` made a Flatpak repository in the home folder and
+    `bluetoothctl list` asked the real radio; here each is a stand-in that fails, as where it is not
+    installed."""
+    import shutil
+    stand_ins = os.path.join(os.environ["ELI_TEST_SANDBOX"], "no-launchers")
+    for program in ("flatpak", "bluetoothctl", "nmcli", "snap", "xdotool", "wmctrl"):
+        assert os.path.dirname(shutil.which(program)) == stand_ins, program
+    out = subprocess.run(["sh", "-c", "bluetoothctl list; flatpak search firefox"], capture_output=True, text=True)
+    assert out.returncode != 0 and out.stdout == ""
+
+
+def test_a_real_run_of_one_is_named_by_the_test_that_started_it():
+    import tests.conftest as suite
+    before = len(suite.MACHINE_RUNS)
+    suite._note_machine_program(("/usr/bin/flatpak", ["/usr/bin/flatpak", "run", "an.App"], None, None))
+    suite._note_machine_program((None, ["/bin/sh", "-c", "flatpak list"], None, None))   # the stand-in
+    try:
+        assert suite.MACHINE_RUNS[before:] == [
+            "/usr/bin/flatpak (run by tests/test_tests_stay_off_the_desktop.py::"
+            "test_a_real_run_of_one_is_named_by_the_test_that_started_it)"]
+    finally:
+        del suite.MACHINE_RUNS[before:]
