@@ -167,7 +167,9 @@ are still searched for older agents (`agent_bus._custom_agent_dirs`).
 - **`tests/conftest.py` keeps a test run off this machine, not off the real
   libraries.** The real libraries load (tests import `api.server` directly); what is
   cut off is the machine: an offscreen Qt platform, no display or session bus, stub
-  `xdg-open`/`gio`/`open` launchers, a null audio device, proxies pointed at a closed
+  `xdg-open`/`gio`/`open` launchers, stand-ins for the machine's own programs (`flatpak`,
+  `snap`, `bluetoothctl`, `nmcli`, `pactl`, `playerctl`, `xdotool`, `wmctrl` and others; a run of the real
+  one is named at the end and fails the run in CI), a null audio device, proxies pointed at a closed
   local port so an unstubbed request fails at once, and every artifact and database
   write, ELI's data and config folders included, redirected to a throwaway sandbox of the
   run's own in the system temp folder (`tests/_state_env.py`); anything written, made or
