@@ -118,7 +118,18 @@ attempt_build_prereqs() {
     # headers, PortAudio's, and on Debian/Ubuntu python3-venv. A stock desktop has none.
     # The window needs the system's graphics libraries, which a server or container lacks.
     # Add what is missing when that takes no password, else print the one command.
-    [ "$OS" = "Darwin" ] && return 0
+    if [ "$OS" = "Darwin" ]; then
+        # PyAudio (voice input) has no ready-made build for macOS: pip compiles it against PortAudio.
+        # Homebrew's portaudio came only with the runtime tools, after the dependencies, so without
+        # one already there every Mac was installed with no voice input.
+        if command -v brew &>/dev/null && ! brew list --versions portaudio >/dev/null 2>&1; then
+            brew install portaudio >/dev/null 2>&1 && echo "[OK] PortAudio (brew), for voice input" \
+                || warn "brew install portaudio failed; voice input needs it: brew install portaudio, then re-run"
+        elif ! command -v brew &>/dev/null; then
+            warn "No Homebrew: voice input needs PortAudio (https://brew.sh, then: brew install portaudio)"
+        fi
+        return 0
+    fi
     local missing=() m pkgs="" cmd="" pyv
     "$PYTHON" -c "import venv, ensurepip" >/dev/null 2>&1 || missing+=(venv)
     "$PYTHON" -c "import os, sys, sysconfig; sys.exit(0 if os.path.exists(os.path.join(sysconfig.get_paths()['include'], 'Python.h')) else 1)" >/dev/null 2>&1 || missing+=(headers)
