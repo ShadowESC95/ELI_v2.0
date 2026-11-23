@@ -519,3 +519,21 @@ def test_valid_settings_file_is_not_flagged_as_corrupt(tmp_path, monkeypatch):
     settings = rs._load_settings_unsanitized(apply_env_overlay=False)
     assert settings["n_gpu_layers"] == 17
     assert rs.settings_file_was_corrupt_on_last_load() is False
+
+
+def test_reading_settings_never_saved_writes_no_file_and_an_unreadable_one_is_kept(tmp_path, monkeypatch):
+    """Reading settings that were never saved wrote a settings file (a fresh install's first run wrote a
+    config/settings.json holding only the revision count), and a file that could not be read was
+    replaced by one holding only that count."""
+    import json
+    from eli.core import runtime_settings as rs
+    saved = tmp_path / "settings.json"
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(saved))
+    rs.load_settings()
+    assert not saved.exists()
+    saved.write_text("{not json", encoding="utf-8")
+    rs.load_settings()
+    assert saved.read_text(encoding="utf-8") == "{not json"
+    saved.write_text('{"n_threads": 4}', encoding="utf-8")
+    rs.load_settings()
+    assert json.loads(saved.read_text(encoding="utf-8"))["settings_revision"] == len(rs._REVISIONS)

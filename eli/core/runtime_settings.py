@@ -597,9 +597,13 @@ def _load_settings_unsanitized(*, apply_env_overlay: bool = True) -> Dict[str, A
                 settings_file, exc,
             )
 
-    # Migrate legacy keys in-memory AND persist the cleaned file
+    # Migrate legacy keys in-memory, and persist the cleaned file when there is a saved one. Reading
+    # settings that were never saved wrote a settings file (a fresh install's first run wrote a
+    # config/settings.json holding only the revision count), and a file that could not be read was
+    # replaced by one holding only that count: the saved configuration the warning above speaks of
+    # was gone.
     migrated_data, migrated_keys = _bring_up_to_date(raw)
-    if migrated_keys:
+    if migrated_keys and raw:
         try:
             settings_file.parent.mkdir(parents=True, exist_ok=True)
             from eli.core.secure_io import secure_write_text as _secure_write
