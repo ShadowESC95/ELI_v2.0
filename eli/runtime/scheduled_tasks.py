@@ -255,7 +255,7 @@ def _worker_eval(request: str):
         out["ok"] = False
         out["engine_error"] = str(e)
     try:
-        # full test report (writes artifacts/test_report.md via the conftest hook)
+        # full test report (tools/run_test_report.py writes artifacts/test_report.md)
         tr = subprocess.run(
             [_sys.executable, "tools/run_test_report.py", "tests/"],
             cwd=str(repo), capture_output=True, text=True, timeout=3600)

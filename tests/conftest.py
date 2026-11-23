@@ -11,35 +11,25 @@ os.environ.setdefault("CUDA_VISIBLE_DEVICES", "")  # the real GPU libraries load
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
-# Each run starts as a fresh install: what an earlier run left in the throwaway sandbox (its databases,
-# a user profile, an interview in progress, the vector index) is gone before anything below writes or
-# reads it. It used to persist, and the same test passed or failed by the run before it.
-# A run still going in this checkout holds the sandbox (a shared lock beside it, kept for the session):
-# then the sandbox is left as it is, rather than pulled from under that run's open databases.
-SANDBOX = ROOT / "artifacts" / "_pytest"
+# Each run has a throwaway sandbox of its own, in the system's temp folder: every place ELI keeps state
+# (below) is a folder in it, so a run starts as a fresh install and leaves this checkout as it found
+# it. It was artifacts/_pytest in the checkout, kept between runs and shared by runs going at once. It
+# goes when the run's process ends (atexit, registered first so it runs after the app's own exit
+# hooks); ELI_TEST_KEEP_SANDBOX=1 keeps it to look at.
+import atexit as _atexit
+import shutil as _shutil
+import tempfile as _tempfile
+
+SANDBOX = Path(_tempfile.mkdtemp(prefix="eli-v2-tests-")).resolve()
+os.environ["ELI_TEST_SANDBOX"] = str(SANDBOX)
 
 
-def _fresh_sandbox() -> None:
-    import shutil
-    SANDBOX.parent.mkdir(parents=True, exist_ok=True)
-    try:
-        import fcntl
-    except ImportError:                 # Windows: a file another run has open is not deleted anyway
-        shutil.rmtree(SANDBOX, ignore_errors=True)
-        return
-    global _SANDBOX_HOLD
-    _SANDBOX_HOLD = open(SANDBOX.parent / "_pytest.lock", "a+")
-    try:
-        fcntl.flock(_SANDBOX_HOLD, fcntl.LOCK_EX | fcntl.LOCK_NB)
-    except OSError:
-        fcntl.flock(_SANDBOX_HOLD, fcntl.LOCK_SH)         # another run is using it
-        return
-    shutil.rmtree(SANDBOX, ignore_errors=True)
-    fcntl.flock(_SANDBOX_HOLD, fcntl.LOCK_SH)             # this run's, until it ends
+def _drop_sandbox() -> None:
+    if not os.environ.get("ELI_TEST_KEEP_SANDBOX"):
+        _shutil.rmtree(SANDBOX, ignore_errors=True)
 
 
-_SANDBOX_HOLD = None
-_fresh_sandbox()
+_atexit.register(_drop_sandbox)
 
 # Tests never reach this machine's desktop, as on a CI runner: no session bus (media players,
 # notifications) and no display for an app a test launches. A test run once started the real
@@ -68,8 +58,8 @@ os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost,::1"
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
 
-# Every place ELI keeps state is a throwaway IN-PROJECT dir for the whole session (in-project, so
-# runtime_settings does not strip it as a stale path): the data folder (conversations, proactive and
+# Every place ELI keeps state is a folder of the sandbox for the whole session (runtime_settings keeps a
+# path outside the install unless it is inside another ELI install): the data folder (conversations, proactive and
 # runtime state with the per-user profiles, documents, databases), the config folder (settings, the
 # owner's id, the small settings files), training runs, caches, downloaded plugins, and each store
 # with a variable of its own. Which variable puts which store there is tests/_state_env.py's. Only
@@ -316,142 +306,97 @@ def measurements_stay_on_this_machine(monkeypatch, tmp_path):
     monkeypatch.setattr(model_tier, "_speed_ema", 0.0)
 
 
-# Whatever escapes the sandbox anyway (a path built by hand, a new store) is caught: this
-# checkout's own state is listed before the session and compared after it, and every file
-# created or changed there, and every folder made there, is named, with the test that made the
-# folder. It fails the run in CI and with ELI_TEST_STRICT_ISOLATION=1; otherwise it is only
-# reported, since a copy of ELI running from this checkout (ELI's own RUN_TESTS) writes its state
-# while the tests run. (ELI v3's guard.) The persona overlay's own default place is in the source
-# tree, so it is watched as a file.
-_OWN_STATE = [ROOT / name for name in ("artifacts", "config", "training", "runtime", "voices", "plugins",
-                                       "models", "cache")]
-_OWN_FILES = [ROOT / "eli" / "cognition" / "persona.auto.txt"]
+# Whatever escapes the sandbox anyway (a path built by hand, a new store, a file written beside the
+# code) is caught: every file and folder in this checkout is listed before the session and after it
+# (git's own, byte-code caches and pytest's cache aside), and each one written, made or removed during
+# the run is named, with the test that did it (an audit hook). It fails the run in CI and with
+# ELI_TEST_STRICT_ISOLATION=1; otherwise it is only reported, since a copy of ELI running from this
+# checkout (ELI's own RUN_TESTS) writes its state while the tests run. Only the state folders
+# (artifacts, config, models and a few more) used to be watched, and a run wrote ops/reports/ unseen.
+_UNWATCHED = {".git", "__pycache__", ".pytest_cache"}
+_CHECKOUT = os.path.realpath(ROOT)
 FOLDER = "folder"
 
 
 def _own_state() -> dict:
     seen = {}
-    for top in _OWN_STATE:
-        for path in top.rglob("*") if top.is_dir() else ():
-            if path == SANDBOX or SANDBOX in path.parents or "__pycache__" in path.parts:
-                continue
-            if path == SANDBOX.parent / "_pytest.lock":
-                continue                 # the lock that holds the sandbox for a run
+    for folder, dirs, files in os.walk(_CHECKOUT):
+        dirs[:] = [d for d in dirs if d not in _UNWATCHED]
+        for name in dirs:
+            seen[os.path.join(folder, name)] = FOLDER
+        for name in files:
+            if name in _UNWATCHED:
+                continue                  # a worktree's .git is a file
+            path = os.path.join(folder, name)
             try:
-                if path.is_file():
-                    info = path.stat()
-                    seen[path] = (info.st_mtime_ns, info.st_size)
-                elif path.is_dir():
-                    seen[path] = FOLDER
+                info = os.lstat(path)
             except OSError:
                 continue
-    for path in _OWN_FILES:
-        try:
-            info = path.stat()
             seen[path] = (info.st_mtime_ns, info.st_size)
-        except OSError:
-            continue
     return seen
 
 
-def _written_since(before: dict, asked: Path = ROOT / "-") -> list:
-    """What in this checkout's own state was written or made since `before` (_own_state), each a
-    path relative to the checkout, a folder with the test that made it."""
+def _written_since(before: dict, asked=()) -> list:
+    """What in this checkout was written, made or removed since `before` (_own_state), each a path
+    relative to the checkout with the test that did it. `asked`: files the run was told to write
+    (--junitxml); coverage's data file is one too."""
+    now = _own_state()
     out = []
-    for path, was in _own_state().items():
-        if before.get(path) == was or path.resolve() == asked:
+    for path in sorted(set(before) | set(now)):
+        was, is_now = before.get(path), now.get(path)
+        if was == is_now or path in asked or os.path.basename(path).startswith(".coverage"):
             continue
-        rel = str(path.relative_to(ROOT))
-        made_by = _FOLDERS_MADE.get(str(path.resolve())) if was == FOLDER else None
-        out.append(f"{rel}/ (made by {made_by})" if made_by else (rel + "/" if was == FOLDER else rel))
-    return sorted(out)
+        rel = os.path.relpath(path, _CHECKOUT).replace(os.sep, "/") + ("/" if FOLDER in (was, is_now) else "")
+        what = "removed" if is_now is None else ("made" if was is None else "changed")
+        by = _WRITERS.get(path)
+        out.append(f"{rel} ({what}{' by ' + by if by else ''})")
+    return out
 
 
-# Which test made each folder under this checkout's own state, outside the sandbox (an audit hook:
-# os.mkdir), so the report names it.
-_FOLDERS_MADE: dict = {}
-_WATCHED_ROOTS = tuple(str(top.resolve()) for top in _OWN_STATE)
+# Which test wrote, made or removed each path in this checkout (an audit hook), so the report names it.
+_WRITERS: dict = {}
+_WRITE_FLAGS = os.O_WRONLY | os.O_RDWR | os.O_CREAT | os.O_TRUNC | os.O_APPEND
+_ROOT_PREFIXES = tuple({str(ROOT) + os.sep, _CHECKOUT + os.sep})
+_PATH_EVENTS = {"os.mkdir": (0,), "os.remove": (0,), "os.rmdir": (0,), "os.truncate": (0,),
+                "shutil.rmtree": (0,), "os.rename": (0, 1), "shutil.move": (0, 1), "shutil.copyfile": (1,),
+                "shutil.copytree": (1,), "os.symlink": (1,), "sqlite3.connect": (0,)}
 
 
-def _note_folder_made(event, args) -> None:
-    if event != "os.mkdir" or not args:
+def _note_writer(event, args) -> None:
+    if event == "open":
+        if len(args) < 3 or not isinstance(args[2], int) or not args[2] & _WRITE_FLAGS:
+            return
+        targets = (args[0],)
+    elif event in _PATH_EVENTS:
+        targets = tuple(args[i] for i in _PATH_EVENTS[event] if i < len(args))
+    else:
         return
-    try:
-        path = os.path.realpath(os.fsdecode(args[0]))
-    except (TypeError, ValueError):
-        return
-    sandbox = str(SANDBOX.resolve())
-    if path == sandbox or path.startswith(sandbox + os.sep):
-        return
-    if any(path == top or path.startswith(top + os.sep) for top in _WATCHED_ROOTS):
-        _FOLDERS_MADE.setdefault(path, os.environ.get("PYTEST_CURRENT_TEST", "collection").split(" ")[0])
+    for target in targets:
+        if isinstance(target, int) or target is None:
+            continue
+        try:
+            path = os.path.abspath(os.fsdecode(target))
+        except (TypeError, ValueError):
+            continue
+        if path.startswith(_ROOT_PREFIXES):
+            _WRITERS.setdefault(os.path.realpath(path),
+                                os.environ.get("PYTEST_CURRENT_TEST", "collection").split(" ")[0])
 
 
-sys.addaudithook(_note_folder_made)
+sys.addaudithook(_note_writer)
 _STATE_BEFORE = _own_state()
 
 
-# ── Auto-updating test-results document ──────────────────────────────────────
-# Every pytest run (re)writes artifacts/test_report.md with the live results, so
-# the report is dynamic — never stale. ELI's RUN_TESTS action reads/summarises it.
+# The results document ELI's RUN_TESTS reads, artifacts/test_report.md, is written by
+# tools/run_test_report.py when it is asked for one; a test run itself writes nothing in the checkout.
 def pytest_sessionfinish(session, exitstatus):
-    asked = Path(session.config.getoption("xmlpath", None) or ROOT / "-").resolve()   # --junitxml
+    xml = session.config.getoption("xmlpath", None)
+    asked = {os.path.realpath(xml)} if xml else set()
     escaped = _written_since(_STATE_BEFORE, asked)
     if escaped:
-        print(f"\n[conftest] TEST ISOLATION BREACH: {len(escaped)} files or folders in this checkout's own "
-              "state were written or made during the run:", *escaped, sep="\n  ")
+        print(f"\n[conftest] TEST ISOLATION BREACH: {len(escaped)} files or folders in this checkout were "
+              "written, made or removed during the run:", *escaped, sep="\n  ")
         if os.environ.get("CI") or os.environ.get("ELI_TEST_STRICT_ISOLATION"):
             session.exitstatus = pytest.ExitCode.TESTS_FAILED
     if _SNAPSHOT_TOUCHED:
         print("\n[conftest] tests that modified the REAL runtime_snapshot.json (restored):", *_SNAPSHOT_TOUCHED[:10], sep="\n  ")
-    try:
-        import datetime
-        from collections import defaultdict
-        tr = session.config.pluginmanager.get_plugin("terminalreporter")
-        if tr is None:
-            return
-        stats = tr.stats
-        order = ("passed", "failed", "error", "xfailed", "xpassed", "skipped")
-        totals = {k: len(stats.get(k, [])) for k in order}
-        total = sum(totals.values())
-        per_file = defaultdict(lambda: defaultdict(int))
-        failures = []
-        for outcome in order:
-            for rep in stats.get(outcome, []):
-                nid = getattr(rep, "nodeid", "?")
-                f = nid.split("::", 1)[0]
-                per_file[f][outcome] += 1
-                per_file[f]["total"] += 1
-                if outcome in ("failed", "error"):
-                    failures.append(nid)
-        out = [
-            "# ELI — Test Suite Report (auto-generated)",
-            f"\n*Updated {datetime.datetime.now().isoformat(timespec='seconds')} "
-            f"on every `pytest` run.*\n",
-            "## Totals\n",
-            f"- **Total:** {total}",
-            f"- **Passed:** {totals['passed']}",
-            f"- **Failed:** {totals['failed'] + totals['error']}",
-            f"- **xfailed (known gaps):** {totals['xfailed']}",
-            f"- **xpassed (gap fixed?):** {totals['xpassed']}",
-            f"- **Skipped:** {totals['skipped']}",
-            f"\n**Verdict:** {'✅ GREEN' if (totals['failed'] + totals['error']) == 0 else '❌ FAILURES'}\n",
-            "## Per-file\n",
-            "| Test file | Total | Pass | Fail | xfail | skip |",
-            "|---|---|---|---|---|---|",
-        ]
-        for f in sorted(per_file):
-            c = per_file[f]
-            out.append(f"| `{f}` | {c['total']} | {c.get('passed',0)} | "
-                       f"{c.get('failed',0)+c.get('error',0)} | {c.get('xfailed',0)} | "
-                       f"{c.get('skipped',0)} |")
-        if failures:
-            out.append("\n## Failures\n")
-            out += [f"- `{x}`" for x in failures[:200]]
-        _adir = os.environ.get("ELI_ARTIFACTS_DIR")
-        _base = Path(_adir).expanduser() if _adir else (ROOT / "artifacts")
-        rep_path = _base / "test_report.md"
-        rep_path.parent.mkdir(parents=True, exist_ok=True)
-        rep_path.write_text("\n".join(out) + "\n", encoding="utf-8")
-    except Exception:
-        pass

@@ -183,8 +183,7 @@ def run_and_review(target: str = "tests/", *, timeout: int = 3600,
         except Exception:
             backup_path = None
 
-    # 2) Run the suite (writes test_report.md + the junit via the conftest hook /
-    #    run_test_report).
+    # 2) Run the suite (tools/run_test_report.py writes test_report.md and the junit).
     _say(f"running {target} …")
     try:
         r = subprocess.run([sys.executable, "tools/run_test_report.py", target],

@@ -68,7 +68,7 @@ def test_db_path_constant_is_path():
 
 # ── The test session's own sandbox ────────────────────────────────────────
 
-_SANDBOX = Path(__file__).resolve().parents[1] / "artifacts" / "_pytest"
+_SANDBOX = Path(os.environ["ELI_TEST_SANDBOX"])
 
 
 def test_every_store_a_test_can_reach_is_in_the_session_sandbox():

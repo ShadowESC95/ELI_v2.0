@@ -169,10 +169,10 @@ are still searched for older agents (`agent_bus._custom_agent_dirs`).
   cut off is the machine: an offscreen Qt platform, no display or session bus, stub
   `xdg-open`/`gio`/`open` launchers, a null audio device, proxies pointed at a closed
   local port so an unstubbed request fails at once, and every artifact and database
-  write, ELI's data and config folders included, redirected to `artifacts/_pytest/`
-  (`tests/_state_env.py`), which each session starts empty; anything written in the
-  checkout's own state folders meanwhile is named at the end and fails the run in CI and
-  with `ELI_TEST_STRICT_ISOLATION=1`.
+  write, ELI's data and config folders included, redirected to a throwaway sandbox of the
+  run's own in the system temp folder (`tests/_state_env.py`); anything written, made or
+  removed anywhere in the checkout meanwhile is named at the end with the test that did it
+  and fails the run in CI and with `ELI_TEST_STRICT_ISOLATION=1`.
 - **Version lives in two places:** `pyproject.toml` and
   `eli/kernel/self_upgrade.py`. Releases are tag-triggered CI.
 - **Several agent sessions share this checkout.** Never `git add -A`; stage by

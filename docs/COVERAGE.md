@@ -38,7 +38,7 @@ could not be built, so those three files skip themselves when such an import fai
 were measured on lanes of their own. Since v2.5.22 the suite loads the real libraries
 and is sandboxed instead: CPU only (`CUDA_VISIBLE_DEVICES=""`, `ELI_FORCE_CPU=1`),
 offscreen Qt, no display, desktop session bus, sound server or network, and every store and
-ELI's data folder redirected under `artifacts/_pytest/`, which each session starts empty. Lane 1 therefore runs those files as well — the
+ELI's data folder redirected into a throwaway sandbox of the run's own in the system temp folder. Lane 1 therefore runs those files as well — the
 live-engine tests whenever a chat GGUF is in `models/` (the smallest one, or
 `ELI_MODEL_PATH`). Lanes 2–4 run them again in that same sandbox (they used to skip the
 shared conftest, which left the stores and the audit chain pointing at the checkout's
@@ -69,17 +69,16 @@ deeply:
   and the executor's entry check) in `tests/test_mcp_server.py`.
 - **Offline-by-default enforcement** (`eli/core/netguard`): the socket failsafe
   and egress recording are unit-tested.
-- **Data isolation**: the shared conftest puts every place ELI keeps state into
-  `artifacts/_pytest/` (`tests/_state_env.py`: the data, config, training and cache
-  folders, downloaded plugins, and each store with a variable of its own), empties it at
-  the start of each session (a session still running in the same checkout keeps it), starts
-  its config folder with the tracked files and a test owner's id, and
+- **Data isolation**: the shared conftest puts every place ELI keeps state into a
+  throwaway sandbox of the run's own in the system temp folder (`tests/_state_env.py`: the
+  data, config, training and cache folders, downloaded plugins, and each store with a
+  variable of its own), removed when the run ends (`ELI_TEST_KEEP_SANDBOX=1` keeps it),
+  starts its config folder with the tracked files and a test owner's id, and
   `tests/conftest.py::_assert_db_isolated` fails the run if any store resolves outside it.
-  What a run writes or makes in the checkout's own state folders anyway (`artifacts`,
-  `config`, `training`, `runtime`, `voices`, `plugins`, `models`, `cache`, the persona
-  overlay's default file) is named at the end, a folder with the test that made it, and
+  Whatever a run writes, makes or removes anywhere in the checkout anyway (git's own
+  folder and byte-code caches aside) is named at the end with the test that did it, and
   fails the run in CI and with `ELI_TEST_STRICT_ISOLATION=1` — a test in the shared suite
-  cannot touch real user data. Lanes 2–4 run without that conftest and redirect only
+  cannot touch real user data or the checkout's documents. Lanes 2–4 run without that conftest and redirect only
   `ELI_ARTIFACTS_DIR`, which does not move the databases (they follow `ELI_DATA_DIR`
   and the per-store variables), so in a source checkout what those tests record in the
   audit ledger can reach the checkout's own `artifacts/db/`.

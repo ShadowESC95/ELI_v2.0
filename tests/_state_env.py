@@ -1,6 +1,6 @@
 """Every place ELI keeps state, for a test run: one folder holds all of it.
 
-The suite conftest puts it in its throwaway sandbox (artifacts/_pytest) and checks it with
+The suite conftest puts it in the run's throwaway sandbox (outside the checkout) and checks it with
 `outside()`. Only some stores used to be moved there, one variable at a time: ELI's config folder
 stayed this checkout's own, so a test that said "my name is Sam" to an engine wrote that name into
 the owner's config/settings.json, and data_dir() stayed the checkout's artifacts/, where the user

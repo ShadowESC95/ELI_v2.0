@@ -6,7 +6,7 @@
 #
 # Output: artifacts/coverage_report.txt (text) + artifacts/coverage_html/ (browsable).
 # Every lane runs in the sandbox tests/conftest.py sets up for the suite (every store, the
-# settings, the audit chain and its key under artifacts/_pytest; no display, sound or network),
+# settings, the audit chain and its key in a temp folder of the run's own; no display, sound or network),
 # so no lane writes to the checkout's artifacts/db. A lane that fails is named at the end and
 # the script exits 1; the report is written either way.
 set -uo pipefail

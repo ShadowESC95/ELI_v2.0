@@ -105,8 +105,8 @@ fixes (gated; nothing applied until "apply self-improvement patch"). This is the
 delegation pattern realised: SELF_IMPROVE composes the existing coding agent +
 orchestrator rather than reinventing repair. The Test & Review "Propose verified
 fixes" option routes here.
-Artifact-dir resolution is now consistent — `run_test_report.py` and the conftest
-report hook both honour `ELI_ARTIFACTS_DIR` (no real-folder pollution in tests).
+Artifact-dir resolution is consistent — `run_test_report.py` honours `ELI_ARTIFACTS_DIR`,
+and a test run itself writes no report (no real-folder pollution in tests).
 
 ## Multi-command + timed commands (2026-06-08)
 - **Multi-command chaining** (`eli/runtime/command_splitter.py` + router
