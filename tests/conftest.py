@@ -366,25 +366,30 @@ _PATH_EVENTS = {"os.mkdir": (0,), "os.remove": (0,), "os.rmdir": (0,), "os.trunc
                 "shutil.copytree": (1,), "os.symlink": (1,), "sqlite3.connect": (0,)}
 
 
-def _note_writer(event, args) -> None:
-    if event == "open":
-        if len(args) < 3 or not isinstance(args[2], int) or not args[2] & _WRITE_FLAGS:
+def _note_writer(event, args, _events=_PATH_EVENTS, _flags=_WRITE_FLAGS, _prefixes=_ROOT_PREFIXES,
+                 _writers=_WRITERS, _os=os) -> None:
+    # Everything it needs is bound here: the hook outlives this module's globals, which are emptied
+    # while the interpreter shuts down, and an error raised in it fails the operation it watched.
+    try:
+        if event == "open":
+            if len(args) < 3 or not isinstance(args[2], int) or not args[2] & _flags:
+                return
+            targets = (args[0],)
+        elif event in _events:
+            if event in ("os.mkdir", "os.remove", "os.rmdir") and len(args) > 1 and args[-1] not in (None, -1):
+                return                    # relative to a directory descriptor (shutil.rmtree): not resolvable
+            targets = tuple(args[i] for i in _events[event] if i < len(args))
+        else:
             return
-        targets = (args[0],)
-    elif event in _PATH_EVENTS:
-        targets = tuple(args[i] for i in _PATH_EVENTS[event] if i < len(args))
-    else:
+        for target in targets:
+            if isinstance(target, int) or target is None:
+                continue
+            path = _os.path.abspath(_os.fsdecode(target))
+            if path.startswith(_prefixes):
+                _writers.setdefault(_os.path.realpath(path),
+                                    _os.environ.get("PYTEST_CURRENT_TEST", "collection").split(" ")[0])
+    except Exception:
         return
-    for target in targets:
-        if isinstance(target, int) or target is None:
-            continue
-        try:
-            path = os.path.abspath(os.fsdecode(target))
-        except (TypeError, ValueError):
-            continue
-        if path.startswith(_ROOT_PREFIXES):
-            _WRITERS.setdefault(os.path.realpath(path),
-                                os.environ.get("PYTEST_CURRENT_TEST", "collection").split(" ")[0])
 
 
 sys.addaudithook(_note_writer)
