@@ -233,4 +233,4 @@ models/_download.log
 /.build-constraints/
 
 # test generator candidates while they are verified
-tests/_testgen_tmp/
+tests/_testgen_*/

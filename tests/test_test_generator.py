@@ -14,6 +14,7 @@ def test_verify_accepts_a_passing_test():
     code = "def test_ok():\n    assert 1 + 1 == 2\n"
     r = TG.verify_test(code)
     assert r["accepted"] is True and r.get("passed", 0) >= 1
+    assert not list(TG._VERIFY_PARENT.glob("_testgen_*")), "the candidate's folder was left in tests/"
 
 
 def test_verify_rejects_a_failing_test():
