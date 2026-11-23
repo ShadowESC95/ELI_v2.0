@@ -9,11 +9,6 @@ import sqlite3
 import os
 
 
-def test_memory_package_init():
-    mod = importlib.import_module("eli.memory")
-    assert mod is not None
-
-
 def test_memory_main_module_has_class():
     mod = importlib.import_module("eli.memory.memory")
     symbols = dir(mod)
@@ -36,18 +31,6 @@ def test_memory_knowledge_graph_has_class():
 
 
 # (removed test_memory_working_memory_loadable — eli.memory.working_memory was deleted)
-
-
-def test_memory_system_index_loadable():
-    mod = importlib.import_module("eli.memory.system_index")
-    assert mod is not None
-
-
-
-def test_memory_memory_adapter_loadable():
-    mod = importlib.import_module("eli.memory.memory_adapter")
-    assert mod is not None
-
 
 
 def test_memory_db_paths_exists():

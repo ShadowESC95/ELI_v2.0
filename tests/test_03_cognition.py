@@ -7,11 +7,6 @@ import pytest
 import importlib
 
 
-def test_cognition_package_init():
-    mod = importlib.import_module("eli.cognition")
-    assert mod is not None
-
-
 def test_cognition_orchestrator_has_class():
     mod = importlib.import_module("eli.cognition.orchestrator")
     syms = dir(mod)
@@ -31,83 +26,6 @@ def test_cognition_persona_has_class():
     syms = dir(mod)
     matches = [s for s in syms if "Persona" in s]
     assert matches, f"No Persona class in persona.py: {syms}"
-
-
-def test_cognition_gguf_inference_loadable():
-    mod = importlib.import_module("eli.cognition.gguf_inference")
-    assert mod is not None
-
-
-
-def test_cognition_context_synthesiser_loadable():
-    mod = importlib.import_module("eli.cognition.context_synthesiser")
-    assert mod is not None
-
-
-def test_cognition_engagement_tracker_loadable():
-    mod = importlib.import_module("eli.cognition.engagement_tracker")
-    assert mod is not None
-
-
-def test_cognition_hyde_loadable():
-    mod = importlib.import_module("eli.cognition.hyde")
-    assert mod is not None
-
-
-def test_cognition_inference_broker_loadable():
-    mod = importlib.import_module("eli.cognition.inference_broker")
-    assert mod is not None
-
-
-def test_cognition_introspection_agent_loadable():
-    mod = importlib.import_module("eli.cognition.introspection_agent")
-    assert mod is not None
-
-
-def test_cognition_llm_intent_loadable():
-    mod = importlib.import_module("eli.cognition.llm_intent")
-    assert mod is not None
-
-
-def test_cognition_output_governor_loadable():
-    mod = importlib.import_module("eli.cognition.output_governor")
-    assert mod is not None
-
-
-def test_cognition_persona_hygiene_loadable():
-    mod = importlib.import_module("eli.cognition.persona_hygiene")
-    assert mod is not None
-
-
-def test_cognition_persona_status_loadable():
-    mod = importlib.import_module("eli.cognition.persona_status")
-    assert mod is not None
-
-
-def test_cognition_persona_updater_loadable():
-    mod = importlib.import_module("eli.cognition.persona_updater")
-    assert mod is not None
-
-
-def test_cognition_persona_values_loadable():
-    mod = importlib.import_module("eli.cognition.persona_values")
-    assert mod is not None
-
-
-def test_cognition_reranker_loadable():
-    mod = importlib.import_module("eli.cognition.reranker")
-    assert mod is not None
-
-
-def test_cognition_user_info_builder_loadable():
-    mod = importlib.import_module("eli.cognition.user_info_builder")
-    assert mod is not None
-
-
-def test_cognition_working_memory_loadable():
-    mod = importlib.import_module("eli.cognition.working_memory")
-    assert mod is not None
-
 
 
 def test_the_inference_broker_passes_top_p_to_the_model():

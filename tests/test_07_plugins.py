@@ -14,10 +14,6 @@ PLUGIN_NAMES = [
 ]
 
 
-def test_plugins_package_init():
-    assert importlib.import_module("eli.plugins") is not None
-
-
 def test_plugins_manager_has_class():
     mod = importlib.import_module("eli.plugins.manager")
     syms = dir(mod)
@@ -30,18 +26,6 @@ def test_plugins_base_has_base_class():
     syms = dir(mod)
     matches = [s for s in syms if "Base" in s or "Plugin" in s]
     assert matches, f"No base plugin class: {syms}"
-
-
-@pytest.mark.parametrize("plugin", PLUGIN_NAMES, ids=PLUGIN_NAMES)
-def test_plugin_package_importable(plugin):
-    pkg = importlib.import_module(f"eli.plugins.{plugin}")
-    assert pkg is not None
-
-
-@pytest.mark.parametrize("plugin", PLUGIN_NAMES, ids=PLUGIN_NAMES)
-def test_plugin_module_importable(plugin):
-    mod = importlib.import_module(f"eli.plugins.{plugin}.plugin")
-    assert mod is not None
 
 
 @pytest.mark.parametrize("plugin", PLUGIN_NAMES, ids=PLUGIN_NAMES)

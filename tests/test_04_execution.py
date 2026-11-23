@@ -7,11 +7,6 @@ import importlib
 import pytest
 
 
-def test_execution_package_init():
-    mod = importlib.import_module("eli.execution")
-    assert mod is not None
-
-
 def test_execution_router_has_class():
     mod = importlib.import_module("eli.execution.router_enhanced")
     syms = dir(mod)
@@ -25,22 +20,6 @@ def test_execution_executor_has_class():
     syms = dir(mod)
     matches = [s for s in syms if "Executor" in s or "executor" in s.lower()]
     assert matches, f"No Executor class in executor_enhanced.py: {syms}"
-
-
-def test_execution_planner_loadable():
-    mod = importlib.import_module("eli.execution.execution_planner")
-    assert mod is not None
-
-
-
-def test_execution_operator_actions_loadable():
-    mod = importlib.import_module("eli.execution.operator_actions")
-    assert mod is not None
-
-
-def test_execution_operator_policy_loadable():
-    mod = importlib.import_module("eli.execution.operator_policy")
-    assert mod is not None
 
 
 def test_execution_cross_import_router_executor():

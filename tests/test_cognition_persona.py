@@ -119,20 +119,6 @@ def test_persona_uses_english():
 
 # ── persona_hygiene ───────────────────────────────────────────────────────
 
-def test_persona_hygiene_importable():
-    try:
-        from eli.cognition import persona_hygiene
-        assert persona_hygiene is not None
-    except ImportError:
-        pytest.skip("persona_hygiene not available")
-
-def test_persona_values_importable():
-    try:
-        from eli.cognition import persona_values
-        assert persona_values is not None
-    except ImportError:
-        pytest.skip("persona_values not available")
-
 
 # ── Response sanitizer alignment with persona ────────────────────────────
 

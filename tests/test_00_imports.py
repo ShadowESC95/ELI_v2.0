@@ -30,7 +30,7 @@ ALL_MODULES = [
     "eli.cognition.persona_values",
     "eli.cognition.reranker",
     "eli.cognition.user_info_builder",
-    # eli.cognition.working_memory — deleted module, removed from list
+    "eli.cognition.working_memory",
     # ── core ──────────────────────────────────────────────────────────────────
     "eli.core",
     # eli.core.architecture_contracts — deleted module (no consumer), removed 2026-09-29
@@ -185,8 +185,12 @@ ALL_MODULES = [
     # ── utils ─────────────────────────────────────────────────────────────────
     "eli.utils",
     "eli.utils.platform_compat",
+    # ── cli ───────────────────────────────────────────────────────────────────
+    "eli.cli",
+    "eli.cli.headless",
     # ── top-level ─────────────────────────────────────────────────────────────
     "eli",
+    "eli.__main__",
 ]
 
 

@@ -11,10 +11,6 @@ def _load(mod_path):
     return importlib.import_module(mod_path)
 
 
-def test_runtime_package_init():
-    assert _load("eli.runtime") is not None
-
-
 def test_runtime_eli_agent_has_class():
     # The standalone eli.runtime.eli_agent module was removed; its runtime
     # dispatch role is now CognitiveEngine.process, reached via the headless
@@ -38,110 +34,6 @@ def test_runtime_self_improvement_has_class():
     syms = dir(mod)
     matches = [s for s in syms if "Improve" in s or "Self" in s]
     assert matches, f"No self-improvement class: {syms}"
-
-
-def test_runtime_security_loadable():
-    assert _load("eli.runtime.security") is not None
-
-
-def test_runtime_approval_engine_loadable():
-    assert _load("eli.runtime.approval_engine") is not None
-
-
-def test_runtime_authority_gate_loadable():
-    assert _load("eli.runtime.authority_gate") is not None
-
-
-
-def test_runtime_awareness_boot_loadable():
-    assert _load("eli.runtime.awareness_boot") is not None
-
-
-def test_runtime_capability_sync_loadable():
-    assert _load("eli.runtime.capability_sync") is not None
-
-
-def test_runtime_code_monitor_loadable():
-    assert _load("eli.runtime.code_monitor") is not None
-
-
-def test_runtime_control_contracts_loadable():
-    assert _load("eli.runtime.control_contracts") is not None
-
-
-def test_runtime_evidence_arbitration_loadable():
-    assert _load("eli.runtime.evidence_arbitration") is not None
-
-
-def test_runtime_final_response_provider_loadable():
-    assert _load("eli.runtime.final_response_provider") is not None
-
-
-def test_runtime_incident_log_loadable():
-    assert _load("eli.runtime.incident_log") is not None
-
-
-def test_runtime_last_trace_loadable():
-    assert _load("eli.runtime.last_trace") is not None
-
-
-def test_runtime_live_introspection_loadable():
-    assert _load("eli.runtime.live_introspection") is not None
-
-
-
-def test_runtime_operator_feed_loadable():
-    assert _load("eli.runtime.operator_feed") is not None
-
-
-
-def test_runtime_operator_state_loadable():
-    assert _load("eli.runtime.operator_state") is not None
-
-
-
-def test_runtime_persistence_gate_loadable():
-    assert _load("eli.runtime.persistence_gate") is not None
-
-
-def test_runtime_personal_memory_surface_loadable():
-    assert _load("eli.runtime.personal_memory_surface") is not None
-
-
-def test_runtime_pipeline_models_loadable():
-    assert _load("eli.runtime.pipeline_models") is not None
-
-
-def test_runtime_profile_extractor_loadable():
-    assert _load("eli.runtime.profile_extractor") is not None
-
-
-def test_runtime_reflection_loadable():
-    assert _load("eli.runtime.reflection") is not None
-
-
-
-def test_runtime_response_contracts_loadable():
-    assert _load("eli.runtime.response_contracts") is not None
-
-
-
-def test_runtime_response_policy_loadable():
-    assert _load("eli.runtime.response_policy") is not None
-
-
-
-def test_runtime_self_model_refresh_loadable():
-    assert _load("eli.runtime.self_model_refresh") is not None
-
-
-
-def test_runtime_stage_packets_loadable():
-    assert _load("eli.runtime.stage_packets") is not None
-
-
-def test_runtime_stage_packet_store_loadable():
-    assert _load("eli.runtime.stage_packet_store") is not None
 
 
 def test_the_code_monitor_sees_what_changed_between_checks(tmp_path):

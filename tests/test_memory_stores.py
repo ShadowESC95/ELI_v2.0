@@ -18,9 +18,6 @@ from eli.memory.memory import Memory
 # Canonical module is eli.core.db_paths (db_paths was consolidated there; it was
 # never a submodule of eli.memory). eli.memory exposes resolve_db_paths().
 
-def test_db_paths_importable():
-    from eli.core.db_paths import get_db_paths
-    assert get_db_paths is not None
 
 def test_db_paths_resolve_returns_something():
     from eli.core.db_paths import get_db_paths
@@ -42,13 +39,6 @@ def test_db_paths_user_db_is_path():
 
 
 # ── System Index ──────────────────────────────────────────────────────────
-
-def test_system_index_importable():
-    try:
-        from eli.memory.system_index import SystemIndex
-        assert SystemIndex is not None
-    except ImportError:
-        pytest.skip("system_index not available")
 
 
 # ── Memory store write/read cycle ────────────────────────────────────────

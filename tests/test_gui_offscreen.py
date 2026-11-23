@@ -89,11 +89,6 @@ def test_qt_compat_binding_resolved():
         assert hasattr(qc, name) or name == "Signal"  # Signal aliased as pyqtSignal
 
 
-def test_ollama_model_selector_imports():
-    from eli.gui.widgets.ollama_model_selector import OllamaModelSelector
-    assert OllamaModelSelector is not None
-
-
 # --------------------------------------------------------------------------- #
 # coding_tab
 # --------------------------------------------------------------------------- #

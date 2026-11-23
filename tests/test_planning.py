@@ -9,9 +9,6 @@ from unittest.mock import MagicMock, patch
 
 # ── Proactive Daemon ──────────────────────────────────────────────────────
 
-def test_proactive_daemon_importable():
-    from eli.planning.proactive_daemon import ProactiveDaemon
-    assert ProactiveDaemon is not None
 
 def test_proactive_daemon_pauses_resumes_and_stops():
     """Each of these used to sit in a try/except Exception: pass, so none of them could fail."""
@@ -37,9 +34,6 @@ def test_plugins_dir_exists():
 
 # ── Knowledge Graph ───────────────────────────────────────────────────────
 
-def test_knowledge_graph_importable():
-    from eli.memory.knowledge_graph import KnowledgeGraph
-    assert KnowledgeGraph is not None
 
 def test_knowledge_graph_instantiation(tmp_db):
     from eli.memory.knowledge_graph import KnowledgeGraph
@@ -65,9 +59,6 @@ def test_knowledge_graph_schema_has_core_tables(tmp_db):
 
 # ── Memory Adapter ────────────────────────────────────────────────────────
 
-def test_memory_adapter_importable():
-    from eli.memory.memory_adapter import MemoryAdapter
-    assert MemoryAdapter is not None
 
 def test_memory_adapter_recalls_what_the_store_holds_as_dicts(tmp_path):
     """It was built with a db_path the adapter has never taken, inside try/except Exception: pass."""

@@ -84,12 +84,6 @@ def test_wire_persona_txt_exists():
     assert os.path.isfile(persona_txt), f"persona.txt missing at {persona_txt}"
 
 
-def test_wire_top_level_main_importable():
-    """eli.__main__ must be importable."""
-    main = importlib.import_module("eli.__main__")
-    assert main is not None
-
-
 def test_wire_all_layers_no_crash():
     """Import every layer package in one shot to surface any latent circular dep."""
     layers = [
