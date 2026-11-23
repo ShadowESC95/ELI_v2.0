@@ -496,6 +496,7 @@ def test_corrupt_settings_file_is_flagged(tmp_path, monkeypatch):
     assert rs.settings_file_was_corrupt_on_last_load() is True, (
         "corrupt-but-present settings file must be distinguishable from no file at all"
     )
+    assert bad.read_text(encoding="utf-8") == "{not valid json", "reading it overwrote the user's file"
 
 
 def test_missing_settings_file_is_not_flagged_as_corrupt(tmp_path, monkeypatch):
@@ -507,6 +508,7 @@ def test_missing_settings_file_is_not_flagged_as_corrupt(tmp_path, monkeypatch):
     assert rs.settings_file_was_corrupt_on_last_load() is False, (
         "a normal first run (no settings file yet) is not an error"
     )
+    assert not (tmp_path / "does_not_exist.json").exists(), "reading the settings made a settings file"
 
 
 def test_valid_settings_file_is_not_flagged_as_corrupt(tmp_path, monkeypatch):

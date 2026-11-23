@@ -597,9 +597,12 @@ def _load_settings_unsanitized(*, apply_env_overlay: bool = True) -> Dict[str, A
                 settings_file, exc,
             )
 
-    # Migrate legacy keys in-memory AND persist the cleaned file
+    # Migrate legacy keys in-memory AND persist the cleaned file. Only a file that was read: with none
+    # there is nothing to bring up to date (a save stamps the revision), and a corrupt one is the
+    # user's to recover. Reading the settings used to write a settings.json where there was none, and
+    # replaced a corrupt one with {"settings_revision": 1}.
     migrated_data, migrated_keys = _bring_up_to_date(raw)
-    if migrated_keys:
+    if migrated_keys and raw:
         try:
             settings_file.parent.mkdir(parents=True, exist_ok=True)
             from eli.core.secure_io import secure_write_text as _secure_write
