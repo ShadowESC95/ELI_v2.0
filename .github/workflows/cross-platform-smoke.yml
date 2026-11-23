@@ -120,11 +120,12 @@ jobs:
           PY
 
       - name: Real server-endpoint suite (mesh, home-mesh, config-merge, RBAC — the full API smoke)
-        # test_api_server.py drives the real FastAPI app end-to-end (78 cases). It needs
-        # --noconftest because the repo conftest mocks pydantic/PySide6 for the fast unit
-        # suite, which makes the server un-importable. This is where the home-mesh config
-        # merge fix and the orchestration/mesh contracts are actually enforced.
-        run: python -m pytest -q -p no:cacheprovider --noconftest tests/test_api_server.py
+        # test_api_server.py drives the real FastAPI app end-to-end. It runs with the suite's
+        # conftest, which loads the real libraries and keeps every store in a sandbox: without
+        # it (--noconftest, needed while the conftest mocked pydantic) the endpoints wrote
+        # config/settings.json, the audit key and artifacts/db in the checkout. This is where
+        # the home-mesh config merge fix and the orchestration/mesh contracts are enforced.
+        run: python -m pytest -q -p no:cacheprovider tests/test_api_server.py
 
       - name: First-run DB autobuild (cross-platform paths)
         run: python -m eli.core.init_data

@@ -17,28 +17,16 @@ import time
 
 import pytest
 
-# The suite conftest mocks `pydantic` session-wide (to keep the cognition-engine
-# tests light). That single mock makes the real FastAPI web server impossible to
-# import in-process — which is exactly why api/server.py measured 0% coverage. This
-# module therefore runs on its own CLEAN lane (real deps, coverage-visible):
-#
-#     .venv/bin/python -m pytest tests/test_api_server.py --noconftest \
-#         --cov=api.server --cov-report=term-missing
-#
-# Under the normal (mocked) full-suite run it detects the un-importable server and
-# SKIPS — so it can never break the main suite. The assertions below are the real
-# thing; they just need real fastapi/pydantic to execute.
+# The suite loads the real libraries, so the server imports in-process and runs in the suite's
+# sandbox. Where fastapi is not installed the module skips.
 try:
     from fastapi.testclient import TestClient
     import api.server as srv
     from api.server import app
     _WEB_OK = True
-except Exception as _e:  # metaclass/mocked-pydantic conflict inside the full suite
-    pytest.skip(
-        f"web server not importable in-process ({type(_e).__name__}: {_e}); "
-        f"run this file with `--noconftest` for real deps + coverage",
-        allow_module_level=True,
-    )
+except Exception as _e:
+    pytest.skip(f"web server not importable in-process ({type(_e).__name__}: {_e})",
+                allow_module_level=True)
 
 
 # --------------------------------------------------------------------------- #
