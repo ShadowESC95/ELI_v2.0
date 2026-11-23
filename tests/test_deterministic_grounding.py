@@ -190,5 +190,5 @@ def test_the_gate_reads_the_stores_and_settings_in_force_not_the_program_folders
     paths = gate._eli_db_paths_v2()
     assert paths["user_db"] == (tmp_path / "u.sqlite3").resolve()
     assert paths["agent_db"] == (tmp_path / "a.sqlite3").resolve()
-    assert gate._eli_v8_db_paths() == [paths["user_db"], paths["agent_db"]]
-    assert gate._eli_settings_v2()["n_ctx"] == 1234
+    assert gate._eli_v8_db_paths() == gate._eli_v12_db_paths() == [paths["user_db"], paths["agent_db"]]
+    assert gate._eli_settings_v2()["n_ctx"] == gate._eli_v14_settings()["n_ctx"] == 1234

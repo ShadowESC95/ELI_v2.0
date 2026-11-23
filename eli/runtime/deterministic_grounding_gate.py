@@ -2491,19 +2491,9 @@ _ELI_V12_SURFACE_ACTIONS = {
 }
 
 
-def _eli_v12_root() -> _EliV12Path:
-    try:
-        return _EliV12Path(__file__).resolve().parents[2]
-    except Exception:
-        return _EliV12Path.cwd()
-
-
 def _eli_v12_db_paths() -> list[_EliV12Path]:
-    root = _eli_v12_root()
-    return [
-        root / "artifacts" / "db" / "user.sqlite3",
-        root / "artifacts" / "db" / "agent.sqlite3",
-    ]
+    from eli.core.paths import agent_db_path, user_db_path
+    return [_EliV12Path(user_db_path()), _EliV12Path(agent_db_path())]
 
 
 def _eli_v12_dynamic_identity_tokens() -> list[str]:
@@ -2966,16 +2956,15 @@ def _eli_v14_read_json(path: _EliV14Path) -> dict:
 
 
 def _eli_v14_runtime_snapshot() -> dict:
-    root = _eli_v14_project_root()
-    snap = _eli_v14_read_json(root / "artifacts" / "runtime_snapshot.json")
+    snap = _eli_v14_read_json(_artifacts_dir() / "runtime_snapshot.json")
     if isinstance(snap, dict):
         return snap
     return {}
 
 
 def _eli_v14_settings() -> dict:
-    root = _eli_v14_project_root()
-    settings = _eli_v14_read_json(root / "config" / "settings.json")
+    from eli.core.runtime_settings import _settings_file
+    settings = _eli_v14_read_json(_settings_file())
     if isinstance(settings, dict):
         return settings
     return {}
@@ -3053,8 +3042,8 @@ def _eli_v14_name_tokens() -> set[str]:
         _SWLOG.debug("suppressed exception", exc_info=True)
 
     # Pull explicit name-like memory facts dynamically from this installation only.
-    root = _eli_v14_project_root()
-    db = root / "artifacts" / "db" / "user.sqlite3"
+    from eli.core.paths import user_db_path
+    db = _EliV14Path(user_db_path())
     try:
         import sqlite3 as _eli_v14_sqlite3
         if db.exists():
