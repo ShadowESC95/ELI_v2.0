@@ -57,6 +57,10 @@ for _proxy in ("HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
 os.environ["NO_PROXY"] = os.environ["no_proxy"] = "127.0.0.1,localhost,::1"
 os.environ.setdefault("HF_HUB_OFFLINE", "1")
 os.environ.setdefault("TRANSFORMERS_OFFLINE", "1")
+# Nor the owner's home: a run left matplotlib's font cache and a Flatpak user repository there (a test
+# reached `flatpak run`), so those two keep their files in the sandbox.
+os.environ["MPLCONFIGDIR"] = str(SANDBOX / "matplotlib")
+os.environ["FLATPAK_USER_DIR"] = str(SANDBOX / "flatpak")
 
 # Every place ELI keeps state is a folder of the sandbox for the whole session (runtime_settings keeps a
 # path outside the install unless it is inside another ELI install): the data folder (conversations, proactive and
