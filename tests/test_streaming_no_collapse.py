@@ -93,27 +93,6 @@ class TestStreamingNeverCollapses:
             f"(strip() does not remove it, but explicit check should)"
         )
 
-    def test_stream_start_end_sentinels_present_for_chat(self):
-        """__STREAM_START__ and __STREAM_END__ must wrap the token sequence."""
-        engine, _ = self._make_engine()
-
-        executor_mock = MagicMock(return_value={
-            "ok": True, "action": "CHAT", "response": "",
-        })
-        with patch("eli.execution.executor_enhanced.execute", executor_mock):
-            try:
-                gen = engine._stream_chat("tell me a story", args={}, context=[])
-                tokens = _collect_stream(gen)
-                if tokens:
-                    combined = "".join(str(t) for t in tokens)
-                    has_sentinels = "__STREAM_START__" in combined or "__STREAM_END__" in combined
-                    has_content = any(t and t != "\u200b" for t in tokens)
-                    assert has_sentinels or has_content, (
-                        "Stream produced neither content nor sentinels"
-                    )
-            except Exception:
-                pass  # Engine may not have GGUF loaded; structural test only
-
 
 # ---------------------------------------------------------------------------
 # WorkingMemory pinning after successful executor call

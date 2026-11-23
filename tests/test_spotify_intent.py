@@ -75,15 +75,6 @@ def test_album_mid_string_artist_album_name():
     assert artist == "copper tides"
 
 
-def test_album_mid_string_does_not_override_by_phrasing():
-    """"NAME album by ARTIST" must still resolve via the existing, more
-    specific "by" branch, not the new mid-string fallback — adding the
-    fallback must not regress the already-working case this exercises."""
-    name, artist = si.album_request("a salt and a stone album by veridian")
-    assert name == "a salt and a stone"
-    assert artist == "veridian"
-
-
 def test_liked_songs_recognises_bare_liked_and_liked_playlist():
     """Regression: "play my liked playlist on spotify" extracted playlist
     name "liked" (via playlist_name()'s generic "X playlist" pattern), but

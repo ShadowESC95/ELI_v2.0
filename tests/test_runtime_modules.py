@@ -104,13 +104,6 @@ def test_reflection_importable():
     from eli.runtime.reflection import run_reflection
     assert run_reflection is not None
 
-def test_reflect_returns_something():
-    from eli.runtime.reflection import run_reflection
-    try:
-        result = run_reflection(hours=0)
-        assert result is None or isinstance(result, (str, dict))
-    except Exception:
-        pass
 
 
 # ── Self Improvement ──────────────────────────────────────────────────────
@@ -119,13 +112,6 @@ def test_self_improvement_importable():
     from eli.runtime.self_improvement import SelfImprovementEngine
     assert SelfImprovementEngine is not None
 
-def test_self_improvement_init(tmp_db):
-    from eli.runtime.self_improvement import SelfImprovementEngine
-    try:
-        si = SelfImprovementEngine()
-        assert si is not None
-    except Exception:
-        pass
 
 
 # ── Live Introspection ────────────────────────────────────────────────────
@@ -137,15 +123,6 @@ def test_live_introspection_importable():
     except ImportError:
         pytest.skip("live_introspection not available")
 
-def test_live_introspection_snapshot():
-    try:
-        from eli.runtime.live_introspection import get_runtime_snapshot
-        result = get_runtime_snapshot()
-        assert result is None or isinstance(result, dict)
-    except ImportError:
-        pytest.skip("live_introspection not available")
-    except Exception:
-        pass
 
 
 # ── Approval Engine ───────────────────────────────────────────────────────

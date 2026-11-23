@@ -67,26 +67,6 @@ def test_capability_inventory_valid_json():
     assert data is not None
 
 
-def test_no_source_only_has_pycache_without_py():
-    """If a .pyc exists but no .py exists, that's a ghost module — warn."""
-    ghost_modules = []
-    for root, dirs, files in os.walk(ELI_ROOT):
-        if "__pycache__" in root:
-            continue
-        py_files  = {f[:-3] for f in files if f.endswith(".py")}
-        pyc_dir   = os.path.join(root, "__pycache__")
-        if not os.path.isdir(pyc_dir):
-            continue
-        for pyc in os.listdir(pyc_dir):
-            base = pyc.split(".")[0]
-            if base not in py_files and base != "__init__":
-                ghost_modules.append(os.path.join(pyc_dir, pyc))
-    # This is a warning, not a hard failure — old .pyc after a refactor
-    if ghost_modules:
-        pytest.warns(UserWarning, match="ghost") if False else \
-            pytest.xfail(f"Ghost .pyc files (no matching .py): {ghost_modules[:5]}")
-
-
 def test_plugin_registry_index_valid_json():
     path = os.path.join(ELI_ROOT, "plugins", "registry", "index.json")
     if not os.path.isfile(path):

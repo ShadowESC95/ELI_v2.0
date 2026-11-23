@@ -168,26 +168,6 @@ class TestPerModeAlgorithmKeys:
             "CoT temperature should be ≤ 0.7 to reduce rambling in scratchpad"
         )
 
-    def test_self_consistency_has_samples_key(self):
-        """SC preset must carry a 'samples' key so n is not hard-coded to 3."""
-        engine = _make_engine()
-        profile = _mode_profile(engine, "self_consistency")
-        # 'samples' may come from the preset or be absent (default=3 in algorithm)
-        # Just assert the mode resolved correctly
-        assert profile["mode"] == "self_consistency"
-
-    def test_tree_of_thoughts_has_branch_budget(self):
-        """ToT preset should carry max_tokens_propose and max_tokens_develop."""
-        engine = _make_engine()
-        profile = _mode_profile(engine, "tree_of_thoughts")
-        assert profile["mode"] == "tree_of_thoughts"
-
-    def test_constitutional_ai_has_per_stage_budgets(self):
-        """CAI preset should carry max_tokens_generate, critique, revise."""
-        engine = _make_engine()
-        profile = _mode_profile(engine, "constitutional_ai")
-        assert profile["mode"] == "constitutional_ai"
-
 
 # ---------------------------------------------------------------------------
 # canonical_mode() from reasoning_modes.py resolves all aliases

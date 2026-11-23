@@ -58,8 +58,13 @@ class TestMemoryManager:
         conn.execute("INSERT INTO memories (ts, text) VALUES (?, ?)", (time.time() - 10*86400, "Old"))
         conn.commit()
         conn.close()
-        mem.apply_weight_decay(older_than_days=1)
-        # No assertion, just ensure no crash
+        # it catches every error and returns 0, so "it did not raise" proved nothing: the old row's
+        # weight has to have fallen
+        assert mem.apply_weight_decay(older_than_days=1) == 1
+        conn = sqlite3.connect(str(mem.db_path))
+        weight = conn.execute("SELECT weight FROM memories WHERE text = 'Old'").fetchone()[0]
+        conn.close()
+        assert weight is not None and weight < 1.0
 
 if __name__ == "__main__":
     pytest.main([__file__])

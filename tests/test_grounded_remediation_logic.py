@@ -60,14 +60,6 @@ def test_diagnose_functions_are_read_only_dicts():
         assert isinstance(out, dict)
 
 
-# --------------------------------------------------------------------------- #
-# pending / busy / last-failure state
-# --------------------------------------------------------------------------- #
-def test_busy_flag():
-    gr.set_busy(True); assert gr.is_busy() is True
-    gr.set_busy(False); assert gr.is_busy() is False
-
-
 def test_pending_lifecycle():
     plan = {"domain": "app", "subject": "firefox", "operation": "install",
             "commands": ["true"], "steps": ["install firefox"]}

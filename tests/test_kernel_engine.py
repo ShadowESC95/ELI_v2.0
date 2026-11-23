@@ -35,10 +35,6 @@ def test_engine_has_request_counter(engine):
 def test_engine_request_counter_starts_zero(engine):
     assert engine._request_counter == 0
 
-def test_engine_is_singleton_or_instance():
-    e1 = CognitiveEngine()
-    assert e1 is not None
-
 
 # ── _build_enhanced_system ────────────────────────────────────────────────
 

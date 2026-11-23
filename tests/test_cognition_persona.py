@@ -116,12 +116,6 @@ def test_persona_uses_english():
 
 # ── persona.auto.txt ──────────────────────────────────────────────────────
 
-def test_persona_auto_txt_loadable():
-    auto_path = Path(__file__).parents[1] / "eli" / "cognition" / "persona.auto.txt"
-    if auto_path.exists():
-        text = auto_path.read_text(encoding="utf-8")
-        assert isinstance(text, str)
-
 
 # ── persona_hygiene ───────────────────────────────────────────────────────
 

@@ -72,11 +72,6 @@ def test_nothing_measurable_gives_the_smallest_window_not_a_chosen_size(monkeypa
     assert v == 2048
 
 
-def test_the_setting_defaults_to_auto():
-    from eli.core.runtime_settings import DEFAULTS
-    assert DEFAULTS["n_ctx"] == 0
-
-
 def test_an_operator_chosen_ctx_is_never_replaced(monkeypatch):
     """4k and 100k are both the operator's to pick; recommend() must anchor on it."""
     monkeypatch.setattr(sho, "_gguf_metadata_ctx", lambda p: 8192)

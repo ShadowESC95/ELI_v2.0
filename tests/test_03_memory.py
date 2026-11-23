@@ -1,4 +1,4 @@
-import pytest, time, sqlite3
+import pytest
 from eli.memory import Memory
 
 def test_memory_store_and_recall(memory_instance):
@@ -39,13 +39,3 @@ def test_search_memory(memory_instance):
     results = mem.search_memory("python", limit=5)
     assert len(results) >= 1
     assert "Python" in results[0]["text"]
-
-def test_weight_decay(memory_instance):
-    mem = memory_instance
-    mem.init_db()
-    conn = sqlite3.connect(str(mem.db_path))
-    conn.execute("INSERT INTO memories (ts, text) VALUES (?,?)", (time.time()-10*86400, "Old"))
-    conn.commit()
-    conn.close()
-    mem.apply_weight_decay(older_than_days=1)
-    # No assertion – just ensure no crash
