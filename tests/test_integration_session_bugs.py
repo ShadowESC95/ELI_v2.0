@@ -281,35 +281,18 @@ class TestWorldStateInPersonaHandoff:
         "evidence_wall",
     }
 
-    def _get_handoff_text(self, user_input="describe yourself"):
-        """Run build_persona_handoff and return the world-state section as a string."""
+    def test_a_world_question_gets_the_whole_layout_marked_symbolic_with_this_room_marked(self):
+        """Four tests grepped the synthesiser's source for these strings; this asks the handoff."""
         from eli.cognition.context_synthesiser import build_persona_handoff
-        result = build_persona_handoff(user_input=user_input)
-        # build_persona_handoff returns a dict; extract the full text representation
-        if isinstance(result, dict):
-            # The world state is in the 'world_state' key or embedded in 'situation_brief'
-            text = (
-                str(result.get("world_state") or "")
-                + "\n"
-                + str(result.get("situation_brief") or "")
-                + "\n"
-                + str(result.get("persona_brief") or "")
-                + "\n"
-                + str(result.get("context") or "")
-            )
-        else:
-            text = str(result or "")
-        return text
-
-    def test_world_state_section_present_in_synthesiser(self):
-        """context_synthesiser must attempt to inject world state into the handoff."""
-        import inspect
-        from eli.cognition import context_synthesiser
-        src = inspect.getsource(context_synthesiser)
-        assert "ELI WORLD STATE" in src, (
-            "context_synthesiser does not contain 'ELI WORLD STATE' block injection. "
-            "World state is not being added to the LLM context."
-        )
+        ctx = build_persona_handoff(user_input="which room are you in right now?")["assembled_context"]
+        block = ctx[ctx.index("ELI WORLD STATE"):]
+        assert "not physical locations" in block
+        names = [line.split(":")[0].replace("◄ HERE", "").strip() for line in block.splitlines()
+                 if line.startswith("    ") and ":" in line]
+        assert len(names) == len(self.NINE_ROOMS), names
+        assert sum("◄ HERE" in line for line in block.splitlines()) == 1
+        unasked = build_persona_handoff(user_input="what's the weather like")["assembled_context"]
+        assert "ELI WORLD STATE" not in unasked
 
     def test_all_nine_room_names_defined_in_world_ontology(self):
         """The world ontology must define all 9 rooms."""
@@ -327,36 +310,6 @@ class TestWorldStateInPersonaHandoff:
         assert not missing, (
             f"World ontology is missing rooms: {missing}. "
             f"These rooms can never appear in world state context."
-        )
-
-    def test_synthesiser_world_state_includes_all_rooms_layout(self):
-        """The synthesiser source must reference 'all 9 rooms' to include the full layout."""
-        import inspect
-        from eli.cognition import context_synthesiser
-        src = inspect.getsource(context_synthesiser)
-        assert "all 9 rooms" in src or "all_rooms" in src, (
-            "context_synthesiser does not inject all 9 rooms into the world state block. "
-            "ELI will only see the current room, not the full world layout."
-        )
-
-    def test_world_state_block_has_semantic_label(self):
-        """The world state block must clarify these are symbolic/cognitive rooms."""
-        import inspect
-        from eli.cognition import context_synthesiser
-        src = inspect.getsource(context_synthesiser)
-        assert re.search(r"symbolic|cognitive.*room|virtual.*room", src, re.I), (
-            "context_synthesiser world-state injection does not label rooms as symbolic/cognitive. "
-            "The LLM will interpret 'room' as a physical location."
-        )
-
-    def test_current_room_here_marker_in_synthesiser(self):
-        """The synthesiser must mark the current room with a '◄ HERE' or similar indicator."""
-        import inspect
-        from eli.cognition import context_synthesiser
-        src = inspect.getsource(context_synthesiser)
-        assert "HERE" in src or "current.*room" in src.lower(), (
-            "context_synthesiser does not mark the current room. "
-            "ELI cannot answer 'what room are you in?' correctly."
         )
 
 
