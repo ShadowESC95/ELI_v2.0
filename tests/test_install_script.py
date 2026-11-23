@@ -167,14 +167,16 @@ def test_shipped_ps1_uses_crlf_throughout():
 
 
 # ── a print never ends a run ───────────────────────────────────────────────
-def test_printing_never_stops_the_program_on_a_stream_that_is_not_unicode():
+@pytest.mark.parametrize("stream_encoding", ["cp1252", "cp1252:surrogateescape"])
+def test_printing_never_stops_the_program_on_a_stream_that_is_not_unicode(stream_encoding):
     """On Windows any redirected or piped output uses the legacy code page, which has no arrow:
     the installer's shortcut step printed one and died with UnicodeEncodeError whenever its
     output was being read (the graphical installer, a build job). Importing ELI makes the
-    streams write "?" for what they cannot show."""
+    streams write "?" for what they cannot show. Windows' own default for such a stream is
+    surrogateescape, which raised all the same: a GUI check failed on its first emoji there."""
     root = Path(__file__).resolve().parents[1]
     code = "import eli; print('ready \u2192 \u2713 \U0001F680'); import sys; print('still here', file=sys.stderr)"
-    env = dict(__import__("os").environ, PYTHONIOENCODING="cp1252", PYTHONPATH=str(root))
+    env = dict(__import__("os").environ, PYTHONIOENCODING=stream_encoding, PYTHONPATH=str(root))
     env.pop("PYTHONUTF8", None)
     ran = subprocess.run([sys.executable, "-c", code], capture_output=True, env=env, cwd=str(root))
     assert ran.returncode == 0, ran.stderr.decode("cp1252", "replace")

@@ -2,15 +2,21 @@
 import sys as _sys
 
 
+# Error handlers that write something for every character, so a print never raises.
+_WRITES_ANY_TEXT = frozenset({"replace", "backslashreplace", "xmlcharrefreplace", "namereplace", "ignore"})
+
+
 def _streams_take_any_text() -> None:
     """A print never stops the program. ELI prints arrows, ticks and emoji, and a stream that is
     not Unicode raised UnicodeEncodeError on the first one. On Windows that is every redirected
     or piped output (it uses the legacy code page): the installer's last step died on an arrow
     whenever something was reading its output. What such a stream cannot show is written as "?".
+    Only a handler that can write any character is left alone: Windows' default for these
+    streams is surrogateescape, which passes bytes through but still raises on an emoji.
     The packaged apps do this earlier, in their start-up hook."""
     for stream in (_sys.stdout, _sys.stderr):
         encoding = str(getattr(stream, "encoding", "") or "").lower().replace("-", "").replace("_", "")
-        if (stream is None or encoding.startswith("utf") or getattr(stream, "errors", "") != "strict"
+        if (stream is None or encoding.startswith("utf") or getattr(stream, "errors", "") in _WRITES_ANY_TEXT
                 or not hasattr(stream, "reconfigure")):
             continue
         try:
