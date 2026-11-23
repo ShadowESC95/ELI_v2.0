@@ -245,3 +245,13 @@ def test_no_code_writes_to_generic_or_relative_eli_paths():
                 if i not in doc_lines and bad.search(code) and "adopt_legacy_file(" not in code:
                     found.append(f"{f.relative_to(root)}:{i}: {line.strip()[:100]}")
     assert not found, "generic or relative paths:\n" + "\n".join(found)
+
+
+def test_the_mac_app_leaves_out_yaras_own_openssl():
+    """The macOS app of v2.5.40 stopped at launch: yara-python's own libcrypto.3.dylib was bound to
+    Python's _ssl through OpenCV's libssl ("Symbol not found: _CRYPTO_calloc"). The macOS build
+    leaves yara out; the security scan then reports it as not installed."""
+    spec = (ROOT / "ELI.spec").read_text(encoding="utf-8")
+    darwin = spec.split('if sys.platform == "darwin":\n    # yara-python', 1)
+    assert len(darwin) == 2 and 'excludes.append("yara")' in darwin[1].split("\n\n", 1)[0]
+    assert spec.index('excludes.append("yara")') < spec.index("a = Analysis("), "added after the list is used"

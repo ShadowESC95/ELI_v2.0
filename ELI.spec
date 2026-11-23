@@ -399,6 +399,13 @@ excludes = [
     "tkinter", "IPython", "jupyter", "pytest",
 ]
 
+if sys.platform == "darwin":
+    # yara-python's wheel brings its own libcrypto.3.dylib. In the .app a dylib is found by its install
+    # name, so Python's _ssl (through OpenCV's bundled libssl) bound to yara's older libcrypto and
+    # the app stopped at launch ("Symbol not found: _CRYPTO_calloc"). The macOS app ships without
+    # YARA, and its security scan says "yara-python is not installed".
+    excludes.append("yara")
+
 a = Analysis(
     [str(ENTRY)],
     pathex=[str(ROOT), str(ROOT / "packaging" / "pyinstaller")],
