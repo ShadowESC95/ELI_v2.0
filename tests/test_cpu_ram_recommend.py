@@ -93,3 +93,28 @@ def test_compute_mode_cpu_forces_zero_layers(monkeypatch):
     assert effective_use_gpu_layers(hw) is False
     rec = recommend(hw, _models())
     assert rec.n_gpu_layers == 0
+
+
+@pytest.mark.parametrize("integrated,free_vram_mb,avail_gb", [
+    (True, 3800, 4.5),          # a laptop's integrated GPU, taking its share of the same RAM
+    (False, 7400, 6.0),         # an 8 GB card in a machine with little RAM free
+])
+def test_the_model_chosen_from_several_fits_what_the_gpu_leaves_in_ram(gpu_offload_runtime, integrated,
+                                                                       free_vram_mb, avail_gb):
+    """With several models on disk the largest one any layer of which fit on the GPU was chosen,
+    whatever it left in RAM: an 18 GB model on an 8 GB laptop with an integrated GPU. The first run
+    writes that choice as the model to load."""
+    hw = _igpu_hw(ram_gb=7.6 if integrated else 15.5, avail_gb=avail_gb)
+    hw.gpu_integrated = integrated
+    hw.free_vram_mb = hw.total_vram_mb = free_vram_mb
+    if not integrated:
+        hw.gpu_name, hw.gpu_vendor = "NVIDIA GeForce RTX 3070", "nvidia"
+    big = {"name": "big.gguf", "path": "/m/big.gguf", "size_gb": 18.0, "size_bytes": int(18.0 * 1024 ** 3)}
+    small = {"name": "small.gguf", "path": "/m/small.gguf", "size_gb": 0.7, "size_bytes": int(0.7 * 1024 ** 3)}
+    # a context short enough that the large model's cache leaves room for some of its layers on the GPU
+    rec = recommend(hw, [big, small], user_ctx=4096)
+    assert rec.model_path == small["path"], rec.reasoning
+    roomy = _igpu_hw(ram_gb=64.0, avail_gb=56.0)       # with the RAM for what is left over it is chosen
+    roomy.gpu_integrated = integrated
+    roomy.free_vram_mb = roomy.total_vram_mb = free_vram_mb
+    assert recommend(roomy, [big, small], user_ctx=4096).model_path == big["path"]

@@ -2481,6 +2481,20 @@ def kv_cache_quantized(
     return bool(cap is not None and want > 0 and cap < want)
 
 
+def _rest_fits_in_ram(m: Dict[str, Any], gpu_layers: int, n_ctx: int, kv_quantized: bool,
+                      hw: HardwareProfile, batch: int) -> bool:
+    """Whether what model `m` leaves on the processor with `gpu_layers` on the GPU fits the RAM budget
+    (cpu_ram_budget_mb) at the smallest context it would load with. A GPU that shares the system's
+    memory takes its layers out of the same RAM, so there the whole model has to fit. Any layer on
+    the GPU was enough: with several models on disk, the largest was chosen whatever was left over,
+    an 18 GB model on an 8 GB laptop with an integrated GPU."""
+    total = layers_for_model(m["path"], m["size_gb"])
+    on_gpu = 0 if hw.gpu_integrated else _fit_layers_real(gpu_layers, total)
+    need = _estimate_cpu_spill_mb(m["size_gb"], total, on_gpu, n_ctx, batch, kv_quantized=kv_quantized,
+                                  cost=model_cost(m["path"], kv_quantized=kv_quantized))
+    return need <= cpu_ram_budget_mb(hw.available_ram_gb)
+
+
 def recommend(hw: Optional[HardwareProfile] = None,
               models: Optional[List[Dict[str, Any]]] = None,
               user_ctx: Optional[int] = None) -> ModelRecommendation:
@@ -2628,7 +2642,7 @@ def recommend(hw: Optional[HardwareProfile] = None,
             ), layers_for_model(m["path"], m["size_gb"]))
             if hw.gpu_integrated:
                 layers = min(layers, max(4, int(layers_for_model(m["path"], m["size_gb"]) * 0.25)))
-            if layers > 0:
+            if layers > 0 and _rest_fits_in_ram(m, layers, min(rec.n_ctx, _ctx_grain), kv_q, hw, rec.batch_size):
                 chosen = m
                 chosen_layers = layers
                 break
