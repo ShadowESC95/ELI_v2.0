@@ -50,6 +50,8 @@ def test_the_machines_own_programs_are_stand_ins_that_reach_nothing():
     """`flatpak search` and `flatpak run` made a Flatpak repository in the home folder and
     `bluetoothctl list` asked the real radio; here each is a stand-in that fails, as where it is not
     installed."""
+    if os.name == "nt":
+        __import__("pytest").skip("Linux desktop programs: Windows has none of them, so there is nothing to stand in for")
     import shutil
     stand_ins = os.path.join(os.environ["ELI_TEST_SANDBOX"], "no-launchers")
     for program in ("flatpak", "bluetoothctl", "nmcli", "snap", "xdotool", "wmctrl"):
@@ -59,6 +61,8 @@ def test_the_machines_own_programs_are_stand_ins_that_reach_nothing():
 
 
 def test_a_real_run_of_one_is_named_by_the_test_that_started_it():
+    if os.name == "nt":
+        __import__("pytest").skip("Linux desktop programs: Windows has none of them, so there is nothing to stand in for")
     import tests.conftest as suite
     before = len(suite.MACHINE_RUNS)
     suite._note_machine_program(("/usr/bin/flatpak", ["/usr/bin/flatpak", "run", "an.App"], None, None))
