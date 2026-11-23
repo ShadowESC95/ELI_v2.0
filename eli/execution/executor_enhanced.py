@@ -12906,12 +12906,9 @@ def _eli_safe_screenshot(args=None):
     _args = args or {}
     region = _args.get("region", "full")
     try:
-        from controllers.os_controller import take_screenshot
-    except Exception:
-        try:
-            from eli.perception.os_controller import take_screenshot
-        except Exception as e:
-            return {"ok": False, "action": "SCREENSHOT", "content": f"Screenshot backend unavailable: {e}"}
+        from eli.perception.os_controller import take_screenshot
+    except Exception as e:
+        return {"ok": False, "action": "SCREENSHOT", "content": f"Screenshot backend unavailable: {e}"}
     try:
         out = take_screenshot(region)
     except TypeError:

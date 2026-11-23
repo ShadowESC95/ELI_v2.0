@@ -1,8 +1,10 @@
 name: cross-platform-smoke
 
 # Asserts that ELI imports, the FastAPI server starts headless, and the OS-agnostic code
-# paths load + pass their tests on Linux, macOS, AND Windows. Deliberately LIGHTWEIGHT —
-# it installs the core + server (CPU), not the heavy GPU/image stack, so it stays fast.
+# paths load + pass their tests on Linux, macOS, AND Windows. It installs what a plain
+# `pip install` of ELI brings, which is everything ELI needs to run its features (pyproject's
+# dependencies), so each system and Python here also proves that set installs; not the heavy
+# GPU/image stack, so it stays fast.
 #
 # This ran as workflow_dispatch ONLY, on the reasoning that it "avoids metered Actions on
 # every push". That reasoning does not apply to this repository: ShadowESC95/ELI_v2.0 is
@@ -64,12 +66,21 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
 
-      - name: Install (core + server, CPU — no GPU/image stack)
+      # PyAudio (voice input) has ready-made builds for Windows only; elsewhere it is compiled against these.
+      - name: PortAudio's headers (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends portaudio19-dev
+
+      - name: PortAudio's headers (macOS)
+        if: runner.os == 'macOS'
+        run: brew install portaudio
+
+      - name: Install (what a plain pip install brings, CPU — no GPU/image stack)
         run: |
           python -m pip install --upgrade pip
           pip install tomli
           python tools/validate_pyproject_scripts.py
-          pip install -e ".[server]"
+          pip install -e .
           llama_src="$(python packaging/llama_source.py)"
           pip install "$llama_src"
           pip install httpx pytest

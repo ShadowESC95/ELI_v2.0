@@ -15,6 +15,7 @@ python-dotenv>=1.0
 PyYAML>=6.0
 tqdm>=4.67
 psutil>=7.0
+tomli>=2.0.1; python_version < "3.11"   # reading TOML on Python 3.10 (tomllib came with 3.11)
 # Capped below 2.5: numba (pulled in transitively by coqui-tts -> librosa)
 # refuses NumPy 2.5 -- "Numba needs NumPy 2.4 or less. Got NumPy 2.5" -- which
 # silently disables the neural voice backend. requirements.txt pins 2.4.4; an
@@ -89,6 +90,7 @@ urllib3>=2.6
 # Windows endpoint audio support
 comtypes>=1.2; sys_platform == "win32"
 pycaw; sys_platform == "win32"
+pywin32; sys_platform == "win32"   # Start-menu shortcuts
 
 # ── Server + runtime features (one-click parity across platforms; added 2026-06-18) ──
 fastapi>=0.110
@@ -102,6 +104,17 @@ matplotlib>=3.7
 huggingface-hub>=0.20
 pyflakes>=3.0
 segno>=1.5        # pure-python QR codes (web app's "Connect a phone" tab) — no deps
+paho-mqtt>=1.6,<3   # ELI-native MQTT device server (no Home Assistant)
+zeroconf>=0.70   # mDNS device/broker discovery on the LAN
+bleak>=0.21      # Bluetooth (BLE) device discovery (degrades cleanly if no BT radio)
+# Device drivers for what does not speak MQTT (eli/runtime/device_drivers.py); a packaged app has no
+# pip for the dashboard's one-click install, so they come with ELI.
+pychromecast>=13.0       # Chromecast
+androidtv[async]>=0.0.70 # Fire TV / Android TV
+adb-shell>=0.4           # Fire TV / Android TV pairing keys
+pyatv>=0.16              # Apple TV / AirPlay (from 0.16 without the GPL's mutagen)
+# The plugin scanner's YARA engine; no build for Python 3.14 yet.
+yara-python>=4.5; python_version < "3.14"
 cryptography>=41   # self-signed LAN HTTPS cert (phone microphone)
 
 # ── Optional feature deps (web search/automation, calendar, notifications) ──
@@ -113,3 +126,5 @@ playwright>=1.40
 plyer>=2.1
 ics>=0.7
 meshio>=5.3
+scipy>=1.11       # ODE/PDE solvers, linear algebra, signal processing for ELI's simulations
+plotly>=5.18      # interactive 3D and time-animated (4D) figures

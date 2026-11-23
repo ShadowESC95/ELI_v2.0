@@ -26,6 +26,12 @@ classifiers = [
     "Environment :: GPU :: NVIDIA CUDA",
     "Environment :: X11 Applications :: Qt",
 ]
+# Everything ELI needs to run its features, on every system: a plain `pip install` of the project gives
+# voice input and output, the window, the server, documents, vision, web search, wake words and the
+# device drivers. An optional extra once held each of these, and what a user got depended on which
+# extras the way they installed asked for. Only what cannot be installed the same way everywhere stays
+# optional, below. tests/claims/test_runtime_dependencies.py holds every package eli/ and api/ import
+# to this list.
 dependencies = [
     "platformdirs>=4.0",
     "pydantic>=2.0",
@@ -43,59 +49,47 @@ dependencies = [
     "python-dotenv>=1.0",
     "numpy>=1.24,<2.5",  # numba (coqui-tts -> librosa) rejects NumPy 2.5
     "faiss-cpu>=1.7",
-    "yt-dlp>=2025.1",
+    "Jinja2>=3.1",        # the model's chat template (eli/cognition/chat_template.py)
     "tomli>=2.0.1; python_version<'3.11'",
     "comtypes>=1.2; sys_platform == 'win32'",
     "pycaw; sys_platform == 'win32'",
-]
-
-[project.optional-dependencies]
-# GUI binding policy:
-#   PySide6 is the canonical Qt binding for ELI. It is licensed LGPLv3,
-#   which permits dynamic linking from proprietary or differently-licensed
-#   code (Python always loads C extensions dynamically), so the binding
-#   itself does not impose copyleft on the rest of this project.
-#
-#   PyQt6 is intentionally NOT a dependency here. PyQt6 is GPLv3 and would
-#   force the entire shipped binary to be GPL, blocking proprietary
-#   distribution. The runtime shim at eli/gui/qt_compat.py allows users
-#   who already have PyQt6/PyQt5 installed to run from source, but the
-#   packaged distribution must remain PySide6-only to honour the
-#   project license declared above.
-gui = [
+    "pywin32; sys_platform == 'win32'",   # Start-menu shortcuts (eli/runtime/desktop_launchers.py)
+    # Window. GUI binding policy:
+    #   PySide6 is the canonical Qt binding for ELI. It is licensed LGPLv3,
+    #   which permits dynamic linking from proprietary or differently-licensed
+    #   code (Python always loads C extensions dynamically), so the binding
+    #   itself does not impose copyleft on the rest of this project.
+    #
+    #   PyQt6 is intentionally NOT a dependency here. PyQt6 is GPLv3 and would
+    #   force the entire shipped binary to be GPL, blocking proprietary
+    #   distribution. The runtime shim at eli/gui/qt_compat.py allows users
+    #   who already have PyQt6/PyQt5 installed to run from source, but the
+    #   packaged distribution must remain PySide6-only to honour the
+    #   project license declared above.
     # 6.12.0 loses a reference to None on every Qt call on Python 3.11 and earlier, which aborts the
     # app ("deallocating None"); eli/core/singleton_refs.py guards it, builds should not ship it.
     "PySide6>=6.5,!=6.12.0; python_version < '3.12'",
     "PySide6>=6.5; python_version >= '3.12'",
-]
-tts = [
+    # Voice output
     "piper-tts>=1.2",
     "onnxruntime>=1.15",
-]
-asr = [
+    # Voice input. PyAudio has ready-made builds for Windows only; on Linux and macOS it is compiled
+    # against PortAudio's headers (portaudio19-dev, portaudio-devel, `brew install portaudio`), which
+    # install.sh adds first.
     "faster-whisper>=1.0",
     "SpeechRecognition>=3.10",
     "PyAudio>=0.2",
     # audioop left the stdlib in 3.13 (PEP 594) and ELI's mic path imports it;
     # on 3.13+ distros it previously arrived only as a transitive dep.
     'audioop-lts>=0.2.1; python_version >= "3.13"',
-]
-llm = [
-    "llama-cpp-python>=0.3.35",
-]
-image = [
-    "diffusers>=0.20",
-    "safetensors>=0.3",
-    "accelerate>=0.20",
-]
-docs = [
+    # Wake word
+    "openwakeword>=0.4",
+    # Documents and reports
     "markdown>=3.5",
     "pdfplumber>=0.10",
     "pypdf>=4.0",
     "python-docx>=1.1",
-]
-# Self-hosted REST + web chat UI (api/server.py) — the phone/web-app feature.
-server = [
+    # Self-hosted REST + web chat UI (api/server.py) — the phone/web-app feature — and the device server.
     "fastapi>=0.110",
     "uvicorn>=0.27",
     "websockets>=14.0",   # pinned explicitly — see requirements.txt for why
@@ -104,44 +98,53 @@ server = [
     "bleak>=0.21",        # Bluetooth (BLE) device discovery (degrades cleanly if no radio)
     "segno>=1.5",         # QR codes for Connect tab / phone pairing
     "cryptography>=41",   # self-signed LAN HTTPS cert (phone microphone)
-]
-# Gaze cursor + on-screen OCR.
-vision = [
+    # Device drivers for what does not speak MQTT (eli/runtime/device_drivers.py). The dashboard's
+    # one-click install runs pip, which a packaged app does not have, so they ship with ELI.
+    "pychromecast>=13.0",     # Chromecast
+    "androidtv[async]>=0.0.70",  # Fire TV / Android TV
+    "adb-shell>=0.4",         # Fire TV / Android TV pairing keys
+    "pyatv>=0.16",            # Apple TV / AirPlay (0.16 read tags with tinytag, not the GPL's mutagen)
+    # Gaze cursor + on-screen OCR.
     "opencv-python>=4.8",
     "pytesseract>=0.3",
-]
-# Web search + browser automation plugins.
-web = [
+    # Web search + browser automation plugins.
     "ddgs>=9.0",
     "playwright>=1.40",
-]
-# Data/CSV analysis + 2D/3D/4D plotting, simulation/dynamics, and 3D-mesh inspection.
-# scipy = ODE/PDE solvers, linear algebra, signal processing (the "dynamics"); plotly
-# = interactive 3D + time-animated (4D) figures; matplotlib(+mplot3d) = static 2D/3D;
-# meshio = STL/VTK/OBJ mesh I/O. This is the stack ELI's code agent runs to build sims.
-analysis = [
+    # Data/CSV analysis + 2D/3D/4D plotting, simulation/dynamics, and 3D-mesh inspection.
+    # scipy = ODE/PDE solvers, linear algebra, signal processing (the "dynamics"); plotly
+    # = interactive 3D + time-animated (4D) figures; matplotlib(+mplot3d) = static 2D/3D;
+    # meshio = STL/VTK/OBJ mesh I/O. This is the stack ELI's code agent runs to build sims.
     "pandas>=2.0",
     "matplotlib>=3.7",
     "meshio>=5.3",
     "scipy>=1.11",
     "plotly>=5.18",
-]
-# Wake-word listening.
-wakeword = [
-    "openwakeword>=0.4",
-]
-# Misc runtime helpers: HF downloads, desktop notifications, calendar, code lint.
-extras = [
+    # HF downloads, desktop notifications, calendar, code lint.
     "huggingface-hub>=0.20",
     "plyer>=2.1",
     "ics>=0.7",
     "pyflakes>=3.0",
+    # YouTube direct playback (Python side). mpv remains an OS package — install via
+    # install.sh / grounded remediation when missing.
     "yt-dlp>=2025.1",
+    # The plugin scanner's YARA engine (it runs the user's own ruleset). No build for Python 3.14 yet,
+    # and from source it needs a compiler and OpenSSL's headers.
+    'yara-python>=4.5; python_version < "3.14"',
 ]
-# YouTube direct playback (Python side). mpv remains an OS package — install via
-# install.sh / grounded remediation when missing.
-media = [
-    "yt-dlp>=2025.1",
+
+[project.optional-dependencies]
+# Only what cannot be installed the same way on every machine: each is built for, or chosen by, the
+# machine's GPU, and the installers fetch it by a step of their own.
+# The inference engine. PyPI has no ready-made build: the installers build it for the GPU they find
+# (CUDA, Metal, ROCm, Vulkan or CPU), at the version packaging/llama_cpp_constraints.txt holds.
+llm = [
+    "llama-cpp-python>=0.3.35",
+]
+# Image generation. accelerate needs PyTorch, which the installers take from the index for this GPU.
+image = [
+    "diffusers>=0.20",
+    "safetensors>=0.3",
+    "accelerate>=0.20",
 ]
 # Test-suite drivers (API subprocess tests, lint gates, MQTT probe). Cross-platform.
 test = [
@@ -155,15 +158,17 @@ test = [
 ]
 # Everything ELI uses at runtime — the one-click "complete" install.
 full = [
-    "eli-v2.0[gui,tts,asr,llm,image,docs,server,vision,web,analysis,wakeword,extras,media]",
+    "eli-v2.0[llm,image]",
 ]
-# LoRA fine-tuning (heavy, opt-in — NOT part of full). See training/README.md.
 training = [
     "torch>=2.0",
     "transformers>=4.40",
     "peft>=0.10",
     "datasets>=2.18",
     "trl>=0.8",
+    # 4-bit (QLoRA) lets a card too small for fp16 weights still train the adapter. NVIDIA on Linux
+    # and Windows only: there is no macOS build, and the trainer falls back to fp16 without it.
+    "bitsandbytes>=0.43; platform_system != 'Darwin'",
 ]
 # Neural voice — Coqui XTTS-v2 (heavy, opt-in — NOT part of full). Powers BOTH the
 # human-like `natural:` voices (built-in speakers, no clone) and `clone:` voice

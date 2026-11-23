@@ -207,7 +207,7 @@ def probe_broker_connection(
         if not out.get("hint"):
             out["hint"] = (
                 "Install paho-mqtt for full MQTT auth/TLS probing: pip install paho-mqtt "
-                "(bundled in ELI's [server] extra)."
+                "(one of ELI's dependencies)."
             )
         return out
 

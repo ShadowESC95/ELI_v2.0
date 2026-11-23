@@ -17,6 +17,7 @@ av==17.0.1
 bleak==3.0.2
 brotli==1.2.0
 build==1.5.0
+casttube==0.2.1
 certifi==2026.4.22
 cffi==2.0.0
 chacha20poly1305-reuseable==0.13.2
@@ -109,6 +110,7 @@ pillow==12.2.0
 piper-tts==1.4.2
 platformdirs==4.9.6
 playwright==1.63.0
+plotly==7.1.0
 pluggy==1.6.0
 plyer==2.1.0
 portalocker==3.2.0
@@ -122,6 +124,7 @@ pyatv==0.18.0
 PyAudio==0.2.14
 PyAutoGUI==0.9.54
 pycaw==20260927 ; sys_platform == "win32"
+PyChromecast==14.1.1
 pycparser==3.0
 pydantic-settings==2.14.1
 pydantic==2.13.4
@@ -156,6 +159,7 @@ python3-xlib==0.15
 pyttsx3==2.99
 pytweening==1.2.0
 pytz==2026.2
+pywin32==312 ; sys_platform == "win32"
 PyYAML==6.0.3
 regex==2026.5.9
 requests==2.34.2
@@ -192,6 +196,7 @@ tinycss2==1.5.1
 tinyhtml5==2.1.0
 tinytag==2.2.1
 tokenizers==0.22.2
+tomli==2.0.1 ; python_version < "3.11"
 tqdm==4.67.3
 transformers==5.8.1
 typepy==1.3.5
@@ -210,6 +215,7 @@ websockets==16.0
 wheel==0.47.0
 word2number==1.1
 xxhash==3.7.0
+yara-python==4.5.4 ; python_version < "3.14"
 yarl==1.23.0
 yt-dlp==2026.8.19
 zeroconf==0.150.0

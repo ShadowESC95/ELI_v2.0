@@ -24,7 +24,7 @@ Four real pieces combine:
    directory with a **non-interactive matplotlib backend** already configured, so plotting
    code runs headlessly. The sandbox folder is deleted after each run, so a figure saved
    there is not kept; what you get is the checked code, saved under `scripts/`.
-4. **The scientific stack** (the `analysis` extra, bundled in the installer):
+4. **The scientific stack** (part of ELI's dependencies, so every install has it):
    `scipy`, `matplotlib` (+ 3D via `mpl_toolkits.mplot3d`), `plotly`,
    `pandas`, `meshio`, on top of `numpy`. This is the ceiling of what ELI can build — and
    it's a high one: the same tools professional scientists and engineers use.
@@ -107,8 +107,8 @@ and **matplotlib.animation** / **plotly** (the moving picture).
   locally, offline. A run from Sim / IDE stops after 60 seconds; run a longer one yourself.
 - Code run from Sim / IDE has your own permissions and no sandbox: read what ELI wrote
   before you run it.
-- The scientific extras ship with the installer; from a source checkout, install
-  them with `pip install -e ".[analysis]"`.
+- The scientific stack comes with every install, a source checkout's `pip install -e .`
+  included.
 
 ---
 

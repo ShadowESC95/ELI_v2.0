@@ -134,6 +134,13 @@ system.
   the `local-assets-v2.1` release, so no bundle carries them; a user can still
   download them for personal use.
 * **PyQt** — GPL; the frozen bundle is PySide6-only (excluded in `ELI.spec`).
+* **Nothing ELI needs to run its features is left out.** Voice input and output, the
+  window, the server, documents, vision, web search, wake words, the scientific stack, the
+  device drivers and yt-dlp are `pyproject.toml`'s dependencies, so every build installs them
+  and fails if one cannot be installed. The extras are what is built for, or chosen by, the
+  machine's GPU: `llm` (the inference engine) is in `REQUIRED_EXTRAS`, `image` in
+  `OPTIONAL_EXTRAS`. `tests/claims/test_runtime_dependencies.py` fails when ELI imports a
+  package that is not declared this way.
 * **Optional extras without wheels for a platform** — each `OPTIONAL_EXTRAS`
   group in `release.yml` installs independently; a group with no wheels for
   that OS is skipped with a workflow warning and ELI degrades cleanly
@@ -146,7 +153,7 @@ python3.12 -m venv .venv-build && source .venv-build/bin/activate   # the releas
 pip install -r requirements-build.txt
 llama_src="$(python packaging/llama_source.py)"                  # the llama-cpp-python the release bundles
 pip install "$llama_src"
-pip install ".[gui,llm,server,docs,analysis,extras,media]"      # release.yml REQUIRED_EXTRAS; + optional extras you want bundled
+pip install ".[llm]"      # ELI's dependencies and release.yml's REQUIRED_EXTRAS; + optional extras you want bundled
 python -m eli.core.init_data && python tools/bootstrap_claims_artifacts.py
 GITHUB_REPOSITORY=ShadowESC95/ELI_v2.0 bash packaging/ci_fetch_assets.sh   # voices + embedder (needs a logged-in gh)
 pyinstaller --noconfirm --clean ELI.spec

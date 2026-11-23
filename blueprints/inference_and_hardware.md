@@ -375,7 +375,7 @@ Piper runs as a program where one is found (`ELI_PIPER_BINARY`/`ELI_PIPER_BIN`, 
 binary, the `piper` in ELI's own environment, then PATH), asked for `--cuda` first and kept on
 the processor for the rest of the session once that fails (`ELI_PIPER_CUDA=0` skips it). The
 packaged app ships the voices and the Piper library but no program, so there it runs inside the
-process (`tts_router._piper_lib_render`). The `tts` extra installs the CPU `onnxruntime`, so
+process (`tts_router._piper_lib_render`). ELI's dependencies install the CPU `onnxruntime`, so
 in practice Piper runs on the processor on every vendor — no NVIDIA advantage to close there.
 
 `eli/learning/lora_trainer._accelerator()` is the model for cross-vendor
