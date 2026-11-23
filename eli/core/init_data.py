@@ -28,6 +28,17 @@ from __future__ import annotations
 from typing import List, Tuple
 
 
+def seed_persona_overlay() -> str:
+    """The persona overlay (persona.auto.txt) from its blank template when there is none, as every
+    launch has it. Git ignores the live file, so a fresh clone has none until ELI first starts."""
+    from eli.core.paths import persona_auto_path
+    if persona_auto_path().exists():
+        return "persona.auto.txt present"
+    from eli.core.memory_reset import reset_persona_overlay
+    reset_persona_overlay()
+    return "persona.auto.txt seeded from template"
+
+
 def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
     """Create every store + table with no personal data. Returns per-store results
     as (name, ok, detail). Never raises — a store that can't init is reported, not
@@ -183,17 +194,7 @@ def init_all_data(verbose: bool = False) -> List[Tuple[str, bool, str]]:
     _step("user.runtime_events", _events)
 
     # 9) persona.auto.txt — runtime overlay seeded from template when absent.
-    #    Git ignores the live file; CI and fresh clones need it for router/eval
-    #    cases that resolve known ELI cognition files (persona.auto.txt).
-    def _persona_overlay():
-        from eli.core.paths import persona_auto_path
-        dest = persona_auto_path()
-        if dest.exists():
-            return "persona.auto.txt present"
-        from eli.core.memory_reset import reset_persona_overlay
-        reset_persona_overlay()
-        return "persona.auto.txt seeded from template"
-    _step("persona.overlay", _persona_overlay)
+    _step("persona.overlay", seed_persona_overlay)
 
     if verbose:
         for name, ok, detail in results:

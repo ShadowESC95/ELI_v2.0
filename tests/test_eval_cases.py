@@ -36,6 +36,14 @@ def _router_cases():
 _ROUTER_CASES = _router_cases()
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _started_once():
+    """The cases are about an ELI that has started, and every start seeds the persona overlay
+    (init_data.bootstrap_once); the case that names it is routed to it only when it is there."""
+    from eli.core.init_data import seed_persona_overlay
+    seed_persona_overlay()
+
+
 @pytest.mark.skipif(not _ROUTER_CASES, reason="no router eval cases discovered")
 @pytest.mark.parametrize("case", _ROUTER_CASES, ids=lambda c: str(c.get("id", "?")))
 def test_eval_router_case(case):

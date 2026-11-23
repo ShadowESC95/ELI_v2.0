@@ -906,16 +906,20 @@ def _eli_resolve_known_eli_file(low: str):
     the real file instead of confabulating."""
     try:
         from pathlib import Path as _P
+        from eli.core import paths as _paths
+        from eli.core.runtime_settings import _settings_file
         root = _P(__file__).resolve().parents[2]  # project root
         candidates = []
+        # each where ELI keeps it now: a packaged install keeps the overlay and the settings in its
+        # config folder, never in the program folder, so those were never found there
         if re.search(r"persona\.?\s*auto|auto\.txt|persona overlay|auto[- ]persona", low):
-            candidates.append(root / "eli" / "cognition" / "persona.auto.txt")
+            candidates.append(_paths.persona_auto_path())
         # the persona file, not the persona lock ("check the persona lock" summarised persona.txt)
         if "persona" in low and "auto" not in low and not re.search(
                 r"\bpersona\s+(?:un)?lock|\b(?:un)?lock(?:ed)?\s+(?:\w+\s+)?persona\b", low):
-            candidates.append(root / "eli" / "cognition" / "persona.txt")
+            candidates.append(_paths.persona_path())
         if "settings.json" in low or re.search(r"\bsettings\s+(file|json)\b", low):
-            candidates.append(root / "config" / "settings.json")
+            candidates.append(_settings_file())
         if re.search(r"capability[\s_]manifest", low):
             candidates.append(root / "capability_manifest.json")
         for p in candidates:

@@ -32,3 +32,18 @@ def test_known_eli_file_lookup_also_keeps_the_instruction(monkeypatch):
 
     assert result["action"] == "SUMMARIZE_FILE"
     assert result["args"].get("instruction") == text
+
+
+def test_a_named_eli_file_is_the_one_in_force_not_one_in_the_program_folder(tmp_path, monkeypatch):
+    """A packaged install keeps the persona overlay and the settings in its config folder; the router
+    looked for them only beside the code, never found them there, and the question fell to CHAT."""
+    overlay = tmp_path / "config" / "persona.auto.txt"
+    settings = tmp_path / "config" / "settings.json"
+    overlay.parent.mkdir()
+    overlay.write_text("# overlay\n", encoding="utf-8")
+    settings.write_text("{}", encoding="utf-8")
+    monkeypatch.setenv("ELI_PERSONA_AUTO_PATH", str(overlay))
+    monkeypatch.setenv("ELI_SETTINGS_FILE", str(settings))
+
+    assert route("is your persona.auto.txt up to date? read it")["args"]["path"] == str(overlay)
+    assert route("what's in your settings file")["args"]["path"] == str(settings)
